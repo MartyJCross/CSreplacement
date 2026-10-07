@@ -92,8 +92,8 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                 b.timer = 0.3f + botRand(rng) * 0.9f;
             }
             break;
-        case 1:  // hold an angle for a moment
-            if ((b.timer -= kTickDt) <= 0) b.state = 0;
+        case 1:  // hold an angle for a moment (anchors hold it for good)
+            if ((b.timer -= kTickDt) <= 0 && !b.holdOnly) b.state = 0;
             break;
         case 2:  // fighting: stand and shoot (like CS bots); when you're gone, go and look
             if (!b.sees && (b.timer -= kTickDt) <= 0) { b.state = 3; b.path.clear(); }
@@ -113,9 +113,10 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             break;
     }
 
-    // Face you when fighting, otherwise the way they walk.
+    // Face you when fighting, otherwise the way they walk (anchors: back to their angle).
     const Vec3 mv = d.pos - d.prevPos;
-    const float want = b.state == 2 ? toYaw : length2d(mv) > 0.01f ? std::atan2(mv.y, mv.x) / kDegToRad : d.yaw;
+    const float idle = b.holdOnly && b.state == 1 ? b.holdYaw : d.yaw;
+    const float want = b.state == 2 ? toYaw : length2d(mv) > 0.01f ? std::atan2(mv.y, mv.x) / kDegToRad : idle;
     d.yaw = turnToward(d.yaw, want, (b.state == 2 ? 600.0f : 360.0f) * kTickDt);
     b.aimed = b.sees && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;
 }

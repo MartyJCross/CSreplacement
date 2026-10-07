@@ -128,6 +128,10 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Maps** (F8 switches):
   - Feel Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course
   - Dust2 at real scale (stepped ramps, roofed tunnels, HUD callouts); bots peek from cover (`dustPeekSpots()`)
+- **Retakes** (F7 cycles practice/deathmatch/retakes, `mode 2`): `startRetakeRound` puts `rt_bots` anchors
+  (`BotBrain::holdOnly`) on `dustRetakeSites()` hold spots, you at a random entry; 40 s, win/lose score.
+- **Hit feedback:** tick sound (`Sfx::HitMarker`, `hitsound`) + animated crosshair X (`hitmarker`).
+- **Inspect (F)** and the **butterfly knife** are view-model animations in `fx.cpp` (pieces pivot on the pin).
 - **Deathmatch** (F7, Dust only, `mode 1`): 10 bots by default roam the whole map (`bots.cpp`), 150° view
   cone, hear footsteps and gunshots, chase; spawns anywhere out of sight; +40 HP per kill; respawn reloads
   every gun; timed match, Tab scoreboard (`dm_bots`, `dm_minutes`).

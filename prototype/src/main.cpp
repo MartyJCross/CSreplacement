@@ -133,8 +133,9 @@ struct Game {
     // Stats & feedback.
     int shots = 0, hits = 0, headshots = 0;
     std::deque<HitLogEntry> hitLog;
-    double hitMarkerUntil = 0;
-    bool hitMarkerHead = false;
+    double hitMarkerUntil = 0, hitMarkerStart = 0;
+    bool hitMarkerHead = false, hitMarkerKill = false;
+    bool hitSound = true, showHitMarker = true;
     std::vector<BoxInstance> pendingDecals;
     bool hudDirty = true;
 
@@ -177,6 +178,11 @@ struct Game {
     int mode = 0, dmBots = 6, dmMinutes = 5;
     NavGrid nav;
     std::vector<BotBrain> bots;
+    // Retakes (mode 2, Dust only): bots hold a random site, you clear it from a random entry.
+    int rtBots = 4, rtSite = 0, rtWon = 0, rtLost = 0;
+    double rtRoundEnd = 0, rtResultUntil = -1;
+    bool rtResultWin = false;
+    const char* rtResultText = "";
     double dmEnd = 0, dmOverUntil = -1, spawnProtectUntil = 0;
     int dmKills = 0, dmDeaths = 0, dmShownSecs = -1;
     Vec3 noisePos;                // last sound you made (footsteps, shots) that bots can hear
@@ -279,7 +285,10 @@ void applyConfig(Game& g, const Config& cfg) {
     g.moveParams = MoveParams{};
     g.dmBots = std::clamp(cfg.dm_bots, 1, 16);       // takes effect at the next match
     g.dmMinutes = std::clamp(cfg.dm_minutes, 1, 60);
+    g.rtBots = std::clamp(cfg.rt_bots, 1, 6);  // next round
     g.viewShake = cfg.view_shake != 0;
+    g.hitSound = cfg.hitsound != 0;
+    g.showHitMarker = cfg.hitmarker != 0;
     g.autoHop = cfg.bhop != 0;
     if (g.autoHop) {
         // Bunny hopping: no stamina slowdown on jump/land; air-strafing keeps and builds speed.
@@ -353,11 +362,61 @@ void startDeathmatch(Game& g) {
     g.hudDirty = true;
 }
 
+constexpr double kRetakeRoundTime = 40.0;
+void pushHitLog(Game& g, const std::string& text, uint32_t color);
+
+// A new retake round: random site, its bots on random hold spots facing the way you'll come, you at
+// a random entry with full ammo and HP.
+void startRetakeRound(Game& g) {
+    const std::vector<RetakeSite>& sites = dustRetakeSites();
+    g.rtSite = int(rnd(g) * float(sites.size())) % int(sites.size());
+    const RetakeSite& site = sites[size_t(g.rtSite)];
+    const RetakeSpot& entry = site.entries[size_t(rnd(g) * float(site.entries.size())) % site.entries.size()];
+    g.spawn = dustPoint(entry.x, entry.y);
+    g.spawnYaw = std::atan2(entry.lookY - entry.y, entry.lookX - entry.x) / kDegToRad;
+    g.hp = 100;
+    g.deadUntil = -1;
+    refillAmmo(g);
+    resetPosition(g);
+    std::vector<size_t> order(site.holds.size());
+    for (size_t k = 0; k < order.size(); ++k) order[k] = k;
+    for (size_t k = order.size(); k > 1; --k) std::swap(order[k - 1], order[size_t(rnd(g) * float(k)) % k]);
+    for (size_t i = 0; i < g.dummies.size(); ++i) {
+        const RetakeSpot& h = site.holds[order[i % order.size()]];
+        Dummy& d = g.dummies[i];
+        d = Dummy{};
+        d.pos = d.prevPos = dustPoint(h.x, h.y);
+        d.yaw = d.prevYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
+        BotBrain b;
+        b.state = 1;  // already placed: hold
+        b.holdOnly = true;
+        b.holdYaw = d.yaw;
+        g.bots[i] = b;
+    }
+    std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
+    g.rtRoundEnd = g.simTime + kRetakeRoundTime;
+    g.rtResultUntil = -1;
+    g.dmShownSecs = -1;
+    char msg[48];
+    std::snprintf(msg, sizeof(msg), "RETAKE %s", site.name);
+    pushHitLog(g, msg, 0x80ff80);
+    g.hudDirty = true;
+}
+
+void endRetakeRound(Game& g, bool won, const char* why) {
+    if (g.rtResultUntil >= 0) return;
+    (won ? g.rtWon : g.rtLost)++;
+    g.rtResultWin = won;
+    g.rtResultText = why;
+    g.rtResultUntil = g.simTime + 3.0;
+    g.hudDirty = true;
+}
+
 void loadMap(Game& g, Renderer& r, int id) {
     g.mapId = id;
     g.world = id == 1 ? buildDust() : buildFeelLab();
     if (id == 1) {
-        g.dummies.assign(g.mode == 1 ? size_t(g.dmBots) : 4, Dummy{});
+        g.dummies.assign(g.mode == 1 ? size_t(g.dmBots) : g.mode == 2 ? size_t(g.rtBots) : 4, Dummy{});
         for (Dummy& d : g.dummies) d.respawnLeft = 0.01f;  // spawn at a spot on the first tick
         g.spawn = dustSpawn().pos;
         g.spawnYaw = dustSpawn().yaw;
@@ -397,6 +456,10 @@ void loadMap(Game& g, Renderer& r, int id) {
     else
         g.fx.setGround(nullptr);
     if (id == 1 && g.mode == 1) startDeathmatch(g);
+    if (id == 1 && g.mode == 2) {
+        g.rtWon = g.rtLost = 0;
+        startRetakeRound(g);
+    }
     g.hudDirty = true;
 }
 
@@ -590,6 +653,12 @@ void simTick(Game& g, const Options& opt) {
             pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
             if (r.kill && (g.botsFire || g.mapId == 1))  // no insta-respawn when they fight back
                 g.dummies[size_t(r.dummyIndex)].respawnLeft = 2.0f + rnd(g) * 2.0f;
+            if (r.kill && g.mode == 2) g.dummies[size_t(r.dummyIndex)].respawnLeft = 1e9f;  // retakes: dead for the round
+            if (!r.kill && g.mode == 2) {  // a retake anchor you hit turns on you
+                BotBrain& b = g.bots[size_t(r.dummyIndex)];
+                b.alertUntil = g.simTime + 2.0;
+                b.lastSeen = g.player.origin;
+            }
             if (r.kill && g.botsFire && g.deadUntil < 0 && g.hp < 100.0f) {  // a kill heals you
                 g.hp = std::min(100.0f, g.hp + 40.0f);
                 pushHitLog(g, "+40 HP", 0x60ff60);
@@ -610,8 +679,13 @@ void simTick(Game& g, const Options& opt) {
                 g.drillTtkSum += g.lastTtk;
                 g.drillKills++;
             }
-            g.hitMarkerUntil = g.simTime + 0.12;
+            // Hit feedback: a tick you can hear over the gunfire and an X that pops on the crosshair
+            // (red for the head, bigger and longer on a kill).
+            g.hitMarkerStart = g.simTime;
+            g.hitMarkerUntil = g.simTime + (r.kill ? 0.4 : 0.2);
             g.hitMarkerHead = r.group == kHead;
+            g.hitMarkerKill = r.kill;
+            if (g.hitSound) sound(g, Sfx::HitMarker, r.kill ? 1.0f : 0.75f, 0.0f, r.kill ? 0.8f : 1.0f);
         } else if (r.hitWorld) {
             // Decal color follows the spray index (yellow first shot -> red late spray).
             float t = float(r.sprayIndex) / float(std::max(1, wd.patternLen - 1));
@@ -815,14 +889,27 @@ void simTick(Game& g, const Options& opt) {
         int secs = int(std::max(0.0, g.dmEnd - g.simTime));
         if (secs != g.dmShownSecs) { g.dmShownSecs = secs; g.hudDirty = true; }
     }
-    if (g.mapId == 1 && g.mode == 1 && g.nav.ready()) {
+    // ---- Retakes: round clock, win when the site is clear, lose on time or death ----
+    if (g.mapId == 1 && g.mode == 2) {
+        bool anyAlive = false;
+        for (const Dummy& d : g.dummies) anyAlive |= d.alive();
+        if (g.rtResultUntil < 0) {
+            if (!anyAlive) endRetakeRound(g, true, "SITE CLEARED");
+            else if (g.simTime >= g.rtRoundEnd) endRetakeRound(g, false, "OUT OF TIME");
+        } else if (g.simTime >= g.rtResultUntil) {
+            startRetakeRound(g);
+        }
+        int secs = int(std::max(0.0, g.rtRoundEnd - g.simTime));
+        if (secs != g.dmShownSecs) { g.dmShownSecs = secs; g.hudDirty = true; }
+    }
+    if (g.mapId == 1 && g.mode != 0 && g.nav.ready()) {
         BotSenses sense;
         sense.world = &g.world;
         sense.nav = &g.nav;
         sense.now = g.simTime;
         sense.playerOrigin = g.player.origin;
         sense.playerEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
-        sense.playerUp = g.deadUntil < 0 && !g.noclip && g.dmOverUntil < 0;
+        sense.playerUp = g.deadUntil < 0 && !g.noclip && g.dmOverUntil < 0 && g.rtResultUntil < 0;
         sense.noiseFresh = g.simTime - g.noiseAt < 1.5 * kTickDt;
         sense.noisePos = g.noisePos;
         sense.noiseRadius = g.noiseRadius;
@@ -834,7 +921,7 @@ void simTick(Game& g, const Options& opt) {
             Dummy& d = g.dummies[i];
             BotBrain& b = g.bots[i];
             if (!d.alive()) { b.state = -1; b.sees = b.aimed = false; continue; }
-            if (needsSpawn(d, b)) spawnDeathmatchBot(d, b, pickDmSpawn(g, false, i), g.rng);
+            if (g.mode == 1 && needsSpawn(d, b)) spawnDeathmatchBot(d, b, pickDmSpawn(g, false, i), g.rng);
             updateDeathmatchBot(d, b, sense, g.rng);
         }
     }
@@ -849,7 +936,7 @@ void simTick(Game& g, const Options& opt) {
             const Dummy& d = g.dummies[i];
             Vec3 head = d.pos + Vec3{0, 0, 64};
             // Deathmatch bots need to see you (view cone) and have turned to face you first.
-            bool los = g.mode == 1 && g.mapId == 1
+            bool los = g.mode != 0 && g.mapId == 1
                            ? d.alive() && g.bots[i].aimed
                            : d.alive() && length(simEye - head) < 4000.0f &&
                                  g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
@@ -904,6 +991,7 @@ void simTick(Game& g, const Options& opt) {
                             if (b.state == 2) { b.state = 1; b.timer = 1.0f; }
                     } else {
                         pushHitLog(g, "YOU DIED", 0xff4040);
+                        if (g.mode == 2 && g.mapId == 1) endRetakeRound(g, false, "YOU DIED");
                     }
                     refillAmmo(g);  // respawn with full magazines, like CS
                     resetPosition(g);
@@ -1007,10 +1095,13 @@ std::vector<MenuItem> menuItems(Config& c) {
         {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
         {"SMOOTH STAIRS (CAMERA)", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
         {"SPRAY CAMERA SHAKE", nullptr, &c.view_shake, 1, 0, 1, kOnOff},
+        {"HITMARKER", nullptr, &c.hitmarker, 1, 0, 1, kOnOff},
+        {"HIT SOUND", nullptr, &c.hitsound, 1, 0, 1, kOnOff},
         {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
         {"DUST SIZE (% OF REAL DUST2)", nullptr, &c.dust_scale, 5, 50, 100},
         {"DEATHMATCH BOTS", nullptr, &c.dm_bots, 1, 1, 16},
         {"DEATHMATCH MINUTES", nullptr, &c.dm_minutes, 1, 1, 30},
+        {"RETAKE BOTS", nullptr, &c.rt_bots, 1, 1, 6},
         {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
         {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
     };
@@ -1082,13 +1173,21 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
 
     // Hit marker.
-    if (g.simTime < g.hitMarkerUntil) {
-        uint32_t hc = g.hitMarkerHead ? 0xFF4040FF : 0xFFFFFFFF;
-        float a = gap + 4, b = gap + 10;
-        hud.line(cx - a, cy - a, cx - b, cy - b, 2, hc);
-        hud.line(cx + a, cy - a, cx + b, cy - b, 2, hc);
-        hud.line(cx - a, cy + a, cx - b, cy + b, 2, hc);
-        hud.line(cx + a, cy + a, cx + b, cy + b, 2, hc);
+    if (g.showHitMarker && g.simTime < g.hitMarkerUntil) {
+        // Pops in a little big, settles, then fades out.
+        float age = float(g.simTime - g.hitMarkerStart), life = float(g.hitMarkerUntil - g.hitMarkerStart);
+        float pop = 1.0f + 0.5f * std::max(0.0f, 1.0f - age / 0.06f);
+        float fade = std::clamp((life - age) / (life * 0.5f), 0.0f, 1.0f);
+        uint32_t alpha = uint32_t(255.0f * fade);
+        uint32_t hc = (g.hitMarkerHead ? 0xFF3C3C00u : 0xFFFFFF00u) | alpha;
+        float size = (g.hitMarkerKill ? 1.6f : 1.0f) * pop * float(s);
+        float a = float(gap) + 4.0f * size, b = float(gap) + 11.0f * size, lw = 2.0f * float(s);
+        for (int sx = -1; sx <= 1; sx += 2)
+            for (int sy = -1; sy <= 1; sy += 2) {
+                hud.line(cx + float(sx) * a, cy + float(sy) * a, cx + float(sx) * b, cy + float(sy) * b, lw + 2.0f,
+                         alpha * 3 / 4);  // dark outline
+                hud.line(cx + float(sx) * a, cy + float(sy) * a, cx + float(sx) * b, cy + float(sy) * b, lw, hc);
+            }
     }
 
     // Top-left: performance + movement.
@@ -1124,7 +1223,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
     y += lh * 1.5f;
     if (g.botsFire) {
-        if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES   F7 PRACTICE");
+        if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES   F7 RETAKES");
+        else if (g.mode == 2 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "RETAKES   F7 PRACTICE");
         else std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
         hud.text(x, y, buf, 0xFF8060FF);
         y += lh;
@@ -1169,6 +1269,17 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             if (g.dmOverUntil >= 0) hud.text(px, ry + rowH, "NEXT MATCH STARTS IN A FEW SECONDS", 0xA0A0A0FF);
         }
     }
+    if (g.mapId == 1 && g.mode == 2) {
+        int left = int(std::max(0.0, g.rtRoundEnd - g.simTime)), alive = 0;
+        for (const Dummy& d : g.dummies) alive += d.alive();
+        std::snprintf(buf, sizeof(buf), "RETAKE %s   0:%02d   BOTS LEFT %d   WON %d  LOST %d",
+                      dustRetakeSites()[size_t(g.rtSite)].name, left, alive, g.rtWon, g.rtLost);
+        hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, left <= 10 ? 0xFF8060FF : 0xFFFFFFFF);
+        if (g.rtResultUntil >= 0) {
+            uint32_t col = g.rtResultWin ? 0x60FF60FF : 0xFF5050FF;
+            hud.text(cx - hud.textWidth(g.rtResultText, s * 3) / 2, cy - 90.0f * s, g.rtResultText, col, s * 3);
+        }
+    }
     if (g.buyMenu) {
         float rowH = 11.0f * s, px = cx - 90.0f * s, py = cy + 40.0f * s;
         hud.rect(px - 10 * s, py - 10 * s, 200.0f * s, rowH * 5 + 20 * s, 0x15181CE0);
@@ -1190,7 +1301,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             "HOLD SPACE TO BUNNY HOP - AIR STRAFE (A/D + TURN) TO GAIN SPEED",
             "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG   F4 BOTS SHOOT BACK",
             "KZ COURSE: GREEN PAD BEHIND THE SPRAY WALL - HOP THE BLUE PADS, AVOID THE LAVA",
-            "F8 SWITCH MAP: FEEL LAB / DUST   F7 DEATHMATCH ON DUST",
+            "F8 SWITCH MAP: FEEL LAB / DUST   F7 MODE: PRACTICE / DEATHMATCH / RETAKES   F INSPECT",
             "C CLEAR DECALS   F3 AIM DRILL   F1 HIDE HELP   ALT+ENTER FULLSCREEN   ESC PAUSE",
             "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL",
         };
@@ -1327,10 +1438,10 @@ int main(int argc, char** argv) {
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     applyConfig(g, cfg);
-    g.mode = cfg.mode == 1 ? 1 : 0;
+    g.mode = cfg.mode >= 1 && cfg.mode <= 2 ? cfg.mode : 0;
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     setDustScale(float(cfg.dust_scale) / 100.0f);
-    loadMap(g, renderer, cfg.map == 1 || g.mode == 1 ? 1 : 0);
+    loadMap(g, renderer, cfg.map == 1 || g.mode != 0 ? 1 : 0);
     // Settings changed (menu, F5): a new Dust size rebuilds the map right away.
     auto settingsChanged = [&]() {
         applyConfig(g, cfg);
@@ -1464,14 +1575,15 @@ int main(int argc, char** argv) {
                         else if (sc == SDL_SCANCODE_3) g.switchTo = 3;
                         else if (sc == SDL_SCANCODE_4) g.switchTo = 4;
                         else if (sc == SDL_SCANCODE_Q) g.switchTo = 5;
+                        else if (sc == SDL_SCANCODE_F) g.vm.inspect();
                         else if (sc == SDL_SCANCODE_B) { g.buyMenu = !g.buyMenu; g.hudDirty = true; }
                         else if (sc == SDL_SCANCODE_F7) {
-                            g.mode = 1 - g.mode;
+                            g.mode = (g.mode + 1) % 3;  // practice -> deathmatch -> retakes
                             loadMap(g, renderer, 1);
                             cfg.mode = g.mode;
                             cfg.map = 1;
                             saveConfig(cfgPath, cfg);
-                            pushHitLog(g, g.mode == 1 ? "DEATHMATCH" : "PRACTICE", 0x80ff80);
+                            pushHitLog(g, g.mode == 1 ? "DEATHMATCH" : g.mode == 2 ? "RETAKES" : "PRACTICE", 0x80ff80);
                         }
                         else if (sc == SDL_SCANCODE_G) g.throwLatch = true;
                         else if (sc == SDL_SCANCODE_F4) {

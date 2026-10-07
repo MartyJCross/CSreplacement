@@ -331,6 +331,45 @@ const char* dustCallout(const Vec3& p) {
     return a >= 0 ? kDustAreas[a].name : "";
 }
 
+Vec3 dustPoint(float x, float y) {
+    float s = dustScale();
+    return {x * s, y * s, dustGrid().floorAt(x * s, y * s)};
+}
+
+const std::vector<RetakeSite>& dustRetakeSites() {
+    static const std::vector<RetakeSite> sites = {
+        {"A",
+         {
+             {1240, 2860, 1500, 2200},  // behind the default box, on the ramp
+             {1750, 3060, 1450, 2300},  // goose
+             {800, 2850, 400, 2500},    // CT side of site, on short
+             {1700, 2420, 1550, 1600},  // top of the ramp, down long
+             {550, 2550, 300, 1700},    // short, down the catwalk
+             {980, 3100, 1500, 2300},   // back of site by the CT ramp
+         },
+         {
+             {-150, 2900, 600, 2900},   // CT spawn, up the ramp
+             {1550, 1500, 1550, 2500},  // long
+             {300, 1500, 300, 2300},    // catwalk
+         }},
+        {"B",
+         {
+             {-2150, 3000, -2100, 1950},  // back plat, on the tunnel exit
+             {-1880, 2650, -2100, 1950},  // behind the default box
+             {-1600, 2450, -1100, 2200},  // inside B doors
+             {-1625, 2800, -2100, 1950},  // by the car
+             {-1900, 3080, -2100, 2000},  // back of site
+             {-2250, 2380, -1450, 2200},  // tunnel-side corner, on the doors
+         },
+         {
+             {-2050, 1200, -2050, 2200},  // upper tunnels
+             {-950, 2200, -1500, 2200},   // mid to B, through the doors
+             {-350, 2250, -1500, 2200},   // CT mid
+         }},
+    };
+    return sites;
+}
+
 MapSpawn dustSpawn() {
     float x = -350.0f * g_dustScale, y = -800.0f * g_dustScale;
     return {{x, y, dustGrid().floorAt(x, y)}, 90.0f};

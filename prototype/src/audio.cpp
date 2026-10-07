@@ -269,6 +269,16 @@ std::vector<float> drawSound(Rng& r) {
     return b;
 }
 
+std::vector<float> hitMarker(Rng& r) {  // short, dry, bright tick: reads instantly over gunfire
+    auto b = buffer(0.06f);
+    addTone(b, 0, 0.8f, 3200 * r.jitter(0.03f), 2900, 0.007f);
+    addTone(b, 0, 0.4f, 1600 * r.jitter(0.03f), 1500, 0.006f);
+    addNoise(b, 0, 0.5f, 3000, 12000, 0.0015f, r, 0.0001f);
+    fadeTail(b);
+    normalize(b, 0.55f);
+    return b;
+}
+
 struct SoundBank {
     std::vector<std::vector<float>> clips;
     std::vector<int> first, count;
@@ -282,7 +292,7 @@ SoundBank synthesize() {
         {Sfx::MagIn, magIn, 2},          {Sfx::Bolt, bolt, 2},       {Sfx::Draw, drawSound, 2},
         {Sfx::Footstep, footstep, 6},    {Sfx::Land, landing, 3},    {Sfx::HitBody, hitBody, 4},
         {Sfx::HitHead, hitHead, 3},      {Sfx::SniperShot, sniperShot, 3}, {Sfx::PistolShot, pistolShot, 4},
-        {Sfx::RifleShotFar, rifleShotFar, 3},
+        {Sfx::RifleShotFar, rifleShotFar, 3},    {Sfx::HitMarker, hitMarker, 3},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -301,7 +311,8 @@ SoundBank synthesize() {
 
 bool Audio::dumpWavs(const std::string& dir) {
     const char* names[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw", "footstep",
-                           "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far"};
+                           "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
+                           "hit_marker"};
     static_assert(sizeof(names) / sizeof(names[0]) == size_t(Sfx::Count), "name every sound");
     SoundBank bank = synthesize();
     for (size_t s = 0; s < size_t(Sfx::Count); ++s)

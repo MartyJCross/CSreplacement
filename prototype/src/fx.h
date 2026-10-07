@@ -28,6 +28,8 @@ public:
     void onShot(uint32_t seed);
     void onLand(float fallSpeed);
     void onDraw(ViewWeapon w);
+    // Inspect (F): show the weapon off. Cancelled by firing, reloading or switching.
+    void inspect();
     void update(const ViewModelInput& in);
     // Builds the weapon in world space for the given camera basis.
     void build(const Vec3& eye, float pitchDeg, float yawDeg, float offX, float offY, float offZ, float bobScale,
@@ -45,6 +47,8 @@ private:
     float kickRoll_ = 0;       // roll wobble per shot
     float sinceShot_ = 1;      // seconds since the last shot
     int shotsInRow_ = 0;       // consecutive shots in this spray (kick builds up)
+    float inspectT_ = -1;      // seconds into the inspect animation, < 0 when not inspecting
+    float inspectLength() const;
     float flashLeft_ = 0;
     uint32_t flashSeed_ = 0;
     float reloadT_ = -1, reloadTime_ = 1;

@@ -41,6 +41,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | R | Reload |
 | 1 / 2 / 3 / 4 | Like CS: primary (rifle, or sniper if you picked it with B) / pistol (semi-auto) / knife (faster movement) / smoke grenade |
 | Q | Switch back to your previous weapon |
+| F | Inspect your weapon (the butterfly knife does flips) |
 | B | Buy menu: pick your primary, 1 = rifle, 2 = sniper. You're holding it straight away |
 | Mouse 2 | Sniper scope: 40 → 15 FOV → off. Stays scoped when you fire. With the smoke out: underhand lob |
 | Tab | Scoreboard (deathmatch) |
@@ -51,7 +52,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | G | Quick smoke without switching (deterministic bounces, so lineups repeat; jump-throws carry your momentum). With the smoke out (4), Mouse 1 throws and Mouse 2 lobs, then you switch back to your previous weapon |
 | F4 | Bots shoot back (toggle). You get HP, a damage flash and death/respawn |
 | F3 | Aim drill: killed range dummies respawn at random spots, and the HUD shows time-to-kill (last + average) |
-| F7 | Deathmatch on Dust2 (toggle) |
+| F7 | Mode on Dust2: practice → deathmatch → retakes |
 | F8 | Switch map: Feel Lab / Dust2 (real scale) |
 | F1 | Toggle help |
 | Alt+Enter | Toggle fullscreen |
@@ -137,6 +138,24 @@ On Dust the 4 bots play the angles:
 - **Bots turn to face you** when they fight, and face where they're walking otherwise. Their hitboxes turn with them. Head-on you see about 27 units of shoulders; side-on, about 21.
 - **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable, also like CS.
 - **Anti-aliasing** (`msaa 4`, Esc menu, applies on restart) smooths edges so far-away players stop shimmering and are easier to pick out.
+
+## Retakes (F7 twice)
+
+- **Each round:** a random site (A or B) is held by 4 bots (`rt_bots`, 1–6 in the Esc menu) on random hold spots, facing the way you'll come. You start at a random entry (A: CT spawn, long or catwalk; B: tunnels, mid to B or CT mid) with full HP and ammo.
+- **Win** by killing every bot within 40 s. **Lose** if you die or time runs out. Then the next round starts after 3 s.
+- **The HUD** shows the site, the clock, bots left and your won/lost score.
+- **The bots** hold their angle, but turn on you when they see you or when you hit them. They come to check noises, then hold where they end up. Kills heal you +40 HP.
+
+## Hit feedback
+
+- **A crisp tick** plays when your bullet connects (lower and louder on a kill): `hitsound`.
+- **The X on the crosshair** pops in and fades: white for a body hit, red for the head, bigger and longer on a kill: `hitmarker`.
+- Both are in the Esc menu.
+
+## Inspect and the butterfly knife
+
+- **F inspects** your weapon. Guns turn to show their side, then tip up to show the top. The smoke gets tossed and caught. Firing, reloading or switching cancels it.
+- **The knife is a butterfly** with a fade blade (violet, pink, gold). Drawing it flips it open, with the handle fanning round. Inspect does two aerial flips and then shows you the blade.
 
 ## Spray feedback (all cosmetic: your bullets are unchanged)
 

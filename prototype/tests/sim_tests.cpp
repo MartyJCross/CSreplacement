@@ -598,7 +598,7 @@ void testDustRoutes() {
 void testDustScales() {
     std::printf("dust sizes\n");
     const float keep = dustScale();
-    for (float sc : {0.5f, 0.75f, 1.0f}) {
+    for (float sc : {0.5f, 0.6f, 0.75f, 1.0f}) {
         setDustScale(sc);
         World w = buildDust();
         NavGrid nav;
@@ -611,6 +611,25 @@ void testDustScales() {
         for (const PeekSpot& sp : dustPeekSpots())
             for (Vec3 p : {sp.cover, sp.peek})
                 badSpots += !(p.z > MapGrid::kNoFloor && w.boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)));
+        // Retakes: every hold spot and entry is standing room, and every entry can walk onto its site.
+        for (const RetakeSite& site : dustRetakeSites()) {
+            for (const RetakeSpot& h : site.holds)
+                if (!nav.standable(dustPoint(h.x, h.y))) {
+                    std::printf("    %s hold (%.0f, %.0f) is not standing room\n", site.name, double(h.x), double(h.y));
+                    ++badSpots;
+                }
+            for (const RetakeSpot& e : site.entries) {
+                if (!nav.standable(dustPoint(e.x, e.y))) {
+                    std::printf("    %s entry (%.0f, %.0f) is not standing room\n", site.name, double(e.x), double(e.y));
+                    ++badSpots;
+                } else if (!std::any_of(site.holds.begin(), site.holds.end(), [&](const RetakeSpot& h) {
+                               return nav.findPath(dustPoint(e.x, e.y), dustPoint(h.x, h.y), path);
+                           })) {
+                    std::printf("    %s entry (%.0f, %.0f) can't walk to the site\n", site.name, double(e.x), double(e.y));
+                    ++missing;
+                }
+            }
+        }
         std::printf("  %3.0f%%: %zu boxes, %zu roamable cells, %d unreachable landmarks, %d bad bot spots\n",
                     double(sc * 100), w.solids.size(), nav.roamCount(), missing, badSpots);
         CHECK(missing == 0 && badSpots == 0, "scale %.2f", double(sc));

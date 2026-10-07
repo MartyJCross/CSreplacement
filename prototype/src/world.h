@@ -76,6 +76,17 @@ const MapGrid& dustGrid();
 const char* dustCallout(const Vec3& p);  // area name under p ("" in walls)
 struct MapSpawn { Vec3 pos; float yaw; };
 MapSpawn dustSpawn();
+// A point given in real-Dust2 coordinates, at the map's current scale, on the floor.
+Vec3 dustPoint(float x, float y);
+
+// Retakes: per bombsite, spots for the bots to hold (each facing a look-at point) and entries you
+// retake from. All in real-Dust2 coordinates: place them with dustPoint().
+struct RetakeSpot { float x, y, lookX, lookY; };
+struct RetakeSite {
+    const char* name;
+    std::vector<RetakeSpot> holds, entries;
+};
+const std::vector<RetakeSite>& dustRetakeSites();
 
 // KZ / bhop course (behind the spray wall): start pad, lava floor, pads, end pad.
 constexpr float kKzMinY = -880.0f, kKzMaxY = -580.0f;
