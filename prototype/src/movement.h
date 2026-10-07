@@ -8,7 +8,7 @@ constexpr float kTickDt = 1.0f / kTickRate;
 
 struct MoveParams {
     float gravity = 1000.0f;         // snappier than CS:GO's 800: less hang time
-    float accelerate = 6.5f;
+    float accelerate = 7.2f;
     float airAccelerate = 12.0f;
     float airWishCap = 30.0f;        // max wishspeed used for air acceleration (air strafing)
     float friction = 5.6f;

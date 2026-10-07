@@ -75,6 +75,17 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 - **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **78 ms** counter-strafing vs **~200 ms** releasing.
 - **Hit log (top right):** hitgroup, damage, kill, distance in metres.
 
+## Dust map (F8)
+
+**F8** switches between the Feel Lab and a super-basic Dust2-style map: T spawn (south), long A with long doors, mid with xbox and mid doors, B tunnels, both sites with boxes, CT spawn. Your choice is saved (`map 1`).
+
+On Dust the 4 bots play the angles:
+- They hide behind cover (long doors, mid doors, B tunnel exit, site boxes, xbox) and peek out after a random wait.
+- They hold the angle for a random time, then fall back.
+- They react in 0.25–0.55 s with slight random aim error. Your own shots stay fully deterministic.
+- They respawn 2–4 s after you kill them, at a free spot.
+- You can hear their footsteps when they peek.
+
 ## Bots, smokes, wallbangs, KZ
 
 - **Bots shoot back (F4).** Any dummy that can see you reacts after 0.4 s and fires every 0.3 s. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. There's no random aim. Smokes block their vision.

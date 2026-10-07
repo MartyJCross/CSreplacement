@@ -84,6 +84,63 @@ bool World::boxFits(const Vec3& origin, const Vec3& mins, const Vec3& maxs) cons
     return true;
 }
 
+World buildDust() {
+    World w;
+    auto add = [&](Vec3 mn, Vec3 mx, uint32_t color) { w.solids.push_back({mn, mx, color}); };
+    const uint32_t kSand = 0xc9b48a, kStone = 0xdcc9a3, kStoneDark = 0xc2aa80, kWood = 0x7a5230,
+                   kCrate = 0xb5763a, kBlue = 0x3f6f9a;
+
+    add({-1600, -1600, -16}, {1600, 1600, 0}, kSand);
+    add({-1616, -1616, 0}, {-1600, 1616, 400}, kStoneDark);  // boundary
+    add({1600, -1616, 0}, {1616, 1616, 400}, kStoneDark);
+    add({-1616, -1616, 0}, {1616, -1600, 400}, kStoneDark);
+    add({-1616, 1600, 0}, {1616, 1616, 400}, kStoneDark);
+
+    // Buildings that form the three lanes.
+    add({-1000, -1000, 0}, {-200, 500, 256}, kStone);   // between B tunnels and mid
+    add({200, -1000, 0}, {1000, 300, 256}, kStone);     // between mid and long
+    add({-600, 700, 0}, {600, 1200, 256}, kStone);      // CT building
+    add({-1000, 480, 240}, {-200, 500, 264}, kBlue);    // painted eaves (orientation cues)
+    add({200, 280, 240}, {1000, 300, 264}, kBlue);
+
+    // Long doors (long A), B tunnel exit, mid doors: walls with a doorway.
+    add({1000, -216, 0}, {1200, -200, 256}, kStoneDark);
+    add({1360, -216, 0}, {1600, -200, 256}, kStoneDark);
+    add({1200, -216, 128}, {1360, -200, 256}, kWood);
+    add({-1600, 200, 0}, {-1400, 216, 256}, kStoneDark);
+    add({-1240, 200, 0}, {-1000, 216, 256}, kStoneDark);
+    add({-1400, 200, 120}, {-1240, 216, 256}, kWood);
+    add({-200, 500, 0}, {-60, 516, 256}, kWood);
+    add({60, 500, 0}, {200, 516, 256}, kWood);
+    add({-60, 500, 140}, {60, 516, 256}, kStoneDark);
+
+    // Cover.
+    add({-60, -200, 0}, {40, -120, 72}, kCrate);         // xbox in mid
+    add({400, 300, 0}, {1000, 420, 40}, kStoneDark);     // catwalk ledge on short
+    add({1150, 850, 0}, {1250, 950, 64}, kCrate);        // A site default boxes
+    add({1170, 870, 64}, {1230, 930, 112}, kCrate);
+    add({1450, 1150, 0}, {1600, 1300, 48}, kStoneDark);  // goose
+    add({-1300, 800, 0}, {-1200, 900, 64}, kCrate);      // B site boxes
+    add({-1290, 810, 64}, {-1230, 870, 104}, kCrate);
+    add({-1480, 1100, 0}, {-1360, 1250, 56}, 0x8a3b32); // B car
+    add({-300, -1300, 0}, {-200, -1200, 64}, kCrate);    // T spawn cover
+    add({250, -1350, 0}, {330, -1270, 64}, kCrate);
+    add({900, 1350, 0}, {1000, 1450, 64}, kCrate);       // CT spawn cover
+    return w;
+}
+
+const std::vector<PeekSpot>& dustPeekSpots() {
+    static const std::vector<PeekSpot> spots = {
+        {{1100, -150, 0}, {1280, -150, 0}},    // long doors
+        {{-130, 570, 0}, {0, 570, 0}},         // mid doors
+        {{-1500, 260, 0}, {-1320, 260, 0}},    // B tunnel exit
+        {{1200, 1000, 0}, {1300, 1000, 0}},    // A site default box
+        {{-1250, 950, 0}, {-1150, 950, 0}},    // B site box
+        {{-10, -90, 0}, {100, -90, 0}},        // xbox
+    };
+    return spots;
+}
+
 World buildFeelLab() {
     World w;
     auto add = [&](Vec3 mn, Vec3 mx, uint32_t color) { w.solids.push_back({mn, mx, color}); };

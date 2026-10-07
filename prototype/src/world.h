@@ -35,6 +35,11 @@ bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin
 // Builds the "feel lab" greybox map.
 World buildFeelLab();
 
+// Super-basic Dust2-style map: T spawn south, long A east, mid, B tunnels west, sites + CT north.
+World buildDust();
+struct PeekSpot { Vec3 cover, peek; };  // bot hides at `cover`, steps out to `peek`
+const std::vector<PeekSpot>& dustPeekSpots();
+
 // KZ / bhop course (behind the spray wall): start pad, lava floor, pads, end pad.
 constexpr float kKzMinY = -880.0f, kKzMaxY = -580.0f;
 constexpr float kKzStartMinX = 720.0f, kKzStartMaxX = 848.0f;  // start pad

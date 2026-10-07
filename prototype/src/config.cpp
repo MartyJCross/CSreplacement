@@ -70,7 +70,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nviewmodel_offset_z " << c.viewmodel_offset_z << "\nviewmodel_bob " << c.viewmodel_bob
         << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
         << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
-        << "\ncamera_extrapolate " << c.camera_extrapolate << "\n";
+        << "\ncamera_extrapolate " << c.camera_extrapolate << "\nmap " << c.map << "\n";
     return bool(out);
 }
 
@@ -124,6 +124,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "bhop") i(c.bhop);
         else if (key == "camera_extrapolate") i(c.camera_extrapolate);
         else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
+        else if (key == "map") i(c.map);
     }
     return c;
 }

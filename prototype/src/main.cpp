@@ -153,6 +153,12 @@ struct Game {
     std::vector<Smoke> smokes;
     bool throwLatch = false;
 
+    // Map + bot AI (Dust: hide behind cover, peek, hold, return).
+    int mapId = 0;
+    uint32_t rng = 0x9E3779B9u;
+    std::vector<int> botState, botSpot;  // state: 0 hidden, 1 peeking out, 2 holding, 3 returning
+    std::vector<float> botTimer, botReact;
+
     // KZ course timer.
     int kzState = 0;  // 0 idle, 1 on start pad, 2 running
     double kzStart = 0, kzLast = -1, kzBest = -1;
@@ -184,6 +190,11 @@ bool smokeBlocks(const Game& g, const Vec3& a, const Vec3& b) {
 
 bool inRect(const Vec3& p, float x0, float x1, float y0, float y1) {
     return p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
+}
+
+float rnd(Game& g) {  // bots only: the player's shots stay deterministic
+    g.rng ^= g.rng << 13; g.rng ^= g.rng >> 17; g.rng ^= g.rng << 5;
+    return float(g.rng & 0xFFFFFF) / float(0x1000000);
 }
 
 ViewWeapon viewWeaponOf(const Game& g) {
@@ -240,6 +251,43 @@ void setDrill(Game& g, bool on) {
         g.dummies[i].areaMin = {400, -260, 0};
         g.dummies[i].areaMax = {2200, 260, 0};
     }
+}
+
+void loadMap(Game& g, Renderer& r, int id) {
+    g.mapId = id;
+    g.world = id == 1 ? buildDust() : buildFeelLab();
+    if (id == 1) {
+        g.dummies.assign(4, Dummy{});
+        for (Dummy& d : g.dummies) d.respawnLeft = 0.01f;  // spawn at a spot on the first tick
+        g.spawn = {0, -1400, 0};
+        g.spawnYaw = 90;
+        g.botsFire = true;
+    } else {
+        g.dummies = buildDummies();
+        g.spawn = {0, 0, 0};
+        g.spawnYaw = 0;
+    }
+    size_t n = g.dummies.size();
+    g.lastDummyRenderPos.assign(n, Vec3{});
+    for (size_t i = 0; i < n; ++i) g.lastDummyRenderPos[i] = g.dummies[i].pos;
+    g.aliveSince.assign(n, 0.0);
+    g.botSeen.assign(n, 0.0f);
+    g.botCooldown.assign(n, 0.0f);
+    g.botReact.assign(n, 0.4f);
+    g.botTimer.assign(n, 0.0f);
+    g.botState.assign(n, -1);
+    g.botSpot.assign(n, -1);
+    g.drill = false;
+    g.kzState = 0;
+    g.nades.clear();
+    g.smokes.clear();
+    g.hp = 100;
+    resetPosition(g);
+    std::vector<BoxInstance> statics;
+    for (const Box& b : g.world.solids) statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
+    r.setStaticBoxes(statics);
+    r.clearDecals();
+    g.hudDirty = true;
 }
 
 void resetGame(Game& g, const Options& opt) {
@@ -402,6 +450,8 @@ void simTick(Game& g, const Options& opt) {
             std::snprintf(buf, sizeof(buf), "%s %d%s%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
                           r.kill ? "  KILL" : "", r.penCount ? "  WALLBANG" : "", r.distance * 0.0254f);
             pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
+            if (r.kill && (g.botsFire || g.mapId == 1))  // no insta-respawn when they fight back
+                g.dummies[size_t(r.dummyIndex)].respawnLeft = 2.0f + rnd(g) * 2.0f;
             if (r.kill && g.drill && g.dummies[size_t(r.dummyIndex)].respawns > 0) {
                 g.lastTtk = g.simTime - g.aliveSince[size_t(r.dummyIndex)];
                 g.drillTtkSum += g.lastTtk;
@@ -549,6 +599,43 @@ void simTick(Game& g, const Options& opt) {
                                   [&](const Game::Smoke& s) { return g.simTime - s.start > kSmokeLife; }),
                    g.smokes.end());
 
+    // ---- Dust bots: hide, peek, hold an angle, return; respawn at a free spot ----
+    if (g.mapId == 1) {
+        const auto& spots = dustPeekSpots();
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            Dummy& d = g.dummies[i];
+            if (!d.alive()) { g.botState[i] = -1; continue; }
+            if (g.botState[i] < 0) {  // just respawned: pick a random free spot
+                int s = int(rnd(g) * float(spots.size())) % int(spots.size());
+                for (size_t tries = 0; tries < spots.size(); ++tries) {
+                    bool used = false;
+                    for (size_t j = 0; j < g.dummies.size(); ++j) used |= j != i && g.botSpot[j] == s;
+                    if (!used) break;
+                    s = (s + 1) % int(spots.size());
+                }
+                g.botSpot[i] = s;
+                d.pos = d.prevPos = spots[size_t(s)].cover;
+                g.botState[i] = 0;
+                g.botTimer[i] = 0.8f + rnd(g) * 2.0f;
+            }
+            const PeekSpot& sp = spots[size_t(g.botSpot[i])];
+            g.botTimer[i] -= kTickDt;
+            auto moveTo = [&](const Vec3& target) {
+                Vec3 dlt = target - d.pos;
+                float dist = length(dlt), step = 250.0f * kTickDt;
+                if (dist <= step) { d.pos = target; return true; }
+                d.pos += dlt * (step / dist);
+                return false;
+            };
+            switch (g.botState[i]) {
+                case 0: if (g.botTimer[i] <= 0) g.botState[i] = 1; break;
+                case 1: if (moveTo(sp.peek)) { g.botState[i] = 2; g.botTimer[i] = 0.5f + rnd(g) * 1.2f; } break;
+                case 2: if (g.botTimer[i] <= 0) g.botState[i] = 3; break;
+                case 3: if (moveTo(sp.cover)) { g.botState[i] = 0; g.botTimer[i] = 0.6f + rnd(g) * 2.0f; } break;
+            }
+        }
+    }
+
     // ---- Bots shoot back ----
     Vec3 simEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
     g.eyeHistory[g.histHead] = simEye;
@@ -561,12 +648,15 @@ void simTick(Game& g, const Options& opt) {
             bool los = d.alive() && length(simEye - head) < 2400.0f &&
                        g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
             if (!los) { g.botSeen[i] = 0; continue; }
+            if (g.botSeen[i] == 0) g.botReact[i] = 0.25f + rnd(g) * 0.3f;  // human-ish reaction time
             g.botSeen[i] += kTickDt;
             g.botCooldown[i] -= kTickDt;
-            if (g.botSeen[i] < 0.4f || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
-            g.botCooldown[i] = 0.3f;
+            if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
+            g.botCooldown[i] = 0.22f + rnd(g) * 0.16f;
 
             Vec3 aim = g.eyeHistory[(g.histHead - 1 - 26 + 64) & 63] - Vec3{0, 0, 16};  // your chest 0.2 s ago
+            float err = length(aim - head) * 0.014f;  // ~0.8 deg of random aim error
+            aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * err};
             Vec3 dir = normalize(aim - head);
             TraceResult wt = g.world.traceRay(head, head + dir * 3000.0f);
             float maxT = wt.fraction * 3000.0f, bestT = maxT;
@@ -600,7 +690,7 @@ void simTick(Game& g, const Options& opt) {
     }
 
     // ---- KZ course ----
-    {
+    if (g.mapId == 0) {
         const PlayerState& p = g.player;
         bool onStart = p.onGround && p.origin.z > kKzPadHeight - 1 &&
                        inRect(p.origin, kKzStartMinX, kKzStartMaxX, kKzMinY, kKzMaxY);
@@ -824,6 +914,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             "HOLD SPACE TO BUNNY HOP - AIR STRAFE (A/D + TURN) TO GAIN SPEED",
             "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG   G SMOKE   F4 BOTS SHOOT BACK",
             "KZ COURSE: GREEN PAD BEHIND THE SPRAY WALL - HOP THE BLUE PADS, AVOID THE LAVA",
+            "F8 SWITCH MAP: FEEL LAB / DUST (BOTS PEEK FROM COVER AND SHOOT BACK)",
             "C CLEAR DECALS   F3 AIM DRILL   F1 HIDE HELP   ALT+ENTER FULLSCREEN   ESC PAUSE",
             "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL",
         };
@@ -943,10 +1034,11 @@ int main(int argc, char** argv) {
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     applyConfig(g, cfg);
-    {
-        std::vector<BoxInstance> statics;
-        for (const Box& b : g.world.solids) statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
-        renderer.setStaticBoxes(statics);
+    loadMap(g, renderer, cfg.map == 1 ? 1 : 0);
+    if (opt.spawnOverride) {
+        g.spawn = {opt.spawnX, opt.spawnY, 0};
+        g.spawnYaw = opt.spawnYaw;
+        resetPosition(g);
     }
 
     bool paused = false, showHelp = true, running = true;
@@ -1074,7 +1166,12 @@ int main(int argc, char** argv) {
                         }
                         else if (sc == SDL_SCANCODE_C) renderer.clearDecals();
                         else if (sc == SDL_SCANCODE_F1) { showHelp = !showHelp; g.hudDirty = true; }
-                        else if (sc == SDL_SCANCODE_F3) { setDrill(g, !g.drill); g.hudDirty = true; }
+                        else if (sc == SDL_SCANCODE_F3 && g.mapId == 0) { setDrill(g, !g.drill); g.hudDirty = true; }
+                        else if (sc == SDL_SCANCODE_F8) {
+                            loadMap(g, renderer, 1 - g.mapId);
+                            cfg.map = g.mapId;
+                            saveConfig(cfgPath, cfg);
+                        }
                     }
                     break;
                 }
@@ -1143,7 +1240,7 @@ int main(int argc, char** argv) {
             // Dead dummies collapse to the floor (cosmetic; they are no longer hittable).
             float squash = 1.0f;
             if (!d.alive()) {
-                float t = 1.0f - d.respawnLeft;
+                float t = d.deadFor;
                 if (t > 0.6f) continue;
                 squash = std::max(0.06f, 1.0f - t / 0.22f);
             }

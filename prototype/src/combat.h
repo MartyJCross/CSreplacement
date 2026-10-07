@@ -63,6 +63,7 @@ struct Dummy {
     bool towardB = true;
     float hp = 100;
     float respawnLeft = 0;  // > 0 while dead
+    float deadFor = 0;      // seconds since death (death animation)
     float flash[kNumHitGroups] = {};
     // Aim drill: respawn somewhere random inside this area instead of at the same spot.
     bool randomRespawn = false;

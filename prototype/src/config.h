@@ -29,6 +29,7 @@ struct Config {
     int bhop = 1;              // 1 = hold jump to auto-hop, no stamina penalty; 0 = CS-style anti-bhop
     int camera_extrapolate = 1;  // 1 = zero-lag camera (render your position at "now", not 1 tick behind)
     float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped
+    int map = 0;               // 0 = feel lab, 1 = dust (F8 switches)
 };
 
 // Loads `path`; writes a commented default file there if it doesn't exist.

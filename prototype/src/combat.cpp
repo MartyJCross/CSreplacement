@@ -145,8 +145,10 @@ void updateDummy(Dummy& d, float dt) {
     for (float& f : d.flash) f = std::max(0.0f, f - dt);
     if (!d.alive()) {
         d.respawnLeft -= dt;
+        d.deadFor += dt;
         if (d.alive()) {
             d.hp = 100;
+            d.deadFor = 0;
             if (d.randomRespawn) {
                 // Hand-placed peek spots (some half behind cover); never the same spot twice in a row.
                 static const Vec3 kSpots[] = {
