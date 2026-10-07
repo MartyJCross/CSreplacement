@@ -68,6 +68,7 @@ struct Dummy {
     bool randomRespawn = false;
     Vec3 areaMin, areaMax;
     uint32_t respawns = 0;
+    int lastSpot = -1;
     float stepDist = 0;  // footstep accumulator (cosmetic)
     bool alive() const { return respawnLeft <= 0; }
 };

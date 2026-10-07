@@ -40,7 +40,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Mouse 1 | Fire |
 | R | Reload |
 | 1 / 2 / 3 / 4 | Rifle / pistol (semi-auto) / knife (faster movement) / sniper |
-| Mouse 2 | Sniper scope: 40 → 15 FOV → off. Unscopes on shot, re-scopes after the bolt |
+| Mouse 2 | Sniper scope: 40 → 15 FOV → off. Stays scoped when you fire |
 | V | Noclip (fly where you look; Shift = slow) |
 | F6 | Reset to spawn |
 | F5 | Reload `config.cfg` live (sensitivity, crosshair, viewmodel, volume, spread) |
@@ -120,7 +120,7 @@ For a CS-like comparison, set `spread_spray 1` (spread grows during a spray) and
 |---|---|
 | Rifle / knife speed | 215 / 250 u/s |
 | Walk / crouch | 52% / 34% of max |
-| Jump | 57 units apex, ~750 ms airtime |
+| Jump | 57 units apex, ~675 ms airtime (gravity 1000: snappier than CS:GO) |
 | Friction / accelerate / air accelerate | 5.2 / 5.5 / 12 |
 | Rifle | 600 RPM, 30 rounds, 36 dmg (×4 head) |
 | Pistol | semi-auto, 400 RPM max, 12 rounds, 35 dmg (×4 head), strong climbing kick |

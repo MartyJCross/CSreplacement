@@ -148,10 +148,29 @@ void updateDummy(Dummy& d, float dt) {
         if (d.alive()) {
             d.hp = 100;
             if (d.randomRespawn) {
-                uint32_t s = hash32(++d.respawns * 7919u + uint32_t(d.areaMin.x));
-                float u = rand01(s), v = rand01(s ^ 0x5bd1e995u);
-                d.pos = d.prevPos = {d.areaMin.x + (d.areaMax.x - d.areaMin.x) * u,
-                                     d.areaMin.y + (d.areaMax.y - d.areaMin.y) * v, 0};
+                // Hand-placed peek spots (some half behind cover); never the same spot twice in a row.
+                static const Vec3 kSpots[] = {
+                    {600, -220, 0},  {760, 230, 0},   {980, -60, 0},   {1150, 200, 0},
+                    {1400, -230, 0}, {1560, 40, 0},   {1700, 230, 0},  {1900, -180, 0},
+                    {2100, 100, 0},  {2300, -60, 0},  {1650, -210, 0}, {360, 250, 0},
+                };
+                const int n = int(sizeof(kSpots) / sizeof(kSpots[0]));
+                uint32_t s = hash32(++d.respawns * 7919u + 17u);
+                int spot = int(s % uint32_t(n));
+                if (spot == d.lastSpot) spot = (spot + 1) % n;
+                d.lastSpot = spot;
+                d.pos = d.prevPos = kSpots[spot];
+                if ((s >> 7) & 1) {  // about half the spawns ADAD-strafe across their spot
+                    d.motion = DummyMotion::Strafe;
+                    d.a = kSpots[spot] - Vec3{0, 56, 0};
+                    d.b = kSpots[spot] + Vec3{0, 56, 0};
+                    d.speed = 215;
+                    d.pause = 0.2f;
+                    d.towardB = true;
+                    d.pauseLeft = 0;
+                } else {
+                    d.motion = DummyMotion::Static;
+                }
             }
         }
         return;
@@ -249,7 +268,8 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
         d.flash[res.group] = 0.15f;
         if (d.hp <= 0) {
             res.kill = true;
-            d.respawnLeft = 1.0f;
+            // Drill: varied respawn delay so you can't pre-time it.
+            d.respawnLeft = d.randomRespawn ? 0.5f + rand01(d.respawns * 31u + 7u) * 0.9f : 1.0f;
         }
     }
 

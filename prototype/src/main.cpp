@@ -376,12 +376,7 @@ void simTick(Game& g, const Options& opt) {
         bool isPistol = &ws == &g.pistol;
         if (sniperOut) {
             sound(g, Sfx::SniperShot, 1.0f);
-            g.boltAt = g.simTime + 0.55;
-            if (g.zoom > 0) {  // unscope on shot, come back after the bolt like CS
-                g.resumeZoom = g.zoom;
-                g.zoom = 0;
-                g.resumeZoomAt = ws.nextFireTime - 0.15;
-            }
+            g.boltAt = g.simTime + 0.55;  // stays scoped through the bolt cycle
         } else {
             sound(g, Sfx::RifleShot, isPistol ? 0.7f : 0.9f, 0.0f,
                   (isPistol ? 1.32f : 0.97f) + float(ws.shotCounter % 7) * 0.01f);
@@ -1161,6 +1156,18 @@ int main(int argc, char** argv) {
                 mx.z *= squash;
                 dynamicBoxes.push_back(makeBox(p + mn, p + mx, col, false));
             }
+            auto part = [&](Vec3 mn, Vec3 mx, uint32_t c) {
+                mn.z *= squash;
+                mx.z *= squash;
+                dynamicBoxes.push_back(makeBox(p + mn, p + mx, c, false));
+            };
+            part({-4.8f, -4.8f, 65.5f}, {4.8f, 4.8f, 69.6f}, 0x3d4a2c);   // helmet
+            part({-5.0f, -3.5f, 63.0f}, {-4.0f, 3.5f, 65.0f}, 0x1a1c20);   // visor band (faces -X)
+            part({-6.9f, -7.5f, 47.0f}, {-5.6f, 7.5f, 57.0f}, 0x3a4530);   // vest plate
+            part({-6.2f, -9.2f, 44.0f}, {6.2f, 9.2f, 46.0f}, 0x2b2117);    // belt
+            part({-5.4f, -8.3f, 0.0f}, {5.4f, 8.3f, 6.0f}, 0x1d1a17);      // boots
+            part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x1e2024);  // rifle body
+            part({-27.0f, -0.6f, 47.2f}, {-16.0f, 0.6f, 48.4f}, 0x111214); // rifle barrel
         }
         g.lastRenderEye = eye;
 

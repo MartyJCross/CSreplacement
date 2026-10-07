@@ -7,13 +7,13 @@ constexpr int kTickRate = 128;
 constexpr float kTickDt = 1.0f / kTickRate;
 
 struct MoveParams {
-    float gravity = 800.0f;
-    float accelerate = 5.5f;
+    float gravity = 1000.0f;         // snappier than CS:GO's 800: less hang time
+    float accelerate = 6.5f;
     float airAccelerate = 12.0f;
     float airWishCap = 30.0f;        // max wishspeed used for air acceleration (air strafing)
-    float friction = 5.2f;
+    float friction = 5.6f;
     float stopSpeed = 80.0f;
-    float jumpImpulse = 301.993377f; // -> ~57 unit jump apex
+    float jumpImpulse = 337.64f;     // sqrt(2 * 1000 * 57): same 57-unit apex, ~675 ms airtime
     float stepSize = 18.0f;
     float walkScale = 0.52f;         // shift-walk fraction of max speed
     float duckScale = 0.34f;         // crouch fraction of max speed

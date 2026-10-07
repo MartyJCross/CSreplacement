@@ -56,6 +56,12 @@ void addClick(std::vector<float>& b, float t0, float amp, float tone, Rng& rng) 
     addTone(b, t0, amp * 0.5f, tone, tone, 0.006f);
 }
 
+// Single-tap echo: a cheap "room" that makes shots sound like they happen in a space.
+void addEcho(std::vector<float>& b, float delay, float gain) {
+    size_t d = size_t(delay * kRate);
+    for (size_t i = b.size(); i-- > d;) b[i] += b[i - d] * gain;
+}
+
 void normalize(std::vector<float>& b, float peak) {
     float m = 0;
     for (float v : b) m = std::max(m, std::fabs(v));
@@ -73,6 +79,9 @@ std::vector<std::vector<float>> synthesize() {
     addNoise(shot, 0.004f, 0.35f, 60, 700, 0.17f, rng, 0.01f);   // room tail
     addTone(shot, 0, 0.9f, 130, 42, 0.05f);                      // low thump
     addClick(shot, 0.035f, 0.08f, 3200, rng);                    // action cycling
+    addTone(shot, 0, 0.5f, 70, 38, 0.08f);                       // chest punch
+    addEcho(shot, 0.095f, 0.22f);
+    addEcho(shot, 0.21f, 0.10f);
     normalize(shot, 0.95f);
 
     auto& dry = s[size_t(Sfx::DryFire)] = buffer(0.06f);
@@ -103,10 +112,12 @@ std::vector<std::vector<float>> synthesize() {
     addClick(draw, 0.09f, 0.7f, 2000, rng);
     normalize(draw, 0.45f);
 
-    auto& step = s[size_t(Sfx::Footstep)] = buffer(0.12f);
-    addNoise(step, 0, 0.8f, 80, 900, 0.018f, rng, 0.001f);
-    addTone(step, 0, 0.7f, 110, 60, 0.02f);
-    addNoise(step, 0.008f, 0.25f, 1500, 6000, 0.01f, rng);  // grit
+    auto& step = s[size_t(Sfx::Footstep)] = buffer(0.16f);
+    addNoise(step, 0, 0.8f, 80, 1200, 0.014f, rng, 0.0008f);       // heel
+    addTone(step, 0, 0.7f, 120, 70, 0.018f);
+    addNoise(step, 0.004f, 0.3f, 2000, 8000, 0.008f, rng);         // grit
+    addNoise(step, 0.045f, 0.5f, 200, 2500, 0.010f, rng, 0.0005f); // toe
+    addNoise(step, 0.05f, 0.2f, 2000, 8000, 0.007f, rng);
     normalize(step, 0.7f);
 
     auto& land = s[size_t(Sfx::Land)] = buffer(0.25f);
@@ -135,6 +146,8 @@ std::vector<std::vector<float>> synthesize() {
     addNoise(snipe, 0, 1.0f, 100, 2200, 0.07f, rng, 0.0004f);
     addNoise(snipe, 0.006f, 0.45f, 40, 500, 0.35f, rng, 0.02f);
     addTone(snipe, 0, 1.0f, 110, 32, 0.09f);
+    addEcho(snipe, 0.16f, 0.28f);
+    addEcho(snipe, 0.37f, 0.12f);
     normalize(snipe, 0.98f);
 
     return s;

@@ -155,8 +155,10 @@ bool reachesCrateTop(float crateX, float crateHeight, bool crouchJump) {
         playerMove(ps, in, yaw, 250, lab());
         in.jumpPressed = false;
         in.duck = crouchJump;
-        run(ps, in, yaw, 250, kTickRate);
-        if (ps.onGround && ps.origin.z > crateHeight - 0.1f) return true;
+        for (int t = 0; t < kTickRate; ++t) {  // did we ever stand on top?
+            playerMove(ps, in, yaw, 250, lab());
+            if (ps.onGround && ps.origin.z > crateHeight - 0.1f) return true;
+        }
     }
     return false;
 }

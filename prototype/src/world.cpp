@@ -144,6 +144,24 @@ World buildFeelLab() {
     }
     add({kKzEndMinX, kKzMinY, 0}, {kKzEndMaxX, kKzMaxY, kKzPadHeight}, 0xe8c547);
 
+    // Detail: overhead beams, wall pillars, windows and barrels (kept out of the play lanes).
+    for (float bx : {600.0f, 1200.0f, 1800.0f}) {
+        add({bx, -1024, 262}, {bx + 24, 1024, 280}, 0x6b4a2f);            // roof beam
+        add({bx, -1022, 0}, {bx + 24, -1004, 262}, 0xcfc2a5);             // pillars under it
+        add({bx, 1004, 0}, {bx + 24, 1022, 262}, 0xcfc2a5);
+    }
+    for (float wx : {300.0f, 900.0f, 1500.0f, 2100.0f}) {                 // windows (frame + dark glass)
+        add({wx, 1018, 118}, {wx + 120, 1022, 188}, 0x7a5c3a);
+        add({wx + 8, 1016, 126}, {wx + 112, 1018, 180}, 0x24384f);
+        add({wx, -1022, 118}, {wx + 120, -1018, 188}, 0x7a5c3a);
+        add({wx + 8, -1018, 126}, {wx + 112, -1016, 180}, 0x24384f);
+    }
+    for (float bx : {-420.0f, -360.0f, 2440.0f, 2480.0f}) {               // barrels in the back corners
+        float by = bx < 0 ? 960.0f : -980.0f;
+        add({bx, by - 14, 0}, {bx + 28, by + 14, 44}, 0x2f6fb0);
+        add({bx - 1, by - 15, 40}, {bx + 29, by + 15, 44}, 0x1f4a7a);
+    }
+
     // Painted trim bands high on the boundary walls (out of reach: purely visual orientation cues).
     add({-512, -1024, 200}, {-510, 1024, 216}, kTrimTeal);      // behind spawn
     add({2558, -1024, 200}, {2560, 1024, 216}, kTrimOrange);    // far end of the range
