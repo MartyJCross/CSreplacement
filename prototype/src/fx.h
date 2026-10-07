@@ -42,6 +42,9 @@ private:
     float bobPhase_ = 0, bobAmount_ = 0;
     float landDip_ = 0, landVel_ = 0;
     float drawT_ = 1;          // 0..1 raise animation
+    float kickRoll_ = 0;       // roll wobble per shot
+    float sinceShot_ = 1;      // seconds since the last shot
+    int shotsInRow_ = 0;       // consecutive shots in this spray (kick builds up)
     float flashLeft_ = 0;
     uint32_t flashSeed_ = 0;
     float reloadT_ = -1, reloadTime_ = 1;
@@ -60,7 +63,11 @@ struct Tracer {
 
 class Effects {
 public:
-    void impact(const Vec3& pos, const Vec3& normal, uint32_t color);
+    // `scale` > 1 makes far impacts bigger so you can still read where a spray lands.
+    void impact(const Vec3& pos, const Vec3& normal, uint32_t color, float scale = 1.0f);
+    void shell(const Vec3& pos, const Vec3& vel);  // ejected brass
+    // Floor height under (x, y) for particles to land on (nullptr = flat floor at 0).
+    void setGround(float (*groundAt)(float x, float y)) { ground_ = groundAt; }
     void blood(const Vec3& pos, const Vec3& dir);
     void tracer(const Vec3& from, const Vec3& to);
     void update(float dt);
@@ -72,4 +79,5 @@ private:
     std::vector<Particle> particles_;
     std::vector<Tracer> tracers_;
     uint32_t rng_ = 0xC0FFEEu;
+    float (*ground_)(float, float) = nullptr;
 };

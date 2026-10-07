@@ -49,12 +49,14 @@ bhop 1
 camera_extrapolate 1
 // 1 = the camera eases over stairs and steps instead of popping up (cosmetic; movement is unchanged).
 view_smooth_steps 1
+// 1 = a slight camera roll on each shot for spray feedback. It turns around the crosshair, so aim is unaffected.
+view_shake 1
 // Scoped sensitivity multiplier (1 = matched to unscoped, like CS).
 zoom_sensitivity_ratio 1
 // Anti-aliasing samples (0 = off, 2, 4, 8). Smooths edges so far-away players are easier to see. Restart to apply.
 msaa 4
 // Deathmatch on Dust (F7): number of bots and match length in minutes.
-dm_bots 6
+dm_bots 10
 dm_minutes 5
 )";
 
@@ -78,7 +80,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
         << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
-        << "\nmap " << c.map << "\nmsaa " << c.msaa << "\nmode " << c.mode << "\ndm_bots " << c.dm_bots
+        << "\nview_shake " << c.view_shake << "\nmap " << c.map << "\nmsaa " << c.msaa << "\nmode " << c.mode << "\ndm_bots " << c.dm_bots
         << "\ndm_minutes " << c.dm_minutes << "\n";
     return bool(out);
 }
@@ -133,6 +135,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "bhop") i(c.bhop);
         else if (key == "camera_extrapolate") i(c.camera_extrapolate);
         else if (key == "view_smooth_steps") i(c.view_smooth_steps);
+        else if (key == "view_shake") i(c.view_shake);
         else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
         else if (key == "map") i(c.map);
         else if (key == "msaa") i(c.msaa);

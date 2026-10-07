@@ -109,14 +109,15 @@ On Dust the 4 bots play the angles:
 **F7** starts deathmatch on Dust2 (and back to practice). It's saved, so the game reopens in deathmatch.
 
 - **The match:**
-  - it lasts 5 minutes (`dm_minutes`) against 6 bots (`dm_bots`); both are in the Esc menu and apply from the next match
+  - it lasts 5 minutes (`dm_minutes`) against 10 bots (`dm_bots`, up to 16); both are in the Esc menu and apply from the next match
   - your kills, deaths and the clock show under the area name; **Tab** shows the scoreboard with HS % and accuracy
   - at the end you get the results screen, and a new match starts by itself
-- **Spawns:**
-  - you respawn 1.2 s after dying, at a spawn away from the bots and out of their sight, with full ammo and 1 s of protection
+- **Spawns are anywhere on the map** (any open spot you can walk to and back from):
+  - you respawn 1.2 s after dying, away from the bots and out of their sight, with every gun reloaded and 1 s of protection
   - bots respawn 2–4 s after you kill them, somewhere you can't see
+- **A kill gives you +40 HP** (up to 100), whenever bots are shooting back
 - **The bots:**
-  - they walk the real routes (doors, tunnels, ramps), stopping now and then to hold an angle
+  - they roam the whole map: each one picks a random spot anywhere, walks the real route there (doors, tunnels, ramps), holds an angle briefly, and moves on
   - they see in a 150° cone in front of them, so you can catch one from behind. A bot you shoot turns on you
   - they hear your running footsteps (about 1,100 units) and your gunshots (about 2,200), and come to check
   - they stop to shoot, like CS bots, after a 0.25–0.55 s reaction, and they have to turn to face you first
@@ -127,10 +128,17 @@ On Dust the 4 bots play the angles:
 - **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable, also like CS.
 - **Anti-aliasing** (`msaa 4`, Esc menu, applies on restart) smooths edges so far-away players stop shimmering and are easier to pick out.
 
+## Spray feedback (all cosmetic: your bullets are unchanged)
+
+- **The gun's kick builds through a spray:** it climbs, shakes and rolls harder the longer you hold Mouse 1.
+- **A slight camera roll on each shot** that grows through the spray. It turns around the crosshair, so where you aim doesn't move. Turn it off with `view_shake 0` (Esc menu: SPRAY CAMERA SHAKE).
+- **Shell casings** fly out to the right.
+- **Far impacts are drawn bigger** (dust puffs up to 4x, bullet marks up to 3x), so you can read where a spray lands at range.
+
 ## Sound
 
 - **Every sound has 2–6 variants.** Each play picks a different one, with a little random pitch and volume, so repeats never sound identical.
-- **Gunshots** have a heavy mid "bark" and boom plus slapback echo off the walls. Rifle, pistol and sniper each have their own sound.
+- **Gunshots** have a mid "bark", a short boom (sub-bass is cut so they don't sound like the bass is turned up) and a slapback echo off the walls. Rifle, pistol and sniper each have their own sound.
 - **Bots shooting from more than ~1,400 units away** sound distant: muffled, no crack, mostly echo.
 - **Footsteps** are boot-on-grit (heel, toe scuff, crunch), and landing has a bit of gear rattle.
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
@@ -219,7 +227,8 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 |---|---|
 | `src/movement.*` | Kinematic player movement: friction/accel, air strafing, step-up, crouch-jump, stamina |
 | `src/world.*` | Maps made of axis-aligned boxes (Feel Lab, Dust2 from a grid of named areas), swept-box / ray traces, broadphase |
-| `src/nav.*` | Bot navigation on the Dust grid: walkable cells, shortest routes, following a route |
+| `src/nav.*` | Bot navigation on the Dust grid: walkable / roamable cells, shortest routes, following a route |
+| `src/bots.*` | Deathmatch bot brains: spawning anywhere, roaming, sight cone, hearing, chasing (tested headless) |
 | `src/combat.*` | Rifle, recoil pattern, deterministic spread, dummies and hitboxes, hit detection |
 | `src/render.*`, `src/gl.*` | OpenGL 3.3: every 3D object is an instanced box; the HUD is a single batch |
 | `src/fx.*` | First-person weapon models and animation, tracers, particles (cosmetic only) |

@@ -9,18 +9,27 @@
 
 class NavGrid {
 public:
-    void build(const MapGrid& grid, const World& world);
+    // `seed` is any point on the main walkable area (e.g. a spawn): cells you can walk to from it and
+    // back again are "roamable" (this leaves out spots that need a jump, like goose or back plat).
+    void build(const MapGrid& grid, const World& world, const Vec3& seed);
     bool ready() const { return grid_ != nullptr; }
     // Shortest route from `from` to `to` as cell centres on the floor (first = start cell).
     bool findPath(const Vec3& from, const Vec3& to, std::vector<Vec3>& out) const;
     // True if a standing player fits in the cell under p.
     bool standable(const Vec3& p) const;
+    bool roamable(const Vec3& p) const;
+    // A roamable cell centre picked by r01 in [0, 1), uniformly over the whole map. With
+    // `awayFromEdges`, only cells not touching a wall or ledge (good spawn spots).
+    Vec3 roamPoint(float r01, bool awayFromEdges) const;
+    size_t roamCount() const { return roamCells_.size(); }
 
 private:
     bool clear(int i, int j) const;
     bool canStep(int a, int b, int c, int d) const;  // walk from cell (a, b) into neighbour (c, d)
     const MapGrid* grid_ = nullptr;
     std::vector<uint8_t> clear_, edge_;  // edge_: next to a wall or ledge (paths keep off it)
+    std::vector<uint8_t> roam_;          // reachable from the seed and back
+    std::vector<int> roamCells_, openCells_;  // roamable cells; roamable cells away from edges
     // Scratch space reused between searches, so pathfinding doesn't allocate after warm-up.
     mutable std::vector<float> dist_;
     mutable std::vector<int> prev_;

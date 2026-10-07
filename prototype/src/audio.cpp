@@ -81,6 +81,12 @@ void lowpass(std::vector<float>& b, float hz) {
     for (float& v : b) { y += a * (v - y); v = y; }
 }
 
+// Cuts sub-bass rumble below `hz` (the "bass turned up too high" part).
+void highpass(std::vector<float>& b, float hz) {
+    float a = lpCoef(hz), y = 0;
+    for (float& v : b) { y += a * (v - y); v -= y; }
+}
+
 // Outdoor slapback: a handful of darker, decaying reflections off the walls (cheap "space").
 void addReflections(std::vector<float>& b, float firstMs, float spreadMs, int taps, float gain, float decay,
                     float darkHz, Rng& rng) {
@@ -113,14 +119,15 @@ void fadeTail(std::vector<float>& b) {
 
 std::vector<float> rifleShot(Rng& r) {
     auto b = buffer(0.75f);
-    addNoise(b, 0, 0.5f * r.jitter(0.1f), 1800, 9000, 0.004f, r, 0.0002f);            // crack
+    addNoise(b, 0, 0.75f * r.jitter(0.1f), 1800, 11000, 0.0045f, r, 0.0002f);         // crack
     addNoise(b, 0, 1.0f, 120, 1800 * r.jitter(0.08f), 0.035f * r.jitter(0.1f), r, 0.0003f);  // blast body
     addNoise(b, 0.001f, 0.9f, 400, 1600, 0.02f, r);                                    // mid bark
-    addTone(b, 0, 0.32f, 105 * r.jitter(0.05f), 48, 0.06f * r.jitter(0.1f));           // boom
-    addTone(b, 0, 0.14f, 62, 36, 0.09f);                                               // chest punch
+    addTone(b, 0, 0.4f, 112 * r.jitter(0.05f), 52, 0.05f * r.jitter(0.1f));            // boom
+    addTone(b, 0, 0.1f, 70, 42, 0.06f);                                                // chest punch
     addMetal(b, 0.028f * r.jitter(0.1f), 0.10f, 1900 * r.jitter(0.06f), 0.03f, r);    // bolt carrier
-    saturate(b, 2.2f);
-    addReflections(b, 55, 45, 6, 0.30f, 0.62f, 2500, r);
+    highpass(b, 55);
+    saturate(b, 1.8f);
+    addReflections(b, 55, 45, 5, 0.24f, 0.6f, 4000, r);
     fadeTail(b);
     normalize(b, 0.95f);
     return b;
@@ -130,9 +137,10 @@ std::vector<float> rifleShotFar(Rng& r) {  // distant: no crack, dark, mostly ec
     auto b = buffer(1.1f);
     addNoise(b, 0, 1.0f, 90, 900, 0.05f * r.jitter(0.1f), r, 0.002f);
     addTone(b, 0, 0.8f, 80 * r.jitter(0.05f), 40, 0.09f);
-    saturate(b, 1.6f);
-    addReflections(b, 90, 90, 7, 0.55f, 0.72f, 900, r);
-    lowpass(b, 1400);
+    highpass(b, 60);
+    saturate(b, 1.3f);
+    addReflections(b, 90, 90, 6, 0.4f, 0.68f, 1400, r);
+    lowpass(b, 2000);
     fadeTail(b);
     normalize(b, 0.85f);
     return b;
@@ -144,8 +152,9 @@ std::vector<float> pistolShot(Rng& r) {  // snappier and lighter than the rifle
     addNoise(b, 0, 1.0f, 250, 2600 * r.jitter(0.08f), 0.022f * r.jitter(0.1f), r, 0.0003f);
     addTone(b, 0, 0.22f, 150 * r.jitter(0.05f), 70, 0.03f);
     addMetal(b, 0.018f, 0.12f, 2600 * r.jitter(0.06f), 0.025f, r);  // slide
-    saturate(b, 2.0f);
-    addReflections(b, 50, 40, 5, 0.24f, 0.6f, 3000, r);
+    highpass(b, 90);
+    saturate(b, 1.5f);
+    addReflections(b, 50, 40, 4, 0.18f, 0.6f, 5500, r);
     fadeTail(b);
     normalize(b, 0.9f);
     return b;
@@ -156,10 +165,11 @@ std::vector<float> sniperShot(Rng& r) {  // big: heavy boom, long rolling echo
     addNoise(b, 0, 0.8f, 2200, 12000, 0.005f, r, 0.0002f);
     addNoise(b, 0, 1.0f, 90, 1600 * r.jitter(0.08f), 0.07f * r.jitter(0.1f), r, 0.0004f);
     addNoise(b, 0.001f, 0.8f, 300, 1400, 0.03f, r);
-    addTone(b, 0, 0.42f, 85 * r.jitter(0.05f), 30, 0.11f);
-    addTone(b, 0, 0.16f, 50, 28, 0.16f);
-    saturate(b, 2.6f);
-    addReflections(b, 80, 85, 8, 0.4f, 0.7f, 1800, r);
+    addTone(b, 0, 0.4f, 95 * r.jitter(0.05f), 40, 0.08f);
+    addTone(b, 0, 0.12f, 55, 32, 0.12f);
+    highpass(b, 60);
+    saturate(b, 1.8f);
+    addReflections(b, 80, 85, 6, 0.3f, 0.66f, 3500, r);
     fadeTail(b);
     normalize(b, 0.98f);
     return b;
@@ -180,7 +190,7 @@ std::vector<float> footstep(Rng& r) {  // boot on sand/stone: heel, roll, toe sc
 
 std::vector<float> landing(Rng& r) {  // thud, grit and a little gear rattle
     auto b = buffer(0.3f);
-    addTone(b, 0, 0.4f, 72 * r.jitter(0.08f), 40, 0.05f);
+    addTone(b, 0, 0.3f, 80 * r.jitter(0.08f), 48, 0.04f);
     addNoise(b, 0, 0.9f, 120, 1200, 0.04f, r, 0.001f);
     addGrit(b, 0.004f, 0.05f, 0.3f, r);
     addMetal(b, 0.02f * r.jitter(0.2f), 0.06f, 1500 * r.jitter(0.1f), 0.02f, r);

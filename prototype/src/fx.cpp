@@ -113,9 +113,15 @@ Mat4 cameraBasis(const Vec3& eye, float pitchDeg, float yawDeg) {
 }  // namespace
 
 void ViewModel::onShot(uint32_t seed) {
-    kickBack_ = std::min(kickBack_ + 1.1f, 2.6f);
-    kickPitch_ = std::min(kickPitch_ + 1.7f, 4.5f);
-    kickYaw_ += (float(seed % 1000) / 1000.0f - 0.5f) * 0.6f;
+    // The kick builds over a spray: the gun climbs and shakes harder the longer you hold it.
+    shotsInRow_ = sinceShot_ < 0.25f ? shotsInRow_ + 1 : 1;
+    sinceShot_ = 0;
+    float build = std::min(float(shotsInRow_), 10.0f) / 10.0f;
+    float r1 = float(seed % 1000) / 1000.0f - 0.5f, r2 = float((seed / 1000) % 1000) / 1000.0f - 0.5f;
+    kickBack_ = std::min(kickBack_ + 1.2f + 0.5f * build, 3.4f);
+    kickPitch_ = std::min(kickPitch_ + 1.8f + 0.9f * build, 6.5f);
+    kickYaw_ += r1 * (0.7f + 0.8f * build);
+    kickRoll_ += r2 * (2.0f + 3.0f * build);
     flashLeft_ = 0.035f;
     flashSeed_ = seed;
 }
@@ -132,6 +138,8 @@ void ViewModel::update(const ViewModelInput& in) {
     kickBack_ *= std::exp(-dt * 14.0f);
     kickPitch_ *= std::exp(-dt * 11.0f);
     kickYaw_ *= std::exp(-dt * 11.0f);
+    kickRoll_ *= std::exp(-dt * 12.0f);
+    sinceShot_ += dt;
 
     // Sway: the weapon lags slightly behind camera turns.
     swayYaw_ = std::clamp(swayYaw_ - in.mouseYawDelta * 0.5f, -3.0f, 3.0f) * std::exp(-dt * 10.0f);
@@ -171,6 +179,7 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     // Recoil kick.
     pos.z += kickBack_;
     pitch += kickPitch_;
+    roll += kickRoll_;
     yaw += kickYaw_ + swayYaw_;
     pitch += swayPitch_;
 
@@ -235,16 +244,21 @@ float Effects::rnd() {
     return float(rng_) / 2147483648.0f - 1.0f;
 }
 
-void Effects::impact(const Vec3& pos, const Vec3& normal, uint32_t color) {
+void Effects::impact(const Vec3& pos, const Vec3& normal, uint32_t color, float scale) {
     for (int i = 0; i < 6; ++i) {
         Vec3 v = normal * (90.0f + 120.0f * (rnd() * 0.5f + 0.5f)) + Vec3{rnd(), rnd(), rnd() + 0.6f} * 90.0f;
-        particles_.push_back({pos + normal * 0.5f, v, 0, 0.35f + 0.25f * (rnd() * 0.5f + 0.5f),
-                              0.5f + 0.4f * (rnd() * 0.5f + 0.5f), color});
+        particles_.push_back({pos + normal * 0.5f, v * std::sqrt(scale), 0, 0.35f + 0.25f * (rnd() * 0.5f + 0.5f),
+                              (0.5f + 0.4f * (rnd() * 0.5f + 0.5f)) * scale, color});
     }
-    for (int i = 0; i < 3; ++i) {  // dust puff
+    for (int i = 0; i < 4; ++i) {  // dust puff (bigger far away so a spray's landing spot stays readable)
         Vec3 v = normal * 35.0f + Vec3{rnd(), rnd(), rnd()} * 15.0f + Vec3{0, 0, 260.0f};
-        particles_.push_back({pos + normal * 1.0f, v, 0, 0.22f, 1.6f + rnd() * 0.5f, 0xa9aeb5});
+        particles_.push_back({pos + normal * 1.0f, v, 0, 0.26f, (1.8f + rnd() * 0.6f) * scale, 0xb9b2a3});
     }
+    if (particles_.size() > 600) particles_.erase(particles_.begin(), particles_.begin() + 100);
+}
+
+void Effects::shell(const Vec3& pos, const Vec3& vel) {
+    particles_.push_back({pos, vel, 0, 1.4f, 0.32f, 0xc9a13b});
     if (particles_.size() > 600) particles_.erase(particles_.begin(), particles_.begin() + 100);
 }
 
@@ -269,7 +283,8 @@ void Effects::update(float dt) {
         p.life += dt;
         p.vel.z -= 800.0f * dt;
         p.pos += p.vel * dt;
-        if (p.pos.z < 0.3f) { p.pos.z = 0.3f; p.vel = {}; }
+        float floorZ = ground_ ? ground_(p.pos.x, p.pos.y) : 0.0f;
+        if (p.pos.z < floorZ + 0.3f && p.pos.z > floorZ - 48.0f) { p.pos.z = floorZ + 0.3f; p.vel = {}; }
     }
     particles_.erase(std::remove_if(particles_.begin(), particles_.end(),
                                     [](const Particle& p) { return p.life >= p.maxLife; }),

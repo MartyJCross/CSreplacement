@@ -34,7 +34,9 @@ prototype/
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
     combat.*              weapons (rifle/pistol/sniper/knife/smoke slot), recoil patterns, wallbangs, dummies +
                           hitboxes (dummies have a yaw; shots test in the dummy's model space using shownYaw)
-    nav.*                 NavGrid on the Dust grid: walkable cells, Dijkstra routes, followPath (deathmatch bots)
+    nav.*                 NavGrid on the Dust grid: walkable/roamable cells, Dijkstra routes, followPath
+    bots.*                deathmatch bot brains (spawn anywhere, roam, view cone, hearing, chase); main.cpp
+                          only feeds them BotSenses, so tests can run bots headless
     main.cpp              window/input, 128 Hz fixed-step loop, bots AI (peek + deathmatch), smokes, KZ, HUD,
                           settings menu, map loading
     render.*, gl.*        OpenGL 3.3: everything is an instanced box (optionally yaw-rotated: yawBox); HUD is one
@@ -126,8 +128,13 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Maps** (F8 switches):
   - Feel Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course
   - Dust2 at real scale (stepped ramps, roofed tunnels, HUD callouts); bots peek from cover (`dustPeekSpots()`)
-- **Deathmatch** (F7, Dust only, `mode 1`): bots roam with `NavGrid`, 150° view cone, hear footsteps and
-  gunshots, chase; random spawns out of sight; timed match, Tab scoreboard (`dm_bots`, `dm_minutes`).
+- **Deathmatch** (F7, Dust only, `mode 1`): 10 bots by default roam the whole map (`bots.cpp`), 150° view
+  cone, hear footsteps and gunshots, chase; spawns anywhere out of sight; +40 HP per kill; respawn reloads
+  every gun; timed match, Tab scoreboard (`dm_bots`, `dm_minutes`).
+- **Spray feedback** (cosmetic): view-model kick builds through a spray, camera roll around the crosshair
+  (`view_shake`), shell casings, far impacts drawn bigger.
+- **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
+  short boom). Measure with `--dump-sounds` before changing tone.
 - **Bots** (F4 on the Feel Lab, always on in Dust):
   - turn to face you (model + hitboxes); arms are chest hitboxes
   - aim at where the player was 0.2 s ago

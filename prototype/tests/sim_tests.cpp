@@ -4,11 +4,13 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "combat.h"
+#include "bots.h"
 #include "movement.h"
 #include "nav.h"
 #include "world.h"
@@ -358,7 +360,7 @@ const World& dust() {
 const NavGrid& dustNav() {
     static const NavGrid nav = [] {
         NavGrid n;
-        n.build(dustGrid(), dust());
+        n.build(dustGrid(), dust(), dustSpawn().pos);
         return n;
     }();
     return nav;
@@ -435,22 +437,91 @@ void testDustBroadphase() {
     CHECK(mismatches == 0, "%d", mismatches);
 }
 
-// Deathmatch: every spawn is standing room, reachable from T spawn, and a bot walking a route with
-// followPath arrives with its feet on the floor the whole way.
+// Deathmatch: spawns land all over the map, bots left alone roam the whole map, and a bot walking a
+// route with followPath keeps its feet on the floor.
 void testDustDeathmatch() {
     std::printf("dust deathmatch\n");
-    const std::vector<Vec3>& spawns = dustDeathmatchSpawns();
-    int bad = 0;
-    std::vector<Vec3> path;
-    for (const Vec3& sp : spawns) {
-        bool ok = dustNav().standable(sp) && dustNav().findPath(dustSpawn().pos, sp, path);
-        if (!ok) std::printf("  spawn (%.0f, %.0f) not reachable\n", double(sp.x), double(sp.y));
-        bad += !ok;
+    const NavGrid& nav = dustNav();
+    uint32_t rng = 777u;
+    const std::vector<Vec3> none;
+    std::set<std::string> spawnAreas;
+    int badSpawns = 0;
+    for (int k = 0; k < 300; ++k) {
+        Vec3 p = randomSpawnPoint(nav, dust(), none, 0, none, rng);
+        badSpawns += !(nav.roamable(p) && dust().boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)));
+        spawnAreas.insert(dustCallout(p));
     }
-    std::printf("  %zu spawns, %d bad\n", spawns.size(), bad);
-    CHECK(bad == 0, "%d bad spawns", bad);
+    std::printf("  %zu roamable cells; 300 spawns landed in %zu different areas, %d bad\n", nav.roamCount(),
+                spawnAreas.size(), badSpawns);
+    CHECK(badSpawns == 0 && spawnAreas.size() >= 16, "areas %zu bad %d", spawnAreas.size(), badSpawns);
+
+    // 10 bots roam for two minutes with nobody to fight.
+    const int kBots = 10;
+    std::vector<Dummy> dd(kBots);
+    std::vector<BotBrain> bb(kBots);
+    std::vector<Vec3> taken;
+    for (int i = 0; i < kBots; ++i) {
+        spawnDeathmatchBot(dd[size_t(i)], bb[size_t(i)], randomSpawnPoint(nav, dust(), none, 0, taken, rng), rng);
+        taken.push_back(dd[size_t(i)].pos);
+    }
+    BotSenses sense;
+    sense.world = &dust();
+    sense.nav = &nav;
+    std::vector<float> walked(kBots, 0.0f);
+    std::vector<std::set<std::string>> seen(kBots);
+    std::set<std::string> all;
+    float worstSink = 0;  // feet below the floor (off a ledge they glide down, so above it is fine)
+    for (int t = 0; t < kTickRate * 120; ++t) {
+        sense.now = double(t) * kTickDt;
+        for (int i = 0; i < kBots; ++i) {
+            Dummy& d = dd[size_t(i)];
+            d.prevPos = d.pos;
+            d.prevYaw = d.yaw;
+            updateDeathmatchBot(d, bb[size_t(i)], sense, rng);
+            walked[size_t(i)] += length2d(d.pos - d.prevPos);
+            seen[size_t(i)].insert(dustCallout(d.pos));
+            all.insert(dustCallout(d.pos));
+            worstSink = std::max(worstSink, dustGrid().floorAt(d.pos.x, d.pos.y) - d.pos.z);
+        }
+    }
+    float minWalk = *std::min_element(walked.begin(), walked.end());
+    size_t minAreas = 1000;
+    for (const auto& s : seen) minAreas = std::min(minAreas, s.size());
+    std::printf("  10 bots, 2 min: each walked at least %.0f units and saw at least %zu areas; %zu areas in all; "
+                "feet at most %.1f into the floor\n", double(minWalk), minAreas, all.size(), double(worstSink));
+    CHECK(minWalk > 12000.0f && minAreas >= 6 && all.size() >= 20 && worstSink <= 8.5f, "walk %.0f areas %zu/%zu",
+          double(minWalk), minAreas, all.size());
+
+    // Sight: a bot looking away doesn't see you; once you shoot it, it turns on you.
+    Dummy d;
+    BotBrain b;
+    spawnDeathmatchBot(d, b, {-350, -800, dustGrid().floorAt(-350, -800)}, rng);
+    d.yaw = d.prevYaw = -90;  // facing south, you're to the north
+    sense.playerUp = true;
+    sense.playerOrigin = {-350, -300, dustGrid().floorAt(-350, -300)};
+    sense.playerEye = sense.playerOrigin + Vec3{0, 0, kStandEye};
+    bool aimedBehind = false;
+    for (int t = 0; t < kTickRate; ++t) {
+        sense.now = double(t) * kTickDt;
+        d.prevPos = d.pos;
+        updateDeathmatchBot(d, b, sense, rng);
+        aimedBehind |= b.aimed;
+        if (b.state == 0) b.path.clear(), b.state = 1, b.timer = 10;  // keep it standing still
+    }
+    b.alertUntil = sense.now + 2.0;  // you shot it
+    int ticksToAim = -1;
+    for (int t = 0; t < kTickRate && ticksToAim < 0; ++t) {
+        sense.now += kTickDt;
+        d.prevPos = d.pos;
+        updateDeathmatchBot(d, b, sense, rng);
+        if (b.aimed) ticksToAim = t;
+    }
+    std::printf("  bot facing away saw you: %s; after being shot it faced you in %.0f ms\n", aimedBehind ? "yes" : "no",
+                double(ticksToAim) * kTickDt * 1000.0);
+    CHECK(!aimedBehind && ticksToAim >= 0 && ticksToAim < kTickRate / 2, "behind %d aim %d", int(aimedBehind), ticksToAim);
 
     // A bot walks from the CT end of B site to the pit: through doors, tunnels, ramps and stairs.
+    std::vector<Vec3> path;
     CHECK(dustNav().findPath({-1700, 2300, 0}, {1700, 300, 0}, path), "bot route");
     Vec3 pos = path.front();
     size_t next = 1;

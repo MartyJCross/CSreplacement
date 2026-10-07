@@ -18,7 +18,8 @@ add_library(feellab_sim STATIC
   src/world.cpp
   src/movement.cpp
   src/combat.cpp
-  src/nav.cpp)
+  src/nav.cpp
+  src/bots.cpp)
 target_include_directories(feellab_sim PUBLIC src)
 if(MSVC)
   # /fp:precise (default) - never /fp:fast: movement must be deterministic.

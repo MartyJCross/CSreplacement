@@ -3,7 +3,7 @@
 #include <cmath>
 #include "movement.h"
 
-void NavGrid::build(const MapGrid& grid, const World& world) {
+void NavGrid::build(const MapGrid& grid, const World& world, const Vec3& seed) {
     grid_ = &grid;
     const MapGrid& m = grid;
     size_t n = size_t(m.w * m.h);
@@ -25,6 +25,54 @@ void NavGrid::build(const MapGrid& grid, const World& world) {
     dist_.assign(n, 0.0f);
     prev_.assign(n, -1);
     heap_.reserve(n);
+
+    // Roamable = reachable from the seed (forwards) and able to walk back to it (backwards).
+    roam_.assign(n, 0);
+    roamCells_.clear();
+    openCells_.clear();
+    int si, sj;
+    if (!m.cellAt(seed.x, seed.y, si, sj) || !clear(si, sj)) return;
+    auto flood = [&](bool forward, std::vector<uint8_t>& seen) {
+        seen.assign(n, 0);
+        std::vector<int> stack{m.index(si, sj)};
+        seen[size_t(stack[0])] = 1;
+        while (!stack.empty()) {
+            int c = stack.back();
+            stack.pop_back();
+            int i = c % m.w, j = c / m.w;
+            for (int dj = -1; dj <= 1; ++dj)
+                for (int di = -1; di <= 1; ++di) {
+                    if ((di && dj) || (!di && !dj)) continue;
+                    int a = i + di, b = j + dj;
+                    if (!clear(a, b) || seen[size_t(m.index(a, b))]) continue;
+                    if (forward ? !canStep(i, j, a, b) : !canStep(a, b, i, j)) continue;
+                    seen[size_t(m.index(a, b))] = 1;
+                    stack.push_back(m.index(a, b));
+                }
+        }
+    };
+    std::vector<uint8_t> fwd, back;
+    flood(true, fwd);
+    flood(false, back);
+    for (size_t c = 0; c < n; ++c) {
+        roam_[c] = fwd[c] && back[c];
+        if (!roam_[c]) continue;
+        roamCells_.push_back(int(c));
+        if (!edge_[c]) openCells_.push_back(int(c));
+    }
+}
+
+bool NavGrid::roamable(const Vec3& p) const {
+    int i, j;
+    return grid_ && grid_->cellAt(p.x, p.y, i, j) && roam_[size_t(grid_->index(i, j))];
+}
+
+Vec3 NavGrid::roamPoint(float r01, bool awayFromEdges) const {
+    const std::vector<int>& cells = awayFromEdges && !openCells_.empty() ? openCells_ : roamCells_;
+    if (cells.empty()) return {};
+    size_t k = std::min(cells.size() - 1, size_t(std::max(0.0f, r01) * float(cells.size())));
+    int c = cells[k];
+    return grid_->center(c % grid_->w, c / grid_->w);
 }
 
 bool NavGrid::clear(int i, int j) const {
@@ -106,7 +154,13 @@ bool followPath(Vec3& pos, const std::vector<Vec3>& path, size_t& next, float di
         pos.y += d.y / len * distance;
         float seg = length2d(target - from);
         float t = seg > 1e-3f ? std::clamp(1.0f - length2d(target - pos) / seg, 0.0f, 1.0f) : 1.0f;
-        pos.z = from.z + (target.z - from.z) * t;
+        if (from.z - target.z > MoveParams{}.stepSize) {
+            // A drop off a ledge: stay up until the edge (halfway between cell centres), then fall.
+            float f = std::clamp((t - 0.5f) * 2.0f, 0.0f, 1.0f);
+            pos.z = from.z + (target.z - from.z) * f * f;
+        } else {
+            pos.z = from.z + (target.z - from.z) * t;  // steps and stepped ramps: smooth
+        }
         return false;
     }
     return true;

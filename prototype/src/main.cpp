@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "audio.h"
+#include "bots.h"
 #include "combat.h"
 #include "config.h"
 #include "fx.h"
@@ -171,17 +172,7 @@ struct Game {
     // Deathmatch (mode 1, Dust only): bots roam the map on the nav grid and respawn around it.
     int mode = 0, dmBots = 6, dmMinutes = 5;
     NavGrid nav;
-    struct Bot {
-        std::vector<Vec3> path;
-        size_t next = 0;
-        int state = -1;           // -1 just spawned, 0 roam, 1 hold an angle, 2 fighting, 3 investigate
-        float timer = 0;
-        Vec3 lastSeen;            // where they last saw or heard you
-        double alertUntil = 0;    // just got shot: aware all round for a moment
-        bool sees = false, aimed = false;
-        int kills = 0, deaths = 0;
-    };
-    std::vector<Bot> bots;
+    std::vector<BotBrain> bots;
     double dmEnd = 0, dmOverUntil = -1, spawnProtectUntil = 0;
     int dmKills = 0, dmDeaths = 0, dmShownSecs = -1;
     Vec3 noisePos;                // last sound you made (footsteps, shots) that bots can hear
@@ -191,6 +182,8 @@ struct Game {
 
     // Cosmetic: camera height offset that eases the view over stairs and stepped ramps.
     float stepSmooth = 0;
+    float camRoll = 0;        // spray feedback: camera roll in degrees (around the crosshair)
+    bool viewShake = true;
     const char* callout = "";  // Dust area name under the player (HUD)
 
     // KZ course timer.
@@ -258,11 +251,15 @@ void makeNoise(Game& g, const Vec3& pos, float radius) {
     g.noiseRadius = radius;
 }
 
+// Respawn: full magazines, no reload in progress, recoil reset, unscoped.
 void refillAmmo(Game& g) {
     for (WeaponState* w : {&g.rifle, &g.pistol, &g.sniper}) {
         w->ammo = w->def->magSize;
         w->reloadEndTime = -1;
+        w->recoilIndex = 0;
     }
+    g.zoom = 0;
+    g.resumeZoomAt = -1;
 }
 
 float zoomFov(int level, float baseFov) { return level == 1 ? 40.0f : level == 2 ? 15.0f : baseFov; }
@@ -276,8 +273,9 @@ float zoomSensScale(const Game& g, const Config& cfg) {
 
 void applyConfig(Game& g, const Config& cfg) {
     g.moveParams = MoveParams{};
-    g.dmBots = std::clamp(cfg.dm_bots, 1, 12);       // takes effect at the next match
+    g.dmBots = std::clamp(cfg.dm_bots, 1, 16);       // takes effect at the next match
     g.dmMinutes = std::clamp(cfg.dm_minutes, 1, 60);
+    g.viewShake = cfg.view_shake != 0;
     g.autoHop = cfg.bhop != 0;
     if (g.autoHop) {
         // Bunny hopping: no stamina slowdown on jump/land; air-strafing keeps and builds speed.
@@ -317,35 +315,17 @@ void setDrill(Game& g, bool on) {
     }
 }
 
-// Deathmatch spawn point. For you: far from the bots and out of their sight. For a bot: out of
-// your sight and not on top of another bot. Some randomness so spawns don't become predictable.
+// Deathmatch spawn anywhere on the map. For you: away from the bots and out of their sight. For a bot:
+// out of your sight and not on top of another bot.
 Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
-    const std::vector<Vec3>& spots = dustDeathmatchSpawns();
-    const Vec3 eye = g.player.origin + Vec3{0, 0, kStandEye};
-    size_t start = size_t(rnd(g) * float(spots.size())) % spots.size();
-    float best = -1;
-    Vec3 pick = spots[start];
-    for (size_t k = 0; k < spots.size(); ++k) {
-        const Vec3& s = spots[(start + k) % spots.size()];
-        const Vec3 head = s + Vec3{0, 0, 64};
-        float score = 1800.0f;
-        if (forPlayer) {
-            for (const Dummy& d : g.dummies) {
-                if (!d.alive()) continue;
-                Vec3 dh = d.pos + Vec3{0, 0, 64};
-                float dist = length(dh - head);
-                if (g.world.traceRay(dh, head).fraction >= 1.0f) dist *= 0.1f;  // in their sight
-                score = std::min(score, dist);
-            }
-        } else {
-            score = std::min(score, length(eye - head) * (g.world.traceRay(eye, head).fraction >= 1.0f ? 0.1f : 1.0f));
-            for (size_t i = 0; i < g.dummies.size(); ++i)
-                if (i != self && g.dummies[i].alive() && length2d(g.dummies[i].pos - s) < 96.0f) score = 0;  // taken
-        }
-        score += rnd(g) * 600.0f;
-        if (score > best) { best = score; pick = s; }
+    std::vector<Vec3> watchers, occupied;
+    for (size_t i = 0; i < g.dummies.size(); ++i) {
+        const Dummy& d = g.dummies[i];
+        if (!d.alive() || i == self || g.bots[i].state < 0) continue;
+        (forPlayer ? watchers : occupied).push_back(forPlayer ? d.pos + Vec3{0, 0, 64} : d.pos);
     }
-    return pick;
+    if (!forPlayer) watchers.push_back(g.player.origin + Vec3{0, 0, kStandEye});
+    return randomSpawnPoint(g.nav, g.world, watchers, forPlayer ? 900.0f : 700.0f, occupied, g.rng);
 }
 
 // (Re)starts a deathmatch: fresh scores, everyone respawns.
@@ -357,7 +337,7 @@ void startDeathmatch(Game& g) {
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         g.dummies[i] = Dummy{};
         g.dummies[i].respawnLeft = 0.01f;  // they spawn on the first tick, after you
-        g.bots[i] = Game::Bot{};
+        g.bots[i] = BotBrain{};
     }
     g.spawn = pickDmSpawn(g, true);
     g.spawnYaw = rnd(g) * 360.0f - 180.0f;
@@ -393,7 +373,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.botTimer.assign(n, 0.0f);
     g.botState.assign(n, -1);
     g.botSpot.assign(n, -1);
-    g.bots.assign(n, Game::Bot{});
+    g.bots.assign(n, BotBrain{});
     g.drill = false;
     g.kzState = 0;
     g.nades.clear();
@@ -404,7 +384,14 @@ void loadMap(Game& g, Renderer& r, int id) {
     for (const Box& b : g.world.solids) statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
     r.setStaticBoxes(statics);
     r.clearDecals();
-    if (id == 1) g.nav.build(dustGrid(), g.world);
+    if (id == 1) g.nav.build(dustGrid(), g.world, dustSpawn().pos);
+    if (id == 1)  // particles land on Dust's floors (which aren't all at height 0)
+        g.fx.setGround([](float x, float y) {
+            float z = dustGrid().floorAt(x, y);
+            return z > MapGrid::kNoFloor ? z : -1e9f;
+        });
+    else
+        g.fx.setGround(nullptr);
     if (id == 1 && g.mode == 1) startDeathmatch(g);
     g.hudDirty = true;
 }
@@ -567,13 +554,23 @@ void simTick(Game& g, const Options& opt) {
             sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 0.8f : 0.9f);
         }
         g.vm.onShot(ws.shotCounter * 2654435761u);
+        // Spray feedback (cosmetic): a camera roll that builds through the spray, and brass flying out.
+        float wob = float((ws.shotCounter * 2246822519u) >> 16 & 0xFFFF) / 65535.0f - 0.5f;
+        if (g.viewShake && !sniperOut)
+            g.camRoll = std::clamp(g.camRoll + wob * (0.5f + 0.06f * float(std::min(r.sprayIndex, 12))), -1.5f, 1.5f);
+        if (!sniperOut) {
+            Vec3 fw = anglesToForward(float(g.viewPitch), float(g.viewYaw)), rt = yawToRight(float(g.viewYaw));
+            g.fx.shell(g.lastRenderEye + fw * 20.0f + rt * 7.0f - Vec3{0, 0, 6},
+                       rt * (110.0f + 50.0f * wob) + Vec3{0, 0, 120.0f} - fw * 25.0f + g.player.velocity);
+        }
         g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
         Vec3 shotDir = normalize(r.end - r.start);
         if (r.dummyIndex >= 0) {
             sound(g, r.group == kHead ? Sfx::HitHead : Sfx::HitBody, r.group == kHead ? 0.9f : 0.75f);
             g.fx.blood(r.end, shotDir);
         } else if (r.hitWorld) {
-            g.fx.impact(r.end, r.normal, 0x5c6168);
+            // Far impacts are drawn bigger so you can see where a spray lands at range.
+            g.fx.impact(r.end, r.normal, 0x5c6168, std::clamp(r.distance / 450.0f, 1.0f, 4.0f));
         }
         for (int k = 0; k < r.penCount; ++k) {  // wallbang: debris on both sides of each wall
             g.fx.impact(r.penEntry[k], r.penNormal[k], 0x5c6168);
@@ -589,8 +586,12 @@ void simTick(Game& g, const Options& opt) {
             pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
             if (r.kill && (g.botsFire || g.mapId == 1))  // no insta-respawn when they fight back
                 g.dummies[size_t(r.dummyIndex)].respawnLeft = 2.0f + rnd(g) * 2.0f;
+            if (r.kill && g.botsFire && g.deadUntil < 0 && g.hp < 100.0f) {  // a kill heals you
+                g.hp = std::min(100.0f, g.hp + 40.0f);
+                pushHitLog(g, "+40 HP", 0x60ff60);
+            }
             if (g.mode == 1) {
-                Game::Bot& b = g.bots[size_t(r.dummyIndex)];
+                BotBrain& b = g.bots[size_t(r.dummyIndex)];
                 if (r.kill) {
                     g.dmKills++;
                     b.deaths++;
@@ -611,7 +612,8 @@ void simTick(Game& g, const Options& opt) {
             // Decal color follows the spray index (yellow first shot -> red late spray).
             float t = float(r.sprayIndex) / float(std::max(1, wd.patternLen - 1));
             uint32_t col = lerpColor(0xffe650, 0xe02828, t);
-            Vec3 c = r.end + r.normal * 0.6f, h{1.4f, 1.4f, 1.4f};
+            float hs = 1.4f * std::clamp(r.distance / 700.0f, 1.0f, 3.0f);  // readable far away too
+            Vec3 c = r.end + r.normal * 0.6f, h{hs, hs, hs};
             g.pendingDecals.push_back(makeBox(c - h, c + h, col, false));
         }
         for (int k = 0; k < r.penCount; ++k) {
@@ -810,75 +812,26 @@ void simTick(Game& g, const Options& opt) {
         if (secs != g.dmShownSecs) { g.dmShownSecs = secs; g.hudDirty = true; }
     }
     if (g.mapId == 1 && g.mode == 1 && g.nav.ready()) {
-        const bool playerUp = g.deadUntil < 0 && !g.noclip && g.dmOverUntil < 0;
-        const Vec3 eye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
-        const bool heard = g.simTime - g.noiseAt < 1.5 * kTickDt;
-        const std::vector<Vec3>& spots = dustDeathmatchSpawns();
+        BotSenses sense;
+        sense.world = &g.world;
+        sense.nav = &g.nav;
+        sense.now = g.simTime;
+        sense.playerOrigin = g.player.origin;
+        sense.playerEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
+        sense.playerUp = g.deadUntil < 0 && !g.noclip && g.dmOverUntil < 0;
+        sense.noiseFresh = g.simTime - g.noiseAt < 1.5 * kTickDt;
+        sense.noisePos = g.noisePos;
+        sense.noiseRadius = g.noiseRadius;
+        sense.blocked = [](const void* ctx, const Vec3& a, const Vec3& b) {
+            return smokeBlocks(*static_cast<const Game*>(ctx), a, b);
+        };
+        sense.blockCtx = &g;
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             Dummy& d = g.dummies[i];
-            Game::Bot& b = g.bots[i];
+            BotBrain& b = g.bots[i];
             if (!d.alive()) { b.state = -1; b.sees = b.aimed = false; continue; }
-            if (b.state < 0) {  // respawned
-                d.pos = d.prevPos = pickDmSpawn(g, false, i);
-                d.yaw = d.prevYaw = rnd(g) * 360.0f - 180.0f;
-                b.path.clear();
-                b.state = 0;
-                b.alertUntil = 0;
-            }
-            // Perception: a 150 degree view cone (all round for a moment after being shot), line of
-            // sight, no smoke in between.
-            const Vec3 head = d.pos + Vec3{0, 0, 64};
-            const float toYaw = yawTo(d.pos, g.player.origin);
-            const float dist = length(eye - head);
-            const bool inView = std::fabs(wrapDeg(toYaw - d.yaw)) < 75.0f || dist < 250.0f || g.simTime < b.alertUntil;
-            b.sees = playerUp && inView && dist < 4000.0f && g.world.traceRay(head, eye).fraction >= 1.0f &&
-                     !smokeBlocks(g, head, eye);
-            if (b.sees) {
-                b.lastSeen = g.player.origin;
-                if (b.state != 2) { b.state = 2; b.path.clear(); }
-                b.timer = 0.6f;  // keep the angle for a moment after losing sight
-            } else if (heard && playerUp && b.state != 2 && length(g.noisePos - d.pos) < g.noiseRadius) {
-                b.lastSeen = g.noisePos;
-                b.state = 3;
-                b.path.clear();
-            }
-            const float step = 215.0f * kTickDt;  // rifle run speed
-            switch (b.state) {
-                case 0:  // roam to a random spawn point
-                    if (b.path.empty()) {
-                        const Vec3& dest = spots[size_t(rnd(g) * float(spots.size())) % spots.size()];
-                        if (!g.nav.findPath(d.pos, dest, b.path)) break;
-                        b.next = 1;
-                    }
-                    if (followPath(d.pos, b.path, b.next, step)) {
-                        b.path.clear();
-                        b.state = 1;
-                        b.timer = 0.6f + rnd(g) * 1.8f;
-                    }
-                    break;
-                case 1:  // hold an angle
-                    if ((b.timer -= kTickDt) <= 0) b.state = 0;
-                    break;
-                case 2:  // fighting: stand and shoot (like CS bots); when you're gone, go and look
-                    if (!b.sees && (b.timer -= kTickDt) <= 0) { b.state = 3; b.path.clear(); }
-                    break;
-                case 3:  // investigate where you were last seen or heard
-                    if (b.path.empty()) {
-                        if (!g.nav.findPath(d.pos, b.lastSeen, b.path)) { b.state = 0; break; }
-                        b.next = 1;
-                    }
-                    if (followPath(d.pos, b.path, b.next, step)) {
-                        b.path.clear();
-                        b.state = 1;
-                        b.timer = 1.0f + rnd(g);
-                    }
-                    break;
-            }
-            // Face you when fighting, otherwise the way they walk.
-            const Vec3 mv = d.pos - d.prevPos;
-            const float want = b.state == 2 ? toYaw : length2d(mv) > 0.01f ? std::atan2(mv.y, mv.x) / kDegToRad : d.yaw;
-            d.yaw = turnToward(d.yaw, want, (b.state == 2 ? 600.0f : 360.0f) * kTickDt);
-            b.aimed = b.sees && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;
+            if (needsSpawn(d, b)) spawnDeathmatchBot(d, b, pickDmSpawn(g, false, i), g.rng);
+            updateDeathmatchBot(d, b, sense, g.rng);
         }
     }
 
@@ -943,12 +896,12 @@ void simTick(Game& g, const Options& opt) {
                         g.spawn = pickDmSpawn(g, true);
                         g.spawnYaw = rnd(g) * 360.0f - 180.0f;
                         g.spawnProtectUntil = g.deadUntil + 1.0;
-                        refillAmmo(g);
-                        for (Game::Bot& b : g.bots)
+                        for (BotBrain& b : g.bots)
                             if (b.state == 2) { b.state = 1; b.timer = 1.0f; }
                     } else {
                         pushHitLog(g, "YOU DIED", 0xff4040);
                     }
+                    refillAmmo(g);  // respawn with full magazines, like CS
                     resetPosition(g);
                     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
                     g.hudDirty = true;
@@ -1049,8 +1002,9 @@ std::vector<MenuItem> menuItems(Config& c) {
         {"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
         {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
         {"SMOOTH STAIRS (CAMERA)", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
+        {"SPRAY CAMERA SHAKE", nullptr, &c.view_shake, 1, 0, 1, kOnOff},
         {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
-        {"DEATHMATCH BOTS", nullptr, &c.dm_bots, 1, 1, 12},
+        {"DEATHMATCH BOTS", nullptr, &c.dm_bots, 1, 1, 16},
         {"DEATHMATCH MINUTES", nullptr, &c.dm_minutes, 1, 1, 30},
         {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
         {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
@@ -1588,7 +1542,9 @@ int main(int argc, char** argv) {
 
         float aspect = pixH > 0 ? float(pixW) / float(pixH) : 1.0f;
         float vfov = 2.0f * std::atan(std::tan(zoomFov(g.zoom, cfg.fov) * 0.5f * kDegToRad) * 0.75f);
-        Mat4 viewProj = perspective(vfov, aspect, 2.0f, 16384.0f) * viewFromAngles(eye, camPitch, camYaw);
+        if (!paused) g.camRoll *= std::exp(-float(dt) / 0.07f);
+        const Mat4 roll = rotationZ(g.camRoll);  // about the view axis: the crosshair stays put
+        Mat4 viewProj = perspective(vfov, aspect, 2.0f, 16384.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
 
         // Dummies at their interpolated positions; remember exactly what we drew for hit tests.
         dynamicBoxes.clear();
@@ -1672,7 +1628,7 @@ int main(int argc, char** argv) {
         // First-person weapon: own FOV and fresh depth so it never clips into walls.
         if (cfg.show_viewmodel && g.zoom == 0) {
             float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
-            Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * viewFromAngles(eye, camPitch, camYaw);
+            Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
             modelDraws.clear();
             g.vm.build(eye, camPitch, camYaw, cfg.viewmodel_offset_x, cfg.viewmodel_offset_y, cfg.viewmodel_offset_z,
                        cfg.viewmodel_bob, modelDraws);

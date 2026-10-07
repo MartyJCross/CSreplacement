@@ -28,12 +28,13 @@ struct Config {
     int spread_movement = 0;   // 1 = random spread while moving/airborne (CS-like)
     int bhop = 1;              // 1 = hold jump to auto-hop, no stamina penalty; 0 = CS-style anti-bhop
     int camera_extrapolate = 1;  // 1 = zero-lag camera (render your position at "now", not 1 tick behind)
+    int view_shake = 1;          // 1 = slight camera roll per shot (around the crosshair: aim is unaffected)
     int view_smooth_steps = 1;   // 1 = the camera eases over stairs/steps instead of popping up (cosmetic)
     float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped
     int map = 0;               // 0 = feel lab, 1 = dust (F8 switches)
     int msaa = 4;              // anti-aliasing samples (0 = off); applies on restart
     int mode = 0;              // 0 = practice, 1 = deathmatch on Dust (F7 switches)
-    int dm_bots = 6;           // deathmatch: number of bots
+    int dm_bots = 10;          // deathmatch: number of bots
     int dm_minutes = 5;        // deathmatch: match length
 };
 
