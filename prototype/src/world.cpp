@@ -1,5 +1,7 @@
 #include "world.h"
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 
 namespace {
 // Keep this far away from surfaces after a sweep so the next trace never starts inside.
@@ -34,6 +36,67 @@ bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin
     return true;
 }
 
+template <class Fn>
+void World::forCandidates(float x0, float y0, float x1, float y1, Fn&& fn) const {
+    if (idxW_ == 0) {
+        for (size_t k = 0; k < solids.size(); ++k) fn(solids[k]);
+        return;
+    }
+    auto cellX = [&](float x) { return std::clamp(int(std::floor((x - idxX0_) / idxCell_)), 0, idxW_ - 1); };
+    auto cellY = [&](float y) { return std::clamp(int(std::floor((y - idxY0_) / idxCell_)), 0, idxH_ - 1); };
+    int i0 = cellX(x0), i1 = cellX(x1), j0 = cellY(y0), j1 = cellY(y1);
+    if (++stampId_ == 0) {  // wrapped: forget every old mark
+        std::fill(stamp_.begin(), stamp_.end(), 0u);
+        stampId_ = 1;
+    }
+    for (int j = j0; j <= j1; ++j)
+        for (int i = i0; i <= i1; ++i) {
+            size_t c = size_t(j * idxW_ + i);
+            for (uint32_t k = idxStart_[c]; k < idxStart_[c + 1]; ++k) {
+                uint32_t b = idxItems_[k];
+                if (stamp_[b] == stampId_) continue;
+                stamp_[b] = stampId_;
+                fn(solids[b]);
+            }
+        }
+}
+
+void World::buildIndex(float cellSize) {
+    if (solids.empty()) return;
+    Vec3 lo = solids[0].mins, hi = solids[0].maxs;
+    for (const Box& b : solids)
+        for (int a = 0; a < 2; ++a) { lo[a] = std::min(lo[a], b.mins[a]); hi[a] = std::max(hi[a], b.maxs[a]); }
+    idxCell_ = cellSize;
+    idxX0_ = lo.x;
+    idxY0_ = lo.y;
+    idxW_ = std::max(1, int(std::ceil((hi.x - lo.x) / cellSize)));
+    idxH_ = std::max(1, int(std::ceil((hi.y - lo.y) / cellSize)));
+    // Counting sort into per-cell ranges. A box goes in every cell it overlaps (with a small margin).
+    auto range = [&](const Box& b, int& i0, int& i1, int& j0, int& j1) {
+        i0 = std::clamp(int(std::floor((b.mins.x - 1 - idxX0_) / idxCell_)), 0, idxW_ - 1);
+        i1 = std::clamp(int(std::floor((b.maxs.x + 1 - idxX0_) / idxCell_)), 0, idxW_ - 1);
+        j0 = std::clamp(int(std::floor((b.mins.y - 1 - idxY0_) / idxCell_)), 0, idxH_ - 1);
+        j1 = std::clamp(int(std::floor((b.maxs.y + 1 - idxY0_) / idxCell_)), 0, idxH_ - 1);
+    };
+    idxStart_.assign(size_t(idxW_ * idxH_) + 1, 0u);
+    int i0, i1, j0, j1;
+    for (const Box& b : solids) {
+        range(b, i0, i1, j0, j1);
+        for (int j = j0; j <= j1; ++j)
+            for (int i = i0; i <= i1; ++i) idxStart_[size_t(j * idxW_ + i) + 1]++;
+    }
+    for (size_t c = 1; c < idxStart_.size(); ++c) idxStart_[c] += idxStart_[c - 1];
+    idxItems_.assign(idxStart_.back(), 0u);
+    std::vector<uint32_t> fill(idxStart_.begin(), idxStart_.end() - 1);
+    for (size_t k = 0; k < solids.size(); ++k) {
+        range(solids[k], i0, i1, j0, j1);
+        for (int j = j0; j <= j1; ++j)
+            for (int i = i0; i <= i1; ++i) idxItems_[fill[size_t(j * idxW_ + i)]++] = uint32_t(k);
+    }
+    stamp_.assign(solids.size(), 0u);
+    stampId_ = 0;
+}
+
 TraceResult World::traceBox(const Vec3& start, const Vec3& end, const Vec3& mins, const Vec3& maxs) const {
     TraceResult tr;
     tr.endpos = end;
@@ -47,15 +110,15 @@ TraceResult World::traceBox(const Vec3& start, const Vec3& end, const Vec3& mins
     }
 
     float bestT = 1.0f;  // in units of delta
-    for (const Box& b : solids) {
+    auto test = [&](const Box& b) {
         // Minkowski-expand the solid by the moving box, then trace a ray.
         Vec3 emin = b.mins - maxs, emax = b.maxs - mins;
         float t;
         Vec3 n;
-        if (!rayHitsBox(start, delta, bestT, emin, emax, t, &n)) continue;
+        if (!rayHitsBox(start, delta, bestT, emin, emax, t, &n)) return;
         if (t < 0) {
             // Genuinely inside: flag it but let the mover escape. Merely touching: block.
-            if (t * len < -kDistEpsilon) { tr.startSolid = true; continue; }
+            if (t * len < -kDistEpsilon) { tr.startSolid = true; return; }
             t = 0;
         }
         if (t < bestT) {
@@ -63,7 +126,9 @@ TraceResult World::traceBox(const Vec3& start, const Vec3& end, const Vec3& mins
             tr.normal = n;
             tr.box = int(&b - solids.data());
         }
-    }
+    };
+    forCandidates(std::min(start.x, end.x) + mins.x, std::min(start.y, end.y) + mins.y,
+                  std::max(start.x, end.x) + maxs.x, std::max(start.y, end.y) + maxs.y, test);
 
     if (bestT < 1.0f) {
         // Pull back so we stay kDistEpsilon off the surface.
@@ -76,68 +141,272 @@ TraceResult World::traceBox(const Vec3& start, const Vec3& end, const Vec3& mins
 
 bool World::boxFits(const Vec3& origin, const Vec3& mins, const Vec3& maxs) const {
     Vec3 a = origin + mins, b = origin + maxs;
-    for (const Box& s : solids) {
-        if (a.x < s.maxs.x && b.x > s.mins.x && a.y < s.maxs.y && b.y > s.mins.y && a.z < s.maxs.z &&
-            b.z > s.mins.z)
-            return false;
-    }
-    return true;
+    bool fits = true;
+    forCandidates(a.x, a.y, b.x, b.y, [&](const Box& s) {
+        if (a.x < s.maxs.x && b.x > s.mins.x && a.y < s.maxs.y && b.y > s.mins.y && a.z < s.maxs.z && b.z > s.mins.z)
+            fits = false;
+    });
+    return fits;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Dust2 at real scale. Coordinates are Source units, +x = east, +y = north, 250 u/s = knife run.
+// The layout is described as named floor areas on a 32-unit grid; later areas override earlier
+// ones. Any cell no area covers is solid wall, with its height taken from the nearest floor.
+// Ramps are stepped per cell (at most 16 units a step, so you walk up them) until real slopes exist.
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+struct DustArea {
+    const char* name;
+    float x0, y0, x1, y1;  // cells whose centre lies in [x0, x1) x [y0, y1)
+    float z0, z1;          // floor height; a ramp goes from z0 at the min edge to z1 at the max edge
+    char axis;             // 0 = flat, 'x' or 'y' = ramp along that axis
+    uint32_t color;
+    float roof;            // ceiling height above the floor (0 = open sky)
+};
+
+constexpr uint32_t kDSand = 0xc9b48a, kDSandLight = 0xd3bf94, kDSandDark = 0xb7a079, kDTunnel = 0x8f7d5e,
+                   kDSite = 0xd6c39b, kDWood = 0x7a5230, kDStone = 0xdcc9a3, kDCrate = 0xb5763a,
+                   kDBlue = 0x3f6f9a, kDRoof = 0x6b5a42;
+
+const DustArea kDustAreas[] = {
+    // T side.
+    {"T SPAWN", -900, -1100, 200, -500, 64, 64, 0, kDSand, 0},
+    {"OUTSIDE LONG", 200, -900, 650, -500, 64, 48, 'x', kDSand, 0},
+    {"OUTSIDE LONG", 400, -500, 650, 200, 48, 0, 'y', kDSand, 0},
+    {"OUTSIDE LONG", 400, 200, 650, 460, 0, 0, 0, kDSand, 0},
+    {"OUTSIDE TUNNELS", -1700, -900, -900, -500, 64, 64, 0, kDSand, 0},
+    {"OUTSIDE TUNNELS", -2150, -900, -1700, 700, 64, 0, 'y', kDSand, 0},
+    {"TOP MID", -450, -500, 50, 300, 64, 0, 'y', kDSand, 0},
+    // Long A.
+    {"LONG DOORS", 650, 300, 900, 460, 0, 0, 0, kDSandDark, 144},
+    {"LONG A", 900, 150, 1500, 850, 0, 0, 0, kDSand, 0},
+    {"LONG A", 1250, 850, 1850, 2050, 0, 0, 0, kDSand, 0},
+    {"PIT", 1500, 150, 1850, 600, -160, -160, 0, kDSandDark, 0},
+    {"PIT", 1650, 600, 1850, 950, -160, 0, 'y', kDSandDark, 0},
+    {"A RAMP", 1300, 2050, 1850, 2450, 0, 96, 'y', kDSandLight, 0},
+    {"A SITE", 750, 2450, 1850, 3150, 96, 96, 0, kDSite, 0},
+    {"GOOSE", 1650, 2950, 1850, 3150, 144, 144, 0, kDSandLight, 0},
+    // Mid, catwalk and short A.
+    {"MID", -400, 300, 150, 1880, 0, -64, 'y', kDSand, 0},
+    {"CATWALK", 150, 1000, 450, 1250, -28, 32, 'y', kDSandLight, 0},
+    {"CATWALK", 150, 1250, 450, 2050, 32, 32, 0, kDSandLight, 0},
+    {"SHORT", 180, 2050, 450, 2350, 32, 96, 'y', kDSandLight, 0},
+    {"SHORT", 150, 2350, 750, 2650, 96, 96, 0, kDSite, 0},
+    {"MID DOORS", -240, 1880, -120, 1912, -64, -64, 0, kDSandDark, 128},
+    // CT side.
+    {"CT MID", -700, 1912, 150, 2350, -64, -64, 0, kDSand, 0},
+    {"CT SPAWN", -450, 2350, 120, 3150, -64, -64, 0, kDSand, 0},
+    {"CT RAMP", 120, 2800, 750, 3150, -64, 96, 'x', kDSandLight, 0},
+    {"MID TO B", -1350, 2050, -700, 2350, 32, -64, 'x', kDSand, 0},
+    {"B DOORS", -1420, 2140, -1350, 2280, 32, 32, 0, kDSandDark, 128},
+    // B.
+    {"B SITE", -2300, 1950, -1420, 3150, 32, 32, 0, kDSite, 0},
+    {"BACK PLAT", -2300, 2850, -2000, 3150, 80, 80, 0, kDSandLight, 0},
+    {"UPPER TUNNELS", -2250, 700, -1850, 1500, 0, 0, 0, kDTunnel, 128},
+    {"UPPER TUNNELS", -2250, 1500, -1950, 1950, 0, 32, 'y', kDTunnel, 128},
+    {"LOWER TUNNELS", -1850, 1050, -1550, 1250, 0, -128, 'x', kDTunnel, 128},
+    {"LOWER TUNNELS", -1550, 1050, -750, 1250, -128, -128, 0, kDTunnel, 128},
+    {"LOWER TUNNELS", -750, 1050, -400, 1250, -128, -36, 'x', kDTunnel, 128},
+};
+constexpr int kDustAreaCount = int(sizeof(kDustAreas) / sizeof(kDustAreas[0]));
+constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
+
+// Wall top for a wall whose nearest floor is at `z`: high enough that nothing can be climbed.
+float wallTop(float z) { return std::ceil((z + 224.0f) / 32.0f) * 32.0f; }
+
+// Greedy rectangle merge over a w*h grid of keys (-1 = nothing). emit(i0, j0, i1, j1, key), inclusive.
+template <class Emit>
+void mergeRects(int w, int h, const std::vector<int64_t>& key, Emit&& emit) {
+    std::vector<char> used(key.size(), 0);
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i) {
+            size_t c = size_t(j * w + i);
+            if (used[c] || key[c] < 0) continue;
+            int64_t k = key[c];
+            int i1 = i;
+            while (i1 + 1 < w && !used[size_t(j * w + i1 + 1)] && key[size_t(j * w + i1 + 1)] == k) ++i1;
+            int j1 = j;
+            for (bool grow = true; grow && j1 + 1 < h;) {
+                for (int x = i; x <= i1 && grow; ++x) {
+                    size_t nb = size_t((j1 + 1) * w + x);
+                    grow = !used[nb] && key[nb] == k;
+                }
+                if (grow) ++j1;
+            }
+            for (int y = j; y <= j1; ++y)
+                for (int x = i; x <= i1; ++x) used[size_t(y * w + x)] = 1;
+            emit(i, j, i1, j1, k);
+        }
+}
+
+int64_t zKey(float z) { return int64_t(std::lround(z)) + 65536; }  // non-negative integer for a height
+
+}  // namespace
+
+bool MapGrid::cellAt(float x, float y, int& i, int& j) const {
+    i = int(std::floor((x - x0) / cell));
+    j = int(std::floor((y - y0) / cell));
+    return i >= 0 && j >= 0 && i < w && j < h;
+}
+
+float MapGrid::floorAt(float x, float y) const {
+    int i, j;
+    return cellAt(x, y, i, j) ? floor[size_t(index(i, j))] : kNoFloor;
+}
+
+const MapGrid& dustGrid() {
+    static const MapGrid grid = [] {
+        MapGrid m;
+        m.x0 = -2400;
+        m.y0 = -1216;
+        m.cell = 32;
+        m.w = 136;  // to x = 1952
+        m.h = 140;  // to y = 3264
+        size_t n = size_t(m.w * m.h);
+        m.floor.assign(n, MapGrid::kNoFloor);
+        m.ceiling.assign(n, MapGrid::kOpenSky);
+        m.area.assign(n, -1);
+        for (int a = 0; a < kDustAreaCount; ++a) {
+            const DustArea& d = kDustAreas[a];
+            for (int j = 0; j < m.h; ++j)
+                for (int i = 0; i < m.w; ++i) {
+                    float cx = m.x0 + (float(i) + 0.5f) * m.cell, cy = m.y0 + (float(j) + 0.5f) * m.cell;
+                    if (cx < d.x0 || cx >= d.x1 || cy < d.y0 || cy >= d.y1) continue;
+                    float t = d.axis == 'x'   ? (cx - d.x0) / (d.x1 - d.x0)
+                              : d.axis == 'y' ? (cy - d.y0) / (d.y1 - d.y0)
+                                              : 0.0f;
+                    float z = std::round((d.z0 + (d.z1 - d.z0) * t) / 4.0f) * 4.0f;
+                    size_t c = size_t(m.index(i, j));
+                    m.floor[c] = z;
+                    m.ceiling[c] = d.roof > 0 ? z + d.roof : MapGrid::kOpenSky;
+                    m.area[c] = a;
+                }
+        }
+        return m;
+    }();
+    return grid;
+}
+
+const char* dustCallout(const Vec3& p) {
+    const MapGrid& m = dustGrid();
+    int i, j;
+    if (!m.cellAt(p.x, p.y, i, j)) return "";
+    int a = m.area[size_t(m.index(i, j))];
+    return a >= 0 ? kDustAreas[a].name : "";
+}
+
+MapSpawn dustSpawn() { return {{-350, -800, dustGrid().floorAt(-350, -800)}, 90.0f}; }
+
 World buildDust() {
+    const MapGrid& m = dustGrid();
     World w;
-    auto add = [&](Vec3 mn, Vec3 mx, uint32_t color) { w.solids.push_back({mn, mx, color}); };
-    const uint32_t kSand = 0xc9b48a, kStone = 0xdcc9a3, kStoneDark = 0xc2aa80, kWood = 0x7a5230,
-                   kCrate = 0xb5763a, kBlue = 0x3f6f9a;
+    size_t n = m.floor.size();
 
-    add({-1600, -1600, -16}, {1600, 1600, 0}, kSand);
-    add({-1616, -1616, 0}, {-1600, 1616, 400}, kStoneDark);  // boundary
-    add({1600, -1616, 0}, {1616, 1616, 400}, kStoneDark);
-    add({-1616, -1616, 0}, {1616, -1600, 400}, kStoneDark);
-    add({-1616, 1600, 0}, {1616, 1616, 400}, kStoneDark);
+    // Wall heights: spread the nearest floor height outwards through the walls, layer by layer.
+    std::vector<float> nearZ(n, MapGrid::kNoFloor);
+    std::vector<char> assigned(n, 0);
+    std::vector<int> frontier, next;
+    for (int j = 0; j < m.h; ++j)
+        for (int i = 0; i < m.w; ++i)
+            if (m.walkable(i, j)) {
+                size_t c = size_t(m.index(i, j));
+                nearZ[c] = m.floor[c];
+                assigned[c] = 1;
+                frontier.push_back(m.index(i, j));
+            }
+    const int di[4] = {1, -1, 0, 0}, dj[4] = {0, 0, 1, -1};
+    while (!frontier.empty()) {
+        next.clear();
+        for (int c : frontier)
+            for (int k = 0; k < 4; ++k) {
+                int i = c % m.w + di[k], j = c / m.w + dj[k];
+                if (i < 0 || j < 0 || i >= m.w || j >= m.h || assigned[size_t(m.index(i, j))]) continue;
+                next.push_back(m.index(i, j));
+            }
+        std::sort(next.begin(), next.end());
+        next.erase(std::unique(next.begin(), next.end()), next.end());
+        for (int c : next) {  // a wall between two levels takes the higher one
+            int i = c % m.w, j = c / m.w;
+            for (int k = 0; k < 4; ++k) {
+                int a = i + di[k], b = j + dj[k];
+                if (a < 0 || b < 0 || a >= m.w || b >= m.h || !assigned[size_t(m.index(a, b))]) continue;
+                nearZ[size_t(c)] = std::max(nearZ[size_t(c)], nearZ[size_t(m.index(a, b))]);
+            }
+        }
+        for (int c : next) assigned[size_t(c)] = 1;
+        frontier.swap(next);
+    }
 
-    // Buildings that form the three lanes.
-    add({-1000, -1000, 0}, {-200, 500, 256}, kStone);   // between B tunnels and mid
-    add({200, -1000, 0}, {1000, 300, 256}, kStone);     // between mid and long
-    add({-600, 700, 0}, {600, 1200, 256}, kStone);      // CT building
-    add({-1000, 480, 240}, {-200, 500, 264}, kBlue);    // painted eaves (orientation cues)
-    add({200, 280, 240}, {1000, 300, 264}, kBlue);
+    auto rect = [&](int i0, int j0, int i1, int j1, float zMin, float zMax, uint32_t color) {
+        w.solids.push_back({{m.x0 + float(i0) * m.cell, m.y0 + float(j0) * m.cell, zMin},
+                            {m.x0 + float(i1 + 1) * m.cell, m.y0 + float(j1 + 1) * m.cell, zMax}, color});
+    };
+    std::vector<int64_t> key(n, -1);
 
-    // Long doors (long A), B tunnel exit, mid doors: walls with a doorway.
-    add({1000, -216, 0}, {1200, -200, 256}, kStoneDark);
-    add({1360, -216, 0}, {1600, -200, 256}, kStoneDark);
-    add({1200, -216, 128}, {1360, -200, 256}, kWood);
-    add({-1600, 200, 0}, {-1400, 216, 256}, kStoneDark);
-    add({-1240, 200, 0}, {-1000, 216, 256}, kStoneDark);
-    add({-1400, 200, 120}, {-1240, 216, 256}, kWood);
-    add({-200, 500, 0}, {-60, 516, 256}, kWood);
-    add({60, 500, 0}, {200, 516, 256}, kWood);
-    add({-60, 500, 140}, {60, 516, 256}, kStoneDark);
+    // Floors (one key per height + colour).
+    for (size_t c = 0; c < n; ++c)
+        if (m.area[c] >= 0) key[c] = (zKey(m.floor[c]) << 24) | int64_t(kDustAreas[m.area[c]].color);
+    mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
+        rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
+    });
 
-    // Cover.
-    add({-60, -200, 0}, {40, -120, 72}, kCrate);         // xbox in mid
-    add({400, 300, 0}, {1000, 420, 40}, kStoneDark);     // catwalk ledge on short
-    add({1150, 850, 0}, {1250, 950, 64}, kCrate);        // A site default boxes
-    add({1170, 870, 64}, {1230, 930, 112}, kCrate);
-    add({1450, 1150, 0}, {1600, 1300, 48}, kStoneDark);  // goose
-    add({-1300, 800, 0}, {-1200, 900, 64}, kCrate);      // B site boxes
-    add({-1290, 810, 64}, {-1230, 870, 104}, kCrate);
-    add({-1480, 1100, 0}, {-1360, 1250, 56}, 0x8a3b32); // B car
-    add({-300, -1300, 0}, {-200, -1200, 64}, kCrate);    // T spawn cover
-    add({250, -1350, 0}, {330, -1270, 64}, kCrate);
-    add({900, 1350, 0}, {1000, 1450, 64}, kCrate);       // CT spawn cover
+    // Walls, in three slightly different stone shades so building blocks read apart.
+    const uint32_t shades[3] = {kDStone, 0xd2bd94, 0xc7b089};
+    for (size_t c = 0; c < n; ++c) key[c] = m.area[c] < 0 ? zKey(wallTop(nearZ[c])) : -1;
+    mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
+        rect(i0, j0, i1, j1, kDustBottom, float(k - 65536), shades[uint32_t(i0 * 7 + j0 * 13) % 3]);
+    });
+
+    // Roofs over tunnels and doorways: from the ceiling up to the surrounding wall height.
+    for (size_t c = 0; c < n; ++c)
+        key[c] = m.area[c] >= 0 && m.ceiling[c] < MapGrid::kOpenSky
+                     ? (zKey(m.ceiling[c]) << 24) | zKey(std::max(wallTop(m.floor[c]), m.ceiling[c] + 32))
+                     : -1;
+    mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
+        rect(i0, j0, i1, j1, float((k >> 24) - 65536), float((k & 0xFFFFFF) - 65536), kDRoof);
+    });
+
+    // Props, standing on the floor under their centre.
+    auto prop = [&](float x0, float y0, float x1, float y1, float h, uint32_t color, float lift = 0) {
+        float z = m.floorAt((x0 + x1) * 0.5f, (y0 + y1) * 0.5f) + lift;
+        w.solids.push_back({{x0, y0, z}, {x1, y1, z + h}, color});
+    };
+    prop(-500, -800, -440, -740, 64, kDCrate);    // T spawn crates
+    prop(-60, -1000, 20, -920, 64, kDCrate);
+    prop(1050, 450, 1150, 650, 96, kDBlue);       // long: the blue container outside the doors
+    prop(1560, 200, 1640, 280, 48, kDCrate);      // pit box
+    prop(70, 1320, 150, 1400, 52, kDCrate);       // xbox (jump on it to reach catwalk)
+    prop(1200, 2650, 1290, 2740, 64, kDCrate);    // A default box (double stack)
+    prop(1215, 2665, 1275, 2725, 48, kDCrate, 64);
+    prop(1550, 2500, 1610, 2560, 48, kDCrate);    // A site box near the ramp
+    prop(820, 2950, 900, 3030, 64, kDCrate);      // A site, CT side
+    prop(-1940, 2500, -1840, 2580, 64, kDCrate);  // B default box (double stack)
+    prop(-1925, 2510, -1855, 2570, 44, kDCrate, 64);
+    prop(-1700, 2900, -1550, 3000, 56, 0x8a3b32); // B car
+    prop(-2280, 2200, -2200, 2280, 64, kDCrate);  // B site, by the wall
+    prop(-500, 2100, -440, 2160, 64, kDCrate);    // CT mid
+    prop(-1430, 2280, -1340, 2296, 128, kDWood);  // B doors: open door leaf
+    prop(892, 300, 900, 380, 128, kDWood);        // long doors: door leaf against the frame
+
+    w.buildIndex();
     return w;
 }
 
 const std::vector<PeekSpot>& dustPeekSpots() {
-    static const std::vector<PeekSpot> spots = {
-        {{1100, -150, 0}, {1280, -150, 0}},    // long doors
-        {{-130, 570, 0}, {0, 570, 0}},         // mid doors
-        {{-1500, 260, 0}, {-1320, 260, 0}},    // B tunnel exit
-        {{1200, 1000, 0}, {1300, 1000, 0}},    // A site default box
-        {{-1250, 950, 0}, {-1150, 950, 0}},    // B site box
-        {{-10, -90, 0}, {100, -90, 0}},        // xbox
-    };
+    static const std::vector<PeekSpot> spots = [] {
+        const MapGrid& m = dustGrid();
+        auto at = [&](float x, float y) { return Vec3{x, y, m.floorAt(x, y)}; };
+        return std::vector<PeekSpot>{
+            {at(1220, 720), at(1220, 400)},      // long corner, behind the blue container -> doors
+            {at(-320, 1990), at(-180, 1990)},    // CT mid, through mid doors
+            {at(-1880, 2640), at(-1770, 2640)},  // B default box -> tunnel exit
+            {at(1240, 2800), at(1350, 2800)},    // A default box -> A ramp / long
+            {at(-1520, 2420), at(-1520, 2210)},  // B site -> through B doors
+            {at(600, 2500), at(350, 2500)},      // short -> down the catwalk stairs
+        };
+    }();
     return spots;
 }
 

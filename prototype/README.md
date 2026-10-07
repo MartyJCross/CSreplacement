@@ -48,6 +48,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | G | Throw a smoke (deterministic bounces, so lineups repeat; jump-throws carry your momentum) |
 | F4 | Bots shoot back (toggle). You get HP, a damage flash and death/respawn |
 | F3 | Aim drill: killed range dummies respawn at random spots, and the HUD shows time-to-kill (last + average) |
+| F8 | Switch map: Feel Lab / Dust2 (real scale) |
 | F1 | Toggle help |
 | Alt+Enter | Toggle fullscreen |
 | Esc | Pause + **settings menu**: ↑/↓ select, ←/→ or mouse wheel change (Shift = ×5). Changes apply instantly and save to `config.cfg`. Q quits |
@@ -77,18 +78,38 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 
 ## Dust map (F8)
 
-**F8** switches between the Feel Lab and a super-basic Dust2-style map: T spawn (south), long A with long doors, mid with xbox and mid doors, B tunnels, both sites with boxes, CT spawn. Your choice is saved (`map 1`).
+**F8** switches between the Feel Lab and **Dust2 at real scale** (about 4,200 x 4,250 units, the same units as CS: 250 u/s with the knife, a 72-unit-tall player). Your choice is saved (`map 1`). The area you're in shows at the top of the screen (LONG A, CATWALK, B SITE, ...).
+
+- **Every route:**
+  - T spawn, outside long, long doors (roofed), long A with the blue container and the pit, the A ramp, A site with goose
+  - top mid, mid, xbox (jump on it to reach catwalk), catwalk, short stairs and short
+  - mid doors, CT mid, CT spawn, the CT ramp to A, mid to B and B doors
+  - outside tunnels, upper tunnels (roofed) and the tunnel exit, lower tunnels into mid, B site with the back plat, car and boxes
+- **Real height levels:**
+  - T spawn is high ground and mid drops down towards CT
+  - catwalk is a ledge above mid
+  - A site and short sit up high
+  - the pit and lower tunnels dip down
+- **Ramps are small steps for now** (at most 16 units each). Walking feels like a ramp because the camera eases over each step (`view_smooth_steps`), but a jump into a ramp can catch on a step edge. Real slopes are on the to-do list.
+- **It's built from memory,** so it isn't a perfect copy. The headless tests run a simulated player along the main routes and print the run times, for example T spawn to B site and CT spawn to A site. Compare them with what you remember from CS.
 
 On Dust the 4 bots play the angles:
-- They hide behind cover (long doors, mid doors, B tunnel exit, site boxes, xbox) and peek out after a random wait.
+- They hide behind cover and peek out after a random wait. Their spots:
+  - the long corner behind the blue container
+  - through mid doors
+  - the B default box (towards tunnels)
+  - the A default box (towards long)
+  - through B doors
+  - short (down the catwalk stairs)
 - They hold the angle for a random time, then fall back.
 - They react in 0.25–0.55 s with slight random aim error. Your own shots stay fully deterministic.
+- They see and shoot up to 4,000 units, so long A and mid are real sightlines.
 - They respawn 2–4 s after you kill them, at a free spot.
 - You can hear their footsteps when they peek.
 
 ## Bots, smokes, wallbangs, KZ
 
-- **Bots shoot back (F4).** Any dummy that can see you reacts after 0.4 s and fires every 0.3 s. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. There's no random aim. Smokes block their vision.
+- **Bots shoot back (F4).** Any dummy that can see you reacts after a random 0.25–0.55 s and fires every 0.22–0.38 s, with about 0.8° of random aim error. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. Smokes block their vision.
 - **Smokes (G):**
   - they pop 1.6 s after the throw and last 15 s
   - same throw = same landing spot every time
@@ -118,6 +139,10 @@ Perfect hops keep 250 u/s, and good strafes build to 500+. Set `bhop 0` for CS-s
 ## Zero-lag camera
 
 `camera_extrapolate 1` is on by default. The simulation runs at 128 ticks, so a normal interpolated camera shows your position up to one tick (7.8 ms) in the past. This one draws you where you are *now*: the latest tick plus the time since, with collision and step-up checks. Movement keys show up on screen with no added delay. Set it to 0 to compare.
+
+## Smooth stairs
+
+`view_smooth_steps 1` is on by default. Walking up or down a step moves you up to 18 units in one tick. With this on, the camera eases over the step in about 50 ms instead of jumping. It's purely visual: your movement, hitbox and timing are unchanged, and your shots come from exactly where the camera is. Set it to 0 to compare.
 
 ## No random spread
 

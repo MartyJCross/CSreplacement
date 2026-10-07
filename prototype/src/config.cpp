@@ -47,6 +47,8 @@ spread_movement 0
 bhop 1
 // 1 = zero-lag camera: your view is drawn where you are *now*, not up to one tick behind.
 camera_extrapolate 1
+// 1 = the camera eases over stairs and steps instead of popping up (cosmetic; movement is unchanged).
+view_smooth_steps 1
 // Scoped sensitivity multiplier (1 = matched to unscoped, like CS).
 zoom_sensitivity_ratio 1
 )";
@@ -70,7 +72,8 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nviewmodel_offset_z " << c.viewmodel_offset_z << "\nviewmodel_bob " << c.viewmodel_bob
         << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
         << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
-        << "\ncamera_extrapolate " << c.camera_extrapolate << "\nmap " << c.map << "\n";
+        << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
+        << "\nmap " << c.map << "\n";
     return bool(out);
 }
 
@@ -123,6 +126,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "spread_movement") i(c.spread_movement);
         else if (key == "bhop") i(c.bhop);
         else if (key == "camera_extrapolate") i(c.camera_extrapolate);
+        else if (key == "view_smooth_steps") i(c.view_smooth_steps);
         else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
         else if (key == "map") i(c.map);
     }

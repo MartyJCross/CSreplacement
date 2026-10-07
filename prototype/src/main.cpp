@@ -159,6 +159,10 @@ struct Game {
     std::vector<int> botState, botSpot;  // state: 0 hidden, 1 peeking out, 2 holding, 3 returning
     std::vector<float> botTimer, botReact;
 
+    // Cosmetic: camera height offset that eases the view over stairs and stepped ramps.
+    float stepSmooth = 0;
+    const char* callout = "";  // Dust area name under the player (HUD)
+
     // KZ course timer.
     int kzState = 0;  // 0 idle, 1 on start pad, 2 running
     double kzStart = 0, kzLast = -1, kzBest = -1;
@@ -235,6 +239,7 @@ void resetPosition(Game& g) {
     g.prevPlayer = g.player;
     g.viewYaw = g.spawnYaw;
     g.viewPitch = 0;
+    g.stepSmooth = 0;
 }
 
 constexpr float kStepSpeed = 135.0f;   // at or below this you are silent (shift-walk is ~112)
@@ -259,8 +264,8 @@ void loadMap(Game& g, Renderer& r, int id) {
     if (id == 1) {
         g.dummies.assign(4, Dummy{});
         for (Dummy& d : g.dummies) d.respawnLeft = 0.01f;  // spawn at a spot on the first tick
-        g.spawn = {0, -1400, 0};
-        g.spawnYaw = 90;
+        g.spawn = dustSpawn().pos;
+        g.spawnYaw = dustSpawn().yaw;
         g.botsFire = true;
     } else {
         g.dummies = buildDummies();
@@ -493,6 +498,16 @@ void simTick(Game& g, const Options& opt) {
     } else {
         float maxSpeed = wd.maxSpeed * (g.zoom > 0 ? 0.5f : 1.0f);  // scoped = half speed
         playerMove(g.player, in, float(g.viewYaw), maxSpeed, g.world, g.moveParams);
+        // Walking up or down a step pops the hull by up to stepSize in one tick. The camera eases
+        // over it instead (cosmetic only; the simulation is unchanged).
+        float dz = g.player.origin.z - g.prevPlayer.origin.z;
+        if (g.prevPlayer.onGround && g.player.onGround && std::fabs(dz) > 0.01f &&
+            std::fabs(dz) <= g.moveParams.stepSize + 2.0f)
+            g.stepSmooth = std::clamp(g.stepSmooth - dz, -32.0f, 32.0f);
+    }
+    if (g.mapId == 1) {
+        const char* c = dustCallout(g.player.origin);
+        if (c != g.callout) { g.callout = c; g.hudDirty = true; }
     }
 
     for (size_t i = 0; i < g.dummies.size(); ++i) {
@@ -645,7 +660,7 @@ void simTick(Game& g, const Options& opt) {
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             const Dummy& d = g.dummies[i];
             Vec3 head = d.pos + Vec3{0, 0, 64};
-            bool los = d.alive() && length(simEye - head) < 2400.0f &&
+            bool los = d.alive() && length(simEye - head) < 4000.0f &&
                        g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
             if (!los) { g.botSeen[i] = 0; continue; }
             if (g.botSeen[i] == 0) g.botReact[i] = 0.25f + rnd(g) * 0.3f;  // human-ish reaction time
@@ -658,8 +673,8 @@ void simTick(Game& g, const Options& opt) {
             float err = length(aim - head) * 0.014f;  // ~0.8 deg of random aim error
             aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * err};
             Vec3 dir = normalize(aim - head);
-            TraceResult wt = g.world.traceRay(head, head + dir * 3000.0f);
-            float maxT = wt.fraction * 3000.0f, bestT = maxT;
+            TraceResult wt = g.world.traceRay(head, head + dir * 5000.0f);
+            float maxT = wt.fraction * 5000.0f, bestT = maxT;
             float hh = g.player.ducked ? kDuckHeight : kStandHeight;
             Vec3 o = g.player.origin;
             int hit = 0;  // 1 body, 2 head
@@ -778,6 +793,7 @@ std::vector<MenuItem> menuItems(Config& c) {
         {"FPS CAP (0 = UNLIMITED)", nullptr, &c.fps_max, 30, 0, 1000},
         {"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
         {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
+        {"SMOOTH STAIRS (CAMERA)", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
         {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
         {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
     };
@@ -902,6 +918,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             hud.text(cx - hud.textWidth(dead, s * 3) / 2, cy - 60.0f * s, dead, 0xFF4040FF, s * 3);
         }
     }
+    if (g.mapId == 1 && g.callout[0]) hud.text(cx - hud.textWidth(g.callout, s * 2) / 2, 12.0f * s, g.callout, 0xFFFFFFD0, s * 2);
     if (g.kzState == 2 || g.kzLast >= 0) {
         if (g.kzState == 2) std::snprintf(buf, sizeof(buf), "KZ %.2f", g.simTime - g.kzStart);
         else std::snprintf(buf, sizeof(buf), "KZ LAST %.3f   BEST %.3f", g.kzLast, g.kzBest);
@@ -1036,7 +1053,8 @@ int main(int argc, char** argv) {
     applyConfig(g, cfg);
     loadMap(g, renderer, cfg.map == 1 ? 1 : 0);
     if (opt.spawnOverride) {
-        g.spawn = {opt.spawnX, opt.spawnY, 0};
+        float floorZ = g.mapId == 1 ? dustGrid().floorAt(opt.spawnX, opt.spawnY) : 0.0f;
+        g.spawn = {opt.spawnX, opt.spawnY, floorZ > MapGrid::kNoFloor ? floorZ : 0.0f};
         g.spawnYaw = opt.spawnYaw;
         resetPosition(g);
     }
@@ -1221,7 +1239,14 @@ int main(int argc, char** argv) {
             }
             eyeZ = eyeHeight(p);
         }
-        Vec3 eye = origin + Vec3{0, 0, eyeZ};
+        if (cfg.view_smooth_steps && !g.noclip && g.player.onGround && g.prevPlayer.onGround) {
+            // Ground height comes from the latest tick only; stepSmooth eases the change in.
+            origin.z = g.player.origin.z;
+            if (!paused) g.stepSmooth *= std::exp(-float(dt) / 0.045f);
+        } else {
+            g.stepSmooth = 0;
+        }
+        Vec3 eye = origin + Vec3{0, 0, eyeZ + g.stepSmooth};
         float recoilIdx = g.recoilIndexPrev + (g.weapon->recoilIndex - g.recoilIndexPrev) * alpha;
         RecoilStep punch = g.weapon->def->canFire ? recoilAt(*g.weapon->def, recoilIdx) : RecoilStep{0, 0};
         float camPitch = float(g.viewPitch) - punch.up * cfg.view_recoil_tracking;

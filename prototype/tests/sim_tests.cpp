@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "combat.h"
@@ -344,6 +346,176 @@ void testRayVsBoxes() {
     CHECK(tr.fraction < 1 && hitX > 2559 && hitX < 2560.01f, "x %.2f", hitX);
 }
 
+// ---- Dust (real-scale Dust2) ----
+
+const World& dust() {
+    static World w = buildDust();
+    return w;
+}
+
+// Shortest walkable route between two points on the Dust grid: climbs of at most one step, any drop,
+// enough headroom, and never through a cell a prop blocks. Returns cell centres (on the floor).
+bool dustRoute(Vec3 from, Vec3 to, std::vector<Vec3>& out) {
+    const MapGrid& m = dustGrid();
+    int si, sj, ti, tj;
+    if (!m.cellAt(from.x, from.y, si, sj) || !m.cellAt(to.x, to.y, ti, tj)) return false;
+    static std::vector<char> clearCell;
+    if (clearCell.empty()) {
+        clearCell.assign(size_t(m.w * m.h), 0);
+        for (int j = 0; j < m.h; ++j)
+            for (int i = 0; i < m.w; ++i)
+                clearCell[size_t(m.index(i, j))] =
+                    m.walkable(i, j) && dust().boxFits(m.center(i, j) + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false));
+    }
+    auto ok = [&](int i, int j) { return i >= 0 && j >= 0 && i < m.w && j < m.h && clearCell[size_t(m.index(i, j))]; };
+    auto step = [&](int a, int b, int c, int d) {
+        if (!ok(a, b) || !ok(c, d)) return false;
+        size_t p = size_t(m.index(a, b)), q = size_t(m.index(c, d));
+        if (m.floor[q] - m.floor[p] > MoveParams{}.stepSize) return false;
+        return std::min(m.ceiling[p], m.ceiling[q]) - std::max(m.floor[p], m.floor[q]) >= kStandHeight + 2;
+    };
+    if (!ok(si, sj) || !ok(ti, tj)) return false;
+    // Cells next to a wall or ledge cost a bit more, so routes keep off the edges like a player would.
+    auto edgeCost = [&](int i, int j) {
+        for (int dj = -1; dj <= 1; ++dj)
+            for (int di = -1; di <= 1; ++di)
+                if (!ok(i + di, j + dj) ||
+                    std::fabs(m.floor[size_t(m.index(i + di, j + dj))] - m.floor[size_t(m.index(i, j))]) > 20)
+                    return 1.0f;
+        return 0.0f;
+    };
+    std::vector<float> dist(size_t(m.w * m.h), 1e30f);
+    std::vector<int> prev(size_t(m.w * m.h), -1);
+    using Item = std::pair<float, int>;
+    std::vector<Item> heap;
+    auto cmp = [](const Item& a, const Item& b) { return a.first > b.first; };
+    dist[size_t(m.index(si, sj))] = 0;
+    heap.push_back({0.0f, m.index(si, sj)});
+    while (!heap.empty()) {
+        std::pop_heap(heap.begin(), heap.end(), cmp);
+        Item it = heap.back();
+        heap.pop_back();
+        int c = it.second, i = c % m.w, j = c / m.w;
+        if (it.first > dist[size_t(c)]) continue;
+        if (i == ti && j == tj) break;
+        for (int dj = -1; dj <= 1; ++dj)
+            for (int di = -1; di <= 1; ++di) {
+                if (!di && !dj) continue;
+                if (!step(i, j, i + di, j + dj)) continue;
+                if (di && dj && !(step(i, j, i + di, j) && step(i, j, i, j + dj) && step(i + di, j, i + di, j + dj) &&
+                                  step(i, j + dj, i + di, j + dj)))
+                    continue;
+                int n = m.index(i + di, j + dj);
+                float nd = dist[size_t(c)] + (di && dj ? 1.4142f : 1.0f) + edgeCost(i + di, j + dj);
+                if (nd < dist[size_t(n)]) {
+                    dist[size_t(n)] = nd;
+                    prev[size_t(n)] = c;
+                    heap.push_back({nd, n});
+                    std::push_heap(heap.begin(), heap.end(), cmp);
+                }
+            }
+    }
+    int t = m.index(ti, tj);
+    if (prev[size_t(t)] < 0 && t != m.index(si, sj)) return false;
+    out.clear();
+    for (int c = t; c >= 0; c = prev[size_t(c)]) out.push_back(m.center(c % m.w, c / m.w));
+    std::reverse(out.begin(), out.end());
+    return true;
+}
+
+// Runs a simulated player along `path` (holding W, steering at a point a little ahead) and returns
+// the time taken, or -1 if they got stuck.
+float runRoute(const std::vector<Vec3>& path, float speed, float* distance) {
+    PlayerState ps = spawnAt(path.front());
+    size_t wp = 1;
+    int ticks = 0, lastProgress = 0;
+    float travelled = 0;
+    while (wp < path.size()) {
+        Vec3 d = path[wp] - ps.origin;
+        d.z = 0;
+        if (length(d) < 40.0f) { ++wp; lastProgress = ticks; continue; }
+        Vec3 aim = path[std::min(wp + 2, path.size() - 1)] - ps.origin;
+        MoveInput in;
+        in.forward = 1;
+        Vec3 before = ps.origin;
+        playerMove(ps, in, std::atan2(aim.y, aim.x) / kDegToRad, speed, dust());
+        travelled += length2d(ps.origin - before);
+        if (++ticks - lastProgress > kTickRate * 3) return -1.0f;  // no waypoint for 3 s: stuck
+    }
+    if (distance) *distance = travelled;
+    return float(ticks) * kTickDt;
+}
+
+struct Landmark { const char* name; Vec3 pos; };
+
+void testDustMap() {
+    std::printf("dust map\n");
+    const World& w = dust();
+    std::printf("  %zu boxes, broadphase %s\n", w.solids.size(), w.indexed() ? "on" : "off");
+    CHECK(w.indexed() && w.solids.size() < 3000, "boxes %zu", w.solids.size());
+
+    MapSpawn sp = dustSpawn();
+    CHECK(w.boxFits(sp.pos + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)), "T spawn is clear");
+    CHECK(std::string(dustCallout(sp.pos)) == "T SPAWN", "callout %s", dustCallout(sp.pos));
+
+    // Every bot spot is standing room on solid floor.
+    for (const PeekSpot& s : dustPeekSpots())
+        for (Vec3 p : {s.cover, s.peek}) {
+            bool clear = p.z > MapGrid::kNoFloor && w.boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false));
+            TraceResult tr = w.traceBox(p + Vec3{0, 0, 0.5f}, p - Vec3{0, 0, 4}, hullMins(), hullMaxs(false));
+            CHECK(clear && tr.fraction < 1.0f, "bot spot (%.0f, %.0f) clear %d on floor %d", p.x, p.y, clear,
+                  tr.fraction < 1.0f);
+        }
+}
+
+// The broadphase must give exactly the same answers as testing every box.
+void testDustBroadphase() {
+    std::printf("dust broadphase\n");
+    World brute;
+    brute.solids = dust().solids;  // same boxes, no index
+    uint32_t rng = 12345u;
+    auto r = [&](float lo, float hi) {
+        rng = rng * 1664525u + 1013904223u;
+        return lo + (hi - lo) * float(rng >> 8) / float(1u << 24);
+    };
+    int mismatches = 0;
+    for (int k = 0; k < 4000; ++k) {
+        Vec3 a{r(-2400, 1950), r(-1200, 3250), r(-150, 300)};
+        Vec3 b = k % 2 ? Vec3{r(-2400, 1950), r(-1200, 3250), r(-150, 300)}
+                       : a + Vec3{r(-64, 64), r(-64, 64), r(-32, 32)};
+        Vec3 mn = k % 3 ? hullMins() : Vec3{}, mx = k % 3 ? hullMaxs(false) : Vec3{};
+        TraceResult x = dust().traceBox(a, b, mn, mx), y = brute.traceBox(a, b, mn, mx);
+        if (x.fraction != y.fraction || x.startSolid != y.startSolid) ++mismatches;
+        if (dust().boxFits(a, mn, mx) != brute.boxFits(a, mn, mx)) ++mismatches;
+    }
+    std::printf("  4000 random traces + fits: %d mismatches\n", mismatches);
+    CHECK(mismatches == 0, "%d", mismatches);
+}
+
+// Walk the main routes with a simulated player at knife speed (250 u/s) and print the run times.
+void testDustRoutes() {
+    std::printf("dust routes (knife, 250 u/s)\n");
+    const Landmark tSpawn{"T spawn", dustSpawn().pos}, ctSpawn{"CT spawn", {-150, 2750, 0}},
+        longDoors{"long doors", {775, 380, 0}}, aSite{"A site", {1300, 2900, 0}}, bSite{"B site", {-1850, 2400, 0}},
+        midDoors{"mid doors", {-176, 1896, 0}}, cat{"catwalk", {300, 1700, 0}}, pit{"pit", {1700, 350, 0}},
+        lower{"lower tunnels", {-1100, 1150, 0}};
+    struct Route { Landmark a, b; float minS, maxS; };
+    const Route routes[] = {
+        {tSpawn, longDoors, 4, 10},  {tSpawn, aSite, 10, 22},  {tSpawn, bSite, 11, 22},
+        {tSpawn, midDoors, 7, 15},   {tSpawn, cat, 5, 14},     {tSpawn, lower, 5, 14},
+        {ctSpawn, aSite, 2.5f, 8},   {ctSpawn, bSite, 6, 14},  {ctSpawn, midDoors, 2, 8},
+        {pit, aSite, 6, 15},         {bSite, tSpawn, 11, 22},  {lower, bSite, 4, 12},
+    };
+    for (const Route& rt : routes) {
+        std::vector<Vec3> path;
+        bool found = dustRoute(rt.a.pos, rt.b.pos, path);
+        float dist = 0, secs = found ? runRoute(path, 250.0f, &dist) : -1.0f;
+        std::printf("  %-9s -> %-13s %5.1f s  (%4.0f units)\n", rt.a.name, rt.b.name, double(secs), double(dist));
+        CHECK(found, "no route %s -> %s", rt.a.name, rt.b.name);
+        CHECK(secs >= rt.minS && secs <= rt.maxS, "%s -> %s took %.1f s (stuck = -1)", rt.a.name, rt.b.name, double(secs));
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -359,6 +531,9 @@ int main() {
     testWeapon();
     testWallbang();
     testRayVsBoxes();
+    testDustMap();
+    testDustBroadphase();
+    testDustRoutes();
     if (g_failures) {
         std::printf("\n%d check(s) FAILED\n", g_failures);
         return 1;

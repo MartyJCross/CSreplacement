@@ -29,7 +29,8 @@ prototype/
   CMakeLists.txt          builds feellab_sim (lib), sim_tests (headless), feellab (game; FEELLAB_BUILD_GAME=ON)
   src/
     vecmath.h             Vec3/Mat4, Z-up, Source-style angles (pitch + = down, yaw + = left)
-    world.*               AABB world, traces, maps: buildFeelLab(), buildDust(), dustPeekSpots(), KZ course
+    world.*               AABB world, traces (+ optional broadphase), maps: buildFeelLab(), buildDust()
+                          (real-scale Dust2 from the kDustAreas table on a 32u grid), dustPeekSpots(), KZ course
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
     combat.*              weapons (rifle/pistol/sniper/knife), recoil patterns, wallbangs, dummies + hitboxes
     main.cpp              window/input, 128 Hz fixed-step loop, bots AI, smokes, KZ, HUD, settings menu, map loading
@@ -48,9 +49,9 @@ prototype/
 2. **The player's bullets have no randomness by default.** Shots go to crosshair + fixed recoil pattern (`spread_spray` / `spread_movement` config toggles exist). Bots may use randomness (`rnd(g)` in `main.cpp`), but the player's shots must not.
 3. **What you see is what you hit.** Shots test against the dummy positions and eye that were rendered on the frame you clicked (`lastDummyRenderPos`, `lastRenderEye`). Cosmetic parts of enemies must sit inside their hitboxes. Weapons held by enemies are the only exception, like CS.
 4. **Performance budget.** No per-frame heap allocations in hot paths, no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
-5. **No asset files and no copyrighted content.** Sounds are synthesized in `audio.cpp` and models are boxes in `fx.cpp`. Never use Valve/CS assets, names or exact maps. The Dust map is an original block-out "in the style of".
+5. **No asset files and no copyrighted content.** Sounds are synthesized in `audio.cpp` and models are boxes in `fx.cpp`. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts as closely as possible so the owner can judge speed. It is still built from code (no extracted map files). Revisit before anything is shared publicly.
 6. **Keep it portable to MSVC.** It's C++20, standard library and SDL3 only. No GCC/Clang-only extensions. Code must compile warning-clean with `-Wall -Wextra -pedantic` (Linux) and `/W4` (MSVC).
-7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Tests use `buildFeelLab()`. Don't move Feel Lab geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall).
+7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildFeelLab()`. Don't move Feel Lab geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The Dust tests check bot spots and run a simulated player along the main routes, with allowed time windows. If you change `kDustAreas`, keep those passing and look at the printed run times.
 8. **Settings belong in the config and the menu.** A new tunable gets a `Config` field, load + save in `config.cpp`, the default config text, and if player-facing an entry in `menuItems()` in `main.cpp`.
 
 ## 5. Build and test
@@ -116,9 +117,10 @@ See `prototype/README.md` for full details. Each item below lists where its code
   - 3 knife
   - 4 sniper (2-level scope, stays scoped after firing, no crosshair unscoped)
 - **Zero-lag camera** (`camera_extrapolate`): the view is drawn at "now", not one tick behind.
+- **Smooth stairs** (`view_smooth_steps`): the camera eases over step-ups/downs (cosmetic `stepSmooth` in `main.cpp`).
 - **Maps** (F8 switches):
   - Feel Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course
-  - Dust-style block-out: bots peek from cover (`dustPeekSpots()`)
+  - Dust2 at real scale (stepped ramps, roofed tunnels, HUD callouts); bots peek from cover (`dustPeekSpots()`)
 - **Bots** (F4 on the Feel Lab, always on in Dust):
   - aim at where the player was 0.2 s ago
   - random reaction time (0.25–0.55 s) and slight random aim error
@@ -131,7 +133,7 @@ See `prototype/README.md` for full details. Each item below lists where its code
 
 ## 8. Roadmap (owner priorities first)
 
-1. A better Dust-style block-out with ramps and stairs (short A stairs, B platform, catwalk), still original geometry.
+1. Dust2 accuracy: refine `kDustAreas` from the owner's feedback (or `getpos` measurements). Add real sloped ramps; that needs non-AABB brushes in `world.*` plus a wedge mesh in the renderer. Add B window and more props.
 2. Bots that face the player (rotate the dummy model; hitboxes can stay AABB, or become yaw-rotated OBBs with matching tests).
 3. Flashbang; grenade lineup markers.
 4. Round structure: buy phase, economy, bomb plant/defuse vs bots.
