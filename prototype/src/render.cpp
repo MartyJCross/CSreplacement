@@ -13,13 +13,14 @@ layout(location = 2) in vec3 iMin;
 layout(location = 3) in vec3 iMax;
 layout(location = 4) in vec4 iColor;
 uniform mat4 uViewProj;
+uniform mat4 uModel;
 out vec3 vWorld;
 out vec3 vNormal;
 out vec4 vColor;
 void main() {
-    vec3 p = iMin + aPos * (iMax - iMin);
+    vec3 p = (uModel * vec4(iMin + aPos * (iMax - iMin), 1.0)).xyz;
     vWorld = p;
-    vNormal = aNormal;
+    vNormal = mat3(uModel) * aNormal;
     vColor = iColor;
     gl_Position = uViewProj * vec4(p, 1.0);
 }
@@ -38,11 +39,13 @@ float grid(vec2 p, float spacing) {
     return max(l.x, l.y);
 }
 void main() {
-    vec3 n = vNormal;
-    // Fixed directional light: tops brightest, faces shaded per axis so shapes read clearly.
-    float light = n.z > 0.5 ? 1.0 : (n.z < -0.5 ? 0.45 : (abs(n.x) > 0.5 ? 0.80 : 0.68));
+    if (vColor.a > 0.4 && vColor.a < 0.6) { oColor = vec4(vColor.rgb, 1.0); return; }  // emissive
+    vec3 n = normalize(vNormal);
+    // Fixed directional light: tops brightest, sides shaded so shapes read clearly.
+    float light = 0.45 + 0.55 * clamp(n.z, 0.0, 1.0) + 0.30 * abs(n.x) * (1.0 - abs(n.z)) + 0.20 * abs(n.y) * (1.0 - abs(n.z));
+    light = min(light, 1.0);
     vec3 c = vColor.rgb * light;
-    if (vColor.a > 0.0) {
+    if (vColor.a > 0.9) {
         vec2 uv = abs(n.z) > 0.5 ? vWorld.xy : (abs(n.x) > 0.5 ? vWorld.yz : vWorld.xz);
         float g = grid(uv, 64.0) * 0.22 + grid(uv, 16.0) * 0.07;
         c *= 1.0 - g * vColor.a;
@@ -166,6 +169,12 @@ void pushQuad(std::vector<HudVert>& v, float x0, float y0, float x1, float y1, f
 
 }  // namespace
 
+BoxInstance makeEmissive(const Vec3& mins, const Vec3& maxs, uint32_t rgb) {
+    BoxInstance b = makeBox(mins, maxs, rgb, false);
+    b.rgba[3] = 128;
+    return b;
+}
+
 BoxInstance makeBox(const Vec3& mins, const Vec3& maxs, uint32_t rgb, bool grid) {
     BoxInstance b;
     b.mins[0] = mins.x; b.mins[1] = mins.y; b.mins[2] = mins.z;
@@ -221,6 +230,7 @@ bool Renderer::init(std::string& err) {
     hudProgram_ = compileProgram(kHudVS, kHudFS, err);
     if (!hudProgram_) return false;
     uViewProj_ = glGetUniformLocation(boxProgram_, "uViewProj");
+    uModel_ = glGetUniformLocation(boxProgram_, "uModel");
     uEye_ = glGetUniformLocation(boxProgram_, "uEye");
     uScreen_ = glGetUniformLocation(hudProgram_, "uScreen");
     uFont_ = glGetUniformLocation(hudProgram_, "uFont");
@@ -312,6 +322,8 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
     glDisable(GL_BLEND);
     glUseProgram(boxProgram_);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE, viewProj.m);
+    Mat4 id = identity();
+    glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
     glUniform3f(uEye_, eye.x, eye.y, eye.z);
 
     glBindVertexArray(staticVao_);
@@ -319,9 +331,7 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
 
     int n = std::min(int(dynamicBoxes.size()), kMaxDynamicBoxes);
     if (n > 0) {
-        glBindBuffer(GL_ARRAY_BUFFER, dynInst_);
-        glBufferData(GL_ARRAY_BUFFER, kMaxDynamicBoxes * sizeof(BoxInstance), nullptr, GL_STREAM_DRAW);  // orphan
-        glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(n * sizeof(BoxInstance)), dynamicBoxes.data());
+        uploadDynamic(dynamicBoxes, n);
         glBindVertexArray(dynVao_);
         glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);
     }
@@ -329,6 +339,31 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
         glBindVertexArray(decalVao_);
         glDrawArraysInstanced(GL_TRIANGLES, 0, 36, decalCount_);
     }
+}
+
+void Renderer::uploadDynamic(const std::vector<BoxInstance>& boxes, int n) {
+    glBindBuffer(GL_ARRAY_BUFFER, dynInst_);
+    glBufferData(GL_ARRAY_BUFFER, kMaxDynamicBoxes * sizeof(BoxInstance), nullptr, GL_STREAM_DRAW);  // orphan
+    glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(n * sizeof(BoxInstance)), boxes.data());
+}
+
+void Renderer::drawModel(const Mat4& viewProj, const Mat4& model, const std::vector<BoxInstance>& boxes) {
+    int n = std::min(int(boxes.size()), kMaxDynamicBoxes);
+    if (n == 0) return;
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glUseProgram(boxProgram_);
+    glUniformMatrix4fv(uViewProj_, 1, GL_FALSE, viewProj.m);
+    glUniformMatrix4fv(uModel_, 1, GL_FALSE, model.m);
+    uploadDynamic(boxes, n);
+    glBindVertexArray(dynVao_);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);
+}
+
+void Renderer::clearDepth() {
+    glDepthMask(GL_TRUE);
+    glClear(GL_DEPTH_BUFFER_BIT);
 }
 
 void Renderer::drawHud(const HudBatch& hud, bool changed) {

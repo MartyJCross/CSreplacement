@@ -123,7 +123,15 @@ void updateDummy(Dummy& d, float dt) {
     for (float& f : d.flash) f = std::max(0.0f, f - dt);
     if (!d.alive()) {
         d.respawnLeft -= dt;
-        if (d.alive()) d.hp = 100;
+        if (d.alive()) {
+            d.hp = 100;
+            if (d.randomRespawn) {
+                uint32_t s = hash32(++d.respawns * 7919u + uint32_t(d.areaMin.x));
+                float u = rand01(s), v = rand01(s ^ 0x5bd1e995u);
+                d.pos = d.prevPos = {d.areaMin.x + (d.areaMax.x - d.areaMin.x) * u,
+                                     d.areaMin.y + (d.areaMax.y - d.areaMin.y) * v, 0};
+            }
+        }
         return;
     }
     if (d.motion != DummyMotion::Strafe) return;

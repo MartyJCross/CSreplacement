@@ -31,7 +31,7 @@ This repo holds research and design only. There is no game code here. It sets ou
 
 ## Prototype
 
-[`prototype/`](prototype/) is a minimal single-player **feel lab** in C++20, SDL3 and OpenGL 3.3. It has 128-tick movement, one rifle with a spray pattern, target dummies and a grey-box test map. A GitHub Action builds a Windows `.exe` on every push. See [prototype/README.md](prototype/README.md) to download and play.
+[`prototype/`](prototype/) is a minimal single-player **feel lab** in C++20, SDL3 and OpenGL 3.3. It has 128-tick movement, one rifle with a spray pattern, a first-person weapon model, synthesized sound with positional footsteps, target dummies and a grey-box test map. A GitHub Action builds a Windows `.exe` on every push. See [prototype/README.md](prototype/README.md) to download and play.
 
 ## Recommended first step
 

@@ -57,6 +57,11 @@ struct Dummy {
     float hp = 100;
     float respawnLeft = 0;  // > 0 while dead
     float flash[kNumHitGroups] = {};
+    // Aim drill: respawn somewhere random inside this area instead of at the same spot.
+    bool randomRespawn = false;
+    Vec3 areaMin, areaMax;
+    uint32_t respawns = 0;
+    float stepDist = 0;  // footstep accumulator (cosmetic)
     bool alive() const { return respawnLeft <= 0; }
 };
 

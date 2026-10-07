@@ -30,6 +30,15 @@ crosshair_dot 0
 view_recoil_tracking 0.45
 // 0 = auto
 hud_scale 0
+// Master volume 0..1
+volume 0.6
+// First-person weapon: FOV (like CS viewmodel_fov), position offsets, bob strength, visibility.
+viewmodel_fov 68
+viewmodel_offset_x 0
+viewmodel_offset_y 0
+viewmodel_offset_z 0
+viewmodel_bob 1
+show_viewmodel 1
 )";
 
 }  // namespace
@@ -72,6 +81,13 @@ Config loadConfig(const std::string& path) {
         else if (key == "crosshair_dot") i(c.crosshair_dot);
         else if (key == "view_recoil_tracking") c.view_recoil_tracking = v;
         else if (key == "hud_scale") i(c.hud_scale);
+        else if (key == "volume") c.volume = v;
+        else if (key == "viewmodel_fov") c.viewmodel_fov = v;
+        else if (key == "viewmodel_offset_x") c.viewmodel_offset_x = v;
+        else if (key == "viewmodel_offset_y") c.viewmodel_offset_y = v;
+        else if (key == "viewmodel_offset_z") c.viewmodel_offset_z = v;
+        else if (key == "viewmodel_bob") c.viewmodel_bob = v;
+        else if (key == "show_viewmodel") i(c.show_viewmodel);
     }
     return c;
 }

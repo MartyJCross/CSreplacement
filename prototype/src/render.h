@@ -8,10 +8,11 @@
 struct BoxInstance {
     float mins[3];
     float maxs[3];
-    uint8_t rgba[4];  // alpha = grid strength (255 = world grid lines, 0 = plain)
+    uint8_t rgba[4];  // alpha selects shading: 255 = lit + world grid, 0 = lit, 128 = unlit (emissive)
 };
 
 BoxInstance makeBox(const Vec3& mins, const Vec3& maxs, uint32_t rgb, bool grid);
+BoxInstance makeEmissive(const Vec3& mins, const Vec3& maxs, uint32_t rgb);
 
 struct HudVert {
     float x, y, u, v;
@@ -40,6 +41,10 @@ public:
 
     void beginFrame(int width, int height);
     void drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vector<BoxInstance>& dynamicBoxes);
+    // Boxes in a local space transformed by `model` (weapon models, tracers).
+    void drawModel(const Mat4& viewProj, const Mat4& model, const std::vector<BoxInstance>& boxes);
+    // Starts the first-person weapon pass: fresh depth so the weapon never clips into walls.
+    void clearDepth();
     // Uploads the HUD only when `changed` is true; otherwise redraws the last upload.
     void drawHud(const HudBatch& hud, bool changed);
 
@@ -47,7 +52,8 @@ public:
 
 private:
     unsigned boxProgram_ = 0, hudProgram_ = 0;
-    int uViewProj_ = -1, uEye_ = -1, uScreen_ = -1, uFont_ = -1;
+    void uploadDynamic(const std::vector<BoxInstance>& boxes, int n);
+    int uViewProj_ = -1, uModel_ = -1, uEye_ = -1, uScreen_ = -1, uFont_ = -1;
     unsigned cubeVbo_ = 0;
     unsigned staticVao_ = 0, staticInst_ = 0;
     unsigned dynVao_ = 0, dynInst_ = 0;
@@ -58,4 +64,4 @@ private:
 };
 
 constexpr int kMaxDecals = 1024;
-constexpr int kMaxDynamicBoxes = 256;
+constexpr int kMaxDynamicBoxes = 1024;

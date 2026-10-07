@@ -19,6 +19,11 @@ struct Config {
     int crosshair_dot = 0;
     float view_recoil_tracking = 0.45f;  // fraction of recoil that moves the camera
     int hud_scale = 0;                   // 0 = auto
+    float volume = 0.6f;
+    float viewmodel_fov = 68.0f;         // like CS: horizontal FOV at 4:3 for the weapon pass
+    float viewmodel_offset_x = 0, viewmodel_offset_y = 0, viewmodel_offset_z = 0;
+    float viewmodel_bob = 1.0f;          // 0 disables weapon bob
+    int show_viewmodel = 1;
 };
 
 // Loads `path`; writes a commented default file there if it doesn't exist.

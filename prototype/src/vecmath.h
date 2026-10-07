@@ -58,6 +58,60 @@ inline Mat4 operator*(const Mat4& a, const Mat4& b) {
     return r;
 }
 
+inline Mat4 identity() {
+    Mat4 r;
+    r.m[0] = r.m[5] = r.m[10] = r.m[15] = 1.0f;
+    return r;
+}
+
+inline Mat4 translation(const Vec3& t) {
+    Mat4 r = identity();
+    r.m[12] = t.x; r.m[13] = t.y; r.m[14] = t.z;
+    return r;
+}
+
+inline Mat4 scaling(float k) {
+    Mat4 r = identity();
+    r.m[0] = r.m[5] = r.m[10] = k;
+    return r;
+}
+
+// Rotations in a right-handed frame (camera-local: x right, y up, z back).
+inline Mat4 rotationX(float deg) {  // + = muzzle/forward (-z) tilts up
+    float c = std::cos(deg * kDegToRad), s = std::sin(deg * kDegToRad);
+    Mat4 r = identity();
+    r.m[5] = c; r.m[6] = s; r.m[9] = -s; r.m[10] = c;
+    return r;
+}
+inline Mat4 rotationY(float deg) {  // + = forward (-z) turns left
+    float c = std::cos(deg * kDegToRad), s = std::sin(deg * kDegToRad);
+    Mat4 r = identity();
+    r.m[0] = c; r.m[2] = -s; r.m[8] = s; r.m[10] = c;
+    return r;
+}
+inline Mat4 rotationZ(float deg) {  // + = roll counter-clockwise
+    float c = std::cos(deg * kDegToRad), s = std::sin(deg * kDegToRad);
+    Mat4 r = identity();
+    r.m[0] = c; r.m[1] = s; r.m[4] = -s; r.m[5] = c;
+    return r;
+}
+
+// Maps local (x, y, z) to origin + x*ax + y*ay + z*az.
+inline Mat4 fromBasis(const Vec3& ax, const Vec3& ay, const Vec3& az, const Vec3& origin) {
+    Mat4 r;
+    r.m[0] = ax.x; r.m[1] = ax.y; r.m[2] = ax.z;
+    r.m[4] = ay.x; r.m[5] = ay.y; r.m[6] = ay.z;
+    r.m[8] = az.x; r.m[9] = az.y; r.m[10] = az.z;
+    r.m[12] = origin.x; r.m[13] = origin.y; r.m[14] = origin.z; r.m[15] = 1.0f;
+    return r;
+}
+
+inline Vec3 transformPoint(const Mat4& m, const Vec3& p) {
+    return {m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
+            m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
+            m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]};
+}
+
 inline Mat4 perspective(float vfovRad, float aspect, float zNear, float zFar) {
     Mat4 r;
     float f = 1.0f / std::tan(vfovRad * 0.5f);

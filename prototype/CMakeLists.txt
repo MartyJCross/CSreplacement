@@ -47,7 +47,9 @@ if(FEELLAB_BUILD_GAME)
     src/main.cpp
     src/render.cpp
     src/gl.cpp
-    src/config.cpp)
+    src/config.cpp
+    src/audio.cpp
+    src/fx.cpp)
   target_link_libraries(feellab PRIVATE feellab_sim SDL3::SDL3-static)
   if(MSVC)
     target_link_options(feellab PRIVATE /INCREMENTAL:NO)

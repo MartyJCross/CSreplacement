@@ -7,8 +7,17 @@ This is a deliberately tiny prototype for testing **movement and shooting feel**
 - raw mouse input
 - one rifle with a fixed spray pattern
 - target dummies on a grey-box test map
+- **sound:**
+  - gunshots, footsteps, landing, reload, dry-fire
+  - body-hit thwack and a headshot "dink"
+  - strafing dummies make **positional footsteps**, so you can test hearing direction
+- **first-person weapon:**
+  - a rifle and a knife
+  - recoil kick, sway, walk bob, landing dip
+  - reload and draw animations
+- **effects:** muzzle flash, tracers, impact debris, blood, and dummies that collapse on death
 
-It has no networking, no sound and no art. See `../docs/06-build-process.md` (Phase 0) for why this comes first.
+Everything is generated in code: there are no asset files, and the whole download is about 1.5 MB. It has no networking and no real art. See `../docs/06-build-process.md` (Phase 0) for why this comes first.
 
 ## Download and play (Windows)
 
@@ -32,6 +41,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | R | Reload |
 | 1 / 3 | Rifle / knife (knife = faster movement) |
 | C | Clear bullet decals |
+| F3 | Aim drill: killed range dummies respawn at random spots |
 | F1 | Toggle help |
 | Alt+Enter | Toggle fullscreen |
 | Esc | Pause (Q to quit while paused) |
@@ -44,6 +54,13 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
   - stairs to a platform
   - a wall with a doorway, with dummies behind it to practise jiggle-peeking
 - **Right:** a dark spray wall. Stand on the small marker and spray. Bullet decals go **yellow → red** through the magazine, so you can see the pattern.
+
+## Sound
+
+- **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS.
+- **The two strafing dummies on the range and the one behind the doorway** make footsteps that are panned and attenuated by distance (audible to ~1600 units). Close your eyes and point at them.
+- **Volume** is `volume` in `config.cfg` (0..1).
+- **Sounds are synthesized at startup.** To listen to them as files, run `feellab.exe --dump-sounds <folder>` and it writes WAVs.
 
 ## What the HUD tells you
 
@@ -65,6 +82,12 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 
 These live in `src/movement.h` (`MoveParams`) and `src/combat.cpp` (`kRifle`, `kRiflePattern`).
 
+Weapon model settings in `config.cfg`, all CS-style:
+- `viewmodel_fov` (default 68)
+- `viewmodel_offset_x/y/z`
+- `viewmodel_bob` (0 turns bob off)
+- `show_viewmodel 0` hides the weapon
+
 ## Build it yourself
 
 You need CMake 3.24+ and a C++20 compiler (Visual Studio 2022 on Windows). SDL3 is downloaded automatically.
@@ -84,6 +107,8 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | `src/world.*` | Grey-box map (axis-aligned boxes) and swept-box / ray traces |
 | `src/combat.*` | Rifle, recoil pattern, deterministic spread, dummies and hitboxes, hit detection |
 | `src/render.*`, `src/gl.*` | OpenGL 3.3: every 3D object is an instanced box; the HUD is a single batch |
+| `src/fx.*` | First-person weapon models and animation, tracers, particles (cosmetic only) |
+| `src/audio.*` | SDL3 audio mixer and procedural sound synthesis |
 | `src/main.cpp` | Window, raw input, 128 Hz fixed-step loop with interpolation, HUD |
 | `tests/sim_tests.cpp` | Headless checks: speeds, jump height, counter-strafe timing, collision, stairs, crates, determinism |
 
