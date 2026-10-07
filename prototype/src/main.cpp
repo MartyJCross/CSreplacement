@@ -213,6 +213,13 @@ struct Game {
     std::vector<float> dmgTable;            // [(victim + 1) * (n + 1) + attacker + 1]: damage this life (assists)
     std::vector<std::string> report;
     double reportUntil = -1;
+
+    // Radar: the map's floor merged into rectangles (shaded by height), and when each bot was last spotted.
+    struct RadarRect { float x0, y0, x1, y1; uint32_t rgba; };
+    std::vector<RadarRect> radarRects;
+    Vec3 radarMin, radarMax;
+    std::vector<double> spottedUntil;
+    bool showRadar = true;
     Vec3 noisePos;                // last sound you made (footsteps, shots) that bots can hear
     double noiseAt = -100;
     float noiseRadius = 0;
@@ -403,6 +410,7 @@ void applyConfig(Game& g, const Config& cfg) {
     g.vm.setKnife(std::clamp(cfg.knife, 0, 3));
     g.vm.setFinish(std::clamp(cfg.finish, 0, 4));
     g.hitSound = cfg.hitsound != 0;
+    g.showRadar = cfg.radar != 0;
     g.showHitMarker = cfg.hitmarker != 0;
     g.autoHop = cfg.bhop != 0;
     if (g.autoHop) {
@@ -662,6 +670,41 @@ void igniteMolotov(Game& g, const Vec3& at) {
     if (g.audio) g.audio->play3D(Sfx::Explosion, p, g.lastRenderEye, float(g.viewYaw), 2500.0f, 0.45f, 1.7f);
 }
 
+// Radar picture of the Dust grid: walkable cells merged into rectangles, lighter = higher.
+void buildRadar(Game& g) {
+    g.radarRects.clear();
+    const MapGrid& m = dustGrid();
+    std::vector<int> band(size_t(m.w * m.h), -1);
+    float lo = 1e9f, hi = -1e9f;
+    for (size_t c = 0; c < band.size(); ++c)
+        if (m.floor[c] > MapGrid::kNoFloor) { lo = std::min(lo, m.floor[c]); hi = std::max(hi, m.floor[c]); }
+    for (size_t c = 0; c < band.size(); ++c)
+        if (m.floor[c] > MapGrid::kNoFloor) band[c] = int((m.floor[c] - lo) / std::max(1.0f, hi - lo) * 5.99f);
+    std::vector<char> used(band.size(), 0);
+    g.radarMin = {1e9f, 1e9f, 0};
+    g.radarMax = {-1e9f, -1e9f, 0};
+    for (int j = 0; j < m.h; ++j)
+        for (int i = 0; i < m.w; ++i) {
+            size_t c = size_t(m.index(i, j));
+            if (used[c] || band[c] < 0) continue;
+            int i1 = i, j1 = j;
+            while (i1 + 1 < m.w && !used[size_t(m.index(i1 + 1, j))] && band[size_t(m.index(i1 + 1, j))] == band[c]) ++i1;
+            for (bool grow = true; grow && j1 + 1 < m.h;) {
+                for (int x = i; x <= i1 && grow; ++x)
+                    grow = !used[size_t(m.index(x, j1 + 1))] && band[size_t(m.index(x, j1 + 1))] == band[c];
+                if (grow) ++j1;
+            }
+            for (int y = j; y <= j1; ++y)
+                for (int x = i; x <= i1; ++x) used[size_t(m.index(x, y))] = 1;
+            uint32_t v = 0x50 + uint32_t(band[c]) * 0x14;
+            Game::RadarRect rr{m.x0 + float(i) * m.cell, m.y0 + float(j) * m.cell, m.x0 + float(i1 + 1) * m.cell,
+                               m.y0 + float(j1 + 1) * m.cell, (v << 24) | ((v - 8) << 16) | ((v - 24) << 8) | 0xE0};
+            g.radarRects.push_back(rr);
+            g.radarMin = {std::min(g.radarMin.x, rr.x0), std::min(g.radarMin.y, rr.y0), 0};
+            g.radarMax = {std::max(g.radarMax.x, rr.x1), std::max(g.radarMax.y, rr.y1), 0};
+        }
+}
+
 void loadMap(Game& g, Renderer& r, int id) {
     g.mapId = id;
     g.world = id == 1 ? buildDust() : buildFeelLab();
@@ -701,6 +744,8 @@ void loadMap(Game& g, Renderer& r, int id) {
     r.setStaticBoxes(statics);
     r.clearDecals();
     if (id == 1) g.nav.build(dustGrid(), g.world, dustSpawn().pos);
+    if (id == 1) buildRadar(g);
+    g.spottedUntil.assign(g.dummies.size(), -1.0);
     if (id == 1)  // particles land on Dust's floors (which aren't all at height 0)
         g.fx.setGround([](float x, float y) {
             float z = dustGrid().floorAt(x, y);
@@ -1244,6 +1289,20 @@ void simTick(Game& g, const Options& opt) {
         }
     }
 
+    // ---- Radar spotting: a bot shows while you can see it (in front of you, nothing in between) ----
+    if (g.mapId == 1 && g.spottedUntil.size() == g.dummies.size() && (g.histHead & 7) == 0) {  // ~16 Hz is plenty
+        const Vec3 eye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
+        const Vec3 look = anglesToForward(float(g.viewPitch), float(g.viewYaw));
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            const Dummy& d = g.dummies[i];
+            Vec3 to = d.pos + Vec3{0, 0, 56} - eye;
+            float dist = length(to);
+            if (d.alive() && dist > 1 && dot(to * (1.0f / dist), look) > 0.5f &&
+                g.world.traceRay(eye, d.pos + Vec3{0, 0, 56}).fraction >= 1.0f && !smokeBlocks(g, eye, d.pos + Vec3{0, 0, 56}))
+                g.spottedUntil[i] = g.simTime + 0.6;
+        }
+    }
+
     // ---- Bots shoot back ----
     Vec3 simEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
     g.eyeHistory[g.histHead] = simEye;
@@ -1287,6 +1346,7 @@ void simTick(Game& g, const Options& opt) {
                                 far ? 6500.0f : 4000.0f, far ? 1.0f : 0.75f);
             }
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
+            if (i < g.spottedUntil.size()) g.spottedUntil[i] = g.simTime + 1.0;  // shooting gives you away
             if (hit && hurtPlayer(g, int(i), hit == 2 ? 100.0f : 26.0f, hit == 2, "RIFLE"))
                 break;  // you died: nobody else shoots at your new spawn this tick
         }
@@ -1402,6 +1462,7 @@ std::vector<MenuItem> menuItems(Config& c) {
         {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
         {"SMOOTH STAIRS (CAMERA)", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
         {"SPRAY CAMERA SHAKE", nullptr, &c.view_shake, 1, 0, 1, kOnOff},
+        {"RADAR", nullptr, &c.radar, 1, 0, 1, kOnOff},
         {"HITMARKER", nullptr, &c.hitmarker, 1, 0, 1, kOnOff},
         {"HIT SOUND", nullptr, &c.hitsound, 1, 0, 1, kOnOff},
         {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
@@ -1494,8 +1555,42 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
                 hud.line(cx + float(sx) * a, cy + float(sy) * a, cx + float(sx) * b, cy + float(sy) * b, lw, hc);
     }
 
-    // Top-left: performance + movement.
-    float x = 12.0f * s, y = 10.0f * s;
+    // Radar (top-left, like CS): the whole map north-up, shaded by height; you as an arrow, enemies as
+    // red dots while spotted, the bomb in retakes.
+    float radarBottom = 0;
+    if (g.showRadar && g.mapId == 1 && !g.radarRects.empty()) {
+        const float size = 190.0f * float(s), ox = 10.0f * float(s), oy = 10.0f * float(s);
+        const float spanX = g.radarMax.x - g.radarMin.x, spanY = g.radarMax.y - g.radarMin.y;
+        const float k = size / std::max(spanX, spanY);
+        auto toScreen = [&](float wx, float wy) {  // +y (north) is up
+            return Vec3{ox + (wx - g.radarMin.x) * k + (size - spanX * k) * 0.5f,
+                        oy + (g.radarMax.y - wy) * k + (size - spanY * k) * 0.5f, 0};
+        };
+        hud.rect(ox - 3 * s, oy - 3 * s, size + 6 * s, size + 6 * s, 0x0C0E10B8);
+        for (const Game::RadarRect& rr : g.radarRects) {
+            Vec3 a = toScreen(rr.x0, rr.y1), b = toScreen(rr.x1, rr.y0);
+            hud.rect(a.x, a.y, std::max(1.0f, b.x - a.x), std::max(1.0f, b.y - a.y), rr.rgba);
+        }
+        if (g.mode == 2 && g.bombActive) {
+            Vec3 bp = toScreen(g.bombPos.x, g.bombPos.y);
+            hud.rect(bp.x - 3.0f * float(s), bp.y - 3.0f * float(s), 6.0f * float(s), 6.0f * float(s), 0xFF3030FF);
+        }
+        for (size_t i = 0; i < g.dummies.size() && i < g.spottedUntil.size(); ++i) {
+            if (!g.dummies[i].alive() || g.simTime > g.spottedUntil[i]) continue;
+            Vec3 p = toScreen(g.dummies[i].pos.x, g.dummies[i].pos.y);
+            hud.rect(p.x - 2.5f * float(s), p.y - 2.5f * float(s), 5.0f * float(s), 5.0f * float(s), 0xFF4040FF);
+        }
+        Vec3 me = toScreen(g.player.origin.x, g.player.origin.y);
+        float yr = float(g.viewYaw) * kDegToRad;
+        Vec3 fw{std::cos(yr), -std::sin(yr), 0}, rt{std::sin(yr), std::cos(yr), 0};  // screen y points down
+        Vec3 tip = me + fw * (7.0f * s), l = me - fw * (4.0f * s) - rt * (4.0f * s), r = me - fw * (4.0f * s) + rt * (4.0f * s);
+        for (auto [p, q] : {std::pair{tip, l}, std::pair{l, r}, std::pair{r, tip}})
+            hud.line(p.x, p.y, q.x, q.y, 2.0f * s, 0xFFFFFFFF);
+        radarBottom = oy + size + 8.0f * s;
+    }
+
+    // Top-left: performance + movement (under the radar when it's shown).
+    float x = 12.0f * s, y = std::max(10.0f * s, radarBottom);
     std::snprintf(buf, sizeof(buf), "FPS %4.0f   1%% LOW %4.0f   %.2f MS", st.avgFps, st.lowFps, st.avgMs);
     hud.text(x, y, buf, 0xFFFFFFFF);
     y += lh;

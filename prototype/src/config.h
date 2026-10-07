@@ -31,7 +31,8 @@ struct Config {
     int view_shake = 1;          // 1 = slight camera roll per shot (around the crosshair: aim is unaffected)
     int knife = 0;               // 0 butterfly, 1 karambit, 2 M9 bayonet, 3 talon
     int finish = 0;              // gun finish: 0 factory, 1 crimson, 2 arctic, 3 jungle, 4 gold
-    int hitmarker = 1;          // 1 = X on the crosshair when you hit (red = head, big = kill)
+    int radar = 1;               // 1 = radar top-left on Dust
+    int hitmarker = 1;         // 1 = X on the crosshair when you hit (red = head, big = kill)
     int hitsound = 1;            // 1 = a tick sound when you hit
     int view_smooth_steps = 1;   // 1 = the camera eases over stairs/steps instead of popping up (cosmetic)
     float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped
