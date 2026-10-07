@@ -91,7 +91,12 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     const float toYaw = chosen ? yawTo(d.pos, chosen->origin) : yawTo(d.pos, b.lastSeen);
     if (b.sees) {
         b.lastSeen = chosen->origin;
-        if (b.state != 2) { b.state = 2; b.path.clear(); }
+        if (b.state != 2) {  // a fight starts: stand and shoot first, jiggle after
+            b.state = 2;
+            b.path.clear();
+            b.strafing = false;
+            b.strafeTimer = 0.4f + botRand(rng) * 0.4f;
+        }
         b.timer = 0.6f;  // keep the angle for a moment after losing sight
     } else if (s.noiseFresh && s.playerUp && b.state != 2 && length(s.noisePos - d.pos) < s.noiseRadius) {
         b.lastSeen = s.noisePos;
@@ -101,9 +106,14 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
 
     const float step = kBotRunSpeed * kTickDt;
     switch (b.state) {
-        case 0:  // roam: walk to the goal if it has one, else a random spot anywhere on the map
+        case 0:  // roam: walk to the goal if it has one, else a random spot (deathmatch: often near you)
             if (b.path.empty()) {
-                const Vec3 dest = b.hasGoal ? b.goal : s.nav->roamPoint(botRand(rng), false);
+                Vec3 dest = b.hasGoal ? b.goal : s.nav->roamPoint(botRand(rng), false);
+                if (!b.hasGoal && !s.targets && s.playerUp && botRand(rng) < 0.5f)
+                    for (int k = 0; k < 8; ++k) {  // hunt: somewhere in your part of the map
+                        Vec3 p = s.nav->roamPoint(botRand(rng), false);
+                        if (length2d(p - s.playerOrigin) < 900.0f) { dest = p; break; }
+                    }
                 if (!s.nav->findPath(d.pos, dest, b.path)) {
                     if (b.hasGoal) { b.hasGoal = false; b.state = 1; b.timer = 0.5f; }  // unreachable: give up
                     break;
@@ -114,14 +124,36 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                 b.path.clear();
                 b.hasGoal = false;
                 b.state = 1;
-                b.timer = 0.3f + botRand(rng) * 0.9f;
+                b.timer = 0.2f + botRand(rng) * 0.5f;
             }
             break;
-        case 1:  // hold an angle for a moment (anchors hold it for good)
+        case 1:  // hold an angle for a moment (anchors hold it for good); a new goal sends it off
+            if (b.hasGoal) { b.state = 0; b.path.clear(); break; }
             if ((b.timer -= kTickDt) <= 0 && !b.holdOnly) b.state = 0;
             break;
-        case 2:  // fighting: stand and shoot (like CS bots); when you're gone, go and look
-            if (!b.sees && (b.timer -= kTickDt) <= 0) { b.state = 3; b.path.clear(); }
+        case 2:  // fighting: jiggle (strafe a step, stop and shoot, like CS bots); when you're gone, go and look
+            if (!b.sees) {
+                b.strafing = false;
+                if ((b.timer -= kTickDt) <= 0) { b.state = 3; b.path.clear(); }
+                break;
+            }
+            if ((b.strafeTimer -= kTickDt) <= 0) {
+                b.strafing = !b.strafing;
+                b.strafeTimer = b.strafing ? 0.2f + botRand(rng) * 0.25f : 0.35f + botRand(rng) * 0.5f;
+                if (b.strafing) b.strafeDir = botRand(rng) < 0.5f ? -1 : 1;
+            }
+            if (b.strafing) {
+                const float y = toYaw * kDegToRad;
+                const Vec3 side{-std::sin(y) * float(b.strafeDir), std::cos(y) * float(b.strafeDir), 0};
+                Vec3 p = d.pos + side * (200.0f * kTickDt);
+                const float fz = s.nav->floorAt(p);
+                if (s.nav->standable(p) && std::fabs(fz - d.pos.z) < 18.0f) {
+                    p.z = fz;
+                    d.pos = p;
+                } else {
+                    b.strafeDir = -b.strafeDir;  // wall or ledge: step the other way next time
+                }
+            }
             break;
         case 3:  // investigate where you were last seen or heard
             if (b.path.empty()) {
@@ -143,5 +175,5 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     const float idle = b.holdOnly && b.state == 1 ? b.holdYaw : d.yaw;
     const float want = b.state == 2 ? toYaw : length2d(mv) > 0.01f ? std::atan2(mv.y, mv.x) / kDegToRad : idle;
     d.yaw = turnToward(d.yaw, want, (b.state == 2 ? 600.0f : 360.0f) * kTickDt);
-    b.aimed = b.sees && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;
+    b.aimed = b.sees && !b.strafing && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;  // they stop to shoot
 }

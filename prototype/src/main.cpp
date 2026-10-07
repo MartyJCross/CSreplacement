@@ -43,7 +43,7 @@ struct Options {
     int windowW = 0, windowH = 0;                // --windowed W H
     int startWeapon = 0;                         // --weapon 1|2|3|4 (4 = sniper as primary)
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
-    bool showMenu = false;                       // --menu (settings menu, for screenshots)
+    int menuScreen = 0;                          // --menu N: open menu screen N (screenshots)
     bool throwSmoke = false, bots = false;       // --smoke, --bots (for screenshots)
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
     int inspectFrame = -1;                       // --inspect N: start an inspect on frame N (screenshots)
@@ -76,7 +76,7 @@ Options parseArgs(int argc, char** argv) {
         } else if (a == "--bench") {
             o.benchSeconds = float(std::atof(next()));
         } else if (a == "--menu") {
-            o.showMenu = true;
+            o.menuScreen = std::atoi(next());
         } else if (a == "--zoom") {
             o.startZoom = std::atoi(next());
         } else if (a == "--weapon") {
@@ -211,6 +211,9 @@ struct Game {
         bool helmet = false, kit = false, ownRifle = false, ownSniper = false, youDead = false;
         int nades[4] = {0, 0, 0, 0};
         int siteTarget = 0;                 // the site the Ts go for this round
+        Vec3 stagePoint;                    // where the T bots gather before they execute
+        bool executing = false, rotated = false;  // rotated: the CTs heard the site get hit
+        double executeAt = 0;
         int carrier = -3;                   // bomb: -1 you, i = bot i, -2 dropped on the floor, -3 nobody
         Vec3 dropped;
         int planter = -3, defuser = -3;     // who is planting / defusing (-1 you, bot index)
@@ -829,26 +832,37 @@ void startCompRound(Game& g) {
         if (g.team[i] == 0) ts.push_back(int(i));
     c.carrier = ts.empty() ? -3 : ts[size_t(rnd(g) * float(ts.size())) % ts.size()];
     if (c.carrier == -1) pushHitLog(g, "YOU HAVE THE BOMB", 0xffd060);
+    // Ts: gather at a staging point on the way (A long, A through catwalk, or B tunnels), then execute
+    // together (compTick). CTs: a setup for the round - split 2-2-1 (A, B, mid doors) or stack a site.
+    const float stages[3][2] = {{1450, 1100}, {300, 1350}, {-2050, 1150}};
+    const int route = c.siteTarget == 1 ? 2 : (rnd(g) < 0.5f ? 0 : 1);
+    c.stagePoint = dustPoint(stages[route][0], stages[route][1]);
+    c.executing = c.rotated = false;
+    c.executeAt = g.simTime + kCompFreeze + 20.0;
+    const int setup = int(rnd(g) * 3.0f) % 3;  // 0 split, 1 stack A, 2 stack B
     int tCount = 0, ctCount = 0;
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         BotBrain& b = g.bots[i];
+        Dummy& d = g.dummies[i];
         if (g.team[i] == 0) {
-            const RetakeSite& s = sites[size_t(c.siteTarget)];
-            if (c.carrier == int(i)) {
-                b.goal = dustPoint(s.bombX, s.bombY);
-            } else {
-                const RetakeSpot& h = s.holds[size_t(tCount++) % s.holds.size()];
-                b.goal = dustPoint(h.x, h.y);
-                b.holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;  // watch the way CTs retake from
-            }
+            Vec3 p = c.stagePoint + Vec3{float(tCount % 3 - 1) * 48.0f, float(tCount / 3) * 48.0f, 0};
+            ++tCount;
+            b.goal = g.nav.standable(p) ? p : c.stagePoint;
         } else {
-            const RetakeSite& s = sites[size_t(ctCount % 2)];
-            const RetakeSpot& h = s.holds[size_t(ctCount / 2) % s.holds.size()];
-            ++ctCount;
-            b.goal = dustPoint(h.x, h.y);
-            b.holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
+            const int k = ctCount++;
+            int site = setup == 0 ? k % 2 : setup == 1 ? (k == 3 ? 1 : 0) : (k == 3 ? 0 : 1);
+            if (setup == 0 && k == 4) {  // the fifth CT watches mid doors
+                b.goal = dustPoint(-180, 1990);
+                b.holdYaw = -90.0f;
+            } else {
+                const RetakeSite& s = sites[size_t(site)];
+                const RetakeSpot& h = s.holds[size_t(setup == 0 ? k / 2 : k) % s.holds.size()];
+                b.goal = dustPoint(h.x, h.y);
+                b.holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
+            }
         }
         b.hasGoal = true;
+        d.yaw = d.prevYaw = yawTo(d.pos, b.goal);  // face where they're heading, not each other
     }
     c.planted = false;
     c.planter = c.defuser = -3;
@@ -976,6 +990,49 @@ void compTick(Game& g) {
     // The carrier dies: the bomb drops where they fell.
     if (c.carrier >= 0 && !g.dummies[size_t(c.carrier)].alive()) { c.dropped = g.dummies[size_t(c.carrier)].pos; c.carrier = -2; }
     if (c.carrier == -1 && c.youDead) { c.dropped = g.player.origin; c.carrier = -2; }
+    // The T execute: once every T bot has gathered at the staging point (or after 20 s), they all push
+    // onto the site together - the carrier to the bomb spot, the rest to the site's holding spots.
+    if (!c.planted && !c.executing) {
+        bool gathered = true;
+        for (size_t i = 0; i < g.dummies.size(); ++i)
+            if (g.dummies[i].alive() && g.team[i] == 0 && length2d(g.dummies[i].pos - c.stagePoint) > 200.0f) gathered = false;
+        if (gathered || now >= c.executeAt) {
+            c.executing = true;
+            if (!g_compLog.empty())
+                std::ofstream(g_compLog, std::ios::app)
+                    << "  execute " << (c.siteTarget == 0 ? "A" : "B") << (gathered ? " (gathered)" : " (timer)")
+                    << " t=" << int(g.simTime) << "s\n";
+            const RetakeSite& s = sites[size_t(c.siteTarget)];
+            int k = 0;
+            for (size_t i = 0; i < g.dummies.size(); ++i) {
+                if (!g.dummies[i].alive() || g.team[i] != 0) continue;
+                if (int(i) == c.carrier) {
+                    sendBot(g, i, bombSpot, true);
+                } else {
+                    const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
+                    sendBot(g, i, dustPoint(h.x, h.y), true);
+                    g.bots[i].holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
+                }
+            }
+        }
+    }
+    // CT rotation: once a T is on the site being hit, the CT bots away from it come over to help.
+    if (!c.planted && c.executing && !c.rotated) {
+        const float onSite = 700.0f * dustScale();
+        bool hit = c.youTeam == 0 && youAlive(g) && length2d(g.player.origin - bombSpot) < onSite;
+        for (size_t i = 0; i < g.dummies.size(); ++i)
+            hit |= g.dummies[i].alive() && g.team[i] == 0 && length2d(g.dummies[i].pos - bombSpot) < onSite;
+        if (hit) {
+            c.rotated = true;
+            const RetakeSite& s = sites[size_t(c.siteTarget)];
+            int k = 0;
+            for (size_t i = 0; i < g.dummies.size(); ++i) {
+                if (!g.dummies[i].alive() || g.team[i] != 1 || length2d(g.dummies[i].pos - bombSpot) < 2.0f * onSite) continue;
+                const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
+                sendBot(g, i, dustPoint(h.x, h.y), true);
+            }
+        }
+    }
     if (!c.planted) {
         if (c.carrier == -2) {  // dropped: the first T over it picks it up; the nearest T bot goes for it
             if (c.youTeam == 0 && youAlive(g) && length2d(g.player.origin - c.dropped) < 48.0f) {
@@ -997,7 +1054,7 @@ void compTick(Game& g) {
             const Dummy& d = g.dummies[size_t(c.carrier)];
             if (length2d(d.pos - bombSpot) < 40.0f) {
                 if (c.planter != c.carrier) { c.planter = c.carrier; c.plantStart = now; }
-            } else if (g.bots[size_t(c.carrier)].state != 2) {
+            } else if (c.executing && g.bots[size_t(c.carrier)].state != 2) {
                 sendBot(g, size_t(c.carrier), bombSpot, true);
             }
         } else if (c.carrier == -1 && youAlive(g)) {  // you: hold E on either site
@@ -1548,23 +1605,29 @@ void simTick(Game& g, const Options& opt) {
         else g.comp.nades[g.nadeType]--;
     }
     if (g.throwLatch) {
-        Vec3 f = anglesToForward(float(g.viewPitch), float(g.viewYaw));
-        float throwSpeed = g.throwLob ? 380.0f : 750.0f;
-        double fuse = g.nadeType == Game::kMolotov ? 2.2 : 1.6;  // a molotov bursts when it lands
-        g.nades.push_back({g.lastRenderEye + f * 16.0f, f * throwSpeed + g.player.velocity, g.simTime + fuse, g.nadeType});
+        // CS:GO's throw: the aim is lifted (10 degrees at the horizon, none straight up or down), 675 u/s
+        // (x0.3 for the underhand lob) plus 1.25x your own velocity. Grenades fall at 0.4x gravity (320).
+        float pitch = float(g.viewPitch);  // + = down
+        pitch = pitch < 0 ? -10.0f + pitch * (80.0f / 90.0f) : -10.0f + pitch * (100.0f / 90.0f);
+        Vec3 f = anglesToForward(pitch, float(g.viewYaw));
+        float throwSpeed = 675.0f * (g.throwLob ? 0.3f : 1.0f);
+        double fuse = g.nadeType == Game::kMolotov ? 2.0 : 1.5;  // a molotov also bursts as soon as it lands
+        g.nades.push_back({g.lastRenderEye + f * 16.0f, f * throwSpeed + g.player.velocity * 1.25f, g.simTime + fuse,
+                           g.nadeType});
         g.throwLob = false;
         sound(g, Sfx::Draw, 0.6f, 0.0f, 1.3f);
         g.throwLatch = false;
     }
     for (size_t k = 0; k < g.nades.size();) {
         Game::Nade& n = g.nades[k];
-        n.vel.z -= 800.0f * kTickDt;
+        n.vel.z -= 320.0f * kTickDt;  // CS grenade gravity: 0.4 x 800
         Vec3 next = n.pos + n.vel * kTickDt;
         TraceResult tr = g.world.traceRay(n.pos, next);
         bool landed = false;
         if (tr.fraction < 1.0f) {
             float into = dot(n.vel, tr.normal);
             n.vel = (n.vel - tr.normal * (2.0f * into)) * 0.45f;
+            if (tr.normal.z > 0.7f && length(n.vel) < 20.0f) n.vel = {};  // come to rest on the floor
             n.pos = tr.endpos + tr.normal * 0.1f;
             landed = tr.normal.z > 0.7f;
             if (-into > 80.0f && g.audio)
@@ -1572,7 +1635,9 @@ void simTick(Game& g, const Options& opt) {
         } else {
             n.pos = next;
         }
-        if (g.simTime >= n.detonateAt || (n.type == Game::kMolotov && landed)) {
+        // Smokes pop once they've stopped rolling (like CS); flash and HE on their fuse; molotovs on landing.
+        const bool smokeReady = n.type != Game::kSmokeNade || length(n.vel) < 1.0f || g.simTime > n.detonateAt + 4.0;
+        if ((g.simTime >= n.detonateAt && smokeReady) || (n.type == Game::kMolotov && landed)) {
             switch (n.type) {
                 case Game::kSmokeNade:
                     g.smokes.push_back({n.pos, g.simTime});
@@ -1906,77 +1971,150 @@ struct FrameStats {
     }
 };
 
-// ---- In-game settings menu (pause screen) ----
+// ---- Menus: the main menu at launch, the pause menu on Esc, settings split into pages ----
+// A row is either a setting (f or i points at the value) or a button (action).
 struct MenuItem {
     const char* name;
-    float* f;      // float setting, or
-    int* i;        // int setting
-    float step, lo, hi;
+    float* f = nullptr;  // float setting, or
+    int* i = nullptr;    // int setting
+    float step = 1, lo = 0, hi = 1;
     const char* const* labels = nullptr;  // optional names for int values
+    int action = 0;                        // kAct*: a button instead of a setting
 };
+
+enum MenuScreen {
+    kMenuNone, kMenuMain, kMenuPause, kMenuPlay, kMenuSettings, kMenuControls,
+    kMenuMouse, kMenuCrosshair, kMenuWeapon, kMenuVideo, kMenuGameplay,  // settings pages, in order
+};
+enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActGoto = 100 };
+constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
+
+// Which screen is up (kMenuNone = playing), the highlighted row, and where Back ends up:
+// kMenuMain before a game has started, kMenuPause once one has.
+struct MenuState { int screen = kMenuNone, sel = 0, root = kMenuMain; };
+MenuState g_menu;
 
 const char* const kOnOff[] = {"OFF", "ON"};
 const uint32_t kCrosshairColors[] = {0x00FF00, 0xFFFF00, 0x00FFFF, 0xFFFFFF, 0xFF3030, 0xFF40FF};
 const char* const kCrosshairColorNames[] = {"GREEN", "YELLOW", "CYAN", "WHITE", "RED", "PINK"};
 int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 
-// GAME rows: mirrors of live state (map, mode, toggles) plus one-shot actions; main applies them.
-struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, noclip = 0, help = 1, reset = 0, reload = 0; };
+// The PLAY screen's choices; they only take effect on START.
+struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0; };
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"FEEL LAB", "DUST2"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5"};
-const char* const kPress[] = {"PRESS RIGHT", "..."};
 const char* const kKnifeNames[] = {"BUTTERFLY", "KARAMBIT", "M9 BAYONET", "TALON"};
 const char* const kFinishNames[] = {"FACTORY", "CRIMSON", "ARCTIC", "JUNGLE", "GOLD"};
+const char* const kControls[][2] = {
+    {"W A S D", "MOVE"}, {"SPACE / WHEEL", "JUMP (HOLD TO BUNNY HOP)"}, {"CTRL", "CROUCH"}, {"SHIFT", "WALK"},
+    {"MOUSE 1", "FIRE / THROW"}, {"MOUSE 2", "SCOPE / LOB A GRENADE"}, {"R", "RELOAD"},
+    {"1  2  3", "PRIMARY, PISTOL, KNIFE"}, {"4", "GRENADES (AGAIN: NEXT ONE)"}, {"G", "QUICK THROW"},
+    {"Q", "LAST WEAPON"}, {"F", "INSPECT"}, {"B", "BUY MENU"}, {"E", "PLANT / DEFUSE"}, {"TAB", "SCORES"},
+    {"V", "NOCLIP"}, {"C", "CLEAR BULLET HOLES"}, {"ALT + ENTER", "FULLSCREEN"}, {"ESC", "MENU"},
+};
+constexpr size_t kControlLines = sizeof(kControls) / sizeof(kControls[0]);
 
-std::vector<MenuItem> menuItems(Config& c) {
-    return {
-        {"MAP", nullptr, &g_gameMenu.map, 1, 0, 1, kMapNames},
-        {"MODE (DUST2)", nullptr, &g_gameMenu.mode, 1, 0, 3, kModeNames},
-        {"BOTS SHOOT BACK", nullptr, &g_gameMenu.bots, 1, 0, 1, kOnOff},
-        {"AIM DRILL (FEEL LAB)", nullptr, &g_gameMenu.drill, 1, 0, 1, kOnOff},
-        {"NOCLIP (V)", nullptr, &g_gameMenu.noclip, 1, 0, 1, kOnOff},
-        {"SHOW HELP", nullptr, &g_gameMenu.help, 1, 0, 1, kOnOff},
-        {"RESET POSITION", nullptr, &g_gameMenu.reset, 1, 0, 1, kPress},
-        {"RELOAD CONFIG.CFG", nullptr, &g_gameMenu.reload, 1, 0, 1, kPress},
-        {"KNIFE", nullptr, &c.knife, 1, 0, 3, kKnifeNames},
-        {"GUN FINISH", nullptr, &c.finish, 1, 0, 4, kFinishNames},
-        {"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
-        {"SCOPED SENSITIVITY (RATIO)", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
-        {"FOV (4:3, CS = 90)", &c.fov, nullptr, 1.0f, 60.0f, 120.0f},
-        {"VIEWMODEL FOV", &c.viewmodel_fov, nullptr, 1.0f, 50.0f, 90.0f},
-        {"VIEWMODEL BOB", &c.viewmodel_bob, nullptr, 0.1f, 0.0f, 2.0f},
-        {"SHOW VIEWMODEL", nullptr, &c.show_viewmodel, 1, 0, 1, kOnOff},
-        {"VOLUME", &c.volume, nullptr, 0.05f, 0.0f, 1.0f},
-        {"CROSSHAIR SIZE", nullptr, &c.crosshair_size, 1, 0, 30},
-        {"CROSSHAIR GAP", nullptr, &c.crosshair_gap, 1, -5, 20},
-        {"CROSSHAIR THICKNESS", nullptr, &c.crosshair_thickness, 1, 1, 8},
-        {"CROSSHAIR COLOR", nullptr, &g_crosshairPreset, 1, 0, 5, kCrosshairColorNames},
-        {"CROSSHAIR DOT", nullptr, &c.crosshair_dot, 1, 0, 1, kOnOff},
-        {"CROSSHAIR OUTLINE", nullptr, &c.crosshair_outline, 1, 0, 1, kOnOff},
-        {"FPS CAP (0 = UNLIMITED)", nullptr, &c.fps_max, 30, 0, 1000},
-        {"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
-        {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
-        {"SMOOTH STAIRS (CAMERA)", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
-        {"SPRAY CAMERA SHAKE", nullptr, &c.view_shake, 1, 0, 1, kOnOff},
-        {"RADAR", nullptr, &c.radar, 1, 0, 1, kOnOff},
-        {"HITMARKER", nullptr, &c.hitmarker, 1, 0, 1, kOnOff},
-        {"HIT SOUND", nullptr, &c.hitsound, 1, 0, 1, kOnOff},
-        {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
-        {"DUST SIZE (% OF REAL DUST2)", nullptr, &c.dust_scale, 5, 50, 100},
-        {"DEATHMATCH BOTS", nullptr, &c.dm_bots, 1, 1, 16},
-        {"DEATHMATCH MINUTES", nullptr, &c.dm_minutes, 1, 1, 30},
-        {"RETAKE BOTS", nullptr, &c.rt_bots, 1, 1, 6},
-        {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
-        {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
-    };
+const char* menuTitle(int screen) {
+    switch (screen) {
+        case kMenuMain: return "FEEL LAB";
+        case kMenuPause: return "PAUSED";
+        case kMenuPlay: return "PLAY";
+        case kMenuSettings: return "SETTINGS";
+        case kMenuControls: return "CONTROLS";
+        case kMenuMouse: return "MOUSE + VIEW";
+        case kMenuCrosshair: return "CROSSHAIR + HUD";
+        case kMenuWeapon: return "WEAPONS + SKINS";
+        case kMenuVideo: return "VIDEO + SOUND";
+        case kMenuGameplay: return "GAMEPLAY";
+        default: return "";
+    }
 }
 
-// Adjusts item `sel` by `dir` steps (shift = x5). Returns true if something changed.
-bool adjustMenu(Config& c, int sel, int dir, bool big) {
-    std::vector<MenuItem> items = menuItems(c);
-    if (sel < 0 || sel >= int(items.size())) return false;
-    const MenuItem& it = items[size_t(sel)];
+std::vector<MenuItem> menuRows(int screen, Config& c, bool practice) {
+    auto button = [](const char* name, int action) {
+        MenuItem m{name};
+        m.action = action;
+        return m;
+    };
+    const MenuItem back = button("BACK", kActBack);
+    switch (screen) {
+        case kMenuMain:
+            return {button("PLAY", goTo(kMenuPlay)), button("SETTINGS", goTo(kMenuSettings)),
+                    button("CONTROLS", goTo(kMenuControls)), button("QUIT", kActQuit)};
+        case kMenuPause: {
+            std::vector<MenuItem> r = {button("RESUME", kActResume), button("CHANGE MODE OR MAP", goTo(kMenuPlay))};
+            if (practice) r.push_back(button("RESET POSITION", kActReset));
+            r.insert(r.end(), {button("SETTINGS", goTo(kMenuSettings)), button("CONTROLS", goTo(kMenuControls)),
+                               button("MAIN MENU", kActMainMenu), button("QUIT", kActQuit)});
+            return r;
+        }
+        case kMenuPlay: {
+            const GameMenu& m = g_gameMenu;
+            std::vector<MenuItem> r = {{"MODE", nullptr, &g_gameMenu.mode, 1, 0, 3, kModeNames}};
+            if (m.mode == 0) {
+                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 1, kMapNames});
+                r.push_back({"BOTS SHOOT BACK", nullptr, &g_gameMenu.bots, 1, 0, 1, kOnOff});
+                if (m.map == 0) r.push_back({"AIM DRILL", nullptr, &g_gameMenu.drill, 1, 0, 1, kOnOff});
+            }
+            if (m.mode == 1) {
+                r.push_back({"BOTS", nullptr, &c.dm_bots, 1, 1, 16});
+                r.push_back({"MINUTES", nullptr, &c.dm_minutes, 1, 1, 30});
+            }
+            if (m.mode == 2) r.push_back({"BOTS ON THE SITE", nullptr, &c.rt_bots, 1, 1, 6});
+            if (m.mode != 0 || m.map == 1) r.push_back({"DUST SIZE (% OF REAL)", nullptr, &c.dust_scale, 5, 50, 100});
+            r.push_back(button("START", kActStart));
+            r.push_back(back);
+            return r;
+        }
+        case kMenuSettings:
+            return {button("MOUSE + VIEW", goTo(kMenuMouse)), button("CROSSHAIR + HUD", goTo(kMenuCrosshair)),
+                    button("WEAPONS + SKINS", goTo(kMenuWeapon)), button("VIDEO + SOUND", goTo(kMenuVideo)),
+                    button("GAMEPLAY", goTo(kMenuGameplay)), button("RELOAD CONFIG.CFG", kActReload), back};
+        case kMenuControls: return {back};
+        case kMenuMouse:
+            return {{"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
+                    {"SCOPED SENSITIVITY RATIO", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
+                    {"FOV (4:3, CS = 90)", &c.fov, nullptr, 1.0f, 60.0f, 120.0f},
+                    {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
+                    {"SMOOTH STAIRS", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
+                    {"SPRAY CAMERA SHAKE", nullptr, &c.view_shake, 1, 0, 1, kOnOff},
+                    back};
+        case kMenuCrosshair:
+            return {{"CROSSHAIR SIZE", nullptr, &c.crosshair_size, 1, 0, 30},
+                    {"CROSSHAIR GAP", nullptr, &c.crosshair_gap, 1, -5, 20},
+                    {"CROSSHAIR THICKNESS", nullptr, &c.crosshair_thickness, 1, 1, 8},
+                    {"CROSSHAIR COLOR", nullptr, &g_crosshairPreset, 1, 0, 5, kCrosshairColorNames},
+                    {"CROSSHAIR DOT", nullptr, &c.crosshair_dot, 1, 0, 1, kOnOff},
+                    {"CROSSHAIR OUTLINE", nullptr, &c.crosshair_outline, 1, 0, 1, kOnOff},
+                    {"HITMARKER", nullptr, &c.hitmarker, 1, 0, 1, kOnOff},
+                    {"RADAR", nullptr, &c.radar, 1, 0, 1, kOnOff},
+                    back};
+        case kMenuWeapon:
+            return {{"KNIFE", nullptr, &c.knife, 1, 0, 3, kKnifeNames},
+                    {"GUN FINISH", nullptr, &c.finish, 1, 0, 4, kFinishNames},
+                    {"VIEWMODEL FOV", &c.viewmodel_fov, nullptr, 1.0f, 50.0f, 90.0f},
+                    {"VIEWMODEL BOB", &c.viewmodel_bob, nullptr, 0.1f, 0.0f, 2.0f},
+                    {"SHOW VIEWMODEL", nullptr, &c.show_viewmodel, 1, 0, 1, kOnOff},
+                    back};
+        case kMenuVideo:
+            return {{"VOLUME", &c.volume, nullptr, 0.05f, 0.0f, 1.0f},
+                    {"HIT SOUND", nullptr, &c.hitsound, 1, 0, 1, kOnOff},
+                    {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
+                    {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
+                    back};
+        case kMenuGameplay:
+            return {{"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
+                    {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
+                    {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
+                    back};
+        default: return {};
+    }
+}
+
+// Changes setting row `it` by `dir` steps (shift = x5). Returns true if it's a setting.
+bool adjustMenu(Config& c, const MenuItem& it, int dir, bool big) {
+    if (it.action) return false;
     float mult = big ? 5.0f : 1.0f;
     if (it.f) {
         float v = std::clamp(*it.f + it.step * mult * float(dir), it.lo, it.hi);
@@ -1996,11 +2134,80 @@ bool adjustMenu(Config& c, int sel, int dir, bool big) {
     return true;
 }
 
-void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats& st, int w, int h, bool paused,
-              bool showHelp, int menuSel) {
+int hudScale(const Config& cfg, int h) { return cfg.hud_scale > 0 ? cfg.hud_scale : std::max(1, h / 540); }
+
+// Where a menu screen's panel and rows go (rows start at `rowsY`, one every `rowH`).
+struct MenuLayout { float x, top, w, rowH, rowsY, bottom; };
+MenuLayout menuLayout(int screen, size_t rows, int w, int h, int s) {
+    MenuLayout L;
+    L.rowH = 13.0f * float(s);
+    L.w = 300.0f * float(s);
+    const float extra = screen == kMenuControls ? float(kControlLines) * 10.0f * float(s) + L.rowH * 0.5f : 0.0f;
+    const float panelH = L.rowH * (3.0f + float(rows) + 1.5f) + extra;
+    L.x = float(w / 2) - L.w / 2;
+    L.top = std::max(float(h) / 2 - panelH / 2, 16.0f * float(s));
+    L.rowsY = L.top + L.rowH * 3.0f + extra;
+    L.bottom = L.top + panelH;
+    return L;
+}
+
+// Row k is drawn from rowsY + k * rowH - 3s, rowH tall.
+int menuRowAt(const MenuLayout& L, size_t rows, int s, float mx, float my) {
+    if (mx < L.x - 8.0f * float(s) || mx > L.x + L.w + 8.0f * float(s)) return -1;
+    float k = (my - (L.rowsY - 3.0f * float(s))) / L.rowH;
+    return k >= 0 && k < float(rows) ? int(k) : -1;
+}
+
+void drawMenu(HudBatch& hud, const Config& cfg, bool practice, int w, int h, int s) {
+    Config view = cfg;  // menuRows needs non-const pointers; we only read here
+    const int screen = g_menu.screen;
+    const std::vector<MenuItem> rows = menuRows(screen, view, practice);
+    const MenuLayout L = menuLayout(screen, rows.size(), w, h, s);
+    const float fs = float(s);
+    hud.rect(0, 0, float(w), float(h), g_menu.root == kMenuMain ? 0x06080BD8 : 0x000000A0);
+    hud.rect(L.x - 14 * fs, L.top - 14 * fs, L.w + 28 * fs, L.bottom - L.top + 28 * fs, 0x15181CE8);
+    hud.text(L.x, L.top, menuTitle(screen), 0xFFD060FF, screen == kMenuMain ? s * 3 : s * 2);
+    if (screen == kMenuControls) {
+        float y = L.top + L.rowH * 3.0f;
+        for (const auto& c : kControls) {
+            hud.text(L.x, y, c[0], 0xFFFFFFFF);
+            hud.text(L.x + 100 * fs, y, c[1], 0xB0B0B0FF);
+            y += 10 * fs;
+        }
+    }
+    for (size_t k = 0; k < rows.size(); ++k) {
+        const MenuItem& it = rows[k];
+        const float y = L.rowsY + float(k) * L.rowH;
+        const bool sel = int(k) == g_menu.sel;
+        if (sel) hud.rect(L.x - 6 * fs, y - 3 * fs, L.w + 12 * fs, L.rowH, 0x3A5F9AC0);
+        const uint32_t col = sel ? 0xFFFFFFFF : it.action == kActStart ? 0x80FF80FF : 0xC8C8C8FF;
+        hud.text(L.x, y, it.name, col);
+        std::string v;
+        if (it.action >= kActGoto) {
+            v = ">";
+        } else if (!it.action) {
+            char val[48];
+            if (it.f) std::snprintf(val, sizeof(val), it.step < 0.1f ? "%.2f" : "%.1f", double(*it.f));
+            else if (it.labels) std::snprintf(val, sizeof(val), "%s", it.labels[*it.i - int(it.lo)]);
+            else std::snprintf(val, sizeof(val), "%d", *it.i);
+            v = sel ? std::string("< ") + val + " >" : std::string(val);
+        }
+        if (!v.empty()) hud.text(L.x + L.w - hud.textWidth(v), y, v, col);
+    }
+    const bool setting = g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && !rows[size_t(g_menu.sel)].action;
+    const char* hint = setting ? "LEFT/RIGHT, CLICK OR WHEEL CHANGES   (SAVED)"
+                               : screen == kMenuMain ? "ENTER OR CLICK TO SELECT" : "ENTER OR CLICK TO SELECT   ESC BACK";
+    hud.text(L.x, L.rowsY + (float(rows.size()) + 0.5f) * L.rowH, hint, 0x909090FF);
+}
+
+void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats& st, int w, int h) {
     hud.clear();
-    int s = cfg.hud_scale > 0 ? cfg.hud_scale : std::max(1, h / 540);
+    int s = hudScale(cfg, h);
     hud.fontScale = s;
+    if (g_menu.screen != kMenuNone && g_menu.root == kMenuMain) {  // main menu: no game HUD behind it
+        drawMenu(hud, cfg, g.mode == 0, w, h, s);
+        return;
+    }
     const float lh = 10.0f * s;
     char buf[160];
 
@@ -2298,18 +2505,10 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         else std::snprintf(buf, sizeof(buf), "KZ LAST %.3f   BEST %.3f", g.kzLast, g.kzBest);
         hud.text(cx - hud.textWidth(buf, s * 2) / 2, 12.0f * s, buf, g.kzState == 2 ? 0xFFFFFFFF : 0x80FF80FF, s * 2);
     }
-    if (showHelp) {
-        const char* help[] = {
-            "WASD MOVE   SPACE/WHEEL JUMP   CTRL CROUCH   SHIFT WALK",
-            "MOUSE1 FIRE   MOUSE2 SCOPE   R RELOAD   1 PRIMARY   2 PISTOL   3 KNIFE   4 GRENADE (4 AGAIN: NEXT)   Q LAST",
-            "B BUY MENU   TAB SCORES   G QUICK THROW   GRENADE OUT: MOUSE1 THROW, MOUSE2 LOB",
-            "HOLD SPACE TO BUNNY HOP - AIR STRAFE (A/D + TURN) TO GAIN SPEED",
-            "F INSPECT   V NOCLIP   C CLEAR DECALS   ALT+ENTER FULLSCREEN",
-            "KZ COURSE: GREEN PAD BEHIND THE SPRAY WALL - HOP THE BLUE PADS, AVOID THE LAVA",
-            "ESC MENU: MAP, MODE (DEATHMATCH / RETAKES), BOTS SHOOT BACK, AIM DRILL, RESET, HIDE THIS HELP",
-            "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL",
-        };
-        for (const char* l : help) { hud.text(x, y, l, 0xE0E0E0D0); y += lh; }
+    if (g.simTime < 15.0) { hud.text(x, y, "ESC: MENU, SETTINGS AND CONTROLS", 0xFFD060D0); y += lh; }
+    if (g.mapId == 0) {
+        hud.text(x, y, "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL", 0xE0E0E0B0);
+        hud.text(x, y + lh, "KZ COURSE: GREEN PAD BEHIND THE SPRAY WALL - HOP THE BLUE PADS", 0xE0E0E0B0);
     }
 
     // Top-right: kill feed (6 s), then the hit log under it.
@@ -2348,32 +2547,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         hud.rect(0, 0, float(w), float(h), 0xFFFFFF00u | uint32_t(255.0f * std::clamp(k, 0.0f, 1.0f)));
     }
 
-    if (paused) {
-        hud.rect(0, 0, float(w), float(h), 0x000000A0);
-        Config view = cfg;  // menuItems needs non-const pointers; we only read here
-        std::vector<MenuItem> items = menuItems(view);
-        float rowH = 11.0f * s, panelW = 70.0f * 6 * s, panelH = rowH * float(items.size() + 5);
-        float px = cx - panelW / 2, py = cy - panelH / 2;
-        hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
-        hud.text(px, py, "SETTINGS", 0xFFD060FF, s * 2);
-        float my = py + rowH * 2;
-        for (size_t k = 0; k < items.size(); ++k) {
-            const MenuItem& it = items[k];
-            bool selRow = int(k) == menuSel;
-            if (selRow) hud.rect(px - 4 * s, my - 2 * s, panelW + 8 * s, rowH, 0x3A5F9AC0);
-            char val[48];
-            if (it.f) std::snprintf(val, sizeof(val), it.step < 0.1f ? "%.2f" : "%.1f", double(*it.f));
-            else if (it.labels) std::snprintf(val, sizeof(val), "%s", it.labels[*it.i - int(it.lo)]);
-            else std::snprintf(val, sizeof(val), "%d", *it.i);
-            hud.text(px, my, it.name, selRow ? 0xFFFFFFFF : 0xC8C8C8FF);
-            std::string v = selRow ? std::string("< ") + val + " >" : std::string(val);
-            hud.text(px + panelW - hud.textWidth(v), my, v, selRow ? 0xFFFFFFFF : 0xC8C8C8FF);
-            my += rowH;
-        }
-        my += rowH;
-        hud.text(px, my, "UP/DOWN SELECT   LEFT/RIGHT CHANGE (SHIFT = x5)   SAVED AUTOMATICALLY", 0xA0A0A0FF);
-        hud.text(px, my + rowH, "CLICK OR ESC TO RESUME   Q TO QUIT", 0xFFFFFFFF);
-    }
+    if (g_menu.screen != kMenuNone) drawMenu(hud, cfg, g.mode == 0, w, h, s);
 }
 
 int fatal(const std::string& msg, SDL_Window* window, bool showBox) {
@@ -2476,60 +2650,91 @@ int main(int argc, char** argv) {
         resetPosition(g);
     }
 
-    bool paused = false, showHelp = true, running = true;
-    int menuSel = 0;
+    bool paused = false, running = true;
     for (int k = 0; k < 6; ++k)  // match the crosshair colour preset to the loaded config
         if (kCrosshairColors[k] == (uint32_t(cfg.crosshair_r) << 16 | uint32_t(cfg.crosshair_g) << 8 | uint32_t(cfg.crosshair_b)))
             g_crosshairPreset = k;
-    if (!automated) SDL_SetWindowRelativeMouseMode(window, true);
-    // The GAME rows of the Esc menu mirror live state; after a change, apply it and re-sync.
-    auto syncGameMenu = [&]() {
-        g_gameMenu.map = g.mapId;
-        g_gameMenu.mode = g.mode;
-        g_gameMenu.bots = g.botsFire;
-        g_gameMenu.drill = g.drill;
-        g_gameMenu.noclip = g.noclip;
-        g_gameMenu.help = showHelp;
-        g_gameMenu.reset = g_gameMenu.reload = 0;
+    // Menus: any open screen pauses the game and frees the mouse.
+    auto setMenu = [&](int screen) {
+        if (screen == kMenuPlay) {  // the play screen starts from what's running now
+            g_gameMenu.map = g.mapId;
+            g_gameMenu.mode = g.mode;
+            g_gameMenu.bots = g.botsFire;
+            g_gameMenu.drill = g.drill;
+        }
+        g_menu.screen = screen;
+        g_menu.sel = 0;
+        paused = screen != kMenuNone;
+        if (!automated) SDL_SetWindowRelativeMouseMode(window, !paused);
+        g.fireHeld = false;
+        g.hudDirty = true;
     };
-    auto applyGameMenu = [&]() {
-        GameMenu& m = g_gameMenu;
-        if (m.map != g.mapId) {
-            g.mode = 0;  // the modes are Dust-only
-            loadMap(g, renderer, m.map);
-        } else if (m.mode != g.mode) {
-            g.mode = m.mode;
-            loadMap(g, renderer, 1);
+    auto menuBack = [&]() {
+        const int from = g_menu.screen;
+        if (from >= kMenuMouse) {
+            setMenu(kMenuSettings);
+            g_menu.sel = from - kMenuMouse;  // back on the page you came from
+        } else if (from == kMenuPause) {
+            setMenu(kMenuNone);
+        } else if (from != kMenuMain) {
+            setMenu(g_menu.root);
         }
-        if ((m.bots != 0) != g.botsFire) {
+    };
+    // START on the play screen: the chosen mode and map, from scratch.
+    auto startFromMenu = [&]() {
+        const GameMenu& m = g_gameMenu;
+        g.mode = m.mode;
+        loadMap(g, renderer, m.mode != 0 ? 1 : m.map);
+        if (g.mode == 0) {
             g.botsFire = m.bots != 0;
-            g.hp = 100;
-            std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
-        }
-        if ((m.drill != 0) != g.drill && g.mapId == 0) setDrill(g, m.drill != 0);
-        g.noclip = m.noclip != 0;
-        showHelp = m.help != 0;
-        if (m.reset) resetPosition(g);
-        if (m.reload) {
-            cfg = loadConfig(cfgPath);
-            settingsChanged();
-            pushHitLog(g, "CONFIG RELOADED", 0x80ff80);
+            if (g.mapId == 0 && m.drill) setDrill(g, true);
         }
         cfg.map = g.mapId;
         cfg.mode = g.mode;
-        syncGameMenu();
-        g.hudDirty = true;
+        saveConfig(cfgPath, cfg);
+        g_menu.root = kMenuPause;
+        setMenu(kMenuNone);
     };
-    auto setPaused = [&](bool p) {
-        paused = p;
-        if (!automated) SDL_SetWindowRelativeMouseMode(window, !p);
-        g.fireHeld = false;
-        if (p) syncGameMenu();
+    // Row `row` was pressed (Enter, click: press = true) or nudged (arrows, wheel, right click).
+    // Settings change by `dir` steps either way and save straight away; buttons only react to presses.
+    auto menuUse = [&](int row, int dir, bool big, bool press) {
+        const std::vector<MenuItem> rows = menuRows(g_menu.screen, cfg, g.mode == 0);
+        if (row < 0 || row >= int(rows.size())) return;
+        const MenuItem& it = rows[size_t(row)];
         g.hudDirty = true;
+        if (adjustMenu(cfg, it, dir, big)) {
+            settingsChanged();
+            saveConfig(cfgPath, cfg);
+            return;
+        }
+        if (!press) return;
+        switch (it.action) {
+            case kActResume: setMenu(kMenuNone); break;
+            case kActStart: startFromMenu(); break;
+            case kActReset: resetPosition(g); setMenu(kMenuNone); break;
+            case kActReload:
+                cfg = loadConfig(cfgPath);
+                settingsChanged();
+                pushHitLog(g, "CONFIG RELOADED", 0x80ff80);
+                break;
+            case kActQuit: running = false; break;
+            case kActBack: menuBack(); break;
+            case kActMainMenu: g_menu.root = kMenuMain; setMenu(kMenuMain); break;
+            default: if (it.action >= kActGoto) setMenu(it.action - kActGoto); break;
+        }
     };
 
     int pixW = 0, pixH = 0;
     SDL_GetWindowSizeInPixels(window, &pixW, &pixH);
+    // The menu row under the mouse (window coordinates), or -1.
+    auto menuRowUnder = [&](float mx, float my) {
+        const float density = SDL_GetWindowPixelDensity(window);
+        const int hs = hudScale(cfg, pixH);
+        const size_t n = menuRows(g_menu.screen, cfg, g.mode == 0).size();
+        return menuRowAt(menuLayout(g_menu.screen, n, pixW, pixH, hs), n, hs, mx * density, my * density);
+    };
+    g_menu.root = kMenuMain;
+    setMenu(automated ? kMenuNone : kMenuMain);  // launch on the main menu
 
     const double freq = double(SDL_GetPerformanceFrequency());
     uint64_t last = SDL_GetPerformanceCounter();
@@ -2559,7 +2764,7 @@ int main(int argc, char** argv) {
             switch (e.type) {
                 case SDL_EVENT_QUIT: running = false; break;
                 case SDL_EVENT_WINDOW_FOCUS_LOST:
-                    if (!automated) setPaused(true);
+                    if (!automated && !paused) setMenu(kMenuPause);
                     break;
                 case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
                     pixW = e.window.data1;
@@ -2578,10 +2783,21 @@ int main(int argc, char** argv) {
                         g.viewPitch = std::clamp(g.viewPitch, -89.0, 89.0);
                         if (g.viewYaw > 180) g.viewYaw -= 360;
                         if (g.viewYaw < -180) g.viewYaw += 360;
+                    } else {
+                        const int r = menuRowUnder(e.motion.x, e.motion.y);
+                        if (r >= 0 && r != g_menu.sel) { g_menu.sel = r; g.hudDirty = true; }
                     }
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                    if (paused) { setPaused(false); break; }
+                    if (paused) {  // left click presses a row, right click steps a setting back
+                        const int r = menuRowUnder(e.button.x, e.button.y);
+                        const bool left = e.button.button == SDL_BUTTON_LEFT;
+                        if (r >= 0 && (left || e.button.button == SDL_BUTTON_RIGHT)) {
+                            g_menu.sel = r;
+                            menuUse(r, left ? 1 : -1, false, left);
+                        }
+                        break;
+                    }
                     if (e.button.button == SDL_BUTTON_LEFT) { g.fireHeld = true; g.fireLatch = true; }
                     if (e.button.button == SDL_BUTTON_RIGHT) g.zoomLatch = true;
                     break;
@@ -2591,11 +2807,8 @@ int main(int argc, char** argv) {
                 case SDL_EVENT_MOUSE_WHEEL:
                     if (!paused) {
                         g.jumpLatch = true;
-                    } else if (e.wheel.y != 0 && adjustMenu(cfg, menuSel, e.wheel.y > 0 ? 1 : -1, false)) {
-                        settingsChanged();
-                        applyGameMenu();
-                        saveConfig(cfgPath, cfg);
-                        g.hudDirty = true;
+                    } else if (e.wheel.y != 0) {
+                        menuUse(g_menu.sel, e.wheel.y > 0 ? 1 : -1, false, false);
                     }
                     break;
                 case SDL_EVENT_KEY_DOWN: {
@@ -2607,23 +2820,20 @@ int main(int argc, char** argv) {
                     }
                     SDL_Scancode sc = e.key.scancode;
                     if (sc == SDL_SCANCODE_ESCAPE && g.buyMenu && !paused) { g.buyMenu = false; g.hudDirty = true; }
-                    else if (sc == SDL_SCANCODE_ESCAPE) setPaused(!paused);
-                    else if (paused && sc == SDL_SCANCODE_Q) running = false;
-                    else if (paused && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN)) {
-                        int n = int(menuItems(cfg).size());
-                        menuSel = (menuSel + (sc == SDL_SCANCODE_DOWN ? 1 : n - 1)) % n;
-                        g.hudDirty = true;
-                    } else if (paused && (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT)) {
-                        if (adjustMenu(cfg, menuSel, sc == SDL_SCANCODE_RIGHT ? 1 : -1, (e.key.mod & SDL_KMOD_SHIFT) != 0)) {
-                            settingsChanged();
-                            applyGameMenu();
-                            saveConfig(cfgPath, cfg);
-                            g.hudDirty = true;
-                        }
-                    }
-                    else if (sc == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT)) {
+                    else if (sc == SDL_SCANCODE_ESCAPE) {
+                        if (paused) menuBack();
+                        else setMenu(kMenuPause);
+                    } else if (sc == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT)) {
                         bool fs = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
                         SDL_SetWindowFullscreen(window, !fs);
+                    } else if (paused && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN)) {
+                        int n = int(menuRows(g_menu.screen, cfg, g.mode == 0).size());
+                        g_menu.sel = (g_menu.sel + (sc == SDL_SCANCODE_DOWN ? 1 : n - 1)) % n;
+                        g.hudDirty = true;
+                    } else if (paused && (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT)) {
+                        menuUse(g_menu.sel, sc == SDL_SCANCODE_RIGHT ? 1 : -1, (e.key.mod & SDL_KMOD_SHIFT) != 0, false);
+                    } else if (paused && (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE)) {
+                        menuUse(g_menu.sel, 1, false, true);
                     } else if (!paused) {
                         if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
@@ -2683,7 +2893,10 @@ int main(int argc, char** argv) {
         }
         if (automated && frame == opt.inspectFrame) g.vm.inspect();
         if (automated && opt.bots && frame == 1) g.botsFire = true;
-        if (automated && opt.showMenu && frame == 60) { paused = true; menuSel = 2; g.hudDirty = true; }
+        if (automated && opt.menuScreen > 0 && frame == 60) {
+            g_menu.root = opt.menuScreen == kMenuMain ? kMenuMain : kMenuPause;
+            setMenu(opt.menuScreen);
+        }
 
         for (const BoxInstance& d : g.pendingDecals) renderer.addDecal(d);
         g.pendingDecals.clear();
@@ -2860,7 +3073,7 @@ int main(int argc, char** argv) {
         bool markerExpired = hitMarkerShownUntil > 0 && g.simTime >= g.hitMarkerUntil;
         bool rebuild = g.hudDirty || markerExpired || nowSec - lastHudBuild > 1.0 / 60.0;
         if (rebuild) {
-            buildHud(hud, g, cfg, stats, pixW, pixH, paused, showHelp, menuSel);
+            buildHud(hud, g, cfg, stats, pixW, pixH);
             lastHudBuild = nowSec;
             g.hudDirty = false;
             hitMarkerShownUntil = g.simTime < g.hitMarkerUntil ? g.hitMarkerUntil : 0;

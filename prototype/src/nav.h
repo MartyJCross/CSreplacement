@@ -18,6 +18,7 @@ public:
     // True if a standing player fits in the cell under p.
     bool standable(const Vec3& p) const;
     bool roamable(const Vec3& p) const;
+    float floorAt(const Vec3& p) const { return grid_ ? grid_->floorAt(p.x, p.y) : 0.0f; }
     // A roamable cell centre picked by r01 in [0, 1), uniformly over the whole map. With
     // `awayFromEdges`, only cells not touching a wall or ledge (good spawn spots).
     Vec3 roamPoint(float r01, bool awayFromEdges) const;

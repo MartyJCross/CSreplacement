@@ -85,7 +85,7 @@ cmake --build build
 ```
 Xvfb :90 -screen 0 1280x720x24 &   # then:
 DISPLAY=:90 ./build/feellab --windowed 1280 720 --screenshot out.bmp --frames 300 \
-  [--spawn X Y YAW] [--weapon 1|2|3|4] [--autofire START END] [--zoom 1|2] [--smoke] [--bots] [--menu]
+  [--spawn X Y YAW] [--weapon 1|2|3|4] [--autofire START END] [--zoom 1|2] [--smoke] [--bots] [--menu N]
 ```
 - Put `map 1` in `build/config.cfg` to screenshot the Dust map.
 - Screenshot mode runs a fixed 240 FPS timestep, so the FPS counter is meaningless there.
@@ -125,32 +125,36 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Cosmetics** (`fx.cpp`): knives (butterfly, karambit, M9, talon) and gun finishes (`knife`, `finish`);
   keyframed inspects (`kRifleInspect`...); spray feedback (kick builds, `view_shake` roll, casings, far
   impacts bigger); grenade models per type; particles can glow.
-- **Maps** (Esc menu MAP):
+- **Maps** (Play screen MAP):
   - Feel Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course
   - Dust2 (`kDustAreas` on a 32u grid, `dust_scale` 60% default, 50..100): smooth ramps, roofed tunnels, B window,
     arches, wooden doors, materials, HUD callouts. Test coordinates use `dpt(x, y)` (real-Dust2 coords, scaled).
-- **Modes** (Esc menu MODE, Dust only, `mode`): 0 practice (peek bots), 1 deathmatch (`bots.cpp` roaming, spawns
+- **Modes** (Play screen MODE, Dust only, `mode`): 0 practice (peek bots), 1 deathmatch (`bots.cpp` roaming, spawns
   anywhere), 2 retakes (bomb pre-planted, defuse with E; `dustRetakeSites()`), 3 competitive 5v5 (`Game::Comp`,
   `startCompRound`/`compTick`/`endCompRound`: MR12, CS economy, buy menu, bomb carry/drop/plant/defuse, bots fight
-  bots via `BotSenses::targets`, goals via `BotBrain::goal`). Automated runs log rounds to `comp_log.txt`.
+  bots via `BotSenses::targets`, goals via `BotBrain::goal`). Ts stage (`Comp::stagePoint`) then execute (`executing`); CTs split or stack, far
+  CTs rotate when Ts reach the site (`rotated`). Automated runs log rounds + executes to `comp_log.txt`.
 - **Grenades** (`main.cpp`): smoke, flash (`flashBang`: player white-out + bot `blindUntil`), HE (`heExplode`),
   molotov (`igniteMolotov` + fires; smoke extinguishes). Damage goes through `hurtPlayer` / `hurtBot`.
+  CS:GO throw physics: 675 u/s (lob x0.3), pitch remapped like CS (-10 deg + ...), +1.25x player velocity, gravity 320.
 - **Combat record:** `recordDamage` feeds the kill feed, per-life damage report, assists, ADR/HS%/MVP scoreboard.
 - **HUD:** radar (`buildRadar`, spotting), subtle hitmarker + tick (`hitmarker`, `hitsound`), Tab scoreboard.
-- **Esc menu** holds the old F-key toggles (map, mode, bots shoot back, aim drill, noclip, help, reset, reload).
+- **Menus** (`MenuScreen`, `menuRows`, `drawMenu`, `menuUse` in main.cpp): main menu at launch, Esc pause menu,
+  Play screen (mode + its options; START reloads the map), settings split into pages, controls page; mouse
+  hover/click. The in-game help is just a short hint now.
 - **Performance:** the owner's laptop has only an integrated Radeon (GPU-bound, fill-rate). Depth pre-pass,
   per-frame frustum cull + front-to-back sort of world boxes, per-face lighting. Measure with
   `feellab --bench 10` (writes bench.txt) before and after any rendering change.
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
   short boom). Measure with `--dump-sounds` before changing tone.
 - **Screenshot helpers:** `--spawn X Y YAW` (world coords: Dust is scaled!), `--weapon`, `--inspect N`,
-  `--smoke --nade T`, `--bots`, `--menu`, `--bench S`.
+  `--smoke --nade T`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`.
 
 ## 8. Roadmap (owner priorities first)
 
 1. **Multiplayer** (Phase 2 in `docs/06-build-process.md`): see the owner's investigation notes; start with a
    1v1 LAN listen server, then a dedicated server. Needs prediction, interpolation, lag compensation, the hitbox
    contract (`docs/04-netcode-and-hitreg.md`) and a bot-duel hit-reg harness.
-2. Competitive polish: T bots are weak (they walk in and die); give them executes, bot grenades, rotations.
+2. Competitive polish: executes, CT setups and rotations are in; next would be bot grenades and smarter retakes.
 3. Not chosen yet by the owner (offered): prefire practice routes, grenade lineup save/teleport + trajectory
    preview, developer console with CS command names, jumpthrow bind, viewmodel presets, net_graph overlay, ladders.

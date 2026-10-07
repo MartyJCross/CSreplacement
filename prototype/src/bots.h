@@ -16,6 +16,9 @@ struct BotBrain {
     double blindUntil = 0;    // flashed: sees nothing until then
     bool sees = false, aimed = false;
     int target = -2;          // who it's fighting: -1 = you, i = bot i, -2 = nobody
+    bool strafing = false;    // fighting: jiggling sideways (doesn't shoot while moving)
+    int strafeDir = 1;
+    float strafeTimer = 0;
     // Retakes: an anchor that holds its angle (holdYaw) instead of roaming. It still turns on you,
     // checks noises and fights, then holds wherever it ends up.
     bool holdOnly = false;
