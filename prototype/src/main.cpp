@@ -38,6 +38,7 @@ struct Options {
     int windowW = 0, windowH = 0;                // --windowed W H
     int startWeapon = 0;                         // --weapon 1|2|3|4
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
+    bool showMenu = false;                       // --menu (settings menu, for screenshots)
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -55,6 +56,8 @@ Options parseArgs(int argc, char** argv) {
         } else if (a == "--autofire") {
             o.autofireStart = float(std::atof(next()));
             o.autofireEnd = float(std::atof(next()));
+        } else if (a == "--menu") {
+            o.showMenu = true;
         } else if (a == "--zoom") {
             o.startZoom = std::atoi(next());
         } else if (a == "--weapon") {
@@ -479,8 +482,69 @@ struct FrameStats {
     }
 };
 
+// ---- In-game settings menu (pause screen) ----
+struct MenuItem {
+    const char* name;
+    float* f;      // float setting, or
+    int* i;        // int setting
+    float step, lo, hi;
+    const char* const* labels = nullptr;  // optional names for int values
+};
+
+const char* const kOnOff[] = {"OFF", "ON"};
+const uint32_t kCrosshairColors[] = {0x00FF00, 0xFFFF00, 0x00FFFF, 0xFFFFFF, 0xFF3030, 0xFF40FF};
+const char* const kCrosshairColorNames[] = {"GREEN", "YELLOW", "CYAN", "WHITE", "RED", "PINK"};
+int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
+
+std::vector<MenuItem> menuItems(Config& c) {
+    return {
+        {"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
+        {"SCOPED SENSITIVITY (RATIO)", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
+        {"FOV (4:3, CS = 90)", &c.fov, nullptr, 1.0f, 60.0f, 120.0f},
+        {"VIEWMODEL FOV", &c.viewmodel_fov, nullptr, 1.0f, 50.0f, 90.0f},
+        {"VIEWMODEL BOB", &c.viewmodel_bob, nullptr, 0.1f, 0.0f, 2.0f},
+        {"SHOW VIEWMODEL", nullptr, &c.show_viewmodel, 1, 0, 1, kOnOff},
+        {"VOLUME", &c.volume, nullptr, 0.05f, 0.0f, 1.0f},
+        {"CROSSHAIR SIZE", nullptr, &c.crosshair_size, 1, 0, 30},
+        {"CROSSHAIR GAP", nullptr, &c.crosshair_gap, 1, -5, 20},
+        {"CROSSHAIR THICKNESS", nullptr, &c.crosshair_thickness, 1, 1, 8},
+        {"CROSSHAIR COLOR", nullptr, &g_crosshairPreset, 1, 0, 5, kCrosshairColorNames},
+        {"CROSSHAIR DOT", nullptr, &c.crosshair_dot, 1, 0, 1, kOnOff},
+        {"CROSSHAIR OUTLINE", nullptr, &c.crosshair_outline, 1, 0, 1, kOnOff},
+        {"FPS CAP (0 = UNLIMITED)", nullptr, &c.fps_max, 30, 0, 1000},
+        {"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
+        {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
+        {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
+        {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
+    };
+}
+
+// Adjusts item `sel` by `dir` steps (shift = x5). Returns true if something changed.
+bool adjustMenu(Config& c, int sel, int dir, bool big) {
+    std::vector<MenuItem> items = menuItems(c);
+    if (sel < 0 || sel >= int(items.size())) return false;
+    const MenuItem& it = items[size_t(sel)];
+    float mult = big ? 5.0f : 1.0f;
+    if (it.f) {
+        float v = std::clamp(*it.f + it.step * mult * float(dir), it.lo, it.hi);
+        *it.f = std::round(v * 1000.0f) / 1000.0f;
+    } else {
+        int range = int(it.hi - it.lo) + 1;
+        int v = *it.i + int(it.step * (it.labels ? 1.0f : mult)) * dir;
+        if (it.labels) v = int(it.lo) + ((v - int(it.lo)) % range + range) % range;  // wrap toggles/lists
+        *it.i = std::clamp(v, int(it.lo), int(it.hi));
+    }
+    if (it.i == &g_crosshairPreset) {
+        uint32_t col = kCrosshairColors[g_crosshairPreset];
+        c.crosshair_r = int(col >> 16);
+        c.crosshair_g = int((col >> 8) & 255);
+        c.crosshair_b = int(col & 255);
+    }
+    return true;
+}
+
 void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats& st, int w, int h, bool paused,
-              bool showHelp) {
+              bool showHelp, int menuSel) {
     hud.clear();
     int s = cfg.hud_scale > 0 ? cfg.hud_scale : std::max(1, h / 540);
     hud.fontScale = s;
@@ -594,11 +658,30 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     hud.text(float(w) - hud.textWidth(buf, s * 2) - 16.0f * s, float(h) - 24.0f * s, buf, 0xFFFFFFFF, s * 2);
 
     if (paused) {
-        hud.rect(0, 0, float(w), float(h), 0x00000080);
-        const char* l1 = "PAUSED";
-        const char* l2 = "CLICK OR ESC TO RESUME   Q TO QUIT";
-        hud.text(cx - hud.textWidth(l1, s * 3) / 2, cy - 30.0f * s, l1, 0xFFFFFFFF, s * 3);
-        hud.text(cx - hud.textWidth(l2) / 2, cy, l2, 0xFFFFFFFF);
+        hud.rect(0, 0, float(w), float(h), 0x000000A0);
+        Config view = cfg;  // menuItems needs non-const pointers; we only read here
+        std::vector<MenuItem> items = menuItems(view);
+        float rowH = 11.0f * s, panelW = 70.0f * 6 * s, panelH = rowH * float(items.size() + 5);
+        float px = cx - panelW / 2, py = cy - panelH / 2;
+        hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
+        hud.text(px, py, "SETTINGS", 0xFFD060FF, s * 2);
+        float ry = py + rowH * 2;
+        for (size_t k = 0; k < items.size(); ++k) {
+            const MenuItem& it = items[k];
+            bool selRow = int(k) == menuSel;
+            if (selRow) hud.rect(px - 4 * s, ry - 2 * s, panelW + 8 * s, rowH, 0x3A5F9AC0);
+            char val[48];
+            if (it.f) std::snprintf(val, sizeof(val), it.step < 0.1f ? "%.2f" : "%.1f", double(*it.f));
+            else if (it.labels) std::snprintf(val, sizeof(val), "%s", it.labels[*it.i - int(it.lo)]);
+            else std::snprintf(val, sizeof(val), "%d", *it.i);
+            hud.text(px, ry, it.name, selRow ? 0xFFFFFFFF : 0xC8C8C8FF);
+            std::string v = selRow ? std::string("< ") + val + " >" : std::string(val);
+            hud.text(px + panelW - hud.textWidth(v), ry, v, selRow ? 0xFFFFFFFF : 0xC8C8C8FF);
+            ry += rowH;
+        }
+        ry += rowH;
+        hud.text(px, ry, "UP/DOWN SELECT   LEFT/RIGHT CHANGE (SHIFT = x5)   SAVED AUTOMATICALLY", 0xA0A0A0FF);
+        hud.text(px, ry + rowH, "CLICK OR ESC TO RESUME   Q TO QUIT", 0xFFFFFFFF);
     }
 }
 
@@ -675,6 +758,10 @@ int main(int argc, char** argv) {
     }
 
     bool paused = false, showHelp = true, running = true;
+    int menuSel = 0;
+    for (int k = 0; k < 6; ++k)  // match the crosshair colour preset to the loaded config
+        if (kCrosshairColors[k] == (uint32_t(cfg.crosshair_r) << 16 | uint32_t(cfg.crosshair_g) << 8 | uint32_t(cfg.crosshair_b)))
+            g_crosshairPreset = k;
     if (!automated) SDL_SetWindowRelativeMouseMode(window, true);
     auto setPaused = [&](bool p) {
         paused = p;
@@ -739,13 +826,35 @@ int main(int argc, char** argv) {
                     if (e.button.button == SDL_BUTTON_LEFT) g.fireHeld = false;
                     break;
                 case SDL_EVENT_MOUSE_WHEEL:
-                    if (!paused) g.jumpLatch = true;
+                    if (!paused) {
+                        g.jumpLatch = true;
+                    } else if (e.wheel.y != 0 && adjustMenu(cfg, menuSel, e.wheel.y > 0 ? 1 : -1, false)) {
+                        applyConfig(g, cfg);
+                        saveConfig(cfgPath, cfg);
+                        g.hudDirty = true;
+                    }
                     break;
                 case SDL_EVENT_KEY_DOWN: {
-                    if (e.key.repeat) break;
+                    {
+                        SDL_Scancode k = e.key.scancode;
+                        bool arrow = k == SDL_SCANCODE_LEFT || k == SDL_SCANCODE_RIGHT || k == SDL_SCANCODE_UP ||
+                                     k == SDL_SCANCODE_DOWN;
+                        if (e.key.repeat && !(paused && arrow)) break;  // held arrows repeat in the menu
+                    }
                     SDL_Scancode sc = e.key.scancode;
                     if (sc == SDL_SCANCODE_ESCAPE) setPaused(!paused);
                     else if (paused && sc == SDL_SCANCODE_Q) running = false;
+                    else if (paused && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN)) {
+                        int n = int(menuItems(cfg).size());
+                        menuSel = (menuSel + (sc == SDL_SCANCODE_DOWN ? 1 : n - 1)) % n;
+                        g.hudDirty = true;
+                    } else if (paused && (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT)) {
+                        if (adjustMenu(cfg, menuSel, sc == SDL_SCANCODE_RIGHT ? 1 : -1, (e.key.mod & SDL_KMOD_SHIFT) != 0)) {
+                            applyConfig(g, cfg);
+                            saveConfig(cfgPath, cfg);
+                            g.hudDirty = true;
+                        }
+                    }
                     else if (sc == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT)) {
                         bool fs = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
                         SDL_SetWindowFullscreen(window, !fs);
@@ -783,6 +892,7 @@ int main(int argc, char** argv) {
         }
         float alpha = float(tickAcc / kTickDt);
         if (automated && opt.startZoom && frame == 60) { g.zoom = opt.startZoom; g.hudDirty = true; }
+        if (automated && opt.showMenu && frame == 60) { paused = true; menuSel = 2; g.hudDirty = true; }
 
         for (const BoxInstance& d : g.pendingDecals) renderer.addDecal(d);
         g.pendingDecals.clear();
@@ -882,7 +992,7 @@ int main(int argc, char** argv) {
         bool markerExpired = hitMarkerShownUntil > 0 && g.simTime >= g.hitMarkerUntil;
         bool rebuild = g.hudDirty || markerExpired || nowSec - lastHudBuild > 1.0 / 60.0;
         if (rebuild) {
-            buildHud(hud, g, cfg, stats, pixW, pixH, paused, showHelp);
+            buildHud(hud, g, cfg, stats, pixW, pixH, paused, showHelp, menuSel);
             lastHudBuild = nowSec;
             g.hudDirty = false;
             hitMarkerShownUntil = g.simTime < g.hitMarkerUntil ? g.hitMarkerUntil : 0;

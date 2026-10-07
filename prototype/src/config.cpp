@@ -53,6 +53,27 @@ zoom_sensitivity_ratio 1
 
 }  // namespace
 
+bool saveConfig(const std::string& path, const Config& c) {
+    std::ofstream out(path);
+    if (!out) return false;
+    out << "// Feel Lab config. Written by the in-game settings menu (Esc); you can also edit it by hand.\n";
+    out << "sensitivity " << c.sensitivity << "\nm_yaw " << c.m_yaw << "\nm_pitch " << c.m_pitch
+        << "\nzoom_sensitivity_ratio " << c.zoom_sensitivity_ratio << "\nfov " << c.fov << "\nfps_max " << c.fps_max
+        << "\nvsync " << c.vsync << "\nfullscreen " << c.fullscreen << "\nwidth " << c.width << "\nheight " << c.height
+        << "\ncrosshair_size " << c.crosshair_size << "\ncrosshair_gap " << c.crosshair_gap
+        << "\ncrosshair_thickness " << c.crosshair_thickness << "\ncrosshair_r " << c.crosshair_r
+        << "\ncrosshair_g " << c.crosshair_g << "\ncrosshair_b " << c.crosshair_b
+        << "\ncrosshair_outline " << c.crosshair_outline << "\ncrosshair_dot " << c.crosshair_dot
+        << "\nview_recoil_tracking " << c.view_recoil_tracking << "\nhud_scale " << c.hud_scale
+        << "\nvolume " << c.volume << "\nviewmodel_fov " << c.viewmodel_fov
+        << "\nviewmodel_offset_x " << c.viewmodel_offset_x << "\nviewmodel_offset_y " << c.viewmodel_offset_y
+        << "\nviewmodel_offset_z " << c.viewmodel_offset_z << "\nviewmodel_bob " << c.viewmodel_bob
+        << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
+        << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
+        << "\ncamera_extrapolate " << c.camera_extrapolate << "\n";
+    return bool(out);
+}
+
 Config loadConfig(const std::string& path) {
     Config c;
     std::ifstream in(path);

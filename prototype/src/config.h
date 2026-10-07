@@ -33,3 +33,5 @@ struct Config {
 
 // Loads `path`; writes a commented default file there if it doesn't exist.
 Config loadConfig(const std::string& path);
+// Writes every setting back to `path` (used by the in-game settings menu).
+bool saveConfig(const std::string& path, const Config& c);

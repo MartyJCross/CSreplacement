@@ -48,7 +48,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | F3 | Aim drill: killed range dummies respawn at random spots, and the HUD shows time-to-kill (last + average) |
 | F1 | Toggle help |
 | Alt+Enter | Toggle fullscreen |
-| Esc | Pause (Q to quit while paused) |
+| Esc | Pause + **settings menu**: ↑/↓ select, ←/→ or mouse wheel change (Shift = ×5). Changes apply instantly and save to `config.cfg`. Q quits |
 
 ## The map
 
