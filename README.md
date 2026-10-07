@@ -29,6 +29,10 @@ This repo holds research and design only. There is no game code here. It sets ou
 
 **Biggest non-technical risk:** player population. Plan for community servers, bots, low-population modes and a pro/creator programme from day one.
 
+## Prototype
+
+[`prototype/`](prototype/) is a minimal single-player **feel lab** in C++20, SDL3 and OpenGL 3.3. It has 128-tick movement, one rifle with a spray pattern, target dummies and a grey-box test map. A GitHub Action builds a Windows `.exe` on every push. See [prototype/README.md](prototype/README.md) to download and play.
+
 ## Recommended first step
 
 Run **Phase 0, the "feel lab"**: a fixed 128 Hz movement controller, one rifle, a TrenchBroom test map, and blind tests with 10–20 high-level CS players. If the feel isn't right, nothing else matters. See [06-build-process.md](docs/06-build-process.md).
