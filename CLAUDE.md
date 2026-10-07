@@ -35,8 +35,8 @@ prototype/
     combat.*              weapons (rifle/pistol/sniper/knife/smoke slot), recoil patterns, wallbangs, dummies +
                           hitboxes (dummies have a yaw; shots test in the dummy's model space using shownYaw)
     nav.*                 NavGrid on the Dust grid: walkable/roamable cells, Dijkstra routes, followPath
-    bots.*                deathmatch bot brains (spawn anywhere, roam, view cone, hearing, chase); main.cpp
-                          only feeds them BotSenses, so tests can run bots headless
+    bots.*                bot brains (spawn anywhere, roam or walk to a goal, hold, view cone, pick a target,
+                          hearing, chase); main.cpp only feeds them BotSenses, so tests can run bots headless
     main.cpp              window/input, 128 Hz fixed-step loop, bots AI (peek + deathmatch), smokes, KZ, HUD,
                           settings menu, map loading
     render.*, gl.*        OpenGL 3.3: everything is an instanced box (optionally yaw-rotated: yawBox); HUD is one
@@ -117,51 +117,40 @@ See `prototype/README.md` for full details. Each item below lists where its code
   - gravity 1000, accelerate 7.2, friction 5.6, air accelerate 12
   - 57-unit jump; crouch-jump reaches 64-unit crates
   - bhop on by default (`bhop` config)
-- **Weapons** (`combat.cpp`), CS-style slots: 1 primary (rifle or sniper, picked in the B buy menu), 2 pistol,
-  3 knife, 4 smoke (Mouse1 throw, Mouse2 lob, then back to the previous weapon), Q = previous weapon.
-  - rifle: auto, wallbangs
-  - pistol: semi-auto
-  - sniper: 2-level scope, stays scoped after firing, no crosshair unscoped
+  - real ramps: `Box::slope`/`lowZ` wedges, swept Quake-style against their planes (`world.cpp`)
+- **Weapons** (`combat.cpp`), CS slots: 1 primary (rifle/sniper), 2 pistol, 3 knife, 4 grenade (4 again cycles
+  smoke/flash/HE/molotov), Q previous, F inspect, G quick-throw.
   - the owner doesn't want new guns or a "tagging" slowdown when shot
-- **Zero-lag camera** (`camera_extrapolate`): the view is drawn at "now", not one tick behind.
-- **Smooth stairs** (`view_smooth_steps`): the camera eases over step-ups/downs (cosmetic `stepSmooth` in `main.cpp`).
-- **Maps** (F8 switches):
+  - armor: `armoredDamage` (77.5% with kevlar/helmet); material wallbangs (`Box::material`: wood x0.5, metal x1.5)
+- **Cosmetics** (`fx.cpp`): knives (butterfly, karambit, M9, talon) and gun finishes (`knife`, `finish`);
+  keyframed inspects (`kRifleInspect`...); spray feedback (kick builds, `view_shake` roll, casings, far
+  impacts bigger); grenade models per type; particles can glow.
+- **Maps** (Esc menu MAP):
   - Feel Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course
-  - Dust2 at real scale (stepped ramps, roofed tunnels, HUD callouts); bots peek from cover (`dustPeekSpots()`)
-- **Retakes** (F7 cycles practice/deathmatch/retakes, `mode 2`): `startRetakeRound` puts `rt_bots` anchors
-  (`BotBrain::holdOnly`) on `dustRetakeSites()` hold spots, you at a random entry; 40 s, win/lose score.
-- **Hit feedback:** tick sound (`Sfx::HitMarker`, `hitsound`) + animated crosshair X (`hitmarker`).
-- **Inspect (F)** and the **butterfly knife** are view-model animations in `fx.cpp` (pieces pivot on the pin).
-- **Deathmatch** (F7, Dust only, `mode 1`): 10 bots by default roam the whole map (`bots.cpp`), 150° view
-  cone, hear footsteps and gunshots, chase; spawns anywhere out of sight; +40 HP per kill; respawn reloads
-  every gun; timed match, Tab scoreboard (`dm_bots`, `dm_minutes`).
-- **Dust size** (`dust_scale`, default 60%, 50..100): `setDustScale()` rebuilds the grid; heights scale too;
-  crates/headroom/doorways (>= 96) don't. Test coordinates use `dpt(x, y)` (real-Dust2 coords, scaled).
+  - Dust2 (`kDustAreas` on a 32u grid, `dust_scale` 60% default, 50..100): smooth ramps, roofed tunnels, B window,
+    arches, wooden doors, materials, HUD callouts. Test coordinates use `dpt(x, y)` (real-Dust2 coords, scaled).
+- **Modes** (Esc menu MODE, Dust only, `mode`): 0 practice (peek bots), 1 deathmatch (`bots.cpp` roaming, spawns
+  anywhere), 2 retakes (bomb pre-planted, defuse with E; `dustRetakeSites()`), 3 competitive 5v5 (`Game::Comp`,
+  `startCompRound`/`compTick`/`endCompRound`: MR12, CS economy, buy menu, bomb carry/drop/plant/defuse, bots fight
+  bots via `BotSenses::targets`, goals via `BotBrain::goal`). Automated runs log rounds to `comp_log.txt`.
+- **Grenades** (`main.cpp`): smoke, flash (`flashBang`: player white-out + bot `blindUntil`), HE (`heExplode`),
+  molotov (`igniteMolotov` + fires; smoke extinguishes). Damage goes through `hurtPlayer` / `hurtBot`.
+- **Combat record:** `recordDamage` feeds the kill feed, per-life damage report, assists, ADR/HS%/MVP scoreboard.
+- **HUD:** radar (`buildRadar`, spotting), subtle hitmarker + tick (`hitmarker`, `hitsound`), Tab scoreboard.
+- **Esc menu** holds the old F-key toggles (map, mode, bots shoot back, aim drill, noclip, help, reset, reload).
 - **Performance:** the owner's laptop has only an integrated Radeon (GPU-bound, fill-rate). Depth pre-pass,
   per-frame frustum cull + front-to-back sort of world boxes, per-face lighting. Measure with
   `feellab --bench 10` (writes bench.txt) before and after any rendering change.
-- **Spray feedback** (cosmetic): view-model kick builds through a spray, camera roll around the crosshair
-  (`view_shake`), shell casings, far impacts drawn bigger.
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
   short boom). Measure with `--dump-sounds` before changing tone.
-- **Bots** (F4 on the Feel Lab, always on in Dust):
-  - turn to face you (model + hitboxes); arms are chest hitboxes
-  - aim at where the player was 0.2 s ago
-  - random reaction time (0.25–0.55 s) and slight random aim error
-  - 2–4 s respawn
-- **Other systems:**
-  - smokes (G): deterministic bounces that block bot vision
-  - aim drill (F3) with time-to-kill stats
-  - noclip (V), reset (F6), config reload (F5)
-  - in-game settings menu (Esc), saved to `config.cfg`
+- **Screenshot helpers:** `--spawn X Y YAW` (world coords: Dust is scaled!), `--weapon`, `--inspect N`,
+  `--smoke --nade T`, `--bots`, `--menu`, `--bench S`.
 
 ## 8. Roadmap (owner priorities first)
 
-1. Site retakes game mode (owner asked for it after deathmatch): bots hold a site, you clear it; rounds + score.
-2. Dust2 accuracy: refine `kDustAreas` from the owner's feedback (or `getpos` measurements). Add real sloped ramps; that needs non-AABB brushes in `world.*` plus a wedge mesh in the renderer. Add B window and more props.
-3. Flashbang; grenade lineup markers.
-4. Round structure: buy phase, economy, bomb plant/defuse vs bots.
-5. **The big one (Phase 2 in `docs/06-build-process.md`):** a dedicated server plus a 1v1 LAN client. It needs:
-   - prediction, interpolation, lag compensation
-   - the hitbox contract (`docs/04-netcode-and-hitreg.md`)
-   - a bot-duel hit-reg test harness
+1. **Multiplayer** (Phase 2 in `docs/06-build-process.md`): see the owner's investigation notes; start with a
+   1v1 LAN listen server, then a dedicated server. Needs prediction, interpolation, lag compensation, the hitbox
+   contract (`docs/04-netcode-and-hitreg.md`) and a bot-duel hit-reg harness.
+2. Competitive polish: T bots are weak (they walk in and die); give them executes, bot grenades, rotations.
+3. Not chosen yet by the owner (offered): prefire practice routes, grenade lineup save/teleport + trajectory
+   preview, developer console with CS command names, jumpthrow bind, viewmodel presets, net_graph overlay, ladders.

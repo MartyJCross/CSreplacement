@@ -39,24 +39,18 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Shift | Walk |
 | Mouse 1 | Fire |
 | R | Reload |
-| 1 / 2 / 3 / 4 | Like CS: primary (rifle, or sniper if you picked it with B) / pistol (semi-auto) / knife (faster movement) / smoke grenade |
+| 1 / 2 / 3 / 4 | Like CS: primary (rifle or sniper) / pistol (semi-auto) / knife (faster movement) / grenade. **Press 4 again** to cycle smoke → flash → HE → molotov |
 | Q | Switch back to your previous weapon |
-| F | Inspect your weapon (the butterfly knife does flips) |
-| B | Buy menu: pick your primary, 1 = rifle, 2 = sniper. You're holding it straight away |
-| Mouse 2 | Sniper scope: 40 → 15 FOV → off. Stays scoped when you fire. With the smoke out: underhand lob |
-| Tab | Scoreboard (deathmatch) |
+| F | Inspect your weapon |
+| E | Plant (T, on a site) / defuse (CT, at the bomb). Hold it |
+| B | Buy menu. Competitive: buy with money, in your spawn during buy time. Other modes: pick your primary (1 rifle, 2 sniper) for free |
+| Mouse 2 | Sniper scope: 40 → 15 FOV → off. Stays scoped when you fire. With a grenade out: underhand lob |
+| Tab | Scoreboard (deathmatch, retakes, competitive) |
+| G | Quick-throw the current grenade without switching (deterministic bounces, so lineups repeat) |
 | V | Noclip (fly where you look; Shift = slow) |
-| F6 | Reset to spawn |
-| F5 | Reload `config.cfg` live (sensitivity, crosshair, viewmodel, volume, spread) |
 | C | Clear bullet decals |
-| G | Quick smoke without switching (deterministic bounces, so lineups repeat; jump-throws carry your momentum). With the smoke out (4), Mouse 1 throws and Mouse 2 lobs, then you switch back to your previous weapon |
-| F4 | Bots shoot back (toggle). You get HP, a damage flash and death/respawn |
-| F3 | Aim drill: killed range dummies respawn at random spots, and the HUD shows time-to-kill (last + average) |
-| F7 | Mode on Dust2: practice → deathmatch → retakes |
-| F8 | Switch map: Feel Lab / Dust2 (real scale) |
-| F1 | Toggle help |
 | Alt+Enter | Toggle fullscreen |
-| Esc | Pause + **settings menu**: ↑/↓ select, ←/→ or mouse wheel change (Shift = ×5). Changes apply instantly and save to `config.cfg`. Q quits |
+| Esc | Pause + **menu**. The GAME rows at the top: map, mode (practice / deathmatch / retakes / competitive), bots shoot back, aim drill, noclip, help, reset position, reload config. Below: knife, gun finish, radar and all settings. ↑/↓ select, ←/→ or mouse wheel change (Shift = ×5); saved to `config.cfg`. Q quits |
 
 ## The map
 
@@ -74,38 +68,29 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 - **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **62 ms** counter-strafing vs **~195 ms** releasing.
 - **Hit log (top right):** hitgroup, damage, kill, distance in metres.
 
-## Dust map (F8)
+## Dust2 (Esc menu: MAP)
 
-**F8** switches between the Feel Lab and **Dust2 at real scale** (about 4,200 x 4,250 units, the same units as CS: 250 u/s with the knife, a 72-unit-tall player). Your choice is saved (`map 1`). The area you're in shows at the top of the screen (LONG A, CATWALK, B SITE, ...).
+Dust2 at **60% of real size** by default (`dust_scale`, Esc menu DUST SIZE, 50–100%). Everything scales evenly, heights too, so slopes stay walkable; crates, headroom and doorways (at least 96 units wide) keep their real size. The area you're in shows at the top of the screen (LONG A, CATWALK, B SITE, ...).
 
-- **Every route:**
-  - T spawn, outside long, long doors (roofed), long A with the blue container and the pit, the A ramp, A site with goose
-  - top mid, mid, xbox (jump on it to reach catwalk), catwalk, short stairs and short
-  - mid doors, CT mid, CT spawn, the CT ramp to A, mid to B and B doors
-  - outside tunnels, upper tunnels (roofed) and the tunnel exit, lower tunnels into mid, B site with the back plat, car and boxes
-- **Real height levels:**
-  - T spawn is high ground and mid drops down towards CT
-  - catwalk is a ledge above mid
-  - A site and short sit up high
-  - the pit and lower tunnels dip down
-- **Ramps are small steps for now** (at most 16 units each). Walking feels like a ramp because the camera eases over each step (`view_smooth_steps`), but a jump into a ramp can catch on a step edge. Real slopes are on the to-do list.
-- **It's built from memory,** so it isn't a perfect copy. The headless tests run a simulated player along the main routes and print the run times, for example T spawn to B site and CT spawn to A site. Compare them with what you remember from CS.
+- **Every route:** T spawn, outside long, long doors, long A with the blue container and the pit, the A ramp, A site with goose; top mid, mid, xbox (jump on it to reach catwalk), catwalk, short; mid doors, CT mid, CT spawn, the CT ramp, mid to B, B doors and **B window** (see and shoot through it, can't climb through); outside, upper and lower tunnels, the tunnel exit, B site with the back plat, car and boxes. **Arches** over top mid, short and CT mid.
+- **Real slopes:** the ramps (A ramp, CT ramp, short stairs, top mid, mid, the tunnel stairs...) are smooth slopes, not steps. You slide up and down them like in Source, and jumping onto one doesn't snag.
+- **Materials:** crates and doors are wood, the container and car metal, the rest stone. You hear it in your footsteps (and the bots'), and bullets go through wood twice as easily as stone; metal is the hardest.
+- **It's built from memory,** so it isn't a perfect copy. The headless tests run a simulated player along the main routes and print the run times.
 
-On Dust the 4 bots play the angles:
-- They hide behind cover and peek out after a random wait. Their spots:
-  - the long corner behind the blue container
-  - through mid doors
-  - the B default box (towards tunnels)
-  - the A default box (towards long)
-  - through B doors
-  - short (down the catwalk stairs)
-- They hold the angle for a random time, then fall back.
-- They react in 0.25–0.55 s with slight random aim error. Your own shots stay fully deterministic.
-- They see and shoot up to 4,000 units, so long A and mid are real sightlines.
-- They respawn 2–4 s after you kill them, at a free spot.
-- You can hear their footsteps when they peek.
+In practice mode the 4 bots peek from cover: the long corner, mid doors, the B and A default boxes, B doors and short. They hold the angle for a random time, react in 0.25–0.55 s with slight random aim error (your own shots stay fully deterministic), and respawn 2–4 s after you kill them.
 
-**Size:** Dust is 60% of real Dust2 by default (`dust_scale`, Esc menu: DUST SIZE, 50-100%). Everything scales evenly, heights too, so slopes stay walkable; crates, headroom and doorways (at least 96 units wide) keep their real size.
+## Radar
+
+Top-left on Dust (`radar`, Esc menu): the whole map north-up, shaded by height; you as an arrow; enemies as **red dots while spotted** (you can see them, a teammate can, or they just shot); teammates in **blue**; the bomb (red when planted, orange when dropped).
+
+## Grenades
+
+**4** takes out a grenade; **4 again** cycles smoke → flashbang → HE → molotov. Mouse 1 throws, Mouse 2 lobs, then you switch back. **G** quick-throws the current one. Competitive: you only have what you bought (1 smoke, 2 flashes, 1 HE, 1 molotov); everywhere else they're unlimited.
+
+- **Smoke:** pops after 1.6 s, lasts 15 s, blocks sight (yours and the bots'). Same throw = same landing spot.
+- **Flashbang:** whites you out if you can see it, fully if you're looking at it, less if you're turned away; your ears ring. Bots facing it go blind for a few seconds.
+- **HE:** up to 98 damage, falling off to nothing at 350 units; walls stop it. It hurts you too.
+- **Molotov:** bursts where it lands into a 7 s fire, 10 damage every 0.25 s to anyone in it. A smoke puts it out, and a molotov thrown into a smoke fizzles.
 
 ## Performance
 
@@ -115,47 +100,54 @@ On Dust the 4 bots play the angles:
 - lighting worked out per face instead of per pixel
 - `msaa 0` gives ~275 FPS if you'd rather have frames than smooth edges
 
-## Deathmatch (F7)
+## Competitive 5v5 (Esc menu: MODE)
 
-**F7** starts deathmatch on Dust2 (and back to practice). It's saved, so the game reopens in deathmatch.
+You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap after 12 rounds (with a fresh economy), and a new match starts after the result.
 
-- **The match:**
-  - it lasts 5 minutes (`dm_minutes`) against 10 bots (`dm_bots`, up to 16); both are in the Esc menu and apply from the next match
-  - your kills, deaths and the clock show under the area name; **Tab** shows the scoreboard with HS % and accuracy
-  - at the end you get the results screen, and a new match starts by itself
-- **Spawns are anywhere on the map** (any open spot you can walk to and back from):
-  - you respawn 1.2 s after dying, away from the bots and out of their sight, with every gun reloaded and 1 s of protection
-  - bots respawn 2–4 s after you kill them, somewhere you can't see
-- **A kill gives you +40 HP** (up to 100), whenever bots are shooting back
-- **The bots:**
-  - they roam the whole map: each one picks a random spot anywhere, walks the real route there (doors, tunnels, ramps), holds an angle briefly, and moves on
-  - they see in a 150° cone in front of them, so you can catch one from behind. A bot you shoot turns on you
-  - they hear your running footsteps (about 1,100 units) and your gunshots (about 2,200), and come to check
-  - they stop to shoot, like CS bots, after a 0.25–0.55 s reaction, and they have to turn to face you first
+- **Rounds:** 5 s freeze time (buy, can't move), 1:55 to play, 40 s bomb fuse.
+- **Win** by killing the other side, planting and letting it blow (T), defusing (CT) or running the clock out without a plant (CT).
+- **Money, like CS:** start with $800; win $3,250 ($3,500 for a bomb win); loss bonus $1,400 rising by $500 per loss in a row up to $3,400; Ts get $800 more for a plant; $300 per kill ($100 with the sniper).
+- **Buy menu (B):** in your spawn during the first 20 s of a round. 1 rifle $2,700 · 2 sniper $4,750 · 3 kevlar $650 · 4 kevlar + helmet $1,000 · 5 smoke $300 · 6 flashbang $200 · 7 HE $300 · 8 molotov $400 · 9 defuse kit $400 (CT). Kevlar takes body and arm hits to 77.5%, a helmet does the same for the head. If you survive, you keep what you had.
+- **The bomb:** a random T carries it. Hold **E** on either site for 3.2 s to plant. If the carrier dies it drops; walk over it to pick it up (T bots go and fetch it). CTs defuse with **E**: 5 s with a kit, 10 without. You can't move while planting or defusing.
+- **The bots:** Ts pick a site, push it and plant; CTs split between the sites, then rotate to retake and defuse once it's down. They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
+- **When you die** you spectate (fly) until the next round.
+- **Tab** shows both teams with money for yours; the radar shows your teammates and anything they spot.
+
+## Deathmatch (Esc menu: MODE)
+
+- **The match:** 5 minutes (`dm_minutes`) against 10 bots (`dm_bots`, up to 16); results screen, then a new match.
+- **Spawns are anywhere on the map**, away from the bots and out of their sight, with every gun reloaded and 1 s of protection. Bots respawn 2–4 s after you kill them, out of your sight.
+- **A kill gives you +40 HP** (up to 100).
+- **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a 0.25–0.55 s reaction once they've turned to face you.
+
+## Retakes (Esc menu: MODE)
+
+- **Each round** the bomb is already planted on a random site, held by 4 bots (`rt_bots`, 1–6) facing the way you'll come. You start at a random entry (A: CT spawn, long or catwalk; B: tunnels, mid to B or CT mid).
+- **Defuse it** (hold E for 5 s, you have a kit) before the 40 s fuse runs out. Killing everyone isn't enough, like CS. Lose if it blows or you die. Kills heal +40 HP.
+
+## Kill feed, damage report, scoreboard
+
+- **Kill feed** top-right: who killed whom, with what, headshot / wallbang.
+- **Damage report** bottom-left when you die: damage given and taken this life, per player and hits.
+- **Tab scoreboard:** kills, assists (41+ damage on someone a teammate finished), deaths, ADR (damage per round; per life in deathmatch), HS% (headshot kills) and MVPs.
 
 ## Players: facing, arms, anti-aliasing
 
-- **Bots turn to face you** when they fight, and face where they're walking otherwise. Their hitboxes turn with them. Head-on you see about 27 units of shoulders; side-on, about 21.
-- **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable, also like CS.
-- **Anti-aliasing** (`msaa 4`, Esc menu, applies on restart) smooths edges so far-away players stop shimmering and are easier to pick out.
-
-## Retakes (F7 twice)
-
-- **Each round:** a random site (A or B) is held by 4 bots (`rt_bots`, 1–6 in the Esc menu) on random hold spots, facing the way you'll come. You start at a random entry (A: CT spawn, long or catwalk; B: tunnels, mid to B or CT mid) with full HP and ammo.
-- **Win** by killing every bot within 40 s. **Lose** if you die or time runs out. Then the next round starts after 3 s.
-- **The HUD** shows the site, the clock, bots left and your won/lost score.
-- **The bots** hold their angle, but turn on you when they see you or when you hit them. They come to check noises, then hold where they end up. Kills heal you +40 HP.
+- **Bots turn to face you** when they fight. Their hitboxes turn with them. Head-on you see about 27 units of shoulders; side-on, about 21.
+- **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable.
+- **Competitive colours:** Ts in tan, CTs in blue; a green marker floats over your teammates.
+- **Anti-aliasing** (`msaa 4`, Esc menu, applies on restart) smooths edges so far-away players stop shimmering.
 
 ## Hit feedback
 
-- **A crisp tick** plays when your bullet connects (lower and louder on a kill): `hitsound`.
-- **The X on the crosshair** pops in and fades: white for a body hit, red for the head, bigger and longer on a kill: `hitmarker`.
-- Both are in the Esc menu.
+- **A subtle tick** plays when your bullet connects (a little lower and louder on a kill): `hitsound`.
+- **Small ticks around the crosshair** flash for an instant: white for a body hit, red for the head, slightly bigger on a kill: `hitmarker`.
 
-## Inspect and the butterfly knife
+## Inspect, knives and finishes
 
-- **F inspects** your weapon. Guns turn to show their side, then tip up to show the top. The smoke gets tossed and caught. Firing, reloading or switching cancels it.
-- **The knife is a butterfly** with a fade blade (violet, pink, gold). Drawing it flips it open, with the handle fanning round. Inspect does two aerial flips and then shows you the blade.
+- **F inspects.** Guns swing up to show the left side, roll over to the right side, tip down to look at the mag, then settle back, with a little breathing sway. Firing, reloading or switching cancels it.
+- **Knives** (Esc menu: KNIFE): **butterfly** (fade blade; flips open on draw, two aerials on inspect), **karambit** (spins round the finger ring), **M9 bayonet** (tossed end over end and caught), **talon** (big claw that spins).
+- **Gun finishes** (Esc menu: GUN FINISH): factory, crimson, arctic, jungle, gold.
 
 ## Spray feedback (all cosmetic: your bullets are unchanged)
 
@@ -178,13 +170,12 @@ On Dust the 4 bots play the angles:
 
 ## Bots, smokes, wallbangs, KZ
 
-- **Bots shoot back (F4).** Any dummy that can see you reacts after a random 0.25–0.55 s and fires every 0.22–0.38 s, with about 0.8° of random aim error. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. Smokes block their vision.
-- **Smokes (G):**
-  - they pop 1.6 s after the throw and last 15 s
-  - same throw = same landing spot every time
+- **Bots shoot back (Esc menu).** Any dummy that can see you reacts after a random 0.25–0.55 s and fires every 0.22–0.38 s, with about 0.8° of random aim error. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. Smokes block their vision.
+- **Grenades:** see Grenades above (smoke, flash, HE, molotov).
 - **Wallbangs:**
   - rifle and sniper bullets go through thin walls (rifle 24 units, sniper 40) and lose damage; the pistol can't
-  - the hit log shows `WALLBANG`
+  - wood counts half as thick, metal one and a half times (Dust's doors are wood: shoot through them)
+  - the hit log and kill feed show `WALLBANG`
   - try the peek wall: the dummies behind the solid part can be shot through it
 - **KZ course:** start on the green pad behind the spray wall and hop the blue pads over the lava to the yellow pad. The gaps get wider, so the last ones need bhop speed. The timer runs at the top of the screen and keeps your best time. Touching lava sends you back to the start.
 
@@ -217,7 +208,7 @@ Perfect hops keep 250 u/s, and good strafes build to 500+. Set `bhop 0` for CS-s
 
 **There is no random bullet spread by default.** Every bullet goes exactly to your crosshair plus the weapon's fixed recoil pattern, so sprays are 100% repeatable. Movement still matters: the recoil pattern and the view kick are the same either way, but nothing randomizes your shots.
 
-For a CS-like comparison, set `spread_spray 1` (spread grows during a spray) and/or `spread_movement 1` (inaccurate while moving or in the air) in `config.cfg`, then press F5.
+For a CS-like comparison, set `spread_spray 1` (spread grows during a spray) and/or `spread_movement 1` (inaccurate while moving or in the air) in `config.cfg`, then use RELOAD CONFIG.CFG in the Esc menu.
 
 ## Tuning numbers (CS:GO-like defaults)
 
@@ -255,14 +246,14 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | File | What |
 |---|---|
 | `src/movement.*` | Kinematic player movement: friction/accel, air strafing, step-up, crouch-jump, stamina |
-| `src/world.*` | Maps made of axis-aligned boxes (Feel Lab, Dust2 from a grid of named areas), swept-box / ray traces, broadphase |
+| `src/world.*` | Maps made of boxes and ramps (Feel Lab, Dust2 from a grid of named areas, materials), swept-box / ray traces incl. sloped ramps, broadphase, retake/team spawn data |
 | `src/nav.*` | Bot navigation on the Dust grid: walkable / roamable cells, shortest routes, following a route |
-| `src/bots.*` | Deathmatch bot brains: spawning anywhere, roaming, sight cone, hearing, chasing (tested headless) |
-| `src/combat.*` | Rifle, recoil pattern, deterministic spread, dummies and hitboxes, hit detection |
-| `src/render.*`, `src/gl.*` | OpenGL 3.3: every 3D object is an instanced box; the HUD is a single batch |
+| `src/bots.*` | Bot brains: spawning anywhere, roaming or walking to a goal, holding angles, sight cone, choosing a target among enemies, hearing, chasing (tested headless) |
+| `src/combat.*` | Weapons, recoil patterns, deterministic spread, dummies and turned hitboxes, armor, material wallbangs, hit detection |
+| `src/render.*`, `src/gl.*` | OpenGL 3.3: every 3D object is an instanced box (optionally turned or a ramp); depth pre-pass, view culling, nearest-first; the HUD is a single batch |
 | `src/fx.*` | First-person weapon models and animation, tracers, particles (cosmetic only) |
 | `src/audio.*` | SDL3 audio mixer and procedural sound synthesis |
-| `src/main.cpp` | Window, raw input, 128 Hz fixed-step loop with interpolation, bots (peek + deathmatch AI), HUD |
-| `tests/sim_tests.cpp` | Headless checks: speeds, jump height, counter-strafe timing, collision, stairs, crates, determinism, Dust routes and run times, deathmatch spawns and bot walking, turned hitboxes |
+| `src/main.cpp` | Window, input, 128 Hz fixed-step loop, the modes (practice, deathmatch, retakes, competitive), grenades, bomb, economy, combat record, radar, HUD, Esc menu |
+| `tests/sim_tests.cpp` | Headless checks: speeds, jump height, counter-strafe timing, collision, stairs, ramps, crates, determinism, material wallbangs, Dust routes and run times at every size, spawns, bot roaming and sight, turned hitboxes |
 
 Shots are tested against exactly what was on your screen the frame you clicked: the interpolated dummy positions, facings and camera. That's the single-player version of "what you see is what you hit".
