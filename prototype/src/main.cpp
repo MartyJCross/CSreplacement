@@ -682,10 +682,10 @@ void simTick(Game& g, const Options& opt) {
             // Hit feedback: a tick you can hear over the gunfire and an X that pops on the crosshair
             // (red for the head, bigger and longer on a kill).
             g.hitMarkerStart = g.simTime;
-            g.hitMarkerUntil = g.simTime + (r.kill ? 0.4 : 0.2);
+            g.hitMarkerUntil = g.simTime + (r.kill ? 0.22 : 0.14);
             g.hitMarkerHead = r.group == kHead;
             g.hitMarkerKill = r.kill;
-            if (g.hitSound) sound(g, Sfx::HitMarker, r.kill ? 1.0f : 0.75f, 0.0f, r.kill ? 0.8f : 1.0f);
+            if (g.hitSound) sound(g, Sfx::HitMarker, r.kill ? 0.5f : 0.35f, 0.0f, r.kill ? 0.85f : 1.0f);
         } else if (r.hitWorld) {
             // Decal color follows the spray index (yellow first shot -> red late spray).
             float t = float(r.sprayIndex) / float(std::max(1, wd.patternLen - 1));
@@ -1174,20 +1174,17 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
 
     // Hit marker.
     if (g.showHitMarker && g.simTime < g.hitMarkerUntil) {
-        // Pops in a little big, settles, then fades out.
+        // Subtle: small thin ticks just outside the crosshair, a slight pop, quick fade.
         float age = float(g.simTime - g.hitMarkerStart), life = float(g.hitMarkerUntil - g.hitMarkerStart);
-        float pop = 1.0f + 0.5f * std::max(0.0f, 1.0f - age / 0.06f);
-        float fade = std::clamp((life - age) / (life * 0.5f), 0.0f, 1.0f);
-        uint32_t alpha = uint32_t(255.0f * fade);
-        uint32_t hc = (g.hitMarkerHead ? 0xFF3C3C00u : 0xFFFFFF00u) | alpha;
-        float size = (g.hitMarkerKill ? 1.6f : 1.0f) * pop * float(s);
-        float a = float(gap) + 4.0f * size, b = float(gap) + 11.0f * size, lw = 2.0f * float(s);
+        float pop = 1.0f + 0.15f * std::max(0.0f, 1.0f - age / 0.04f);
+        float fade = std::clamp((life - age) / (life * 0.6f), 0.0f, 1.0f);
+        uint32_t alpha = uint32_t(200.0f * fade);
+        uint32_t hc = (g.hitMarkerHead ? 0xFF5A5A00u : 0xFFFFFF00u) | alpha;
+        float size = (g.hitMarkerKill ? 1.25f : 1.0f) * pop * float(s);
+        float a = float(gap) + 3.0f * size, b = float(gap) + 7.0f * size, lw = float(s);
         for (int sx = -1; sx <= 1; sx += 2)
-            for (int sy = -1; sy <= 1; sy += 2) {
-                hud.line(cx + float(sx) * a, cy + float(sy) * a, cx + float(sx) * b, cy + float(sy) * b, lw + 2.0f,
-                         alpha * 3 / 4);  // dark outline
+            for (int sy = -1; sy <= 1; sy += 2)
                 hud.line(cx + float(sx) * a, cy + float(sy) * a, cx + float(sx) * b, cy + float(sy) * b, lw, hc);
-            }
     }
 
     // Top-left: performance + movement.
