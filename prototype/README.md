@@ -39,9 +39,12 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Shift | Walk |
 | Mouse 1 | Fire |
 | R | Reload |
-| 1 / 3 | Rifle / knife (knife = faster movement) |
+| 1 / 2 / 3 | Rifle / pistol (semi-auto) / knife (knife = faster movement) |
+| V | Noclip (fly where you look; Shift = slow) |
+| F6 | Reset to spawn |
+| F5 | Reload `config.cfg` live (sensitivity, crosshair, viewmodel, volume, spread) |
 | C | Clear bullet decals |
-| F3 | Aim drill: killed range dummies respawn at random spots |
+| F3 | Aim drill: killed range dummies respawn at random spots, and the HUD shows time-to-kill (last + average) |
 | F1 | Toggle help |
 | Alt+Enter | Toggle fullscreen |
 | Esc | Pause (Q to quit while paused) |
@@ -69,6 +72,12 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 - **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **78 ms** counter-strafing vs **~200 ms** releasing.
 - **Hit log (top right):** hitgroup, damage, kill, distance in metres.
 
+## No random spread
+
+**There is no random bullet spread by default.** Every bullet goes exactly to your crosshair plus the weapon's fixed recoil pattern, so sprays are 100% repeatable. Movement still matters: the recoil pattern and the view kick are the same either way, but nothing randomizes your shots.
+
+For a CS-like comparison, set `spread_spray 1` (spread grows during a spray) and/or `spread_movement 1` (inaccurate while moving or in the air) in `config.cfg`, then press F5.
+
 ## Tuning numbers (CS:GO-like defaults)
 
 | | Value |
@@ -77,7 +86,8 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Walk / crouch | 52% / 34% of max |
 | Jump | 57 units apex, ~750 ms airtime |
 | Friction / accelerate / air accelerate | 5.2 / 5.5 / 12 |
-| Rifle | 600 RPM, 30 rounds, 36 dmg (×4 head), first shot perfectly accurate when ≤ 34% speed |
+| Rifle | 600 RPM, 30 rounds, 36 dmg (×4 head) |
+| Pistol | semi-auto, 400 RPM max, 12 rounds, 35 dmg (×4 head), strong climbing kick |
 | Spray reset | ~0.2 s after a tap, ~1.0 s after a full spray |
 
 These live in `src/movement.h` (`MoveParams`) and `src/combat.cpp` (`kRifle`, `kRiflePattern`).

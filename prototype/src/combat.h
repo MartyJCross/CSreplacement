@@ -25,9 +25,11 @@ struct WeaponDef {
     float sprayInaccuracy;   // degrees added per shot index (capped)
     const RecoilStep* pattern;
     int patternLen;
+    bool automatic;          // false = one shot per click
 };
 
 const WeaponDef& rifleDef();
+const WeaponDef& pistolDef();
 const WeaponDef& knifeDef();
 
 struct WeaponState {
@@ -37,6 +39,9 @@ struct WeaponState {
     double reloadEndTime = -1;  // < 0 when not reloading
     float recoilIndex = 0;      // continuous; integer part = shots into the spray
     uint32_t shotCounter = 0;   // seeds deterministic spread
+    // Random spread is OFF by default: bullets go exactly to crosshair + fixed recoil pattern.
+    bool spraySpread = false;   // random spread that grows during a spray
+    bool moveSpread = false;    // random spread while moving / airborne
 };
 
 // Cumulative recoil (aim punch) in degrees at a given (fractional) spray index.

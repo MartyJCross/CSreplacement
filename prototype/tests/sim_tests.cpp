@@ -231,9 +231,16 @@ void testWeapon() {
                 r.damage, r.kill);
     CHECK(r.dummyIndex == 0 && r.group == kHead && r.kill, "first shot standing still must headshot");
 
-    // Moving at full speed: spread is large.
+    // Default: no random spread at all, even running or airborne.
+    WeaponState plain;
+    plain.def = &rifleDef();
+    plain.recoilIndex = 10;
+    CHECK(currentInaccuracy(plain, 215, false, false) == 0.0f, "spread must be off by default");
+
+    // With movement spread enabled: running is inaccurate, counter-strafed is perfect.
     WeaponState moving;
     moving.def = &rifleDef();
+    moving.moveSpread = true;
     float inacc = currentInaccuracy(moving, 215, true, false);
     float accurate = currentInaccuracy(moving, 215 * 0.34f, true, false);
     std::printf("  spread: running %.2f deg, at accuracy threshold %.2f deg, airborne %.2f deg\n", inacc, accurate,

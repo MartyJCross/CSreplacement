@@ -39,6 +39,10 @@ viewmodel_offset_y 0
 viewmodel_offset_z 0
 viewmodel_bob 1
 show_viewmodel 1
+// Random bullet spread is OFF: bullets go exactly to crosshair + the fixed recoil pattern.
+// Set to 1 for CS-like random spread during sprays / while moving.
+spread_spray 0
+spread_movement 0
 )";
 
 }  // namespace
@@ -88,6 +92,8 @@ Config loadConfig(const std::string& path) {
         else if (key == "viewmodel_offset_z") c.viewmodel_offset_z = v;
         else if (key == "viewmodel_bob") c.viewmodel_bob = v;
         else if (key == "show_viewmodel") i(c.show_viewmodel);
+        else if (key == "spread_spray") i(c.spread_spray);
+        else if (key == "spread_movement") i(c.spread_movement);
     }
     return c;
 }

@@ -24,11 +24,22 @@ const RecoilStep kRiflePattern[30] = {
 
 const WeaponDef kRifle = {
     "RIFLE", true, 215.0f, 36.0f, 0.98f, 0.1f, 30, 2.4f,
-    0.34f, 5.0f, 8.0f, 0.12f, kRiflePattern, 30,
+    0.34f, 5.0f, 8.0f, 0.12f, kRiflePattern, 30, true,
+};
+
+// Semi-auto pistol: strong per-shot kick that climbs fast and recovers fast. Tap, don't spam.
+const RecoilStep kPistolPattern[12] = {
+    {0.00f, 0.00f}, {1.60f, 0.15f}, {1.50f, -0.25f}, {1.40f, 0.30f}, {1.30f, -0.30f}, {1.20f, 0.25f},
+    {1.10f, -0.20f}, {1.00f, 0.20f}, {0.90f, -0.20f}, {0.80f, 0.15f}, {0.70f, -0.15f}, {0.60f, 0.10f},
+};
+
+const WeaponDef kPistol = {
+    "PISTOL", true, 240.0f, 35.0f, 0.91f, 0.15f, 12, 2.2f,
+    0.34f, 3.5f, 6.0f, 0.25f, kPistolPattern, 12, false,
 };
 
 const WeaponDef kKnife = {
-    "KNIFE", false, 250.0f, 0, 1, 1, 0, 0, 0.34f, 0, 0, 0, nullptr, 0,
+    "KNIFE", false, 250.0f, 0, 1, 1, 0, 0, 0.34f, 0, 0, 0, nullptr, 0, false,
 };
 
 uint32_t hash32(uint32_t x) {
@@ -50,6 +61,7 @@ float hitGroupMultiplier(HitGroup g) {
 
 const WeaponDef& rifleDef() { return kRifle; }
 const WeaponDef& knifeDef() { return kKnife; }
+const WeaponDef& pistolDef() { return kPistol; }
 
 RecoilStep recoilAt(const WeaponDef& w, float index) {
     RecoilStep sum{0, 0};
@@ -68,7 +80,8 @@ RecoilStep recoilAt(const WeaponDef& w, float index) {
 
 float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, bool ducked) {
     const WeaponDef& w = *ws.def;
-    float inacc = std::min(ws.recoilIndex, 8.0f) * w.sprayInaccuracy;
+    float inacc = ws.spraySpread ? std::min(ws.recoilIndex, 8.0f) * w.sprayInaccuracy : 0.0f;
+    if (!ws.moveSpread) return inacc;
     float threshold = w.maxSpeed * w.accurateSpeedFrac;
     if (horizSpeed > threshold) {
         float t = std::min(1.0f, (horizSpeed - threshold) / (w.maxSpeed - threshold));

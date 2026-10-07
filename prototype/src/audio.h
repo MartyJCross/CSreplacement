@@ -1,6 +1,7 @@
 // Tiny audio mixer on SDL3 with procedurally synthesized sounds (no asset files).
 #pragma once
 #include <SDL3/SDL.h>
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -21,6 +22,7 @@ public:
 
     // Dev aid: writes every synthesized sound as a 16-bit WAV into `dir` (no audio device needed).
     static bool dumpWavs(const std::string& dir);
+    void setVolume(float v) { master_ = v; }
 
 private:
     struct Voice {
@@ -37,5 +39,5 @@ private:
     std::vector<Voice> pending_;              // guarded by mutex_
     std::vector<float> mixBuf_;
     std::mutex mutex_;
-    float master_ = 0.6f;
+    std::atomic<float> master_{0.6f};
 };

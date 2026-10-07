@@ -24,6 +24,8 @@ struct Config {
     float viewmodel_offset_x = 0, viewmodel_offset_y = 0, viewmodel_offset_z = 0;
     float viewmodel_bob = 1.0f;          // 0 disables weapon bob
     int show_viewmodel = 1;
+    int spread_spray = 0;      // 1 = random spread grows during sprays (CS-like)
+    int spread_movement = 0;   // 1 = random spread while moving/airborne (CS-like)
 };
 
 // Loads `path`; writes a commented default file there if it doesn't exist.

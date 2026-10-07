@@ -36,6 +36,7 @@ struct Options {
     float spawnX = 0, spawnY = 0, spawnYaw = 0;
     float autofireStart = -1, autofireEnd = -1;  // --autofire start end (sim seconds)
     int windowW = 0, windowH = 0;                // --windowed W H
+    int startWeapon = 0;                         // --weapon 1|2|3
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -53,6 +54,8 @@ Options parseArgs(int argc, char** argv) {
         } else if (a == "--autofire") {
             o.autofireStart = float(std::atof(next()));
             o.autofireEnd = float(std::atof(next()));
+        } else if (a == "--weapon") {
+            o.startWeapon = std::atoi(next());
         } else if (a == "--windowed") {
             o.windowW = std::atoi(next());
             o.windowH = std::atoi(next());
@@ -71,7 +74,10 @@ struct Game {
     World world;
     MoveParams moveParams;
     PlayerState player, prevPlayer;
-    WeaponState rifle, knife;
+    WeaponState rifle, pistol, knife;
+    Vec3 spawn;
+    float spawnYaw = 0;
+    bool noclip = false;
     WeaponState* weapon = &rifle;
     std::vector<Dummy> dummies;
 
@@ -110,7 +116,32 @@ struct Game {
     float stepDist = 0;
     bool stepLeft = false;
     bool drill = false;
+    // Aim drill stats: time from a dummy (re)appearing to you killing it.
+    std::vector<double> aliveSince;
+    int drillKills = 0;
+    double drillTtkSum = 0, lastTtk = -1;
 };
+
+ViewWeapon viewWeaponOf(const Game& g) {
+    return g.weapon == &g.rifle ? ViewWeapon::Rifle : g.weapon == &g.pistol ? ViewWeapon::Pistol : ViewWeapon::Knife;
+}
+
+void applyConfig(Game& g, const Config& cfg) {
+    for (WeaponState* w : {&g.rifle, &g.pistol}) {
+        w->spraySpread = cfg.spread_spray != 0;
+        w->moveSpread = cfg.spread_movement != 0;
+    }
+    if (g.audio) g.audio->setVolume(std::clamp(cfg.volume, 0.0f, 1.0f));
+}
+
+void resetPosition(Game& g) {
+    g.player = {};
+    g.player.origin = g.spawn;
+    g.player.onGround = true;
+    g.prevPlayer = g.player;
+    g.viewYaw = g.spawnYaw;
+    g.viewPitch = 0;
+}
 
 constexpr float kStepSpeed = 135.0f;   // at or below this you are silent (shift-walk is ~112)
 constexpr float kStepStride = 76.0f;   // units between footsteps
@@ -139,6 +170,12 @@ void resetGame(Game& g, const Options& opt) {
     g.rifle.def = &rifleDef();
     g.rifle.ammo = rifleDef().magSize;
     g.knife.def = &knifeDef();
+    g.pistol.def = &pistolDef();
+    g.pistol.ammo = pistolDef().magSize;
+    g.spawn = g.player.origin;
+    g.spawnYaw = float(g.viewYaw);
+    g.aliveSince.assign(g.dummies.size(), 0.0);
+    g.switchTo = opt.startWeapon;
     g.weapon = &g.rifle;
     g.lastRenderEye = g.player.origin + Vec3{0, 0, kStandEye};
     g.lastDummyRenderPos.clear();
@@ -170,12 +207,12 @@ void simTick(Game& g, const Options& opt) {
 
     // Weapon switching / reload.
     if (g.switchTo) {
-        WeaponState* target = g.switchTo == 1 ? &g.rifle : &g.knife;
+        WeaponState* target = g.switchTo == 1 ? &g.rifle : g.switchTo == 2 ? &g.pistol : &g.knife;
         if (target != g.weapon) {
             g.weapon->reloadEndTime = -1;
             g.weapon = target;
             g.weapon->nextFireTime = std::max(g.weapon->nextFireTime, g.simTime + 0.25);  // draw time
-            g.vm.onDraw(g.weapon == &g.rifle ? ViewWeapon::Rifle : ViewWeapon::Knife);
+            g.vm.onDraw(viewWeaponOf(g));
             sound(g, Sfx::Draw, 0.7f);
             g.hudDirty = true;
         }
@@ -203,7 +240,8 @@ void simTick(Game& g, const Options& opt) {
     }
 
     bool autofire = opt.autofireStart >= 0 && g.simTime >= opt.autofireStart && g.simTime < opt.autofireEnd;
-    bool wantFire = g.fireHeld || g.fireLatch || autofire;
+    // Semi-auto weapons fire once per click; automatic ones keep firing while held.
+    bool wantFire = (wd.automatic && g.fireHeld) || g.fireLatch || autofire;
     if (g.fireLatch && wd.canFire && (ws.ammo == 0 || ws.reloadEndTime >= 0)) sound(g, Sfx::DryFire, 0.6f);
     g.fireLatch = false;
     g.recoilIndexPrev = ws.recoilIndex;
@@ -222,7 +260,9 @@ void simTick(Game& g, const Options& opt) {
         g.shots++;
 
         // Cosmetics: shot sound, weapon kick, tracer, impacts.
-        sound(g, Sfx::RifleShot, 0.9f, 0.0f, 0.97f + float(ws.shotCounter % 7) * 0.01f);
+        bool isPistol = &ws == &g.pistol;
+        sound(g, Sfx::RifleShot, isPistol ? 0.7f : 0.9f, 0.0f,
+              (isPistol ? 1.32f : 0.97f) + float(ws.shotCounter % 7) * 0.01f);
         g.vm.onShot(ws.shotCounter * 2654435761u);
         g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
         Vec3 shotDir = normalize(r.end - r.start);
@@ -240,6 +280,11 @@ void simTick(Game& g, const Options& opt) {
             std::snprintf(buf, sizeof(buf), "%s %d%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
                           r.kill ? "  KILL" : "", r.distance * 0.0254f);
             pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
+            if (r.kill && g.drill && g.dummies[size_t(r.dummyIndex)].respawns > 0) {
+                g.lastTtk = g.simTime - g.aliveSince[size_t(r.dummyIndex)];
+                g.drillTtkSum += g.lastTtk;
+                g.drillKills++;
+            }
             g.hitMarkerUntil = g.simTime + 0.12;
             g.hitMarkerHead = r.group == kHead;
         } else if (r.hitWorld) {
@@ -259,9 +304,23 @@ void simTick(Game& g, const Options& opt) {
 
     // Movement.
     g.prevPlayer = g.player;
-    playerMove(g.player, in, float(g.viewYaw), wd.maxSpeed, g.world, g.moveParams);
+    if (g.noclip) {
+        // Fly where you look; Shift = slow. No collision.
+        Vec3 f = anglesToForward(float(g.viewPitch), float(g.viewYaw)), r = yawToRight(float(g.viewYaw));
+        Vec3 wish = f * in.forward + r * in.side;
+        float len = length(wish);
+        g.player.velocity = len > 0 ? wish * ((in.walk ? 150.0f : 600.0f) / len) : Vec3{};
+        g.player.origin += g.player.velocity * kTickDt;
+        g.player.onGround = false;
+    } else {
+        playerMove(g.player, in, float(g.viewYaw), wd.maxSpeed, g.world, g.moveParams);
+    }
 
-    for (Dummy& d : g.dummies) updateDummy(d, kTickDt);
+    for (size_t i = 0; i < g.dummies.size(); ++i) {
+        bool wasAlive = g.dummies[i].alive();
+        updateDummy(g.dummies[i], kTickDt);
+        if (!wasAlive && g.dummies[i].alive()) g.aliveSince[i] = g.simTime;
+    }
 
     // Movement sounds: footsteps above walking speed, jump, landing.
     {
@@ -406,13 +465,23 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
     y += lh;
     std::snprintf(buf, sizeof(buf), "SHOTS %d   HITS %d   HEADSHOTS %d%s", g.shots, g.hits, g.headshots,
-                  g.drill ? "   AIM DRILL ON" : "");
-    hud.text(x, y, buf, g.drill ? 0xFFD060FF : 0xD0D0D0FF);
+                  g.noclip ? "   NOCLIP" : "");
+    hud.text(x, y, buf, 0xD0D0D0FF);
+    y += lh;
+    if (g.drill) {
+        if (g.drillKills > 0)
+            std::snprintf(buf, sizeof(buf), "AIM DRILL   KILLS %d   LAST %.0f MS   AVG %.0f MS", g.drillKills,
+                          g.lastTtk * 1000.0, g.drillTtkSum / g.drillKills * 1000.0);
+        else
+            std::snprintf(buf, sizeof(buf), "AIM DRILL   KILL A RANGE DUMMY TO START");
+        hud.text(x, y, buf, 0xFFD060FF);
+    }
     y += lh * 1.5f;
     if (showHelp) {
         const char* help[] = {
             "WASD MOVE   SPACE/WHEEL JUMP   CTRL CROUCH   SHIFT WALK",
-            "MOUSE1 FIRE   R RELOAD   1 RIFLE   3 KNIFE (FASTER)",
+            "MOUSE1 FIRE   R RELOAD   1 RIFLE   2 PISTOL   3 KNIFE (FASTER)",
+            "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG",
             "C CLEAR DECALS   F3 AIM DRILL   F1 HIDE HELP   ALT+ENTER FULLSCREEN   ESC PAUSE",
             "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL",
         };
@@ -512,6 +581,7 @@ int main(int argc, char** argv) {
         g.audio = &audio;
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
+    applyConfig(g, cfg);
     {
         std::vector<BoxInstance> statics;
         for (const Box& b : g.world.solids) statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
@@ -595,7 +665,16 @@ int main(int argc, char** argv) {
                         if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
                         else if (sc == SDL_SCANCODE_1) g.switchTo = 1;
+                        else if (sc == SDL_SCANCODE_2) g.switchTo = 2;
                         else if (sc == SDL_SCANCODE_3) g.switchTo = 3;
+                        else if (sc == SDL_SCANCODE_V) { g.noclip = !g.noclip; g.hudDirty = true; }
+                        else if (sc == SDL_SCANCODE_F6) resetPosition(g);
+                        else if (sc == SDL_SCANCODE_F5) {
+                            cfg = loadConfig(cfgPath);
+                            applyConfig(g, cfg);
+                            pushHitLog(g, "CONFIG RELOADED", 0x80ff80);
+                            g.hudDirty = true;
+                        }
                         else if (sc == SDL_SCANCODE_C) renderer.clearDecals();
                         else if (sc == SDL_SCANCODE_F1) { showHelp = !showHelp; g.hudDirty = true; }
                         else if (sc == SDL_SCANCODE_F3) { setDrill(g, !g.drill); g.hudDirty = true; }

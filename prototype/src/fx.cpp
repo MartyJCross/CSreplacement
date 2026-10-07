@@ -33,6 +33,24 @@ const Part kRifleMag[] = {
     {{-0.65f, -5.0f, -4.2f}, {0.65f, -1.1f, -1.4f}, kMetal},
     {{-0.65f, -8.2f, -5.6f}, {0.65f, -4.6f, -2.6f}, kMetal},
 };
+constexpr uint32_t kPolymer = 0x26282b;
+const Part kPistolBody[] = {
+    {{-0.55f, 0.2f, -8.5f}, {0.55f, 1.5f, 1.0f}, kMetal},         // slide
+    {{-0.5f, -0.6f, -7.5f}, {0.5f, 0.2f, 0.5f}, kPolymer},        // frame
+    {{-0.25f, 0.5f, -9.0f}, {0.25f, 1.1f, -8.5f}, kMetalLight},   // barrel crown
+    {{-0.1f, 1.5f, -8.0f}, {0.1f, 1.8f, -7.6f}, kMetal},          // front sight
+    {{-0.4f, 1.5f, 0.2f}, {0.4f, 1.8f, 0.8f}, kMetal},            // rear sight
+    {{-0.55f, -4.2f, -1.0f}, {0.55f, -0.6f, 1.2f}, kPolymer},     // grip
+    {{-0.15f, -1.4f, -3.0f}, {0.15f, -0.6f, -0.8f}, kPolymer},    // trigger guard
+    {{-1.2f, -4.0f, -1.4f}, {1.3f, -1.0f, 1.6f}, kGlove},         // right hand
+    {{-1.6f, -4.2f, -2.0f}, {-0.4f, -1.2f, 1.2f}, kGlove},        // left hand (support grip)
+    {{0.4f, -6.5f, 1.6f}, {3.2f, -3.5f, 11.0f}, kSleeve},         // right forearm
+    {{-4.5f, -6.8f, 1.0f}, {-1.0f, -3.8f, 10.0f}, kSleeve},       // left forearm
+};
+const Part kPistolMag[] = {
+    {{-0.45f, -4.5f, -0.8f}, {0.45f, -0.7f, 1.0f}, kMetalLight},
+};
+
 const Part kKnife[] = {
     {{-0.5f, -0.7f, -1.0f}, {0.5f, 0.7f, 4.0f}, 0x222222},        // handle
     {{-0.9f, -1.0f, -1.4f}, {0.9f, 1.0f, -1.0f}, kMetal},         // guard
@@ -105,12 +123,13 @@ void ViewModel::update(const ViewModelInput& in) {
 
 void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX, float offY, float offZ,
                       float bobScale, std::vector<ModelDraw>& out) const {
-    const bool rifle = weapon_ == ViewWeapon::Rifle;
-    // Camera-local placement (x right, y up, z back). Tuned so the rifle sits lower-right like CS.
-    Vec3 pos = rifle ? Vec3{10.9f, -6.9f, -22.0f} : Vec3{9.5f, -7.5f, -18.0f};
+    const bool rifle = weapon_ == ViewWeapon::Rifle, pistol = weapon_ == ViewWeapon::Pistol;
+    const bool gun = rifle || pistol;
+    // Camera-local placement (x right, y up, z back). Tuned so the guns sit lower-right like CS.
+    Vec3 pos = rifle ? Vec3{10.9f, -6.9f, -22.0f} : pistol ? Vec3{7.5f, -6.0f, -16.0f} : Vec3{9.5f, -7.5f, -18.0f};
     pos += Vec3{offX, offY, -offZ};
-    const float modelScale = rifle ? 0.75f : 0.8f;
-    float pitch = rifle ? 2.0f : 10.0f, yaw = rifle ? 4.0f : 6.0f, roll = rifle ? 0.0f : -15.0f;
+    const float modelScale = rifle ? 0.75f : 0.85f;
+    float pitch = gun ? 2.0f : 10.0f, yaw = rifle ? 4.0f : pistol ? 3.0f : 6.0f, roll = gun ? 0.0f : -15.0f;
 
     // Walk bob (figure-eight) and landing dip.
     pos.x += std::cos(bobPhase_) * 0.32f * bobAmount_ * bobScale;
@@ -130,7 +149,7 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     // Reload: tilt the rifle, drop the old mag, insert a new one, rack the bolt.
     Vec3 magOffset{};
     bool magVisible = true;
-    if (rifle && reloadT_ >= 0) {
+    if (gun && reloadT_ >= 0) {
         float t = reloadT_, T = reloadTime_;
         float env = ramp(t, 0.0f, 0.35f) * (1.0f - ramp(t, T - 0.45f, T - 0.1f));
         roll -= 28.0f * env;
@@ -152,13 +171,14 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     Mat4 world = cameraBasis(eye, pitchDeg, yawDeg) * translation(pos) * rotationY(yaw) * rotationX(pitch) *
                  rotationZ(roll) * scaling(modelScale);
 
-    if (rifle) {
-        out.push_back({world, toBoxes(kRifleBody)});
-        if (magVisible) out.push_back({world * translation(magOffset), toBoxes(kRifleMag)});
+    if (gun) {
+        out.push_back({world, rifle ? toBoxes(kRifleBody) : toBoxes(kPistolBody)});
+        if (magVisible) out.push_back({world * translation(magOffset), rifle ? toBoxes(kRifleMag) : toBoxes(kPistolMag)});
         if (flashLeft_ > 0) {
             float spin = float(flashSeed_ % 90);
-            float s = 0.8f + float((flashSeed_ / 90) % 50) / 100.0f;
-            ModelDraw flash{world * translation({0, 0.2f, -24.8f}) * rotationZ(spin), {}};
+            float s = (0.8f + float((flashSeed_ / 90) % 50) / 100.0f) * (rifle ? 1.0f : 0.7f);
+            Vec3 muzzle = rifle ? Vec3{0, 0.2f, -24.8f} : Vec3{0, 0.8f, -10.0f};
+            ModelDraw flash{world * translation(muzzle) * rotationZ(spin), {}};
             flash.boxes.push_back(makeEmissive({-0.9f * s, -0.9f * s, -1.6f}, {0.9f * s, 0.9f * s, 1.0f}, 0xfff4c0));
             flash.boxes.push_back(makeEmissive({-2.8f * s, -0.22f, -0.6f}, {2.8f * s, 0.22f, 0.6f}, 0xffc24a));
             flash.boxes.push_back(makeEmissive({-0.22f, -2.8f * s, -0.6f}, {0.22f, 2.8f * s, 0.6f}, 0xffc24a));
