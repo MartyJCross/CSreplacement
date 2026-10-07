@@ -29,7 +29,9 @@ struct Config {
     int bhop = 1;              // 1 = hold jump to auto-hop, no stamina penalty; 0 = CS-style anti-bhop
     int camera_extrapolate = 1;  // 1 = zero-lag camera (render your position at "now", not 1 tick behind)
     int view_shake = 1;          // 1 = slight camera roll per shot (around the crosshair: aim is unaffected)
-    int hitmarker = 1;           // 1 = X on the crosshair when you hit (red = head, big = kill)
+    int knife = 0;               // 0 butterfly, 1 karambit, 2 M9 bayonet, 3 talon
+    int finish = 0;              // gun finish: 0 factory, 1 crimson, 2 arctic, 3 jungle, 4 gold
+    int hitmarker = 1;          // 1 = X on the crosshair when you hit (red = head, big = kill)
     int hitsound = 1;            // 1 = a tick sound when you hit
     int view_smooth_steps = 1;   // 1 = the camera eases over stairs/steps instead of popping up (cosmetic)
     float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped

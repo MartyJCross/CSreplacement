@@ -51,6 +51,10 @@ camera_extrapolate 1
 view_smooth_steps 1
 // 1 = a slight camera roll on each shot for spray feedback. It turns around the crosshair, so aim is unaffected.
 view_shake 1
+// Knife: 0 butterfly, 1 karambit, 2 M9 bayonet, 3 talon. Gun finish: 0 factory, 1 crimson, 2 arctic,
+// 3 jungle, 4 gold.
+knife 0
+finish 0
 // Hit feedback: an X on the crosshair (red = head, bigger = kill) and a tick sound when you hit.
 hitmarker 1
 hitsound 1
@@ -87,7 +91,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
         << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
-        << "\nview_shake " << c.view_shake << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
+        << "\nview_shake " << c.view_shake << "\nknife " << c.knife << "\nfinish " << c.finish << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
         << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots << "\n";
     return bool(out);
@@ -145,6 +149,8 @@ Config loadConfig(const std::string& path) {
         else if (key == "view_smooth_steps") i(c.view_smooth_steps);
         else if (key == "view_shake") i(c.view_shake);
         else if (key == "hitmarker") i(c.hitmarker);
+        else if (key == "knife") i(c.knife);
+        else if (key == "finish") i(c.finish);
         else if (key == "hitsound") i(c.hitsound);
         else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
         else if (key == "map") i(c.map);

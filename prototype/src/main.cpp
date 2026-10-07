@@ -45,6 +45,7 @@ struct Options {
     bool showMenu = false;                       // --menu (settings menu, for screenshots)
     bool throwSmoke = false, bots = false;       // --smoke, --bots (for screenshots)
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
+    int inspectFrame = -1;                       // --inspect N: start an inspect on frame N (screenshots)
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -66,6 +67,8 @@ Options parseArgs(int argc, char** argv) {
             o.throwSmoke = true;
         } else if (a == "--bots") {
             o.bots = true;
+        } else if (a == "--inspect") {
+            o.inspectFrame = std::atoi(next());
         } else if (a == "--bench") {
             o.benchSeconds = float(std::atof(next()));
         } else if (a == "--menu") {
@@ -295,6 +298,8 @@ void applyConfig(Game& g, const Config& cfg) {
     g.dmMinutes = std::clamp(cfg.dm_minutes, 1, 60);
     g.rtBots = std::clamp(cfg.rt_bots, 1, 6);  // next round
     g.viewShake = cfg.view_shake != 0;
+    g.vm.setKnife(std::clamp(cfg.knife, 0, 3));
+    g.vm.setFinish(std::clamp(cfg.finish, 0, 4));
     g.hitSound = cfg.hitsound != 0;
     g.showHitMarker = cfg.hitmarker != 0;
     g.autoHop = cfg.bhop != 0;
@@ -1090,6 +1095,8 @@ GameMenu g_gameMenu;
 const char* const kMapNames[] = {"FEEL LAB", "DUST2"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES"};
 const char* const kPress[] = {"PRESS RIGHT", "..."};
+const char* const kKnifeNames[] = {"BUTTERFLY", "KARAMBIT", "M9 BAYONET", "TALON"};
+const char* const kFinishNames[] = {"FACTORY", "CRIMSON", "ARCTIC", "JUNGLE", "GOLD"};
 
 std::vector<MenuItem> menuItems(Config& c) {
     return {
@@ -1101,6 +1108,8 @@ std::vector<MenuItem> menuItems(Config& c) {
         {"SHOW HELP", nullptr, &g_gameMenu.help, 1, 0, 1, kOnOff},
         {"RESET POSITION", nullptr, &g_gameMenu.reset, 1, 0, 1, kPress},
         {"RELOAD CONFIG.CFG", nullptr, &g_gameMenu.reload, 1, 0, 1, kPress},
+        {"KNIFE", nullptr, &c.knife, 1, 0, 3, kKnifeNames},
+        {"GUN FINISH", nullptr, &c.finish, 1, 0, 4, kFinishNames},
         {"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
         {"SCOPED SENSITIVITY (RATIO)", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
         {"FOV (4:3, CS = 90)", &c.fov, nullptr, 1.0f, 60.0f, 120.0f},
@@ -1664,6 +1673,7 @@ int main(int argc, char** argv) {
         float alpha = float(tickAcc / kTickDt);
         if (automated && opt.startZoom && frame == 60) { g.zoom = opt.startZoom; g.hudDirty = true; }
         if (automated && opt.throwSmoke && frame == 30) g.throwLatch = true;
+        if (automated && frame == opt.inspectFrame) g.vm.inspect();
         if (automated && opt.bots && frame == 1) g.botsFire = true;
         if (automated && opt.showMenu && frame == 60) { paused = true; menuSel = 2; g.hudDirty = true; }
 

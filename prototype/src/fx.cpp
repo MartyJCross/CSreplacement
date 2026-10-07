@@ -106,11 +106,109 @@ const Part kGrenade[] = {
     {{-1.6f, -2.2f, 3.0f}, {1.6f, 1.6f, 13.0f}, kSleeve},       // forearm
 };
 
+// Karambit / talon: a claw blade curving down from the handle, with a finger ring at the back. The
+// ring centre (0, -0.1, 5.4) is what they spin around.
+const Part kKarambit[] = {
+    {{-0.35f, -0.6f, 0.0f}, {0.35f, 0.6f, 4.5f}, 0x2d2a26},     // handle
+    {{-0.3f, 0.3f, 4.5f}, {0.3f, 0.7f, 6.3f}, 0x2d2a26},        // ring
+    {{-0.3f, -0.9f, 4.5f}, {0.3f, -0.5f, 6.3f}, 0x2d2a26},
+    {{-0.3f, -0.9f, 5.9f}, {0.3f, 0.7f, 6.3f}, 0x2d2a26},
+    {{-0.3f, -0.9f, 4.5f}, {0.3f, 0.7f, 4.9f}, kMetalLight},
+    {{-0.08f, -0.3f, -2.2f}, {0.08f, 0.7f, 0.0f}, 0x3c5be0},    // blade, sapphire fading darker
+    {{-0.08f, -1.0f, -3.8f}, {0.08f, 0.4f, -2.2f}, 0x2f49c0},
+    {{-0.08f, -1.9f, -5.0f}, {0.08f, -0.3f, -3.8f}, 0x2638a0},
+    {{-0.07f, -2.6f, -5.8f}, {0.07f, -1.4f, -5.0f}, 0x1c2a80},
+};
+const Part kTalon[] = {
+    {{-0.4f, -0.65f, 0.0f}, {0.4f, 0.65f, 5.0f}, 0xd8cfb8},     // ivory handle
+    {{-0.3f, 0.3f, 5.0f}, {0.3f, 0.75f, 7.0f}, 0xb8a46a},       // brass ring
+    {{-0.3f, -1.0f, 5.0f}, {0.3f, -0.55f, 7.0f}, 0xb8a46a},
+    {{-0.3f, -1.0f, 6.55f}, {0.3f, 0.75f, 7.0f}, 0xb8a46a},
+    {{-0.09f, -0.3f, -2.6f}, {0.09f, 0.8f, 0.0f}, 0xc3c8cf},    // long steel claw
+    {{-0.09f, -1.1f, -4.6f}, {0.09f, 0.5f, -2.6f}, 0xb3b8c0},
+    {{-0.09f, -2.2f, -6.2f}, {0.09f, -0.4f, -4.6f}, 0xa6abb3},
+    {{-0.08f, -3.1f, -7.2f}, {0.08f, -1.7f, -6.2f}, 0x9aa0a8},
+};
+const Part kM9[] = {
+    {{-0.5f, -0.7f, 0.2f}, {0.5f, 0.7f, 5.2f}, 0x1e1f22},       // handle
+    {{-0.55f, -0.6f, 5.2f}, {0.55f, 0.6f, 5.8f}, kMetalLight},  // pommel
+    {{-0.6f, -1.2f, -0.2f}, {0.6f, 1.3f, 0.2f}, kMetalLight},   // guard
+    {{-0.12f, -0.6f, -8.5f}, {0.12f, 0.8f, -0.2f}, 0xb9c0c8},   // blade
+    {{-0.1f, 0.8f, -6.0f}, {0.1f, 1.05f, -1.0f}, 0x8a9098},     // saw-back
+    {{-0.1f, -0.2f, -10.0f}, {0.1f, 0.6f, -8.5f}, 0xb9c0c8},    // tip
+};
+const Part kKnifeHand[] = {
+    {{-1.25f, -1.4f, 1.0f}, {1.25f, 1.4f, 4.3f}, kGlove},
+    {{-1.6f, -2.2f, 4.3f}, {1.6f, 1.6f, 14.0f}, kSleeve},
+};
+
+// Gun finishes: recolour the metal / light metal / furniture / dark furniture / polymer roles.
+// 0 = factory colours.
+struct Finish { uint32_t metal, light, wood, woodDark, polymer; };
+const Finish kFinishes[] = {
+    {0, 0, 0, 0, 0},
+    {0x1b1b1e, 0x34343a, 0x9e1a22, 0x5e0f14, 0x9e1a22},  // crimson
+    {0xdedfe2, 0xf08a2a, 0xeceef0, 0x2a2b2e, 0xeceef0},  // arctic
+    {0x3b4a2c, 0x5c6b3a, 0x6f7f42, 0x2f3a22, 0x4c5a35},  // jungle
+    {0x2a2418, 0xd8b24a, 0xc9a23e, 0x3a2f18, 0xc9a23e},  // gold
+};
+constexpr int kFinishCount = int(sizeof(kFinishes) / sizeof(kFinishes[0]));
+
+uint32_t refinish(uint32_t c, int finish) {
+    if (finish <= 0 || finish >= kFinishCount) return c;
+    const Finish& f = kFinishes[finish];
+    if (c == kMetal) return f.metal;
+    if (c == kMetalLight) return f.light;
+    if (c == kWood || c == kOlive) return f.wood;
+    if (c == kWoodDark || c == kOliveDark) return f.woodDark;
+    if (c == kPolymer) return f.polymer;
+    return c;  // gloves, sleeves
+}
+
 template <size_t N>
-std::vector<BoxInstance> toBoxes(const Part (&parts)[N]) {
+std::vector<BoxInstance> toBoxes(const Part (&parts)[N], int finish = 0) {
     std::vector<BoxInstance> out;
-    for (const Part& p : parts) out.push_back(makeBox(p.mins, p.maxs, p.color, false));
+    for (const Part& p : parts) out.push_back(makeBox(p.mins, p.maxs, refinish(p.color, finish), false));
     return out;
+}
+
+// Inspect keyframes: offsets from the resting pose, eased between keys.
+struct Pose { float t, x, y, z, yaw, pitch, roll; };
+const Pose kRifleInspect[] = {
+    {0.00f, 0, 0, 0, 0, 0, 0},
+    {0.55f, -2.8f, 2.0f, 1.8f, 42, 6, -38},    // swing up to show the left side
+    {1.35f, -2.4f, 2.2f, 1.6f, 34, 3, -30},    // ...and admire it
+    {1.95f, -1.2f, 1.4f, 0.8f, -22, 12, 42},   // roll over to the right side
+    {2.55f, -1.0f, 1.6f, 0.6f, -18, 9, 36},
+    {3.05f, -0.6f, 0.4f, 0.4f, 4, -16, 10},    // tip down: look at the mag
+    {3.60f, 0, 0, 0, 0, 0, 0},
+};
+const Pose kPistolInspect[] = {
+    {0.00f, 0, 0, 0, 0, 0, 0},
+    {0.45f, -2.0f, 1.8f, 1.4f, 40, 4, -34},
+    {1.10f, -1.8f, 2.0f, 1.2f, 30, 2, -28},
+    {1.60f, -1.0f, 1.2f, 0.6f, -24, 10, 44},
+    {2.20f, -0.8f, 1.4f, 0.5f, -18, 8, 38},
+    {2.60f, -0.4f, 0.3f, 0.2f, 2, -12, 8},
+    {3.00f, 0, 0, 0, 0, 0, 0},
+};
+
+float smoother(float x) {
+    x = std::clamp(x, 0.0f, 1.0f);
+    return x * x * x * (x * (x * 6 - 15) + 10);
+}
+
+template <size_t N>
+Pose samplePose(const Pose (&keys)[N], float t) {
+    if (t <= keys[0].t) return keys[0];
+    for (size_t k = 1; k < N; ++k) {
+        if (t > keys[k].t) continue;
+        const Pose &a = keys[k - 1], &b = keys[k];
+        float s = smoother((t - a.t) / (b.t - a.t));
+        auto mix = [&](float p, float q) { return p + (q - p) * s; };
+        return {t, mix(a.x, b.x), mix(a.y, b.y), mix(a.z, b.z), mix(a.yaw, b.yaw), mix(a.pitch, b.pitch), mix(a.roll, b.roll)};
+    }
+    return keys[N - 1];
 }
 
 float smooth01(float x) {
@@ -150,7 +248,12 @@ void ViewModel::onDraw(ViewWeapon w) {
 }
 
 float ViewModel::inspectLength() const {
-    return weapon_ == ViewWeapon::Knife ? 2.6f : weapon_ == ViewWeapon::Grenade ? 1.4f : 3.0f;
+    switch (weapon_) {
+        case ViewWeapon::Knife: return knife_ == 2 ? 2.8f : 2.6f;
+        case ViewWeapon::Grenade: return 1.4f;
+        case ViewWeapon::Pistol: return 3.0f;
+        default: return 3.6f;
+    }
 }
 
 void ViewModel::inspect() {
@@ -237,47 +340,71 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
         pos.z += 1.2f * bolt;
     }
 
-    // Inspect (F). Guns: swing round to show the left side, then tip to show the top. Smoke: a toss.
-    // Butterfly: brought to the middle, two aerial flips, a look at the blade, back.
+    // Inspect (F). Guns follow keyframes: left side, roll over to the right side, look at the mag.
+    // A breathing sway rides on top so the hold never looks frozen. Smoke: a toss and catch. Knives:
+    // the butterfly does aerials, the karambit and talon spin round the finger ring, the M9 is tossed.
     float bladeAngle = 0, biteAngle = 0;  // butterfly pieces, degrees about the pivot (x axis)
+    float ringSpin = 0;                   // karambit/talon: degrees about the finger ring
     if (inspectT_ >= 0) {
         const float t = inspectT_;
         if (gun) {
-            float a = ramp(t, 0.0f, 0.5f) * (1.0f - ramp(t, 1.3f, 1.8f));
-            float b = ramp(t, 1.3f, 1.8f) * (1.0f - ramp(t, 2.5f, 3.0f));
-            yaw += 38.0f * a - 12.0f * b;
-            roll += -32.0f * a + 28.0f * b;
-            pitch += 6.0f * a + 14.0f * b;
-            pos += Vec3{-2.5f * a - 1.0f * b, 1.8f * a + 1.2f * b, 1.5f * a};
+            Pose p = pistol ? samplePose(kPistolInspect, t) : samplePose(kRifleInspect, t);
+            float hold = ramp(t, 0.3f, 0.8f) * (1.0f - ramp(t, inspectLength() - 0.6f, inspectLength()));
+            pos += Vec3{p.x, p.y + 0.15f * std::sin(t * 3.1f) * hold, p.z};
+            yaw += p.yaw + 2.0f * std::sin(t * 1.7f) * hold;
+            pitch += p.pitch + 1.5f * std::sin(t * 2.3f + 1.0f) * hold;
+            roll += p.roll;
         } else if (weapon_ == ViewWeapon::Grenade) {
             float up = std::sin(kPi * std::clamp((t - 0.25f) / 0.8f, 0.0f, 1.0f));
             pos.y += 5.0f * up;
             roll += 360.0f * ramp(t, 0.25f, 1.05f);
+            pitch += 20.0f * up;
         } else {
-            float in = ramp(t, 0.0f, 0.35f) * (1.0f - ramp(t, 2.2f, 2.6f));
+            float in = ramp(t, 0.0f, 0.35f) * (1.0f - ramp(t, inspectLength() - 0.4f, inspectLength()));
             pos += Vec3{-3.0f * in, 2.0f * in, 2.0f * in};
-            roll += 15.0f * in + 360.0f * ramp(t, 0.4f, 1.6f);
-            biteAngle = 720.0f * ramp(t, 0.4f, 1.6f);
-            bladeAngle = -720.0f * ramp(t, 0.45f, 1.55f);
             float look = ramp(t, 1.6f, 1.9f) * (1.0f - ramp(t, 2.1f, 2.4f));
-            yaw += 70.0f * look;
-            pitch -= 10.0f * look;
+            if (knife_ == 0) {  // butterfly: two aerials, then a look at the blade
+                roll += 15.0f * in + 360.0f * ramp(t, 0.4f, 1.6f);
+                biteAngle = 720.0f * ramp(t, 0.4f, 1.6f);
+                bladeAngle = -720.0f * ramp(t, 0.45f, 1.55f);
+                yaw += 70.0f * look;
+                pitch -= 10.0f * look;
+            } else if (knife_ == 2) {  // M9: tossed up end over end, caught, then turned to the light
+                float air = std::sin(kPi * std::clamp((t - 0.4f) / 0.8f, 0.0f, 1.0f));
+                pos.y += 7.0f * air;
+                pitch += 360.0f * ramp(t, 0.4f, 1.2f);
+                float turn = ramp(t, 1.4f, 1.8f) * (1.0f - ramp(t, 2.3f, 2.7f));
+                yaw -= 55.0f * turn;
+                roll += 35.0f * turn;
+            } else {  // karambit / talon: spins round the finger, then shows the claw
+                ringSpin = (knife_ == 1 ? 720.0f : 540.0f) * ramp(t, 0.35f, 1.45f);
+                roll += 10.0f * in;
+                yaw += 60.0f * look;
+                roll -= 25.0f * look;
+            }
         }
     }
     if (weapon_ == ViewWeapon::Knife && drawT_ < 1.0f) {
-        // Flip open: the bite handle fans a full turn while the blade spins out of the handles.
-        biteAngle += 360.0f * ramp(drawT_, 0.1f, 0.85f);
-        bladeAngle += 180.0f - 540.0f * ramp(drawT_, 0.15f, 0.9f);
+        if (knife_ == 0) {
+            // Flip open: the bite handle fans a full turn while the blade spins out of the handles.
+            biteAngle += 360.0f * ramp(drawT_, 0.1f, 0.85f);
+            bladeAngle += 180.0f - 540.0f * ramp(drawT_, 0.15f, 0.9f);
+        } else if (knife_ == 2) {
+            roll += 360.0f * (1.0f - ramp(drawT_, 0.1f, 0.85f));
+        } else {
+            ringSpin += 360.0f * ramp(drawT_, 0.1f, 0.85f);
+        }
     }
 
     Mat4 world = cameraBasis(eye, pitchDeg, yawDeg) * translation(pos) * rotationY(yaw) * rotationX(pitch) *
                  rotationZ(roll) * scaling(modelScale);
 
     if (gun) {
-        out.push_back({world, sniper ? toBoxes(kSniperBody) : rifle ? toBoxes(kRifleBody) : toBoxes(kPistolBody)});
+        const int f = finish_;
+        out.push_back({world, sniper ? toBoxes(kSniperBody, f) : rifle ? toBoxes(kRifleBody, f) : toBoxes(kPistolBody, f)});
         if (magVisible)
             out.push_back({world * translation(magOffset),
-                           sniper ? toBoxes(kSniperMag) : rifle ? toBoxes(kRifleMag) : toBoxes(kPistolMag)});
+                           sniper ? toBoxes(kSniperMag, f) : rifle ? toBoxes(kRifleMag, f) : toBoxes(kPistolMag, f)});
         if (flashLeft_ > 0) {
             float spin = float(flashSeed_ % 90);
             float s = (0.8f + float((flashSeed_ / 90) % 50) / 100.0f) * (rifle ? 1.0f : 0.7f);
@@ -292,11 +419,19 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     } else {
         if (weapon_ == ViewWeapon::Grenade) {
             out.push_back({world, toBoxes(kGrenade)});
-        } else {
+        } else if (knife_ == 0) {
             out.push_back({world, toBoxes(kButterflyHand)});
             out.push_back({world, toBoxes(kButterflySafe)});
             out.push_back({world * rotationX(biteAngle), toBoxes(kButterflyBite)});
             out.push_back({world * rotationX(bladeAngle), toBoxes(kButterflyBlade)});
+        } else if (knife_ == 2) {
+            out.push_back({world, toBoxes(kKnifeHand)});
+            out.push_back({world, toBoxes(kM9)});
+        } else {
+            const Vec3 ring{0, -0.1f, knife_ == 1 ? 5.4f : 5.8f};
+            out.push_back({world, toBoxes(kKnifeHand)});
+            out.push_back({world * translation(ring) * rotationX(ringSpin) * translation(-ring),
+                           knife_ == 1 ? toBoxes(kKarambit) : toBoxes(kTalon)});
         }
     }
 }
