@@ -63,15 +63,34 @@ void spawnDeathmatchBot(Dummy& d, BotBrain& b, const Vec3& at, uint32_t& rng) {
 
 void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rng) {
     // Perception: a 150 degree view cone (all round for a moment after being shot), line of sight,
-    // no smoke in between.
+    // no smoke in between. With several enemies it fights the nearest one it can see (sticking with
+    // its current target while that one stays visible).
     const Vec3 head = d.pos + Vec3{0, 0, 64};
-    const float toYaw = yawTo(d.pos, s.playerOrigin);
-    const float dist = length(s.playerEye - head);
-    const bool inView = std::fabs(wrapDeg(toYaw - d.yaw)) < 75.0f || dist < 250.0f || s.now < b.alertUntil;
     const bool blind = s.now < b.blindUntil;
-    b.sees = s.playerUp && !blind && inView && dist < 4000.0f && sightClear(s, head, s.playerEye);
+    auto visible = [&](const BotTarget& t) {
+        const float dist = length(t.eye - head);
+        const bool inView = std::fabs(wrapDeg(yawTo(d.pos, t.origin) - d.yaw)) < 75.0f || dist < 250.0f ||
+                            s.now < b.alertUntil;
+        return !blind && inView && dist < 4000.0f && sightClear(s, head, t.eye);
+    };
+    const BotTarget* chosen = nullptr;
+    float bestDist = 1e30f;
+    auto consider = [&](const BotTarget& t) {
+        if (!visible(t)) return;
+        float dist = length(t.origin - d.pos) * (t.id == b.target ? 0.7f : 1.0f);  // stick with the current one
+        if (dist < bestDist) { bestDist = dist; chosen = &t; }
+    };
+    const BotTarget you{-1, s.playerOrigin, s.playerEye};
+    if (s.targets) {
+        for (const BotTarget& t : *s.targets) consider(t);
+    } else if (s.playerUp) {
+        consider(you);
+    }
+    b.sees = chosen != nullptr;
+    b.target = chosen ? chosen->id : -2;
+    const float toYaw = chosen ? yawTo(d.pos, chosen->origin) : yawTo(d.pos, b.lastSeen);
     if (b.sees) {
-        b.lastSeen = s.playerOrigin;
+        b.lastSeen = chosen->origin;
         if (b.state != 2) { b.state = 2; b.path.clear(); }
         b.timer = 0.6f;  // keep the angle for a moment after losing sight
     } else if (s.noiseFresh && s.playerUp && b.state != 2 && length(s.noisePos - d.pos) < s.noiseRadius) {
@@ -82,13 +101,18 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
 
     const float step = kBotRunSpeed * kTickDt;
     switch (b.state) {
-        case 0:  // roam: walk to a random spot anywhere on the map
+        case 0:  // roam: walk to the goal if it has one, else a random spot anywhere on the map
             if (b.path.empty()) {
-                if (!s.nav->findPath(d.pos, s.nav->roamPoint(botRand(rng), false), b.path)) break;
+                const Vec3 dest = b.hasGoal ? b.goal : s.nav->roamPoint(botRand(rng), false);
+                if (!s.nav->findPath(d.pos, dest, b.path)) {
+                    if (b.hasGoal) { b.hasGoal = false; b.state = 1; b.timer = 0.5f; }  // unreachable: give up
+                    break;
+                }
                 b.next = 1;
             }
             if (followPath(d.pos, b.path, b.next, step)) {
                 b.path.clear();
+                b.hasGoal = false;
                 b.state = 1;
                 b.timer = 0.3f + botRand(rng) * 0.9f;
             }

@@ -91,6 +91,8 @@ struct MapSpawn { Vec3 pos; float yaw; };
 MapSpawn dustSpawn();
 // A point given in real-Dust2 coordinates, at the map's current scale, on the floor.
 Vec3 dustPoint(float x, float y);
+// Competitive: five spawn spots per side (0 = T, 1 = CT), at the current scale.
+std::vector<Vec3> dustTeamSpawns(int side);
 
 // Retakes: per bombsite, spots for the bots to hold (each facing a look-at point) and entries you
 // retake from. All in real-Dust2 coordinates: place them with dustPoint().

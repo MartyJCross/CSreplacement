@@ -425,6 +425,16 @@ Vec3 dustPoint(float x, float y) {
     return {x * s, y * s, dustGrid().floorAt(x * s, y * s)};
 }
 
+std::vector<Vec3> dustTeamSpawns(int side) {
+    static const float xy[2][5][2] = {
+        {{-350, -800}, {-200, -880}, {-500, -880}, {-120, -780}, {-620, -780}},  // T spawn
+        {{-150, 2750}, {-50, 2850}, {-250, 2850}, {50, 2750}, {-350, 2750}},     // CT spawn
+    };
+    std::vector<Vec3> out;
+    for (const auto& p : xy[side == 0 ? 0 : 1]) out.push_back(dustPoint(p[0], p[1]));
+    return out;
+}
+
 const std::vector<RetakeSite>& dustRetakeSites() {
     static const std::vector<RetakeSite> sites = {
         {"A", 1380, 2560,  // bomb: beside the default box

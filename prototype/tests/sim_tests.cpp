@@ -682,6 +682,13 @@ void testDustScales() {
         for (const PeekSpot& sp : dustPeekSpots())
             for (Vec3 p : {sp.cover, sp.peek})
                 badSpots += !(p.z > MapGrid::kNoFloor && w.boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)));
+        // Competitive: both teams' spawn spots are standing room and can reach both sites.
+        for (int side = 0; side < 2; ++side)
+            for (const Vec3& sp : dustTeamSpawns(side)) {
+                if (!nav.standable(sp)) { std::printf("    team %d spawn (%.0f, %.0f) blocked\n", side, double(sp.x), double(sp.y)); ++badSpots; }
+                for (const RetakeSite& site : dustRetakeSites())
+                    missing += !nav.findPath(sp, dustPoint(site.bombX, site.bombY), path);
+            }
         // Retakes: every hold spot and entry is standing room, and every entry can walk onto its site.
         for (const RetakeSite& site : dustRetakeSites()) {
             if (!nav.standable(dustPoint(site.bombX, site.bombY))) {

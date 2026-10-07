@@ -75,10 +75,24 @@ struct Dummy {
     // Facing in degrees (0 = +X, like the player's yaw); hitboxes turn with it. 180 = facing -X, the
     // Feel Lab default. shownYaw is the facing drawn on the last frame: shots test against that.
     float yaw = 180, prevYaw = 180, shownYaw = 180;
+    // Competitive: kevlar (body/arms take 77.5%) and helmet (the same for the head); your teammates
+    // are `friendly` - your bullets pass through them.
+    float armor = 0;
+    bool helmet = false, friendly = false;
     bool alive() const { return respawnLeft <= 0; }
 };
 
 const std::vector<Hitbox>& dummyHitboxes();
+
+// A ray against a dummy standing at `pos` facing `yaw`: true with the distance and hit group of the
+// first hitbox it meets within maxT.
+bool rayHitsDummy(const Vec3& pos, float yaw, const Vec3& start, const Vec3& dir, float maxT, float& t, HitGroup& group);
+
+// Damage multiplier for where a bullet lands (head x4, stomach x1.25, legs x0.75).
+float hitGroupDamageScale(HitGroup g);
+
+// Damage after armor (CS: kevlar takes 77.5% on body/arms/stomach, a helmet on the head; legs unarmored).
+float armoredDamage(float damage, HitGroup group, float armor, bool helmet);
 std::vector<Dummy> buildDummies();
 void updateDummy(Dummy& d, float dt);
 

@@ -146,6 +146,30 @@ std::vector<Dummy> buildDummies() {
     return out;
 }
 
+bool rayHitsDummy(const Vec3& pos, float yaw, const Vec3& start, const Vec3& dir, float maxT, float& t, HitGroup& group) {
+    const float a = -(yaw - 180.0f) * kDegToRad, c = std::cos(a), s = std::sin(a);
+    auto toModel = [&](const Vec3& v) { return Vec3{c * v.x - s * v.y, s * v.x + c * v.y, v.z}; };
+    const Vec3 localStart = toModel(start - pos), localDir = toModel(dir);
+    bool hit = false;
+    for (const Hitbox& hb : dummyHitboxes()) {
+        float th;
+        if (rayHitsBox(localStart, localDir, maxT, hb.mins, hb.maxs, th, nullptr) && th >= 0 && th < maxT) {
+            maxT = th;
+            t = th;
+            group = hb.group;
+            hit = true;
+        }
+    }
+    return hit;
+}
+
+float hitGroupDamageScale(HitGroup g) { return hitGroupMultiplier(g); }
+
+float armoredDamage(float damage, HitGroup group, float armor, bool helmet) {
+    if (armor <= 0 || group == kLegs || (group == kHead && !helmet)) return damage;
+    return damage * 0.775f;
+}
+
 void updateDummy(Dummy& d, float dt) {
     d.prevPos = d.pos;
     d.prevYaw = d.yaw;
@@ -226,7 +250,7 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
         float segT = wt.fraction * remaining;
         bool hitDummy = false;
         for (size_t i = 0; i < dummies.size(); ++i) {
-            if (!dummies[i].alive()) continue;
+            if (!dummies[i].alive() || dummies[i].friendly) continue;  // teammates: your bullets pass through
             // Test in the dummy's model space (it faces -X there): turn the ray by -(yaw - 180).
             const float a = -(dummies[i].shownYaw - 180.0f) * kDegToRad, c = std::cos(a), s = std::sin(a);
             auto toModel = [&](const Vec3& v) { return Vec3{c * v.x - s * v.y, s * v.x + c * v.y, v.z}; };
@@ -277,7 +301,9 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
 
     if (res.dummyIndex >= 0) {
         Dummy& d = dummies[res.dummyIndex];
-        res.damage = w.damage * hitGroupMultiplier(res.group) * std::pow(w.rangeModifier, bestT / 500.0f) * dmgScale;
+        res.damage = armoredDamage(
+            w.damage * hitGroupMultiplier(res.group) * std::pow(w.rangeModifier, bestT / 500.0f) * dmgScale, res.group,
+            d.armor, d.helmet);
         d.hp -= res.damage;
         d.flash[res.group] = 0.15f;
         if (d.hp <= 0) {

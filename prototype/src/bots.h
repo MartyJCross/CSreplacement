@@ -15,11 +15,18 @@ struct BotBrain {
     double alertUntil = 0;    // just got shot: aware all round for a moment
     double blindUntil = 0;    // flashed: sees nothing until then
     bool sees = false, aimed = false;
+    int target = -2;          // who it's fighting: -1 = you, i = bot i, -2 = nobody
     // Retakes: an anchor that holds its angle (holdYaw) instead of roaming. It still turns on you,
     // checks noises and fights, then holds wherever it ends up.
     bool holdOnly = false;
     float holdYaw = 0;
+    // Competitive: walk here (then hold, if holdOnly) instead of roaming at random.
+    Vec3 goal;
+    bool hasGoal = false;
 };
+
+// Someone a bot can fight: id -1 = you, i = bot i.
+struct BotTarget { int id; Vec3 origin, eye; };
 
 // What the bots get to know this tick.
 struct BotSenses {
@@ -28,6 +35,8 @@ struct BotSenses {
     double now = 0;
     Vec3 playerOrigin, playerEye;
     bool playerUp = false;    // alive, not noclipping, match running
+    // Competitive: the enemies this bot may fight (its own team's view). Null = just you (the player).
+    const std::vector<BotTarget>* targets = nullptr;
     bool noiseFresh = false;  // you made a sound this tick (footstep, shot)
     Vec3 noisePos;
     float noiseRadius = 0;
