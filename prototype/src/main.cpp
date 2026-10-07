@@ -152,7 +152,7 @@ struct Game {
     int drillKills = 0;
     double drillTtkSum = 0, lastTtk = -1;
 
-    // Bots shoot back (F4). They aim at where you were 0.2 s ago: move and they miss.
+    // Bots shoot back (Esc menu). They aim at where you were 0.2 s ago: move and they miss.
     bool botsFire = false;
     float hp = 100;
     int deaths = 0;
@@ -254,6 +254,14 @@ float turnToward(float yaw, float target, float maxStep) {
 }
 
 // Something bots can hear: footsteps (~1100 units) or gunshots (~2200).
+// Footstep sound for whatever is under these feet: wood (crates, doors), metal (container, car) or grit.
+Sfx stepSoundAt(const Game& g, const Vec3& feet) {
+    TraceResult tr = g.world.traceBox(feet + Vec3{0, 0, 2}, feet - Vec3{0, 0, 6}, hullMins(), hullMaxs(false));
+    if (tr.box < 0) return Sfx::Footstep;
+    uint8_t m = g.world.solids[size_t(tr.box)].material;
+    return m == kMatWood ? Sfx::FootstepWood : m == kMatMetal ? Sfx::FootstepMetal : Sfx::Footstep;
+}
+
 void makeNoise(Game& g, const Vec3& pos, float radius) {
     if (g.noiseAt == g.simTime && g.noiseRadius >= radius) return;
     g.noisePos = pos;
@@ -757,7 +765,7 @@ void simTick(Game& g, const Options& opt) {
                 g.stepDist -= kStepStride;
                 g.stepLeft = !g.stepLeft;
                 float pitch = 0.92f + float((g.shots + int(g.simTime * 7)) % 16) * 0.01f;
-                sound(g, Sfx::Footstep, 0.5f, g.stepLeft ? -0.15f : 0.15f, pitch);
+                sound(g, stepSoundAt(g, p.origin), 0.5f, g.stepLeft ? -0.15f : 0.15f, pitch);
                 makeNoise(g, p.origin, 1100.0f);
             }
         } else {
@@ -771,7 +779,8 @@ void simTick(Game& g, const Options& opt) {
             d.stepDist += ds * kTickDt;
             if (d.stepDist >= kStepStride) {
                 d.stepDist -= kStepStride;
-                if (g.audio) g.audio->play3D(Sfx::Footstep, d.pos, g.lastRenderEye, float(g.viewYaw), 1600.0f, 0.9f);
+                if (g.audio)
+                    g.audio->play3D(stepSoundAt(g, d.pos), d.pos, g.lastRenderEye, float(g.viewYaw), 1600.0f, 0.9f);
             }
         }
     }
@@ -1075,8 +1084,23 @@ const uint32_t kCrosshairColors[] = {0x00FF00, 0xFFFF00, 0x00FFFF, 0xFFFFFF, 0xF
 const char* const kCrosshairColorNames[] = {"GREEN", "YELLOW", "CYAN", "WHITE", "RED", "PINK"};
 int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 
+// GAME rows: mirrors of live state (map, mode, toggles) plus one-shot actions; main applies them.
+struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, noclip = 0, help = 1, reset = 0, reload = 0; };
+GameMenu g_gameMenu;
+const char* const kMapNames[] = {"FEEL LAB", "DUST2"};
+const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES"};
+const char* const kPress[] = {"PRESS RIGHT", "..."};
+
 std::vector<MenuItem> menuItems(Config& c) {
     return {
+        {"MAP", nullptr, &g_gameMenu.map, 1, 0, 1, kMapNames},
+        {"MODE (DUST2)", nullptr, &g_gameMenu.mode, 1, 0, 2, kModeNames},
+        {"BOTS SHOOT BACK", nullptr, &g_gameMenu.bots, 1, 0, 1, kOnOff},
+        {"AIM DRILL (FEEL LAB)", nullptr, &g_gameMenu.drill, 1, 0, 1, kOnOff},
+        {"NOCLIP (V)", nullptr, &g_gameMenu.noclip, 1, 0, 1, kOnOff},
+        {"SHOW HELP", nullptr, &g_gameMenu.help, 1, 0, 1, kOnOff},
+        {"RESET POSITION", nullptr, &g_gameMenu.reset, 1, 0, 1, kPress},
+        {"RELOAD CONFIG.CFG", nullptr, &g_gameMenu.reload, 1, 0, 1, kPress},
         {"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
         {"SCOPED SENSITIVITY (RATIO)", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
         {"FOV (4:3, CS = 90)", &c.fov, nullptr, 1.0f, 60.0f, 120.0f},
@@ -1220,8 +1244,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
     y += lh * 1.5f;
     if (g.botsFire) {
-        if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES   F7 RETAKES");
-        else if (g.mode == 2 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "RETAKES   F7 PRACTICE");
+        if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES");
+        else if (g.mode == 2 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "RETAKES   TAB SCORES");
         else std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
         hud.text(x, y, buf, 0xFF8060FF);
         y += lh;
@@ -1296,10 +1320,9 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             "MOUSE1 FIRE   MOUSE2 SCOPE   R RELOAD   1 PRIMARY   2 PISTOL   3 KNIFE   4 SMOKE   Q LAST WEAPON",
             "B BUY MENU (RIFLE / SNIPER)   TAB SCORES   G QUICK SMOKE (SMOKE OUT: MOUSE1 THROW, MOUSE2 LOB)",
             "HOLD SPACE TO BUNNY HOP - AIR STRAFE (A/D + TURN) TO GAIN SPEED",
-            "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG   F4 BOTS SHOOT BACK",
+            "F INSPECT   V NOCLIP   C CLEAR DECALS   ALT+ENTER FULLSCREEN",
             "KZ COURSE: GREEN PAD BEHIND THE SPRAY WALL - HOP THE BLUE PADS, AVOID THE LAVA",
-            "F8 SWITCH MAP: FEEL LAB / DUST   F7 MODE: PRACTICE / DEATHMATCH / RETAKES   F INSPECT",
-            "C CLEAR DECALS   F3 AIM DRILL   F1 HIDE HELP   ALT+ENTER FULLSCREEN   ESC PAUSE",
+            "ESC MENU: MAP, MODE (DEATHMATCH / RETAKES), BOTS SHOOT BACK, AIM DRILL, RESET, HIDE THIS HELP",
             "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL",
         };
         for (const char* l : help) { hud.text(x, y, l, 0xE0E0E0D0); y += lh; }
@@ -1457,10 +1480,49 @@ int main(int argc, char** argv) {
         if (kCrosshairColors[k] == (uint32_t(cfg.crosshair_r) << 16 | uint32_t(cfg.crosshair_g) << 8 | uint32_t(cfg.crosshair_b)))
             g_crosshairPreset = k;
     if (!automated) SDL_SetWindowRelativeMouseMode(window, true);
+    // The GAME rows of the Esc menu mirror live state; after a change, apply it and re-sync.
+    auto syncGameMenu = [&]() {
+        g_gameMenu.map = g.mapId;
+        g_gameMenu.mode = g.mode;
+        g_gameMenu.bots = g.botsFire;
+        g_gameMenu.drill = g.drill;
+        g_gameMenu.noclip = g.noclip;
+        g_gameMenu.help = showHelp;
+        g_gameMenu.reset = g_gameMenu.reload = 0;
+    };
+    auto applyGameMenu = [&]() {
+        GameMenu& m = g_gameMenu;
+        if (m.map != g.mapId) {
+            g.mode = 0;  // the modes are Dust-only
+            loadMap(g, renderer, m.map);
+        } else if (m.mode != g.mode) {
+            g.mode = m.mode;
+            loadMap(g, renderer, 1);
+        }
+        if ((m.bots != 0) != g.botsFire) {
+            g.botsFire = m.bots != 0;
+            g.hp = 100;
+            std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
+        }
+        if ((m.drill != 0) != g.drill && g.mapId == 0) setDrill(g, m.drill != 0);
+        g.noclip = m.noclip != 0;
+        showHelp = m.help != 0;
+        if (m.reset) resetPosition(g);
+        if (m.reload) {
+            cfg = loadConfig(cfgPath);
+            settingsChanged();
+            pushHitLog(g, "CONFIG RELOADED", 0x80ff80);
+        }
+        cfg.map = g.mapId;
+        cfg.mode = g.mode;
+        syncGameMenu();
+        g.hudDirty = true;
+    };
     auto setPaused = [&](bool p) {
         paused = p;
         if (!automated) SDL_SetWindowRelativeMouseMode(window, !p);
         g.fireHeld = false;
+        if (p) syncGameMenu();
         g.hudDirty = true;
     };
 
@@ -1529,6 +1591,7 @@ int main(int argc, char** argv) {
                         g.jumpLatch = true;
                     } else if (e.wheel.y != 0 && adjustMenu(cfg, menuSel, e.wheel.y > 0 ? 1 : -1, false)) {
                         settingsChanged();
+                        applyGameMenu();
                         saveConfig(cfgPath, cfg);
                         g.hudDirty = true;
                     }
@@ -1551,6 +1614,7 @@ int main(int argc, char** argv) {
                     } else if (paused && (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT)) {
                         if (adjustMenu(cfg, menuSel, sc == SDL_SCANCODE_RIGHT ? 1 : -1, (e.key.mod & SDL_KMOD_SHIFT) != 0)) {
                             settingsChanged();
+                            applyGameMenu();
                             saveConfig(cfgPath, cfg);
                             g.hudDirty = true;
                         }
@@ -1574,39 +1638,10 @@ int main(int argc, char** argv) {
                         else if (sc == SDL_SCANCODE_Q) g.switchTo = 5;
                         else if (sc == SDL_SCANCODE_F) g.vm.inspect();
                         else if (sc == SDL_SCANCODE_B) { g.buyMenu = !g.buyMenu; g.hudDirty = true; }
-                        else if (sc == SDL_SCANCODE_F7) {
-                            g.mode = (g.mode + 1) % 3;  // practice -> deathmatch -> retakes
-                            loadMap(g, renderer, 1);
-                            cfg.mode = g.mode;
-                            cfg.map = 1;
-                            saveConfig(cfgPath, cfg);
-                            pushHitLog(g, g.mode == 1 ? "DEATHMATCH" : g.mode == 2 ? "RETAKES" : "PRACTICE", 0x80ff80);
-                        }
                         else if (sc == SDL_SCANCODE_G) g.throwLatch = true;
-                        else if (sc == SDL_SCANCODE_F4) {
-                            g.botsFire = !g.botsFire;
-                            g.hp = 100;
-                            std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
-                            g.hudDirty = true;
-                        }
                         else if (sc == SDL_SCANCODE_V) { g.noclip = !g.noclip; g.hudDirty = true; }
-                        else if (sc == SDL_SCANCODE_F6) resetPosition(g);
-                        else if (sc == SDL_SCANCODE_F5) {
-                            cfg = loadConfig(cfgPath);
-                            settingsChanged();
-                            pushHitLog(g, "CONFIG RELOADED", 0x80ff80);
-                            g.hudDirty = true;
-                        }
                         else if (sc == SDL_SCANCODE_C) renderer.clearDecals();
-                        else if (sc == SDL_SCANCODE_F1) { showHelp = !showHelp; g.hudDirty = true; }
-                        else if (sc == SDL_SCANCODE_F3 && g.mapId == 0) { setDrill(g, !g.drill); g.hudDirty = true; }
-                        else if (sc == SDL_SCANCODE_F8) {
-                            g.mode = 0;  // deathmatch is Dust-only; F8 always goes to practice
-                            cfg.mode = 0;
-                            loadMap(g, renderer, 1 - g.mapId);
-                            cfg.map = g.mapId;
-                            saveConfig(cfgPath, cfg);
-                        }
+                        // Map, mode, bots, drill, help, reset and config reload live in the Esc menu.
                     }
                     break;
                 }

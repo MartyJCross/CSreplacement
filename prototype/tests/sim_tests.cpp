@@ -341,6 +341,27 @@ void testWallbang() {
     }
 }
 
+// Materials: the rifle (24 units of penetration) goes through 40 units of wood but not 40 of stone.
+void testMaterialWallbang() {
+    std::printf("material wallbang\n");
+    std::vector<Dummy> dummies(1);
+    dummies[0].pos = dummies[0].prevPos = {300, 0, 0};
+    std::vector<Vec3> pos{dummies[0].pos};
+    for (uint8_t mat : {uint8_t(kMatWood), uint8_t(kMatStone), uint8_t(kMatMetal)}) {
+        World w;
+        w.solids.push_back({{-512, -512, -16}, {512, 512, 0}, 0x808080});
+        w.solids.push_back({{150, -64, 0}, {190, 64, 128}, 0x7a5230, mat});  // 40 units thick
+        WeaponState ws;
+        ws.def = &rifleDef();
+        std::vector<Dummy> dd = dummies;
+        ShotResult r = fireBullet(ws, {0, 0, 52}, 0, 0, 0, true, false, w, dd, pos);
+        const char* name = mat == kMatWood ? "wood" : mat == kMatMetal ? "metal" : "stone";
+        std::printf("  rifle through 40u of %-5s: %s (dmg %.1f)\n", name, r.dummyIndex == 0 ? "hit" : "stopped",
+                    double(r.damage));
+        CHECK((r.dummyIndex == 0) == (mat == kMatWood), "%s", name);
+    }
+}
+
 void testRayVsBoxes() {
     std::printf("ray traces\n");
     TraceResult tr = lab().traceRay({0, 0, 64}, {4000, 0, 64});
@@ -653,6 +674,7 @@ int main() {
     testWeapon();
     testWallbang();
     testRayVsBoxes();
+    testMaterialWallbang();
     testDustMap();
     testDustBroadphase();
     testDustRoutes();

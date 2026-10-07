@@ -12,6 +12,7 @@ enum class Sfx {
     RifleShot, DryFire, MagOut, MagIn, Bolt, Draw, Footstep, Land, HitBody, HitHead, SniperShot,
     PistolShot, RifleShotFar,  // far = a rifle heard from a distance (muffled, more echo)
     HitMarker,                 // crisp tick when your bullet connects
+    FootstepWood, FootstepMetal,  // steps on crates/doors and on the container/car
     Count
 };
 

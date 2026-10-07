@@ -279,6 +279,27 @@ std::vector<float> hitMarker(Rng& r) {  // short, dry, bright tick: reads instan
     return b;
 }
 
+std::vector<float> footstepWood(Rng& r) {  // hollow knock of a boot on planks
+    auto b = buffer(0.2f);
+    addTone(b, 0, 0.7f, 210 * r.jitter(0.1f), 170, 0.03f);
+    addTone(b, 0, 0.35f, 410 * r.jitter(0.1f), 380, 0.02f);
+    addNoise(b, 0, 0.6f, 300, 3000, 0.012f, r, 0.0006f);
+    addNoise(b, 0.05f * r.jitter(0.2f), 0.35f, 600, 4000, 0.01f, r, 0.0008f);  // toe
+    fadeTail(b);
+    normalize(b, 0.7f);
+    return b;
+}
+
+std::vector<float> footstepMetal(Rng& r) {  // boot on sheet metal: a short clang
+    auto b = buffer(0.3f);
+    addMetal(b, 0, 0.6f, 620 * r.jitter(0.08f), 0.07f, r);
+    addNoise(b, 0, 0.6f, 200, 2500, 0.012f, r, 0.0006f);
+    addMetal(b, 0.05f * r.jitter(0.2f), 0.3f, 780 * r.jitter(0.08f), 0.05f, r);
+    fadeTail(b);
+    normalize(b, 0.7f);
+    return b;
+}
+
 struct SoundBank {
     std::vector<std::vector<float>> clips;
     std::vector<int> first, count;
@@ -293,6 +314,7 @@ SoundBank synthesize() {
         {Sfx::Footstep, footstep, 6},    {Sfx::Land, landing, 3},    {Sfx::HitBody, hitBody, 4},
         {Sfx::HitHead, hitHead, 3},      {Sfx::SniperShot, sniperShot, 3}, {Sfx::PistolShot, pistolShot, 4},
         {Sfx::RifleShotFar, rifleShotFar, 3},    {Sfx::HitMarker, hitMarker, 3},
+        {Sfx::FootstepWood, footstepWood, 4},    {Sfx::FootstepMetal, footstepMetal, 4},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -312,7 +334,7 @@ SoundBank synthesize() {
 bool Audio::dumpWavs(const std::string& dir) {
     const char* names[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw", "footstep",
                            "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
-                           "hit_marker"};
+                           "hit_marker", "footstep_wood", "footstep_metal"};
     static_assert(sizeof(names) / sizeof(names[0]) == size_t(Sfx::Count), "name every sound");
     SoundBank bank = synthesize();
     for (size_t s = 0; s < size_t(Sfx::Count); ++s)

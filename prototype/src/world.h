@@ -4,9 +4,12 @@
 #include <vector>
 #include "vecmath.h"
 
+enum Material : uint8_t { kMatStone = 0, kMatWood = 1, kMatMetal = 2 };
+
 struct Box {
     Vec3 mins, maxs;
     uint32_t color;  // 0xRRGGBB
+    uint8_t material = kMatStone;  // footstep sound + how easily bullets go through
 };
 
 struct TraceResult {

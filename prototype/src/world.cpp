@@ -202,6 +202,8 @@ const DustArea kDustAreas[] = {
     {"CT RAMP", 120, 2800, 750, 3150, -64, 96, 'x', kDSandLight, 0},
     {"MID TO B", -1350, 2050, -700, 2350, 32, -64, 'x', kDSand, 0},
     {"B DOORS", -1420, 2140, -1350, 2280, 32, 32, 0, kDSandDark, 128},
+    // B window: a hole through the door wall (sill at +48, 64 high): see and shoot through, can't walk.
+    {"B WINDOW", -1420, 2296, -1350, 2344, 80, 80, 0, kDSandDark, 64},
     // B.
     {"B SITE", -2300, 1950, -1420, 3150, 32, 32, 0, kDSite, 0},
     {"BACK PLAT", -2300, 2850, -2000, 3150, 80, 80, 0, kDSandLight, 0},
@@ -447,15 +449,27 @@ World buildDust() {
     // Props, standing on the floor under their centre. Crates keep their real size wherever the map's
     // scale puts them; `anchored` ones are placed relative to a point that scales (a wall edge).
     const float sc = dustScale();
+    // Crates and doors are wood (hollow footsteps, easy to shoot through); the container and car metal.
+    auto materialOf = [](uint32_t color) -> uint8_t {
+        return color == kDCrate || color == kDWood ? kMatWood : color == kDBlue || color == 0x8a3b32 ? kMatMetal : kMatStone;
+    };
     auto prop = [&](float x0, float y0, float x1, float y1, float h, uint32_t color, float lift = 0) {
         float cx = (x0 + x1) * 0.5f * sc, cy = (y0 + y1) * 0.5f * sc, hx = (x1 - x0) * 0.5f, hy = (y1 - y0) * 0.5f;
         float z = m.floorAt(cx, cy) + lift;
-        w.solids.push_back({{cx - hx, cy - hy, z}, {cx + hx, cy + hy, z + h}, color});
+        w.solids.push_back({{cx - hx, cy - hy, z}, {cx + hx, cy + hy, z + h}, color, materialOf(color)});
     };
     auto anchored = [&](float ax, float ay, float dx0, float dy0, float dx1, float dy1, float h, uint32_t color) {
         float x = ax * sc, y = ay * sc;
         float z = m.floorAt(x + (dx0 + dx1) * 0.5f, y + (dy0 + dy1) * 0.5f);
-        w.solids.push_back({{x + dx0, y + dy0, z}, {x + dx1, y + dy1, z + h}, color});
+        w.solids.push_back({{x + dx0, y + dy0, z}, {x + dx1, y + dy1, z + h}, color, materialOf(color)});
+    };
+    // Arches: a stone beam across a passage, high enough to walk under (the lane's width scales).
+    auto arch = [&](float x0, float y0, float x1, float y1, float clearance) {
+        float ax0, ax1, ay0, ay1;
+        scaledSpan(x0, x1, ax0, ax1);
+        scaledSpan(y0, y1, ay0, ay1);
+        float z = m.floorAt((ax0 + ax1) * 0.5f, (ay0 + ay1) * 0.5f) + clearance;
+        w.solids.push_back({{ax0, ay0, z}, {ax1, ay1, z + 28}, 0xb9a37c, kMatStone});
     };
     prop(-500, -800, -440, -740, 64, kDCrate);    // T spawn crates
     prop(-60, -1000, 20, -920, 64, kDCrate);
@@ -472,13 +486,21 @@ World buildDust() {
     prop(-2280, 2200, -2200, 2280, 64, kDCrate);  // B site, by the wall
     prop(-500, 2100, -440, 2160, 64, kDCrate);    // CT mid
     {
-        // Door leaves stand at the edge of their (scaled, at least 96 wide) doorway.
-        float y0, y1;
-        scaledSpan(2140, 2280, y0, y1);
-        w.solids.push_back({{-1420.0f * sc - 10, y1, 32 * sc}, {-1350.0f * sc + 10, y1 + 16, 32 * sc + 128}, kDWood});
-        scaledSpan(300, 460, y0, y1);
-        w.solids.push_back({{900.0f * sc - 8, y0, 0}, {900.0f * sc, y0 + 80, 128}, kDWood});
+        // Door leaves, swung open beside their (scaled, at least 96 wide) doorways. Wood: wallbangable.
+        float x0, x1, y0, y1;
+        scaledSpan(2140, 2280, y0, y1);  // B doors: a leaf against the corridor's south side
+        w.solids.push_back({{-1350.0f * sc, y0 - 12, 32 * sc}, {-1350.0f * sc + 72, y0, 32 * sc + 120}, kDWood, kMatWood});
+        scaledSpan(300, 460, y0, y1);    // long doors
+        w.solids.push_back({{900.0f * sc - 8, y0, 0}, {900.0f * sc, y0 + 80, 128}, kDWood, kMatWood});
+        scaledSpan(-240, -120, x0, x1);  // mid doors: both leaves open towards CT mid
+        scaledSpan(1880, 1912, y0, y1);
+        float mz = m.floorAt((x0 + x1) * 0.5f, y1 + 8);
+        w.solids.push_back({{x0, y1, mz}, {x0 + 8, y1 + 44, mz + 120}, kDWood, kMatWood});
+        w.solids.push_back({{x1 - 8, y1, mz}, {x1, y1 + 44, mz + 120}, kDWood, kMatWood});
     }
+    arch(-400, 280, 50, 320, 176);    // top mid into mid
+    arch(180, 2330, 450, 2370, 176);  // top of the short stairs
+    arch(-450, 2335, 120, 2365, 196); // CT mid into CT spawn
 
     w.buildIndex();
     return w;

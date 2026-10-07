@@ -258,13 +258,15 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
             float exitPlane = dir[a] > 0 ? b.maxs[a] : b.mins[a];
             thick = std::min(thick, (exitPlane - entry[a]) / dir[a]);
         }
-        if (thick > penLeft) break;
+        // Material: wood is easy to shoot through, metal hard, stone in between.
+        const float cost = thick * (b.material == kMatWood ? 0.5f : b.material == kMatMetal ? 1.5f : 1.0f);
+        if (cost > penLeft) break;
         res.penEntry[res.penCount] = entry;
         res.penExit[res.penCount] = entry + dir * thick;
         res.penNormal[res.penCount] = wt.normal;
         res.penCount++;
-        dmgScale *= 1.0f - 0.5f * thick / w.penetration;
-        penLeft -= thick;
+        dmgScale *= 1.0f - 0.5f * cost / w.penetration;
+        penLeft -= cost;
         travelled += segT + thick + 0.1f;
         segStart = entry + dir * (thick + 0.1f);
     }
