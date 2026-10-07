@@ -69,8 +69,10 @@ dust_scale 60
 // Deathmatch on Dust (F7): number of bots and match length in minutes.
 dm_bots 10
 dm_minutes 5
-// Retakes (F7 again): bots holding the site, 1..6.
+// Retakes: bots holding the site, 1..6.
 rt_bots 4
+// Grenade trajectory preview while holding a grenade: 0 off, 1 everywhere but competitive, 2 always.
+nade_preview 1
 )";
 
 }  // namespace
@@ -95,7 +97,8 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\nknife " << c.knife << "\nfinish " << c.finish << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
         << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\nmode " << c.mode
-        << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots << "\n";
+        << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
+        << "\nnade_preview " << c.nade_preview << "\n";
     return bool(out);
 }
 
@@ -164,6 +167,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "dm_bots") i(c.dm_bots);
         else if (key == "dm_minutes") i(c.dm_minutes);
         else if (key == "rt_bots") i(c.rt_bots);
+        else if (key == "nade_preview") i(c.nade_preview);
     }
     return c;
 }

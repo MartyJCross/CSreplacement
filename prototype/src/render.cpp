@@ -19,6 +19,8 @@ uniform mat4 uModel;
 out vec3 vWorld;
 flat out vec3 vNormal;
 flat out vec3 vLit;  // colour after lighting (constant per face, so worked out per vertex)
+flat out vec3 vMin;  // the box's corners (world surfaces: frames round crate faces)
+flat out vec3 vMax;
 out vec4 vColor;
 invariant gl_Position;  // the depth pre-pass and the colour pass must agree exactly
 void main() {
@@ -45,6 +47,8 @@ void main() {
     vec3 wn = normalize(mat3(uModel) * n);
     vNormal = wn;
     vColor = iColor;
+    vMin = iMin;
+    vMax = iMax;
     // Fixed directional light: tops brightest, sides shaded so shapes read clearly.
     float light = 0.45 + 0.55 * clamp(wn.z, 0.0, 1.0) + 0.30 * abs(wn.x) * (1.0 - abs(wn.z)) + 0.20 * abs(wn.y) * (1.0 - abs(wn.z));
     light = min(light, 1.0);
@@ -53,10 +57,15 @@ void main() {
 }
 )";
 
+// Surfaces, picked by the colour's alpha: 255 dev grid (Feel Lab), 240 stone, 224 wood, 208 metal,
+// 128 emissive, 0 plain. The patterns are a few ALU ops (no textures) and fade out with distance so
+// they never shimmer.
 const char* kBoxFS = R"(#version 330 core
 in vec3 vWorld;
 flat in vec3 vNormal;
 flat in vec3 vLit;
+flat in vec3 vMin;
+flat in vec3 vMax;
 in vec4 vColor;
 uniform vec3 uEye;
 out vec4 oColor;
@@ -66,14 +75,64 @@ float grid(vec2 p, float spacing) {
     vec2 l = 1.0 - smoothstep(vec2(0.0), w, g);
     return max(l.x, l.y);
 }
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash12(i), hash12(i + vec2(1, 0)), f.x), mix(hash12(i + vec2(0, 1)), hash12(i + vec2(1, 1)), f.x), f.y);
+}
+// Joint lines `width` units wide between cells of `size` along one axis, anti-aliased.
+float joint(float p, float size, float width) {
+    float q = abs(fract(p / size - 0.5) - 0.5) * size;
+    return 1.0 - smoothstep(width, width + fwidth(p), q);
+}
 void main() {
     if (vColor.a > 0.4 && vColor.a < 0.6) { oColor = vec4(vColor.rgb, 1.0); return; }  // emissive
     vec3 n = vNormal;
     vec3 c = vLit;
-    if (vColor.a > 0.9) {
-        vec2 uv = abs(n.z) > 0.5 ? vWorld.xy : (abs(n.x) > 0.5 ? vWorld.yz : vWorld.xz);
+    float a = vColor.a;
+    bool top = abs(n.z) > 0.5;
+    vec2 uv = top ? vWorld.xy : (abs(n.x) > 0.5 ? vWorld.yz : vWorld.xz);
+    if (a > 0.97) {
         float g = grid(uv, 64.0) * 0.22 + grid(uv, 16.0) * 0.07;
-        c *= 1.0 - g * vColor.a;
+        c *= 1.0 - g;
+    } else if (a > 0.78) {
+        vec2 fw = fwidth(uv);
+        float near = 1.0 - clamp(max(fw.x, fw.y) / 5.0, 0.0, 1.0);  // fine detail fades with distance
+        // Distance to the nearest edge of this face (frames round crates, doors, containers).
+        vec3 lo = vWorld - vMin, hi = vMax - vWorld;
+        vec3 e = min(lo, hi);
+        float edge = top ? min(e.x, e.y) : (abs(n.x) > 0.5 ? min(e.y, e.z) : min(e.x, e.z));
+        if (a > 0.91) {  // stone: worn flagstones and sand on the ground, block courses on walls
+            if (top) {
+                float tile = hash12(floor(uv / 96.0));
+                float j = max(joint(uv.x, 96.0, 0.8), joint(uv.y, 96.0, 0.8)) * near;
+                float sand = noise(uv / 140.0) * 0.6 + noise(uv / 23.0) * 0.4 * near;
+                c *= (0.95 + 0.07 * tile) * (0.90 + 0.14 * sand) * (1.0 - 0.10 * j);
+            } else {
+                float row = floor(uv.y / 32.0);
+                vec2 b = vec2(uv.x + mod(row, 2.0) * 32.0, uv.y);
+                float id = hash12(floor(b / vec2(64.0, 32.0)) + floor(vMin.xy / 512.0));
+                float j = max(joint(b.x, 64.0, 0.9), joint(b.y, 32.0, 0.9)) * near;
+                float weather = noise(uv / vec2(80.0, 46.0));
+                c *= (0.94 + 0.08 * id) * (0.90 + 0.13 * weather) * (1.0 - 0.17 * j);
+            }
+        } else if (a > 0.85) {  // wood: planks with grain, a darker frame round each face
+            float across = top ? uv.y : uv.y;  // planks stacked up the sides, side by side on tops
+            float plank = hash12(vec2(floor(across / 12.0), floor(vMin.x * 0.1 + vMin.y * 0.37)));
+            float grain = noise(vec2(uv.x / 26.0, across / 2.0));
+            float j = joint(across, 12.0, 0.6) * near;
+            float frame = 1.0 - smoothstep(5.0, 5.0 + fwidth(edge), edge);
+            c *= (0.86 + 0.16 * plank) * (0.92 + 0.12 * grain) * (1.0 - 0.28 * j) * (1.0 - 0.24 * frame);
+        } else {  // metal: corrugated ribs and a frame
+            float rib = mix(0.5, 0.5 + 0.5 * cos(uv.x * 6.2832 / 12.0), near);
+            float frame = 1.0 - smoothstep(3.0, 3.0 + fwidth(edge), edge);
+            c *= (0.88 + 0.16 * rib) * (1.0 - 0.18 * frame);
+        }
     }
     float d = length(vWorld - uEye);
     c = mix(c, vec3(0.55, 0.74, 0.95), clamp(d / 9000.0, 0.0, 0.30));

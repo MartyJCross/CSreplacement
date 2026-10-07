@@ -599,7 +599,7 @@ void testDustDeathmatch() {
 
     // A bot walks from the CT end of B site to the pit: through doors, tunnels, ramps and stairs.
     std::vector<Vec3> path;
-    bool routed = dustNav().findPath(dpt(-1700, 2300), dpt(1750, 420), path);
+    bool routed = dustNav().findPath(dpt(-1700, 2300), dpt(1700, 420), path);
     CHECK(routed, "bot route");
     if (!routed) return;
     Vec3 pos = path.front();
@@ -612,7 +612,107 @@ void testDustDeathmatch() {
     }
     std::printf("  bot B site -> pit: %.1f s at rifle speed, feet at most %.1f units off the floor\n",
                 double(ticks) * kTickDt, double(worstZ));
-    CHECK(next >= path.size() && worstZ <= 16.5f, "arrived %d, worst z %.1f", int(next >= path.size()), double(worstZ));
+    // Off a ledge (the side of the pit ramp) it falls, so mid-fall frames sit up to ~20 units above the floor.
+    CHECK(next >= path.size() && worstZ <= 24.0f, "arrived %d, worst z %.1f", int(next >= path.size()), double(worstZ));
+}
+
+// Cover: the finder's spots really hide a bot (head and chest) from the threat and have a peek spot
+// beside them it can shoot from; and a bot in a gunfight with cover nearby ducks out of sight
+// between shots instead of standing in the open.
+void testBotCover() {
+    std::printf("bot cover\n");
+    const NavGrid& nav = dustNav();
+    BotSenses sense;
+    sense.world = &dust();
+    sense.nav = &nav;
+    // Spots next to props (a prop's centre scales with the map; its size doesn't), threats in real coords.
+    auto rel = [](float ax, float ay, float dx, float dy) {
+        Vec3 p{ax * dustScale() + dx, ay * dustScale() + dy, 0};
+        p.z = dustGrid().floorAt(p.x, p.y);
+        return p;
+    };
+    struct Case { const char* name; Vec3 at; float tx, ty; };
+    const Case cases[] = {{"A default box vs ramp", rel(1245, 2695, 80, -60), 1550, 2150},
+                          {"B default box vs tunnels", rel(-1890, 2540, 0, -90), -2080, 1900},
+                          {"mid vs top mid", dpt(-100, 1200), -100, 250},
+                          {"long crates vs long", rel(1290, 1200, 100, -80), 1500, 1900},
+                          {"CT mid crate vs mid-to-B", rel(-470, 2130, 0, -70), -1000, 2200},
+                          {"short vs catwalk", dpt(450, 2500), 200, 1700}};
+    int found = 0, wrong = 0;
+    for (const Case& c : cases) {
+        const Vec3 around = c.at, eye = dpt(c.tx, c.ty) + Vec3{0, 0, 64};
+        Vec3 cover, peek;
+        if (!findCover(sense, around, eye, 200.0f, cover, peek)) {
+            std::printf("  %-22s no cover\n", c.name);
+            continue;
+        }
+        ++found;
+        const bool hidden = dust().traceRay(eye, cover + Vec3{0, 0, 62}).fraction < 1.0f &&
+                            dust().traceRay(eye, cover + Vec3{0, 0, 40}).fraction < 1.0f;
+        const bool canShoot = dust().traceRay(eye, peek + Vec3{0, 0, 62}).fraction >= 1.0f;
+        wrong += !hidden || !canShoot || !nav.standable(cover) || !nav.standable(peek);
+        std::printf("  %-22s cover %3.0f units away, peek %2.0f from it%s\n", c.name, double(length2d(cover - around)),
+                    double(length2d(peek - cover)), hidden && canShoot ? "" : "  WRONG");
+    }
+    CHECK(found >= 4 && wrong == 0, "found %d wrong %d", found, wrong);
+
+    // A fight: you stand at the top of the A ramp; a bot beside the A default box sees you. Over 6 s it should spend
+    // time hidden (in cover) and time aimed at you (peeking).
+    uint32_t rng = 4242u;
+    Dummy d;
+    BotBrain b;
+    spawnDeathmatchBot(d, b, rel(1245, 2695, 80, -60), rng);
+    sense.playerUp = true;
+    sense.playerOrigin = dpt(1550, 2150);
+    sense.playerEye = sense.playerOrigin + Vec3{0, 0, kStandEye};
+    d.yaw = d.prevYaw = std::atan2(sense.playerOrigin.y - d.pos.y, sense.playerOrigin.x - d.pos.x) / kDegToRad;
+    int hiddenTicks = 0, aimedTicks = 0;
+    for (int t = 0; t < kTickRate * 6; ++t) {
+        sense.now = double(t) * kTickDt;
+        d.prevPos = d.pos;
+        updateDeathmatchBot(d, b, sense, rng);
+        hiddenTicks += dust().traceRay(sense.playerEye, d.pos + Vec3{0, 0, 62}).fraction < 1.0f;
+        aimedTicks += b.aimed;
+    }
+    std::printf("  6 s fight from A site: hidden %.1f s, aimed at you %.1f s, used cover: %s\n",
+                double(hiddenTicks) * kTickDt, double(aimedTicks) * kTickDt, b.hasCover ? "yes" : "no");
+    CHECK(hiddenTicks > kTickRate / 2 && aimedTicks > kTickRate, "hidden %d aimed %d", hiddenTicks, aimedTicks);
+}
+
+// Grenades fly like CS:GO's (675 u/s, aim lifted 10 degrees, 0.4x gravity), and the trajectory preview
+// (predictGrenade) ends exactly where the real grenade, stepped tick by tick, goes off.
+void testGrenades() {
+    std::printf("grenades\n");
+    World flat;
+    flat.solids.push_back({{-5000, -5000, -64}, {5000, 5000, 0}, 0x808080});
+    const Vec3 eye{0, 0, kStandEye};
+    auto firstBounce = [&](float pitch, bool lob) {
+        Vec3 v = grenadeThrowVelocity(pitch, 0, lob, Vec3{}), p = eye + normalize(v) * 16.0f;
+        for (int t = 0; t < kTickRate * 10; ++t)
+            if (stepGrenade(flat, p, v).bounced) break;
+        return p.x;
+    };
+    const float far = firstBounce(-45, false), level = firstBounce(0, false), lob = firstBounce(-45, true);
+    std::printf("  first bounce: 45 deg up %.0f units, looking level %.0f, 45 deg lob %.0f\n", double(far), double(level),
+                double(lob));
+    CHECK(far > 1300 && far < 1550 && level > 450 && level < 850 && lob < 200, "far %.0f level %.0f lob %.0f",
+          double(far), double(level), double(lob));
+    // Preview vs the real thing, for each type, thrown at an angle into a wall.
+    flat.solids.push_back({{600, -5000, 0}, {700, 5000, 300}, 0x808080});
+    int mismatches = 0;
+    for (int type = 0; type < 4; ++type) {
+        Vec3 v = grenadeThrowVelocity(-20, 15, false, Vec3{60, 0, 0}), p = eye + normalize(v) * 16.0f;
+        const Vec3 predicted = predictGrenade(flat, p, v, type);
+        const int fuse = int(grenadeFuse(type) * kTickRate + 0.5);
+        for (int t = 1; t < kTickRate * 10; ++t) {
+            const NadeStep st = stepGrenade(flat, p, v);
+            const bool smokeReady = type != 0 || length(v) < 1.0f || t > fuse + 4 * kTickRate;
+            if ((t >= fuse && smokeReady) || (type == 3 && st.landed)) break;
+        }
+        mismatches += length(p - predicted) > 1e-4f;
+    }
+    std::printf("  preview vs real flight (4 grenade types): %d mismatches\n", mismatches);
+    CHECK(mismatches == 0, "%d", mismatches);
 }
 
 // Dummies turn (yaw); hitboxes turn with them. Facing you they're wider than side-on.
@@ -644,7 +744,7 @@ void testDustRoutes() {
     std::printf("dust routes (knife, 250 u/s)\n");
     const Landmark tSpawn{"T spawn", dustSpawn().pos}, ctSpawn{"CT spawn", dpt(-150, 2750)},
         longDoors{"long doors", dpt(775, 380)}, aSite{"A site", dpt(1300, 2900)}, bSite{"B site", dpt(-1850, 2400)},
-        midDoors{"mid doors", dpt(-176, 1896)}, cat{"catwalk", dpt(300, 1700)}, pit{"pit", dpt(1700, 350)},
+        midDoors{"mid doors", dpt(-176, 1896)}, cat{"catwalk", dpt(170, 1700)}, pit{"pit", dpt(1700, 350)},
         lower{"lower tunnels", dpt(-1100, 1150)};
     struct Route { Landmark a, b; float minS, maxS; };
     const Route routes[] = {
@@ -675,13 +775,16 @@ void testDustScales() {
         NavGrid nav;
         nav.build(dustGrid(), w, dustSpawn().pos);
         const float pts[][2] = {{-150, 2750}, {775, 380}, {1300, 2900}, {-1850, 2400}, {-176, 1896},
-                                {300, 1700}, {1750, 420}, {-1100, 1150}};
+                                {170, 1700}, {1700, 420}, {-1100, 1150}};
         std::vector<Vec3> path;
         int missing = 0, badSpots = 0;
         for (const auto& pt : pts) missing += !nav.findPath(dustSpawn().pos, dpt(pt[0], pt[1]), path);
         for (const PeekSpot& sp : dustPeekSpots())
             for (Vec3 p : {sp.cover, sp.peek})
-                badSpots += !(p.z > MapGrid::kNoFloor && w.boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)));
+                if (!(p.z > MapGrid::kNoFloor && w.boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)))) {
+                    std::printf("    peek spot (%.0f, %.0f) blocked\n", double(p.x / sc), double(p.y / sc));
+                    ++badSpots;
+                }
         // Competitive: both teams' spawn spots are standing room and can reach both sites.
         for (int side = 0; side < 2; ++side)
             for (const Vec3& sp : dustTeamSpawns(side)) {
@@ -689,6 +792,30 @@ void testDustScales() {
                 for (const RetakeSite& site : dustRetakeSites())
                     missing += !nav.findPath(sp, dustPoint(site.bombX, site.bombY), path);
             }
+        // Nobody can see the other team's spawn spots when a round starts (head to head, both ways).
+        for (const Vec3& t : dustTeamSpawns(0))
+            for (const Vec3& ct : dustTeamSpawns(1))
+                if (w.traceRay(t + Vec3{0, 0, 64}, ct + Vec3{0, 0, 64}).fraction >= 1.0f) {
+                    std::printf("    T spawn (%.0f, %.0f) sees CT spawn (%.0f, %.0f)\n", double(t.x / sc), double(t.y / sc),
+                                double(ct.x / sc), double(ct.y / sc));
+                    ++badSpots;
+                }
+        // Prefire: every route's start and bot spots are standing room, and you can walk from the start to each.
+        for (const PrefireRoute& r : dustPrefireRoutes()) {
+            const Vec3 start = dustPoint(r.start.x, r.start.y);
+            if (!nav.standable(start)) { std::printf("    prefire %s start blocked\n", r.name); ++badSpots; }
+            for (const RetakeSpot& b : r.bots) {
+                const Vec3 p = dustPoint(b.x, b.y);
+                if (!nav.standable(p) || !w.boxFits(p + Vec3{0, 0, 8.5f}, hullMins(), hullMaxs(false))) {  // (ramps: up to 8 under)
+                    std::printf("    prefire %s bot (%.0f, %.0f) is not standing room\n", r.name, double(b.x), double(b.y));
+                    ++badSpots;
+                } else if (!nav.findPath(start, p, path) && !nav.findPath(start, dustPoint(b.lookX, b.lookY), path)) {
+                    // (raised spots like goose need a jump: then the place it watches must be reachable)
+                    std::printf("    prefire %s bot (%.0f, %.0f) can't be reached\n", r.name, double(b.x), double(b.y));
+                    ++missing;
+                }
+            }
+        }
         // Retakes: every hold spot and entry is standing room, and every entry can walk onto its site.
         for (const RetakeSite& site : dustRetakeSites()) {
             if (!nav.standable(dustPoint(site.bombX, site.bombY))) {
@@ -742,6 +869,8 @@ int main() {
     testDustRoutes();
     testDustDeathmatch();
     testTurnedHitboxes();
+    testBotCover();
+    testGrenades();
     testDustScales();
     if (g_failures) {
         std::printf("\n%d check(s) FAILED\n", g_failures);

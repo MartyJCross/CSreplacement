@@ -41,7 +41,7 @@ struct Options {
     float spawnX = 0, spawnY = 0, spawnYaw = 0;
     float autofireStart = -1, autofireEnd = -1;  // --autofire start end (sim seconds)
     int windowW = 0, windowH = 0;                // --windowed W H
-    int startWeapon = 0;                         // --weapon 1|2|3|4 (4 = sniper as primary)
+    int startWeapon = 0;                         // --weapon 1|2|3|4|5 (4 = sniper as primary, 5 = grenade)
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
     int menuScreen = 0;                          // --menu N: open menu screen N (screenshots)
     bool throwSmoke = false, bots = false;       // --smoke, --bots (for screenshots)
@@ -171,7 +171,7 @@ struct Game {
     // Smoke grenades (G). Deterministic bounces, so lineups repeat exactly.
     // Grenades. Slot 4 holds one type at a time (press 4 again to cycle, like CS); G quick-throws it.
     enum NadeType { kSmokeNade = 0, kFlashNade, kHeNade, kMolotov, kNadeTypes };
-    struct Nade { Vec3 pos, vel; double detonateAt; int type = kSmokeNade; };
+    struct Nade { Vec3 pos, vel; int type = kSmokeNade; int ticks = 0; };  // ticks in flight (fuse)
     struct Smoke { Vec3 pos; double start; };
     struct Fire { Vec3 pos; double start, nextTick; };
     std::vector<Fire> fires;
@@ -214,6 +214,10 @@ struct Game {
         Vec3 stagePoint;                    // where the T bots gather before they execute
         bool executing = false, rotated = false;  // rotated: the CTs heard the site get hit
         double executeAt = 0;
+        int route = 0;                      // the T plan: 0 A long, 1 A through catwalk, 2 B tunnels
+        // The execute's utility: a T bot throws `type` at `target` once it has a throw that gets there.
+        struct Throw { int bot; int type; Vec3 target; double from, until, nextTry; };
+        std::vector<Throw> throws;
         int carrier = -3;                   // bomb: -1 you, i = bot i, -2 dropped on the floor, -3 nobody
         Vec3 dropped;
         int planter = -3, defuser = -3;     // who is planting / defusing (-1 you, bot index)
@@ -263,6 +267,15 @@ struct Game {
     // KZ course timer.
     int kzState = 0;  // 0 idle, 1 on start pad, 2 running
     double kzStart = 0, kzLast = -1, kzBest = -1;
+    // Prefire practice (mode 4): clear a route's bots as fast as you can. The clock starts when you move
+    // or shoot; a result shows for a few seconds, then the route resets.
+    struct Prefire {
+        int route = 0;
+        double start = -1, resultUntil = -1;
+        float last = 0;
+        bool won = false;
+        float best[8] = {};  // best time per route this session (0 = none yet)
+    } pf;
 };
 
 constexpr double kSmokeLife = 15.0;
@@ -494,8 +507,11 @@ Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
         if (!d.alive() || i == self || g.bots[i].state < 0) continue;
         (forPlayer ? watchers : occupied).push_back(forPlayer ? d.pos + Vec3{0, 0, 64} : d.pos);
     }
-    if (!forPlayer) watchers.push_back(g.player.origin + Vec3{0, 0, kStandEye});
-    return randomSpawnPoint(g.nav, g.world, watchers, forPlayer ? 900.0f : 700.0f, occupied, g.rng);
+    if (!forPlayer) {  // you, and you a moment from now (so they don't appear round the corner you're taking)
+        watchers.push_back(g.player.origin + Vec3{0, 0, kStandEye});
+        watchers.push_back(g.player.origin + g.player.velocity * 0.6f + Vec3{0, 0, kStandEye});
+    }
+    return randomSpawnPoint(g.nav, g.world, watchers, forPlayer ? 900.0f : 800.0f, occupied, g.rng);
 }
 
 // (Re)starts a deathmatch: fresh scores, everyone respawns.
@@ -519,6 +535,48 @@ void startDeathmatch(Game& g) {
     g.hudDirty = true;
 }
 
+// Prefire: everyone back to the start of the route, every bot back on its spot.
+void startPrefire(Game& g) {
+    const std::vector<PrefireRoute>& routes = dustPrefireRoutes();
+    g.pf.route = std::clamp(g.pf.route, 0, int(routes.size()) - 1);
+    const PrefireRoute& r = routes[size_t(g.pf.route)];
+    g.spawn = dustPoint(r.start.x, r.start.y);
+    g.spawnYaw = std::atan2(r.start.lookY - r.start.y, r.start.lookX - r.start.x) / kDegToRad;
+    g.hp = 100;
+    g.deadUntil = -1;
+    refillAmmo(g);
+    resetPosition(g);
+    for (size_t i = 0; i < g.dummies.size() && i < r.bots.size(); ++i) {
+        const RetakeSpot& b = r.bots[i];
+        Dummy& d = g.dummies[i];
+        d = Dummy{};
+        d.pos = d.prevPos = dustPoint(b.x, b.y);
+        d.yaw = d.prevYaw = std::atan2(b.lookY - b.y, b.lookX - b.x) / kDegToRad;
+        BotBrain brain;
+        brain.state = 1;
+        brain.holdOnly = brain.frozen = true;
+        brain.holdYaw = d.yaw;
+        g.bots[i] = brain;
+    }
+    std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
+    g.pf.start = g.pf.resultUntil = -1;
+    g.shots = g.hits = g.headshots = 0;
+    g.nades.clear();
+    g.smokes.clear();
+    g.fires.clear();
+    g.hudDirty = true;
+}
+
+void endPrefire(Game& g, bool won) {
+    if (g.pf.resultUntil >= 0) return;
+    g.pf.won = won;
+    g.pf.last = g.pf.start >= 0 ? float(g.simTime - g.pf.start) : 0.0f;
+    float& best = g.pf.best[g.pf.route % 8];
+    if (won && (best <= 0 || g.pf.last < best)) best = g.pf.last;
+    g.pf.resultUntil = g.simTime + (won ? 3.5 : 2.0);
+    g.hudDirty = true;
+}
+
 constexpr double kRetakeRoundTime = 40.0;
 void pushHitLog(Game& g, const std::string& text, uint32_t color);
 
@@ -538,6 +596,12 @@ void startRetakeRound(Game& g) {
     std::vector<size_t> order(site.holds.size());
     for (size_t k = 0; k < order.size(); ++k) order[k] = k;
     for (size_t k = order.size(); k > 1; --k) std::swap(order[k - 1], order[size_t(rnd(g) * float(k)) % k]);
+    // Holds you can see from where you start go last: no bot is in view when the round begins.
+    const Vec3 eye = g.spawn + Vec3{0, 0, kStandEye};
+    std::stable_partition(order.begin(), order.end(), [&](size_t k) {
+        const Vec3 p = dustPoint(site.holds[k].x, site.holds[k].y);
+        return g.world.traceRay(eye, p + Vec3{0, 0, 62}).fraction < 1.0f && g.world.traceRay(eye, p + Vec3{0, 0, 30}).fraction < 1.0f;
+    });
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         const RetakeSpot& h = site.holds[order[i % order.size()]];
         Dummy& d = g.dummies[i];
@@ -548,6 +612,8 @@ void startRetakeRound(Game& g) {
         b.state = 1;  // already placed: hold
         b.holdOnly = true;
         b.holdYaw = d.yaw;
+        b.holdLook = dustPoint(h.lookX, h.lookY);
+        b.hasHoldLook = true;
         g.bots[i] = b;
     }
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
@@ -616,6 +682,8 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
             if (b.state == 2) { b.state = 1; b.timer = 1.0f; }
     } else if (g.mode == 2 && g.mapId == 1) {
         endRetakeRound(g, false, "YOU DIED");
+    } else if (g.mode == 4 && g.mapId == 1) {
+        endPrefire(g, false);
     }
     refillAmmo(g);  // respawn with full magazines, like CS
     resetPosition(g);
@@ -627,7 +695,7 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
 void botDied(Game& g, size_t i) {
     Dummy& d = g.dummies[i];
     if (g.botsFire || g.mapId == 1) d.respawnLeft = 2.0f + rnd(g) * 2.0f;  // no insta-respawn when they fight back
-    if (g.mode == 2 || g.mode == 3) d.respawnLeft = 1e9f;                 // retakes, competitive: dead for the round
+    if (g.mode >= 2) d.respawnLeft = 1e9f;  // retakes, competitive, prefire: dead for the round
 }
 
 // A bot takes non-bullet damage (HE, fire) from `attacker` (-1 = you).
@@ -642,7 +710,7 @@ void hurtBot(Game& g, size_t i, int attacker, float dmg, const char* weapon) {
     if (kill) {
         d.respawnLeft = 1.0f;
         botDied(g, i);
-        if (attacker < 0 && g.botsFire && g.hp < 100.0f && g.mode != 3) g.hp = std::min(100.0f, g.hp + 40.0f);
+        if (attacker < 0 && g.botsFire && g.hp < 100.0f && g.mode != 3 && g.mode != 4) g.hp = std::min(100.0f, g.hp + 40.0f);
     } else if (attacker < 0 && i < g.bots.size()) {
         g.bots[i].alertUntil = g.simTime + 2.0;
         g.bots[i].lastSeen = g.player.origin;
@@ -834,9 +902,11 @@ void startCompRound(Game& g) {
     if (c.carrier == -1) pushHitLog(g, "YOU HAVE THE BOMB", 0xffd060);
     // Ts: gather at a staging point on the way (A long, A through catwalk, or B tunnels), then execute
     // together (compTick). CTs: a setup for the round - split 2-2-1 (A, B, mid doors) or stack a site.
-    const float stages[3][2] = {{1450, 1100}, {300, 1350}, {-2050, 1150}};
+    const float stages[3][2] = {{1500, 1100}, {170, 1350}, {-2070, 1150}};
     const int route = c.siteTarget == 1 ? 2 : (rnd(g) < 0.5f ? 0 : 1);
     c.stagePoint = dustPoint(stages[route][0], stages[route][1]);
+    c.route = route;
+    c.throws.clear();
     c.executing = c.rotated = false;
     c.executeAt = g.simTime + kCompFreeze + 20.0;
     const int setup = int(rnd(g) * 3.0f) % 3;  // 0 split, 1 stack A, 2 stack B
@@ -854,12 +924,15 @@ void startCompRound(Game& g) {
             if (setup == 0 && k == 4) {  // the fifth CT watches mid doors
                 b.goal = dustPoint(-180, 1990);
                 b.holdYaw = -90.0f;
+                b.holdLook = dustPoint(-180, 1500);
             } else {
                 const RetakeSite& s = sites[size_t(site)];
                 const RetakeSpot& h = s.holds[size_t(setup == 0 ? k / 2 : k) % s.holds.size()];
                 b.goal = dustPoint(h.x, h.y);
                 b.holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
+                b.holdLook = dustPoint(h.lookX, h.lookY);
             }
+            b.hasHoldLook = true;
         }
         b.hasGoal = true;
         d.yaw = d.prevYaw = yawTo(d.pos, b.goal);  // face where they're heading, not each other
@@ -903,9 +976,12 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
     Game::Comp& c = g.comp;
     if (c.phase >= 2) return;
     if (!g_compLog.empty()) {
-        char line[160];
-        std::snprintf(line, sizeof(line), "round %2d  %s wins: %-30s planted %d  t=%.0fs  you %s\n", c.round + 1,
-                      winner == 0 ? "T " : "CT", why, int(c.planted), g.simTime, c.youTeam == 0 ? "T" : "CT");
+        int alive[2] = {0, 0};
+        for (size_t i = 0; i < g.dummies.size(); ++i) alive[g.team[i]] += g.dummies[i].alive();
+        char line[200];
+        std::snprintf(line, sizeof(line), "round %2d  %s wins: %-30s planted %d  t=%.0fs  you %s  bots alive %dT %dCT  bomb %s\n",
+                      c.round + 1, winner == 0 ? "T " : "CT", why, int(c.planted), g.simTime, c.youTeam == 0 ? "T" : "CT",
+                      alive[0], alive[1], c.carrier == -1 ? "you" : c.carrier == -2 ? "dropped" : c.carrier >= 0 ? "bot" : "-");
         std::ofstream(g_compLog, std::ios::app) << line;
     }
     const int loser = 1 - winner;
@@ -961,15 +1037,47 @@ const char* compBuy(Game& g, int item) {
     return items[item].name;
 }
 
-// Sends a bot somewhere (unless it's already on its way there).
-void sendBot(Game& g, size_t i, const Vec3& to, bool hold) {
+// Sends a bot somewhere (unless it's already on its way there). `h`: a hold spot to take there, facing
+// its look-at point (it holds from beside cover).
+void sendBot(Game& g, size_t i, const Vec3& to, bool hold, const RetakeSpot* h = nullptr) {
     BotBrain& b = g.bots[i];
     if (b.hasGoal && length2d(b.goal - to) < 1.0f) return;
     b.goal = to;
     b.hasGoal = true;
     b.holdOnly = hold;
+    b.hasHoldLook = h != nullptr;
+    if (h) {
+        b.holdLook = dustPoint(h->lookX, h->lookY);
+        b.holdYaw = std::atan2(h->lookY - h->y, h->lookX - h->x) / kDegToRad;
+    }
+    b.holdCoverChecked = false;
     b.path.clear();
     if (b.state != 2) b.state = 0;
+}
+
+// A bot throws a grenade of `type` to go off at `target`: it tries throws round the straight line (the same
+// flight as the real thing) and takes the one that ends closest. False if none gets within 150 units.
+bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
+    Dummy& d = g.dummies[i];
+    const Vec3 eye = d.pos + Vec3{0, 0, 64};
+    const float yaw0 = yawTo(eye, target), dist = length2d(target - eye);
+    float bestErr = 1e30f;
+    Vec3 bestStart, bestVel;
+    for (int lob = 0; lob < (dist < 500.0f ? 2 : 1); ++lob)
+        for (int yi = -1; yi <= 1; ++yi)
+            for (int pi = 0; pi < 8; ++pi) {
+                const float pitch = -72.0f + float(pi) * 10.0f, yaw = yaw0 + float(yi) * 2.5f;
+                const Vec3 v = grenadeThrowVelocity(pitch, yaw, lob == 1, Vec3{});
+                const Vec3 start = eye + normalize(v) * 16.0f;
+                const Vec3 end = predictGrenade(g.world, start, v, type);
+                const float err = length2d(end - target) + std::fabs(end.z - target.z) * 0.5f;
+                if (err < bestErr) { bestErr = err; bestStart = start; bestVel = v; }
+            }
+    if (bestErr > 150.0f) return false;
+    g.nades.push_back({bestStart, bestVel, type});
+    d.yaw = d.prevYaw = yawTo(eye, target);
+    if (g.audio) g.audio->play3D(Sfx::Draw, eye, g.lastRenderEye, float(g.viewYaw), 1200.0f, 0.5f, 1.3f);
+    return true;
 }
 
 // Competitive, every tick: the phases, the bomb (carried, dropped, planted, defused, exploding) and who
@@ -1002,6 +1110,25 @@ void compTick(Game& g) {
                 std::ofstream(g_compLog, std::ios::app)
                     << "  execute " << (c.siteTarget == 0 ? "A" : "B") << (gathered ? " (gathered)" : " (timer)")
                     << " t=" << int(g.simTime) << "s\n";
+            // Utility for the site: a smoke to cut the defenders' view, a flash over where they hold.
+            {
+                static const float kUtil[3][2][3] = {
+                    {{1450, 2300, 0}, {1400, 2650, 140}},    // A long: smoke the top of the ramp, flash the site
+                    {{850, 2850, 0}, {450, 2520, 140}},      // catwalk: smoke CT side of A, flash short
+                    {{-1450, 2210, 0}, {-1800, 2450, 140}},  // B: smoke the doors, flash the site
+                };
+                std::vector<std::pair<float, size_t>> near;
+                for (size_t i = 0; i < g.dummies.size(); ++i)
+                    if (g.dummies[i].alive() && g.team[i] == 0 && int(i) != c.carrier)
+                        near.push_back({length2d(g.dummies[i].pos - c.stagePoint), i});
+                std::sort(near.begin(), near.end());
+                for (size_t q = 0; q < near.size() && q < 2; ++q) {
+                    const float* u = kUtil[c.route][q];
+                    const Vec3 target = dustPoint(u[0], u[1]) + Vec3{0, 0, u[2]};
+                    const double from = now + 0.3 + 0.7 * double(q);
+                    c.throws.push_back({int(near[q].second), q == 0 ? Game::kSmokeNade : Game::kFlashNade, target, from, from + 10.0, from});
+                }
+            }
             const RetakeSite& s = sites[size_t(c.siteTarget)];
             int k = 0;
             for (size_t i = 0; i < g.dummies.size(); ++i) {
@@ -1010,11 +1137,25 @@ void compTick(Game& g) {
                     sendBot(g, i, bombSpot, true);
                 } else {
                     const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-                    sendBot(g, i, dustPoint(h.x, h.y), true);
-                    g.bots[i].holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
+                    sendBot(g, i, dustPoint(h.x, h.y), true, &h);
                 }
             }
         }
+    }
+    for (size_t q = 0; q < c.throws.size();) {
+        Game::Comp::Throw& t = c.throws[q];
+        const size_t i = size_t(t.bot);
+        const bool gone = now > t.until || c.planted || !g.dummies[i].alive();
+        bool done = gone;
+        if (!gone && now >= t.nextTry && g.bots[i].state != 2) {
+            done = botThrow(g, i, t.type, t.target);
+            t.nextTry = now + 0.4;  // no throw from here yet: try again in a moment (it's still walking)
+            if (done && !g_compLog.empty())
+                std::ofstream(g_compLog, std::ios::app) << "  bot threw a " << (t.type == Game::kSmokeNade ? "smoke" : "flash")
+                                                        << " t=" << int(now) << "s\n";
+        }
+        if (done) c.throws.erase(c.throws.begin() + long(q));
+        else ++q;
     }
     // CT rotation: once a T is on the site being hit, the CT bots away from it come over to help.
     if (!c.planted && c.executing && !c.rotated) {
@@ -1029,7 +1170,7 @@ void compTick(Game& g) {
             for (size_t i = 0; i < g.dummies.size(); ++i) {
                 if (!g.dummies[i].alive() || g.team[i] != 1 || length2d(g.dummies[i].pos - bombSpot) < 2.0f * onSite) continue;
                 const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-                sendBot(g, i, dustPoint(h.x, h.y), true);
+                sendBot(g, i, dustPoint(h.x, h.y), true, &h);
             }
         }
     }
@@ -1088,7 +1229,7 @@ void compTick(Game& g) {
             for (size_t i = 0; i < g.dummies.size(); ++i) {  // CTs: retake the site
                 if (!g.dummies[i].alive() || g.team[i] != 1) continue;
                 const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-                sendBot(g, i, dustPoint(h.x, h.y), true);
+                sendBot(g, i, dustPoint(h.x, h.y), true, &h);
             }
             g.hudDirty = true;
         }
@@ -1167,6 +1308,7 @@ void loadMap(Game& g, Renderer& r, int id) {
         g.dummies.assign(g.mode == 1   ? size_t(g.dmBots)
                          : g.mode == 2 ? size_t(g.rtBots)
                          : g.mode == 3 ? size_t(kCompTeamBots + kCompEnemyBots)
+                         : g.mode == 4 ? dustPrefireRoutes()[size_t(std::clamp(g.pf.route, 0, int(dustPrefireRoutes().size()) - 1))].bots.size()
                                        : 4,
                          Dummy{});
         for (Dummy& d : g.dummies) d.respawnLeft = 0.01f;  // spawn at a spot on the first tick
@@ -1198,12 +1340,19 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.flashFull = g.flashEnd = 0;
     g.hp = 100;
     resetPosition(g);
+    // Feel Lab keeps its dev grid; Dust gets surfaces by material (render.cpp: stone, wood, metal, plain).
     std::vector<BoxInstance> statics;
-    for (const Box& b : g.world.solids) {
+    auto addStatic = [&](const Box& b) {
         statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
+        if (id == 1) {
+            static const uint8_t kSurface[4] = {240, 224, 208, 0};  // kMatStone, kMatWood, kMatMetal, kMatPlain
+            statics.back().rgba[3] = kSurface[std::min<int>(b.material, 3)];
+        }
         statics.back().slope[0] = float(b.slope);
         statics.back().slope[1] = b.lowZ;
-    }
+    };
+    for (const Box& b : g.world.solids) addStatic(b);
+    for (const Box& b : g.world.decor) addStatic(b);
     r.setStaticBoxes(statics);
     r.clearDecals();
     if (id == 1) g.nav.build(dustGrid(), g.world, dustSpawn().pos);
@@ -1222,6 +1371,7 @@ void loadMap(Game& g, Renderer& r, int id) {
         startRetakeRound(g);
     }
     if (id == 1 && g.mode == 3) startCompMatch(g);
+    if (id == 1 && g.mode == 4) startPrefire(g);
     g.hudDirty = true;
 }
 
@@ -1247,7 +1397,7 @@ void resetGame(Game& g, const Options& opt) {
     g.botSeen.assign(g.dummies.size(), 0.0f);
     g.botCooldown.assign(g.dummies.size(), 0.0f);
     if (opt.startWeapon == 4) g.primary = &g.sniper;
-    g.switchTo = opt.startWeapon == 4 ? 1 : opt.startWeapon;
+    g.switchTo = opt.startWeapon == 4 ? 1 : opt.startWeapon == 5 ? 4 : opt.startWeapon;
     g.weapon = &g.rifle;
     g.lastRenderEye = g.player.origin + Vec3{0, 0, kStandEye};
     g.lastDummyRenderPos.clear();
@@ -1449,7 +1599,7 @@ void simTick(Game& g, const Options& opt) {
                 b.alertUntil = g.simTime + 2.0;
                 b.lastSeen = g.player.origin;
             }
-            if (r.kill && g.botsFire && g.deadUntil < 0 && g.hp < 100.0f && g.mode != 3) {  // a kill heals you
+            if (r.kill && g.botsFire && g.deadUntil < 0 && g.hp < 100.0f && g.mode != 3 && g.mode != 4) {  // a kill heals you
                 g.hp = std::min(100.0f, g.hp + 40.0f);
                 pushHitLog(g, "+40 HP", 0x60ff60);
             }
@@ -1605,39 +1755,25 @@ void simTick(Game& g, const Options& opt) {
         else g.comp.nades[g.nadeType]--;
     }
     if (g.throwLatch) {
-        // CS:GO's throw: the aim is lifted (10 degrees at the horizon, none straight up or down), 675 u/s
-        // (x0.3 for the underhand lob) plus 1.25x your own velocity. Grenades fall at 0.4x gravity (320).
-        float pitch = float(g.viewPitch);  // + = down
-        pitch = pitch < 0 ? -10.0f + pitch * (80.0f / 90.0f) : -10.0f + pitch * (100.0f / 90.0f);
-        Vec3 f = anglesToForward(pitch, float(g.viewYaw));
-        float throwSpeed = 675.0f * (g.throwLob ? 0.3f : 1.0f);
-        double fuse = g.nadeType == Game::kMolotov ? 2.0 : 1.5;  // a molotov also bursts as soon as it lands
-        g.nades.push_back({g.lastRenderEye + f * 16.0f, f * throwSpeed + g.player.velocity * 1.25f, g.simTime + fuse,
-                           g.nadeType});
+        // CS:GO's throw (combat.cpp): lifted aim, 675 u/s (x0.3 for the lob), plus 1.25x your velocity.
+        const Vec3 v = grenadeThrowVelocity(float(g.viewPitch), float(g.viewYaw), g.throwLob, g.player.velocity);
+        const Vec3 f = normalize(v - g.player.velocity * 1.25f);
+        g.nades.push_back({g.lastRenderEye + f * 16.0f, v, g.nadeType});
         g.throwLob = false;
         sound(g, Sfx::Draw, 0.6f, 0.0f, 1.3f);
         g.throwLatch = false;
     }
     for (size_t k = 0; k < g.nades.size();) {
         Game::Nade& n = g.nades[k];
-        n.vel.z -= 320.0f * kTickDt;  // CS grenade gravity: 0.4 x 800
-        Vec3 next = n.pos + n.vel * kTickDt;
-        TraceResult tr = g.world.traceRay(n.pos, next);
-        bool landed = false;
-        if (tr.fraction < 1.0f) {
-            float into = dot(n.vel, tr.normal);
-            n.vel = (n.vel - tr.normal * (2.0f * into)) * 0.45f;
-            if (tr.normal.z > 0.7f && length(n.vel) < 20.0f) n.vel = {};  // come to rest on the floor
-            n.pos = tr.endpos + tr.normal * 0.1f;
-            landed = tr.normal.z > 0.7f;
-            if (-into > 80.0f && g.audio)
-                g.audio->play3D(Sfx::Footstep, n.pos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.4f, 1.8f);
-        } else {
-            n.pos = next;
-        }
+        const NadeStep st = stepGrenade(g.world, n.pos, n.vel);  // same flight as predictGrenade()
+        const bool landed = st.landed;
+        if (st.impactSpeed > 80.0f && g.audio)
+            g.audio->play3D(Sfx::Footstep, n.pos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.4f, 1.8f);
+        ++n.ticks;
         // Smokes pop once they've stopped rolling (like CS); flash and HE on their fuse; molotovs on landing.
-        const bool smokeReady = n.type != Game::kSmokeNade || length(n.vel) < 1.0f || g.simTime > n.detonateAt + 4.0;
-        if ((g.simTime >= n.detonateAt && smokeReady) || (n.type == Game::kMolotov && landed)) {
+        const int fuseTicks = int(grenadeFuse(n.type) * kTickRate + 0.5);
+        const bool smokeReady = n.type != Game::kSmokeNade || length(n.vel) < 1.0f || n.ticks > fuseTicks + 4 * kTickRate;
+        if ((n.ticks >= fuseTicks && smokeReady) || (n.type == Game::kMolotov && landed)) {
             switch (n.type) {
                 case Game::kSmokeNade:
                     g.smokes.push_back({n.pos, g.simTime});
@@ -1762,6 +1898,17 @@ void simTick(Game& g, const Options& opt) {
         if (secs != g.dmShownSecs) { g.dmShownSecs = secs; g.hudDirty = true; }
     }
     if (g.mapId == 1 && g.mode == 3) compTick(g);
+    if (g.mapId == 1 && g.mode == 4) {
+        Game::Prefire& pf = g.pf;
+        if (pf.resultUntil >= 0) {
+            if (g.simTime >= pf.resultUntil) startPrefire(g);
+        } else {
+            if (pf.start < 0 && (length2d(g.player.velocity) > 5.0f || g.shots > 0)) pf.start = g.simTime;
+            bool anyAlive = false;
+            for (const Dummy& d : g.dummies) anyAlive |= d.alive();
+            if (!anyAlive && pf.start >= 0) endPrefire(g, true);
+        }
+    }
     if (g.mapId == 1 && g.mode != 0 && g.nav.ready()) {
         BotSenses sense;
         sense.world = &g.world;
@@ -1769,7 +1916,7 @@ void simTick(Game& g, const Options& opt) {
         sense.now = g.simTime;
         sense.playerOrigin = g.player.origin;
         sense.playerEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
-        sense.playerUp = g.deadUntil < 0 && !g.noclip && g.dmOverUntil < 0 && g.rtResultUntil < 0;
+        sense.playerUp = g.deadUntil < 0 && !g.noclip && g.dmOverUntil < 0 && g.rtResultUntil < 0 && g.pf.resultUntil < 0;
         sense.noiseFresh = g.simTime - g.noiseAt < 1.5 * kTickDt;
         sense.noisePos = g.noisePos;
         sense.noiseRadius = g.noiseRadius;
@@ -2000,12 +2147,14 @@ const char* const kCrosshairColorNames[] = {"GREEN", "YELLOW", "CYAN", "WHITE", 
 int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 
 // The PLAY screen's choices; they only take effect on START.
-struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0; };
+struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0; };
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"FEEL LAB", "DUST2"};
-const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5"};
+const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE"};
+const char* const kRouteNames[] = {"A LONG", "B TUNNELS", "MID", "A SHORT"};
 const char* const kKnifeNames[] = {"BUTTERFLY", "KARAMBIT", "M9 BAYONET", "TALON"};
 const char* const kFinishNames[] = {"FACTORY", "CRIMSON", "ARCTIC", "JUNGLE", "GOLD"};
+const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
 const char* const kControls[][2] = {
     {"W A S D", "MOVE"}, {"SPACE / WHEEL", "JUMP (HOLD TO BUNNY HOP)"}, {"CTRL", "CROUCH"}, {"SHIFT", "WALK"},
     {"MOUSE 1", "FIRE / THROW"}, {"MOUSE 2", "SCOPE / LOB A GRENADE"}, {"R", "RELOAD"},
@@ -2031,7 +2180,7 @@ const char* menuTitle(int screen) {
     }
 }
 
-std::vector<MenuItem> menuRows(int screen, Config& c, bool practice) {
+std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
     auto button = [](const char* name, int action) {
         MenuItem m{name};
         m.action = action;
@@ -2044,14 +2193,19 @@ std::vector<MenuItem> menuRows(int screen, Config& c, bool practice) {
                     button("CONTROLS", goTo(kMenuControls)), button("QUIT", kActQuit)};
         case kMenuPause: {
             std::vector<MenuItem> r = {button("RESUME", kActResume), button("CHANGE MODE OR MAP", goTo(kMenuPlay))};
-            if (practice) r.push_back(button("RESET POSITION", kActReset));
+            if (mode == 0) r.push_back(button("RESET POSITION", kActReset));
+            if (mode == 4) r.push_back(button("RESTART ROUTE", kActReset));
             r.insert(r.end(), {button("SETTINGS", goTo(kMenuSettings)), button("CONTROLS", goTo(kMenuControls)),
                                button("MAIN MENU", kActMainMenu), button("QUIT", kActQuit)});
             return r;
         }
         case kMenuPlay: {
             const GameMenu& m = g_gameMenu;
-            std::vector<MenuItem> r = {{"MODE", nullptr, &g_gameMenu.mode, 1, 0, 3, kModeNames}};
+            std::vector<MenuItem> r = {{"MODE", nullptr, &g_gameMenu.mode, 1, 0, 4, kModeNames}};
+            if (m.mode == 4) {
+                r.push_back({"ROUTE", nullptr, &g_gameMenu.route, 1, 0, 3, kRouteNames});
+                r.push_back({"BOTS SHOOT BACK", nullptr, &g_gameMenu.bots, 1, 0, 1, kOnOff});
+            }
             if (m.mode == 0) {
                 r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 1, kMapNames});
                 r.push_back({"BOTS SHOOT BACK", nullptr, &g_gameMenu.bots, 1, 0, 1, kOnOff});
@@ -2105,6 +2259,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, bool practice) {
                     back};
         case kMenuGameplay:
             return {{"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
+                    {"GRENADE TRAJECTORY", nullptr, &c.nade_preview, 1, 0, 2, kPreviewNames},
                     {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
                     {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
                     back};
@@ -2158,10 +2313,10 @@ int menuRowAt(const MenuLayout& L, size_t rows, int s, float mx, float my) {
     return k >= 0 && k < float(rows) ? int(k) : -1;
 }
 
-void drawMenu(HudBatch& hud, const Config& cfg, bool practice, int w, int h, int s) {
+void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
     Config view = cfg;  // menuRows needs non-const pointers; we only read here
     const int screen = g_menu.screen;
-    const std::vector<MenuItem> rows = menuRows(screen, view, practice);
+    const std::vector<MenuItem> rows = menuRows(screen, view, mode);
     const MenuLayout L = menuLayout(screen, rows.size(), w, h, s);
     const float fs = float(s);
     hud.rect(0, 0, float(w), float(h), g_menu.root == kMenuMain ? 0x06080BD8 : 0x000000A0);
@@ -2209,7 +2364,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     int s = hudScale(cfg, h);
     hud.fontScale = s;
     if (g_menu.screen != kMenuNone && g_menu.root == kMenuMain) {  // main menu: no game HUD behind it
-        drawMenu(hud, cfg, g.mode == 0, w, h, s);
+        drawMenu(hud, cfg, g.mode, w, h, s);
         return;
     }
     const float lh = 10.0f * s;
@@ -2339,6 +2494,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES");
         else if (g.mode == 2 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "RETAKES   TAB SCORES");
         else if (g.mode == 3 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "COMPETITIVE   TAB SCORES   B BUY   E PLANT / DEFUSE");
+        else if (g.mode == 4 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "PREFIRE   BOTS SHOOT BACK");
         else std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
         hud.text(x, y, buf, 0xFF8060FF);
         y += lh;
@@ -2356,7 +2512,31 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         std::snprintf(buf, sizeof(buf), "%d:%02d   KILLS %d   DEATHS %d", left / 60, left % 60, g.you.kills, g.you.deaths);
         hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
     }
-    if (g.mapId == 1 && g.mode != 0 && (g.showScores || g.dmOverUntil >= 0)) {
+    if (g.mapId == 1 && g.mode == 4) {
+        const Game::Prefire& pf = g.pf;
+        int dead = 0;
+        for (const Dummy& d : g.dummies) dead += !d.alive();
+        const double t = pf.resultUntil >= 0 ? double(pf.last) : pf.start >= 0 ? g.simTime - pf.start : 0.0;
+        const float best = pf.best[pf.route % 8];
+        char bestText[24] = "-";
+        if (best > 0) std::snprintf(bestText, sizeof(bestText), "%.2f", double(best));
+        std::snprintf(buf, sizeof(buf), "PREFIRE %s   %d / %zu   %.2f S   BEST %s", dustPrefireRoutes()[size_t(pf.route)].name,
+                      dead, g.dummies.size(), t, bestText);
+        hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
+        if (pf.start < 0 && pf.resultUntil < 0) {
+            const char* go = "MOVE OR SHOOT TO START THE CLOCK";
+            hud.text(cx - hud.textWidth(go) / 2, 44.0f * s, go, 0xFFD060C0);
+        }
+        if (pf.resultUntil >= 0) {
+            const char* head = pf.won ? "ROUTE CLEARED" : "YOU DIED";
+            hud.text(cx - hud.textWidth(head, s * 3) / 2, cy - 90.0f * s, head, pf.won ? 0x60FF60FF : 0xFF5050FF, s * 3);
+            std::snprintf(buf, sizeof(buf), "%.2f S   ACCURACY %d%%   HEADSHOTS %d%s", double(pf.last),
+                          g.shots > 0 ? int(100.0f * float(g.hits) / float(g.shots) + 0.5f) : 0, g.headshots,
+                          pf.won && best > 0 && std::fabs(best - pf.last) < 1e-4f ? "   NEW BEST" : "");
+            hud.text(cx - hud.textWidth(buf, s * 2) / 2, cy - 60.0f * s, buf, 0xFFFFFFFF, s * 2);
+        }
+    }
+    if (g.mapId == 1 && g.mode != 0 && g.mode != 4 && (g.showScores || g.dmOverUntil >= 0)) {
         // Scoreboard (Tab), and the results screen at the end of a deathmatch. Sorted by kills.
         // ADR = damage per round (retakes) or per life (deathmatch).
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
@@ -2551,7 +2731,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         hud.rect(0, 0, float(w), float(h), 0xFFFFFF00u | uint32_t(255.0f * std::clamp(k, 0.0f, 1.0f)));
     }
 
-    if (g_menu.screen != kMenuNone) drawMenu(hud, cfg, g.mode == 0, w, h, s);
+    if (g_menu.screen != kMenuNone) drawMenu(hud, cfg, g.mode, w, h, s);
 }
 
 int fatal(const std::string& msg, SDL_Window* window, bool showBox) {
@@ -2638,7 +2818,7 @@ int main(int argc, char** argv) {
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     applyConfig(g, cfg);
-    g.mode = cfg.mode >= 1 && cfg.mode <= 3 ? cfg.mode : 0;
+    g.mode = cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     setDustScale(float(cfg.dust_scale) / 100.0f);
     loadMap(g, renderer, cfg.map == 1 || g.mode != 0 ? 1 : 0);
@@ -2665,6 +2845,7 @@ int main(int argc, char** argv) {
             g_gameMenu.mode = g.mode;
             g_gameMenu.bots = g.botsFire;
             g_gameMenu.drill = g.drill;
+            g_gameMenu.route = g.pf.route;
         }
         g_menu.screen = screen;
         g_menu.sel = 0;
@@ -2688,7 +2869,9 @@ int main(int argc, char** argv) {
     auto startFromMenu = [&]() {
         const GameMenu& m = g_gameMenu;
         g.mode = m.mode;
+        g.pf.route = m.route;
         loadMap(g, renderer, m.mode != 0 ? 1 : m.map);
+        if (g.mode == 4) g.botsFire = m.bots != 0;
         if (g.mode == 0) {
             g.botsFire = m.bots != 0;
             if (g.mapId == 0 && m.drill) setDrill(g, true);
@@ -2702,7 +2885,7 @@ int main(int argc, char** argv) {
     // Row `row` was pressed (Enter, click: press = true) or nudged (arrows, wheel, right click).
     // Settings change by `dir` steps either way and save straight away; buttons only react to presses.
     auto menuUse = [&](int row, int dir, bool big, bool press) {
-        const std::vector<MenuItem> rows = menuRows(g_menu.screen, cfg, g.mode == 0);
+        const std::vector<MenuItem> rows = menuRows(g_menu.screen, cfg, g.mode);
         if (row < 0 || row >= int(rows.size())) return;
         const MenuItem& it = rows[size_t(row)];
         g.hudDirty = true;
@@ -2715,7 +2898,11 @@ int main(int argc, char** argv) {
         switch (it.action) {
             case kActResume: setMenu(kMenuNone); break;
             case kActStart: startFromMenu(); break;
-            case kActReset: resetPosition(g); setMenu(kMenuNone); break;
+            case kActReset:
+                if (g.mode == 4 && g.mapId == 1) startPrefire(g);
+                else resetPosition(g);
+                setMenu(kMenuNone);
+                break;
             case kActReload:
                 cfg = loadConfig(cfgPath);
                 settingsChanged();
@@ -2734,7 +2921,7 @@ int main(int argc, char** argv) {
     auto menuRowUnder = [&](float mx, float my) {
         const float density = SDL_GetWindowPixelDensity(window);
         const int hs = hudScale(cfg, pixH);
-        const size_t n = menuRows(g_menu.screen, cfg, g.mode == 0).size();
+        const size_t n = menuRows(g_menu.screen, cfg, g.mode).size();
         return menuRowAt(menuLayout(g_menu.screen, n, pixW, pixH, hs), n, hs, mx * density, my * density);
     };
     g_menu.root = kMenuMain;
@@ -2746,6 +2933,7 @@ int main(int argc, char** argv) {
     FrameStats stats;
     HudBatch hud;
     std::vector<BoxInstance> dynamicBoxes;
+    std::vector<Vec3> nadePath;  // grenade preview, reused every frame
     int frame = 0;
     double hitMarkerShownUntil = 0;
     std::vector<ModelDraw> modelDraws;
@@ -2831,7 +3019,7 @@ int main(int argc, char** argv) {
                         bool fs = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
                         SDL_SetWindowFullscreen(window, !fs);
                     } else if (paused && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN)) {
-                        int n = int(menuRows(g_menu.screen, cfg, g.mode == 0).size());
+                        int n = int(menuRows(g_menu.screen, cfg, g.mode).size());
                         g_menu.sel = (g_menu.sel + (sc == SDL_SCANCODE_DOWN ? 1 : n - 1)) % n;
                         g.hudDirty = true;
                     } else if (paused && (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT)) {
@@ -3008,6 +3196,23 @@ int main(int argc, char** argv) {
             const uint32_t nadeColor[Game::kNadeTypes] = {0x3b4a2f, 0xd6d8da, 0x4a5a2a, 0x7a4a1a};
             dynamicBoxes.push_back(
                 makeBox(n.pos - Vec3{1.5f, 1.5f, 1.5f}, n.pos + Vec3{1.5f, 1.5f, 2.5f}, nadeColor[n.type], false));
+        }
+        // Grenade trajectory preview (`nade_preview`): the exact flight a throw would take right now
+        // (same code as the real grenade), as dots, with a cross where it goes off.
+        const bool compMatch = g.mode == 3 && g.mapId == 1;
+        if (g.weapon == &g.grenade && !paused && g.deadUntil < 0 && (cfg.nade_preview == 2 || (cfg.nade_preview == 1 && !compMatch)) &&
+            !(compMatch && (g.comp.youDead || g.comp.nades[g.nadeType] <= 0))) {
+            const Vec3 v = grenadeThrowVelocity(float(g.viewPitch), float(g.viewYaw), false, g.player.velocity);
+            const Vec3 f = normalize(v - g.player.velocity * 1.25f);
+            nadePath.clear();
+            const Vec3 end = predictGrenade(g.world, g.lastRenderEye + f * 16.0f, v, g.nadeType, &nadePath);
+            for (size_t k = 14; k < nadePath.size(); k += 5) {
+                const Vec3& p = nadePath[k];
+                dynamicBoxes.push_back(makeEmissive(p - Vec3{0.7f, 0.7f, 0.7f}, p + Vec3{0.7f, 0.7f, 0.7f}, 0xf2ecd0));
+            }
+            const uint32_t mark[Game::kNadeTypes] = {0xd8d8d8, 0xffffff, 0xff6a40, 0xff9a20};
+            dynamicBoxes.push_back(makeEmissive(end + Vec3{-12, -1, 0.5f}, end + Vec3{12, 1, 1.5f}, mark[g.nadeType]));
+            dynamicBoxes.push_back(makeEmissive(end + Vec3{-1, -12, 0.5f}, end + Vec3{1, 12, 1.5f}, mark[g.nadeType]));
         }
         if (g.mapId == 1 && g.mode == 2 && g.bombActive) {  // the bomb, its light blinking with the beeps
             const Vec3& b = g.bombPos;

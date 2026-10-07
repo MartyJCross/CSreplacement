@@ -256,35 +256,36 @@ struct DustArea {
 
 constexpr uint32_t kDSand = 0xc9b48a, kDSandLight = 0xd3bf94, kDSandDark = 0xb7a079, kDTunnel = 0x8f7d5e,
                    kDSite = 0xd6c39b, kDWood = 0x7a5230, kDStone = 0xdcc9a3, kDCrate = 0xb5763a,
-                   kDBlue = 0x3f6f9a, kDRoof = 0x6b5a42;
+                   kDBlue = 0x3f6f9a, kDRoof = 0x6b5a42, kDCar = 0x8a3b32, kDCarTop = 0x5d2a24, kDBarrel = 0x4f6d7a,
+                   kDTrimLight = 0xe4d4b0, kDTrimDark = 0x9c8763, kDPane = 0x2c2a2a, kDDoor = 0x5e3f24;
 
 const DustArea kDustAreas[] = {
     // T side.
     {"T SPAWN", -900, -1100, 200, -500, 64, 64, 0, kDSand, 0},
-    {"OUTSIDE LONG", 200, -900, 650, -500, 64, 48, 'x', kDSand, 0},
-    {"OUTSIDE LONG", 400, -500, 650, 200, 48, 0, 'y', kDSand, 0},
-    {"OUTSIDE LONG", 400, 200, 650, 460, 0, 0, 0, kDSand, 0},
-    {"OUTSIDE TUNNELS", -1700, -900, -900, -500, 64, 64, 0, kDSand, 0},
-    {"OUTSIDE TUNNELS", -2150, -900, -1700, 700, 64, 0, 'y', kDSand, 0},
-    {"TOP MID", -450, -500, 50, 300, 64, 0, 'y', kDSand, 0},
+    {"OUTSIDE LONG", 200, -880, 650, -560, 64, 48, 'x', kDSand, 0},
+    {"OUTSIDE LONG", 420, -560, 650, 200, 48, 0, 'y', kDSand, 0},
+    {"OUTSIDE LONG", 420, 200, 650, 460, 0, 0, 0, kDSand, 0},
+    {"OUTSIDE TUNNELS", -1820, -880, -900, -580, 64, 64, 0, kDSand, 0},
+    {"OUTSIDE TUNNELS", -2150, -880, -1820, 700, 64, 0, 'y', kDSand, 0},
+    {"TOP MID", -420, -500, 20, 300, 64, 0, 'y', kDSand, 0},
     // Long A.
     {"LONG DOORS", 650, 300, 900, 460, 0, 0, 0, kDSandDark, 144},
-    {"LONG A", 900, 150, 1500, 850, 0, 0, 0, kDSand, 0},
-    {"LONG A", 1250, 850, 1850, 2050, 0, 0, 0, kDSand, 0},
-    {"PIT", 1500, 150, 1850, 600, -160, -160, 0, kDSandDark, 0},
-    {"PIT", 1650, 600, 1850, 950, -160, 0, 'y', kDSandDark, 0},
-    {"A RAMP", 1300, 2050, 1850, 2450, 0, 96, 'y', kDSandLight, 0},
-    {"A SITE", 750, 2450, 1850, 3150, 96, 96, 0, kDSite, 0},
-    {"GOOSE", 1650, 2950, 1850, 3150, 144, 144, 0, kDSandLight, 0},
+    {"LONG A", 900, 180, 1500, 820, 0, 0, 0, kDSand, 0},
+    {"LONG A", 1290, 820, 1800, 2050, 0, 0, 0, kDSand, 0},
+    {"PIT", 1500, 180, 1800, 600, -160, -160, 0, kDSandDark, 0},
+    {"PIT", 1620, 600, 1800, 950, -160, 0, 'y', kDSandDark, 0},
+    {"A RAMP", 1320, 2050, 1800, 2450, 0, 96, 'y', kDSandLight, 0},
+    {"A SITE", 750, 2450, 1800, 3150, 96, 96, 0, kDSite, 0},
+    {"GOOSE", 1620, 2950, 1800, 3150, 144, 144, 0, kDSandLight, 0},
     // Mid, catwalk and short A.
-    {"MID", -400, 300, 150, 1880, 0, -64, 'y', kDSand, 0},
-    {"CATWALK", 150, 1000, 450, 1250, -28, 32, 'y', kDSandLight, 0},
-    {"CATWALK", 150, 1250, 450, 2050, 32, 32, 0, kDSandLight, 0},
-    {"SHORT", 180, 2050, 450, 2350, 32, 96, 'y', kDSandLight, 0},
+    {"MID", -300, 300, 60, 1880, 0, -64, 'y', kDSand, 0},
+    {"CATWALK", 60, 1000, 280, 1250, -28, 32, 'y', kDSandLight, 0},
+    {"CATWALK", 60, 1250, 280, 2050, 32, 32, 0, kDSandLight, 0},
+    {"SHORT", 150, 2050, 330, 2350, 32, 96, 'y', kDSandLight, 0},
     {"SHORT", 150, 2350, 750, 2650, 96, 96, 0, kDSite, 0},
     {"MID DOORS", -240, 1880, -120, 1912, -64, -64, 0, kDSandDark, 128},
     // CT side.
-    {"CT MID", -700, 1912, 150, 2350, -64, -64, 0, kDSand, 0},
+    {"CT MID", -700, 1912, 120, 2350, -64, -64, 0, kDSand, 0},
     {"CT SPAWN", -450, 2350, 120, 3150, -64, -64, 0, kDSand, 0},
     {"CT RAMP", 120, 2800, 750, 3150, -64, 96, 'x', kDSandLight, 0},
     {"MID TO B", -1350, 2050, -700, 2350, 32, -64, 'x', kDSand, 0},
@@ -294,11 +295,11 @@ const DustArea kDustAreas[] = {
     // B.
     {"B SITE", -2300, 1950, -1420, 3150, 32, 32, 0, kDSite, 0},
     {"BACK PLAT", -2300, 2850, -2000, 3150, 80, 80, 0, kDSandLight, 0},
-    {"UPPER TUNNELS", -2250, 700, -1850, 1500, 0, 0, 0, kDTunnel, 128},
-    {"UPPER TUNNELS", -2250, 1500, -1950, 1950, 0, 32, 'y', kDTunnel, 128},
-    {"LOWER TUNNELS", -1850, 1050, -1550, 1250, 0, -128, 'x', kDTunnel, 128},
-    {"LOWER TUNNELS", -1550, 1050, -750, 1250, -128, -128, 0, kDTunnel, 128},
-    {"LOWER TUNNELS", -750, 1050, -400, 1250, -128, -36, 'x', kDTunnel, 128},
+    {"UPPER TUNNELS", -2200, 700, -1940, 1500, 0, 0, 0, kDTunnel, 128},
+    {"UPPER TUNNELS", -2200, 1500, -1960, 1950, 0, 32, 'y', kDTunnel, 128},
+    {"LOWER TUNNELS", -1940, 1060, -1550, 1240, 0, -128, 'x', kDTunnel, 128},
+    {"LOWER TUNNELS", -1550, 1060, -750, 1240, -128, -128, 0, kDTunnel, 128},
+    {"LOWER TUNNELS", -750, 1060, -300, 1240, -128, -36, 'x', kDTunnel, 128},
 };
 constexpr int kDustAreaCount = int(sizeof(kDustAreas) / sizeof(kDustAreas[0]));
 constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
@@ -426,9 +427,11 @@ Vec3 dustPoint(float x, float y) {
 }
 
 std::vector<Vec3> dustTeamSpawns(int side) {
+    // Spread over each spawn, the first (yours) at the front, and off the long sightline through mid doors
+    // (T spawn <-> CT spawn), so nobody can see the other team when the round starts (tested).
     static const float xy[2][5][2] = {
-        {{-350, -800}, {-200, -880}, {-500, -880}, {-120, -780}, {-620, -780}},  // T spawn
-        {{-150, 2750}, {-50, 2850}, {-250, 2850}, {50, 2750}, {-350, 2750}},     // CT spawn
+        {{-560, -650}, {-720, -820}, {120, -760}, {100, -950}, {-600, -1000}},  // T spawn
+        {{40, 2600}, {-410, 2650}, {60, 2850}, {-410, 2950}, {80, 3050}},     // CT spawn
     };
     std::vector<Vec3> out;
     for (const auto& p : xy[side == 0 ? 0 : 1]) out.push_back(dustPoint(p[0], p[1]));
@@ -443,13 +446,13 @@ const std::vector<RetakeSite>& dustRetakeSites() {
              {1750, 3060, 1450, 2300},  // goose
              {800, 2850, 400, 2500},    // CT side of site, on short
              {1700, 2420, 1550, 1600},  // top of the ramp, down long
-             {550, 2550, 300, 1700},    // short, down the catwalk
+             {550, 2550, 170, 1700},    // short, down the catwalk
              {980, 3100, 1500, 2300},   // back of site by the CT ramp
          },
          {
              {-150, 2900, 600, 2900},   // CT spawn, up the ramp
              {1550, 1500, 1550, 2500},  // long
-             {300, 1500, 300, 2300},    // catwalk
+             {170, 1500, 170, 2300},    // catwalk
          }},
         {"B", -1780, 2700,  // bomb: beside the default box
          {
@@ -467,6 +470,55 @@ const std::vector<RetakeSite>& dustRetakeSites() {
          }},
     };
     return sites;
+}
+
+const std::vector<PrefireRoute>& dustPrefireRoutes() {
+    static const std::vector<PrefireRoute> routes = {
+        {"A LONG", {540, -400, 540, 300},
+         {
+             {1400, 760, 775, 380},     // long corner, far side
+             {1700, 450, 1100, 500},    // pit
+             {1560, 1400, 1100, 600},   // halfway up long
+             {1550, 1950, 1550, 1200},  // top of long, past the car
+             {1690, 2650, 1500, 2100},  // A site, the box by the ramp
+             {1250, 2850, 1550, 2300},  // behind the default box
+             {1720, 3060, 1450, 2400},  // goose
+             {880, 2850, 1400, 2500},   // CT side of the site
+             {500, 2560, 1200, 2600},   // short
+         }},
+        {"B TUNNELS", {-1990, -200, -1990, 700},
+         {
+             {-2080, 1450, -2080, 800},   // end of upper tunnels
+             {-1300, 1150, -2000, 1150},  // lower tunnels
+             {-2250, 2380, -2080, 1950},  // the corner by the tunnel exit
+             {-1880, 2690, -2080, 1950},  // behind the default box
+             {-2150, 3000, -2080, 2000},  // back plat
+             {-1625, 2800, -2080, 1950},  // by the car
+             {-1600, 2450, -2080, 2000},  // inside B doors
+             {-1900, 3080, -2080, 2000},  // back of the site
+         }},
+        {"MID", {-200, -300, -200, 600},
+         {
+             {-200, 950, -150, 0},       // mid, by the xbox
+             {-900, 1150, -100, 1150},   // lower tunnels, into mid
+             {150, 1500, -100, 600},     // catwalk, looking down mid
+             {200, 2000, -100, 1200},    // top of catwalk
+             {-180, 2050, -180, 1500},   // CT mid, through the doors
+             {-600, 2200, -200, 1950},   // CT mid, the far side
+         }},
+        {"A SHORT", {-60, 900, 150, 1400},
+         {
+             {170, 1900, 170, 1100},   // top of catwalk
+             {250, 2450, 170, 1900},   // top of the short stairs
+             {650, 2560, 250, 2400},   // short, by the site
+             {880, 2850, 600, 2550},   // CT side of the site
+             {1250, 2850, 600, 2550},  // behind the default box
+             {1690, 2650, 700, 2550},  // the box by the ramp
+             {1720, 3060, 700, 2550},  // goose
+             {1000, 3080, 450, 2500},  // back of the site, watching short
+         }},
+    };
+    return routes;
 }
 
 MapSpawn dustSpawn() {
@@ -558,9 +610,22 @@ World buildDust() {
         rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
     });
 
-    // Walls, in three slightly different stone shades so building blocks read apart.
+    // Walls: each 5x5-cell block is its own building with its own height (so the skyline isn't one flat
+    // line), in three slightly different stone shades.
+    auto blockExtra = [](int i, int j) {
+        static const float kExtra[8] = {0, 0, 32, 64, 64, 96, 160, 224};
+        uint32_t h = uint32_t(i / 5) * 73856093u ^ uint32_t(j / 5) * 19349663u;
+        h = (h ^ (h >> 13)) * 0x5bd1e995u;
+        return kExtra[(h ^ (h >> 15)) % 8];
+    };
+    std::vector<float> top(n, 0.0f);
+    for (int j = 0; j < m.h; ++j)
+        for (int i = 0; i < m.w; ++i) {
+            size_t c = size_t(m.index(i, j));
+            if (m.area[c] < 0) top[c] = wallTop(nearZ[c]) + blockExtra(i, j);
+        }
     const uint32_t shades[3] = {kDStone, 0xd2bd94, 0xc7b089};
-    for (size_t c = 0; c < n; ++c) key[c] = m.area[c] < 0 ? zKey(wallTop(nearZ[c])) : -1;
+    for (size_t c = 0; c < n; ++c) key[c] = m.area[c] < 0 ? zKey(top[c]) : -1;
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float(k - 65536), shades[uint32_t(i0 * 7 + j0 * 13) % 3]);
     });
@@ -574,23 +639,119 @@ World buildDust() {
         rect(i0, j0, i1, j1, float((k >> 24) - 65536), float((k & 0xFFFFFF) - 65536), kDRoof);
     });
 
+    // Facades (decor only, nothing here collides): trim along the foot and the top of every wall that
+    // faces a walkway, and here and there a window, a door with an awning, or beam ends.
+    auto X = [&](int i) { return m.x0 + float(i) * m.cell; };
+    auto Y = [&](int j) { return m.y0 + float(j) * m.cell; };
+    // A box against wall face k (0 +x, 1 -x, 2 +y, 3 -y: the side the walkway is on) of column/row `line`:
+    // a0..a1 along the face, sticking out p0..p1 from it, z0..z1 high.
+    auto faceBox = [&](int k, int line, float a0, float a1, float p0, float p1, float z0, float z1, uint32_t col,
+                       uint8_t mat) {
+        const float f = k == 0 ? X(line + 1) : k == 1 ? X(line) : k == 2 ? Y(line + 1) : Y(line);
+        const float sgn = (k == 0 || k == 2) ? 1.0f : -1.0f;
+        const float u0 = std::min(f + sgn * p0, f + sgn * p1), u1 = std::max(f + sgn * p0, f + sgn * p1);
+        if (k < 2) w.decor.push_back({{u0, a0, z0}, {u1, a1, z1}, col, mat});
+        else w.decor.push_back({{a0, u0, z0}, {a1, u1, z1}, col, mat});
+    };
+    auto cellHash = [](int i, int j, int k) {
+        uint32_t h = uint32_t(i) * 374761393u + uint32_t(j) * 668265263u + uint32_t(k) * 2246822519u;
+        h = (h ^ (h >> 13)) * 1274126177u;
+        return h ^ (h >> 16);
+    };
+    const uint32_t shutterCols[3] = {0x3f6f9a, 0x4f7d5a, 0x8a5a3a}, awningCols[3] = {0xa8443a, 0x3f6f9a, 0xc9a35a};
+    for (int k = 0; k < 4; ++k) {
+        const int lines = k < 2 ? m.w : m.h, len = k < 2 ? m.h : m.w;
+        const size_t cells = static_cast<size_t>(len);
+        std::vector<char> facing(cells, 0), open(cells, 0);
+        std::vector<float> fz(cells, 0.0f), tp(cells, 0.0f), skirt(cells, 0.0f);
+        for (int line = 0; line < lines; ++line) {
+            for (int a = 0; a < len; ++a) {
+                const int i = k < 2 ? line : a, j = k < 2 ? a : line, ni = i + di[k], nj = j + dj[k];
+                const size_t c = size_t(m.index(i, j));
+                facing[size_t(a)] = m.area[c] < 0 && m.walkable(ni, nj);
+                if (!facing[size_t(a)]) continue;
+                const size_t nc = size_t(m.index(ni, nj));
+                fz[size_t(a)] = m.floor[nc];
+                tp[size_t(a)] = top[c];
+                open[size_t(a)] = m.ceiling[nc] >= MapGrid::kOpenSky;
+                skirt[size_t(a)] = kDustAreas[m.area[nc]].axis == 0 ? m.floor[nc] : MapGrid::kNoFloor;
+            }
+            auto along = [&](int a) { return k < 2 ? Y(a) : X(a); };
+            // Trim: runs of cells with the same heights become one box each.
+            for (int a = 0; a < len;) {
+                if (!facing[size_t(a)]) { ++a; continue; }
+                int b = a + 1;
+                while (b < len && facing[size_t(b)] && tp[size_t(b)] == tp[size_t(a)] && skirt[size_t(b)] == skirt[size_t(a)] &&
+                       open[size_t(b)] == open[size_t(a)])
+                    ++b;
+                if (open[size_t(a)]) faceBox(k, line, along(a), along(b), 0, 5, tp[size_t(a)] - 12, tp[size_t(a)], kDTrimLight, kMatStone);
+                if (skirt[size_t(a)] > MapGrid::kNoFloor)
+                    faceBox(k, line, along(a), along(b), 0, 3, skirt[size_t(a)] - 4, skirt[size_t(a)] + 12, kDTrimDark, kMatStone);
+                a = b;
+            }
+            // Features need three facing cells in a row at one height, open to the sky.
+            for (int a = 1; a + 1 < len; ++a) {
+                bool ok = true;
+                for (int q = a - 1; q <= a + 1; ++q)
+                    ok = ok && facing[size_t(q)] && open[size_t(q)] && tp[size_t(q)] == tp[size_t(a)] && fz[size_t(q)] == fz[size_t(a)];
+                if (!ok) continue;
+                const float z = fz[size_t(a)], height = tp[size_t(a)] - z, mid = along(a) + m.cell * 0.5f;
+                const uint32_t h = cellHash(k < 2 ? line : a, k < 2 ? a : line, k), r = h % 100;
+                if (r < 24 && height >= 200) {  // window(s): frame, dark pane, sill, maybe shutters
+                    for (float wz = z + 110; wz + 60 <= tp[size_t(a)] - 30; wz += 110) {
+                        faceBox(k, line, mid - 26, mid + 26, 0, 1.5f, wz - 6, wz + 62, kDTrimLight, kMatStone);
+                        faceBox(k, line, mid - 20, mid + 20, 0, 2.5f, wz, wz + 56, kDPane, kMatPlain);
+                        faceBox(k, line, mid - 28, mid + 28, 0, 5, wz - 10, wz - 5, kDTrimLight, kMatStone);
+                        if ((h >> 8) % 2) {
+                            const uint32_t sc = shutterCols[(h >> 9) % 3];
+                            faceBox(k, line, mid - 42, mid - 28, 0, 3, wz - 2, wz + 58, sc, kMatWood);
+                            faceBox(k, line, mid + 28, mid + 42, 0, 3, wz - 2, wz + 58, sc, kMatWood);
+                        }
+                        if ((h >> 12) % 3 != 0) break;  // mostly one storey of windows
+                    }
+                    a += 2;
+                } else if (r < 32 && height >= 150) {  // a shut door, often under a cloth awning
+                    faceBox(k, line, mid - 32, mid + 32, 0, 1.5f, z, z + 112, kDTrimLight, kMatStone);
+                    faceBox(k, line, mid - 26, mid + 26, 0, 2.5f, z, z + 104, kDDoor, kMatWood);
+                    if ((h >> 8) % 3 != 0)
+                        faceBox(k, line, mid - 40, mid + 40, 0, 34, z + 122, z + 126, awningCols[(h >> 10) % 3], kMatPlain);
+                    a += 2;
+                } else if (r < 42 && height >= 170) {  // wooden beam ends under the roof line
+                    for (float off : {-32.0f, 0.0f, 32.0f})
+                        faceBox(k, line, mid + off - 4, mid + off + 4, 0, 16, tp[size_t(a)] - 56, tp[size_t(a)] - 48, kDWood, kMatWood);
+                    a += 2;
+                }
+            }
+        }
+    }
+
     // Props, standing on the floor under their centre. Crates keep their real size wherever the map's
     // scale puts them; `anchored` ones are placed relative to a point that scales (a wall edge).
     const float sc = dustScale();
     // Crates and doors are wood (hollow footsteps, easy to shoot through); the container and car metal.
     auto materialOf = [](uint32_t color) -> uint8_t {
-        return color == kDCrate || color == kDWood ? kMatWood : color == kDBlue || color == 0x8a3b32 ? kMatMetal : kMatStone;
+        return color == kDCrate || color == kDWood ? kMatWood
+               : color == kDBlue || color == kDCar || color == kDCarTop || color == kDBarrel ? kMatMetal
+                                                                                              : kMatStone;
     };
     auto prop = [&](float x0, float y0, float x1, float y1, float h, uint32_t color, float lift = 0) {
         float cx = (x0 + x1) * 0.5f * sc, cy = (y0 + y1) * 0.5f * sc, hx = (x1 - x0) * 0.5f, hy = (y1 - y0) * 0.5f;
         float z = m.floorAt(cx, cy) + lift;
         w.solids.push_back({{cx - hx, cy - hy, z}, {cx + hx, cy + hy, z + h}, color, materialOf(color)});
     };
-    auto anchored = [&](float ax, float ay, float dx0, float dy0, float dx1, float dy1, float h, uint32_t color) {
+    auto anchored = [&](float ax, float ay, float dx0, float dy0, float dx1, float dy1, float h, uint32_t color,
+                        float lift = 0) {
         float x = ax * sc, y = ay * sc;
-        float z = m.floorAt(x + (dx0 + dx1) * 0.5f, y + (dy0 + dy1) * 0.5f);
+        float z = m.floorAt(x + (dx0 + dx1) * 0.5f, y + (dy0 + dy1) * 0.5f) + lift;
         w.solids.push_back({{x + dx0, y + dy0, z}, {x + dx1, y + dy1, z + h}, color, materialOf(color)});
     };
+    // A car (body + cabin) and a barrel, placed like anchored().
+    auto car = [&](float ax, float ay, float dx0, float dy0, float dx1, float dy1) {
+        anchored(ax, ay, dx0, dy0, dx1, dy1, 40, kDCar);
+        const float inX = (dx1 - dx0) * 0.18f, inY = (dy1 - dy0) * 0.18f;
+        anchored(ax, ay, dx0 + inX, dy0 + inY, dx1 - inX, dy1 - inY, 24, kDCarTop, 40);
+    };
+    auto barrel = [&](float ax, float ay, float dx, float dy) { anchored(ax, ay, dx, dy, dx + 28, dy + 28, 44, kDBarrel); };
     // Arches: a stone beam across a passage, high enough to walk under (the lane's width scales).
     auto arch = [&](float x0, float y0, float x1, float y1, float clearance) {
         float ax0, ax1, ay0, ay1;
@@ -603,7 +764,7 @@ World buildDust() {
     prop(-60, -1000, 20, -920, 64, kDCrate);
     prop(1050, 450, 1150, 650, 96, kDBlue);       // long: the blue container outside the doors
     prop(1560, 200, 1640, 280, 48, kDCrate);      // pit box
-    anchored(150, 1360, -80, -40, 0, 40, 52, kDCrate);  // xbox, against the catwalk ledge (jump on it)
+    anchored(60, 1360, -80, -40, 0, 40, 52, kDCrate);  // xbox, against the catwalk ledge (jump on it)
     prop(1200, 2650, 1290, 2740, 64, kDCrate);    // A default box (double stack)
     prop(1215, 2665, 1275, 2725, 48, kDCrate, 64);
     prop(1550, 2500, 1610, 2560, 48, kDCrate);    // A site box near the ramp
@@ -613,6 +774,42 @@ World buildDust() {
     prop(-1700, 2900, -1550, 3000, 56, 0x8a3b32); // B car
     prop(-2280, 2200, -2200, 2280, 64, kDCrate);  // B site, by the wall
     prop(-500, 2100, -440, 2160, 64, kDCrate);    // CT mid
+    // Cover all over the map, mostly against walls (anchored to an area's edge, so it stays against the
+    // wall at every map size). Real sizes: crates 48-64, barrels 28, cars 100 x 200.
+    car(-900, -1050, 16, -60, 116, 60);                    // T spawn: car by the west wall
+    barrel(-250, -1100, 0, 2); barrel(-250, -1100, 30, 2);
+    barrel(-900, -500, 14, -44);
+    anchored(200, -500, -72, -72, -8, -8, 64, kDCrate);    // T spawn, north-east corner
+    barrel(420, 100, 2, -14);
+    anchored(-900, -880, -64, 2, 0, 58, 56, kDCrate);      // outside tunnels, by T spawn
+    barrel(-2150, 200, 2, 0); barrel(-2150, 200, 2, 32);
+    anchored(-1820, 400, -56, 0, 0, 56, 56, kDCrate);      // outside tunnels, east wall
+    anchored(20, -300, -64, -32, 0, 32, 64, kDCrate);      // top mid, east wall
+    barrel(-420, 100, 2, 0);
+    barrel(-300, 700, 2, -14);                              // mid, west wall
+    anchored(-300, 1500, 0, -28, 48, 28, 48, kDCrate);
+    anchored(900, 820, 2, -62, 62, -2, 64, kDCrate);       // long corner, north-west
+    anchored(1290, 1200, 0, -32, 60, 32, 64, kDCrate);     // long A, west wall
+    anchored(1290, 1200, 6, -26, 54, 26, 44, kDCrate, 64);
+    barrel(1800, 1100, -30, 0); barrel(1800, 1100, -30, 30);
+    car(1800, 1800, -100, -110, -4, 90);                   // long A: the car near the top
+    barrel(1320, 2300, 2, 0);                               // A ramp
+    anchored(750, 2450, 2, 2, 66, 66, 64, kDCrate);        // A site, short corner
+    anchored(1800, 2700, -40, 0, 0, 140, 36, kDStone);     // A site, stone bench by the east wall
+    barrel(1620, 2950, -32, -32);                           // below goose
+    anchored(750, 2350, -50, 2, 0, 50, 48, kDCrate);       // short, by the way onto the site
+    anchored(-450, 3150, 2, -66, 66, -2, 64, kDCrate);     // CT spawn, north-west
+    barrel(120, 2400, -30, 2);
+    barrel(120, 1912, -30, 4);                              // CT mid, east end
+    anchored(-700, 2350, -64, -50, 0, -2, 56, kDCrate);    // mid to B, by CT mid
+    anchored(-1420, 1950, -66, 2, -2, 66, 64, kDCrate);    // B site, south-east corner
+    barrel(-1420, 2900, -30, 0); barrel(-1420, 2900, -30, 30);
+    anchored(-2300, 2600, 2, 0, 58, 56, 56, kDCrate);      // B site, west wall
+    prop(-1640, 2010, -1560, 2090, 64, kDCrate);          // B: a stack beside the doors
+    prop(-1630, 2020, -1570, 2080, 40, kDCrate, 64);
+    anchored(-2300, 3150, 2, -58, 58, -2, 56, kDCrate);    // back plat
+    anchored(-2200, 1300, 0, 0, 48, 48, 48, kDCrate);      // upper tunnels
+    barrel(-1200, 1240, 0, -30);                            // lower tunnels
     {
         // Door leaves, swung open beside their (scaled, at least 96 wide) doorways. Wood: wallbangable.
         float x0, x1, y0, y1;
@@ -626,8 +823,8 @@ World buildDust() {
         w.solids.push_back({{x0, y1, mz}, {x0 + 8, y1 + 44, mz + 120}, kDWood, kMatWood});
         w.solids.push_back({{x1 - 8, y1, mz}, {x1, y1 + 44, mz + 120}, kDWood, kMatWood});
     }
-    arch(-400, 280, 50, 320, 176);    // top mid into mid
-    arch(180, 2330, 450, 2370, 176);  // top of the short stairs
+    arch(-300, 280, 20, 320, 176);    // top mid into mid
+    arch(150, 2330, 330, 2370, 176);  // top of the short stairs
     arch(-450, 2335, 120, 2365, 196); // CT mid into CT spawn
 
     w.buildIndex();
@@ -649,7 +846,7 @@ const std::vector<PeekSpot>& dustPeekSpots() {
         };
         auto at = [&](float x, float y) { return rel(x, y, 0, 0); };
         spots = {
-            {rel(1100, 550, 120, 170), rel(1100, 550, 120, -150)},    // long corner, behind the blue container -> doors
+            {rel(1100, 550, 90, 40), rel(1100, 550, 90, -150)},       // long corner, beside the blue container -> doors
             {at(-320, 1990), at(-180, 1990)},                          // CT mid, through mid doors
             {rel(-1890, 2540, 10, 100), rel(-1890, 2540, 120, 100)},  // B default box -> tunnel exit
             {rel(1245, 2695, -5, 105), rel(1245, 2695, 105, 105)},    // A default box -> A ramp / long

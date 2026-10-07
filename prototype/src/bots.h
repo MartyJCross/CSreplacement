@@ -19,10 +19,22 @@ struct BotBrain {
     bool strafing = false;    // fighting: jiggling sideways (doesn't shoot while moving)
     int strafeDir = 1;
     float strafeTimer = 0;
-    // Retakes: an anchor that holds its angle (holdYaw) instead of roaming. It still turns on you,
+    // Cover: a spot hidden from the enemy (`cover`) next to one it can be shot from (`peek`). In a fight
+    // the bot shoots from the peek spot, ducks back into cover, and peeks again.
+    bool hasCover = false, inCover = false;
+    bool firstShots = false;  // a fight just started: shoots from where it is before going to cover
+    int coverFor = -3;        // the enemy the cover is from
+    Vec3 cover, peek;
+    float coverTimer = 0;
+    double lastSawAt = 0;     // when it last saw its target (gives up the fight a while after)
+    // Retakes / competitive: an anchor that holds its angle (holdYaw, looking towards holdLook) instead
+    // of roaming. It holds from beside cover and steps back into it now and then. It still turns on you,
     // checks noises and fights, then holds wherever it ends up.
     bool holdOnly = false;
+    bool frozen = false;      // prefire targets: never move, just turn on you (and shoot, if bots shoot back)
     float holdYaw = 0;
+    Vec3 holdLook;
+    bool hasHoldLook = false, holdCoverChecked = false;
     // Competitive: walk here (then hold, if holdOnly) instead of roaming at random.
     Vec3 goal;
     bool hasGoal = false;
@@ -62,6 +74,11 @@ void spawnDeathmatchBot(Dummy& d, BotBrain& b, const Vec3& at, uint32_t& rng);
 
 // True when a live bot hasn't been placed since it (re)spawned: call spawnDeathmatchBot first.
 inline bool needsSpawn(const Dummy& d, const BotBrain& b) { return d.alive() && b.state < 0; }
+
+// Cover from someone whose eye is at `threatEye`, within `radius` of `around`: `cover` is a standing
+// spot where a standing bot's head can't be seen from there, `peek` a spot next to it where it can.
+// Both on the same level as `around` and walkable from it in a straight line. Returns false if none.
+bool findCover(const BotSenses& s, const Vec3& around, const Vec3& threatEye, float radius, Vec3& cover, Vec3& peek);
 
 // Advances one placed, living deathmatch bot by one tick (moves d.pos, turns d.yaw, sets b.sees / b.aimed).
 void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rng);

@@ -22,7 +22,80 @@ bool sightClear(const BotSenses& s, const Vec3& a, const Vec3& b) {
     return !(s.blocked && s.blocked(s.blockCtx, a, b));
 }
 
+// Walkable in a straight line from a to b: standing room all the way, no step higher than a stair.
+bool straightWalk(const BotSenses& s, const Vec3& a, const Vec3& b) {
+    const int steps = std::max(1, int(length2d(b - a) / 16.0f));
+    float z = a.z;
+    for (int k = 1; k <= steps; ++k) {
+        Vec3 p = a + (b - a) * (float(k) / float(steps));
+        if (!s.nav->standable(p)) return false;
+        const float fz = s.nav->floorAt(p);
+        if (std::fabs(fz - z) > 18.0f) return false;
+        z = fz;
+    }
+    return true;
+}
+
+// Moves the bot up to `step` units straight towards `to` (stops at walls and ledges). True once there.
+bool stepToward(Dummy& d, const BotSenses& s, const Vec3& to, float step) {
+    Vec3 delta{to.x - d.pos.x, to.y - d.pos.y, 0};
+    const float len = length(delta);
+    if (len < 0.5f) return true;
+    Vec3 p = d.pos + delta * (std::min(step, len) / len);
+    const float fz = s.nav->floorAt(p);
+    if (!s.nav->standable(p) || std::fabs(fz - d.pos.z) > 18.0f) return true;  // blocked: stay put
+    p.z = fz;
+    d.pos = p;
+    return len <= step;
+}
+
 }  // namespace
+
+bool findCover(const BotSenses& s, const Vec3& around, const Vec3& threatEye, float radius, Vec3& cover, Vec3& peek) {
+    if (!s.nav || !s.world) return false;
+    // Seen = the head or the chest of someone standing there is in the threat's line of sight (walls and
+    // props; smokes don't count, they go away).
+    auto seen = [&](const Vec3& feet) {
+        return s.world->traceRay(threatEye, feet + Vec3{0, 0, 62}).fraction >= 1.0f ||
+               s.world->traceRay(threatEye, feet + Vec3{0, 0, 40}).fraction >= 1.0f;
+    };
+    struct Cand { Vec3 p; float d; };
+    static thread_local std::vector<Cand> cands;  // reused: no allocation after warm-up
+    cands.clear();
+    const int n = int(radius / 32.0f);
+    for (int j = -n; j <= n; ++j)
+        for (int i = -n; i <= n; ++i) {
+            Vec3 p = around + Vec3{float(i) * 32.0f, float(j) * 32.0f, 0};
+            const float d = length2d(p - around);
+            if (d > radius || !s.nav->standable(p)) continue;
+            p.z = s.nav->floorAt(p);
+            if (std::fabs(p.z - around.z) > 24.0f) continue;
+            cands.push_back({p, d});
+        }
+    std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d < b.d; });
+    int tried = 0;
+    for (const Cand& c : cands) {
+        if (seen(c.p)) continue;
+        if (++tried > 16) break;
+        if (!straightWalk(s, around, c.p)) continue;
+        float best = 1e30f;
+        for (int k = 0; k < 8; ++k)
+            for (float r : {40.0f, 72.0f}) {
+                const float a = float(k) * 45.0f * kDegToRad;
+                Vec3 q = c.p + Vec3{std::cos(a) * r, std::sin(a) * r, 0};
+                if (r >= best || !s.nav->standable(q)) continue;
+                q.z = s.nav->floorAt(q);
+                if (std::fabs(q.z - c.p.z) > 18.0f || !seen(q) || !straightWalk(s, c.p, q)) continue;
+                best = r;
+                peek = q;
+            }
+        if (best < 1e30f) {
+            cover = c.p;
+            return true;
+        }
+    }
+    return false;
+}
 
 float botRand(uint32_t& state) {
     state ^= state << 13;
@@ -57,6 +130,7 @@ void spawnDeathmatchBot(Dummy& d, BotBrain& b, const Vec3& at, uint32_t& rng) {
     d.yaw = d.prevYaw = botRand(rng) * 360.0f - 180.0f;
     b.path.clear();
     b.state = 0;
+    b.hasCover = b.inCover = false;
     b.alertUntil = 0;
     b.sees = b.aimed = false;
 }
@@ -91,21 +165,34 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     const float toYaw = chosen ? yawTo(d.pos, chosen->origin) : yawTo(d.pos, b.lastSeen);
     if (b.sees) {
         b.lastSeen = chosen->origin;
-        if (b.state != 2) {  // a fight starts: stand and shoot first, jiggle after
+        if (b.frozen) {
+            b.state = 2;
+        } else if (b.state != 2 || chosen->id != b.coverFor) {
+            // A fight starts (or a new enemy): shoot from here first, then work from cover if there's
+            // some close by (duck in, peek out, shoot), else jiggle in the open.
             b.state = 2;
             b.path.clear();
             b.strafing = false;
             b.strafeTimer = 0.4f + botRand(rng) * 0.4f;
+            b.coverFor = chosen->id;
+            b.hasCover = findCover(s, d.pos, chosen->eye, 200.0f, b.cover, b.peek);
+            b.inCover = false;
+            b.firstShots = true;
+            b.coverTimer = 0.5f + botRand(rng) * 0.5f;
         }
+        b.lastSawAt = s.now;
         b.timer = 0.6f;  // keep the angle for a moment after losing sight
-    } else if (s.noiseFresh && s.playerUp && b.state != 2 && length(s.noisePos - d.pos) < s.noiseRadius) {
+    } else if (!b.frozen && s.noiseFresh && s.playerUp && b.state != 2 && length(s.noisePos - d.pos) < s.noiseRadius) {
         b.lastSeen = s.noisePos;
         b.state = 3;
         b.path.clear();
     }
 
     const float step = kBotRunSpeed * kTickDt;
-    switch (b.state) {
+    if (b.frozen) {  // stays on its spot; back to its angle a moment after losing you
+        b.strafing = false;
+        if (b.state == 2 && !b.sees && (b.timer -= kTickDt) <= 0) b.state = 1;
+    } else switch (b.state) {
         case 0:  // roam: walk to the goal if it has one, else a random spot (deathmatch: often near you)
             if (b.path.empty()) {
                 Vec3 dest = b.hasGoal ? b.goal : s.nav->roamPoint(botRand(rng), false);
@@ -123,15 +210,51 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             if (followPath(d.pos, b.path, b.next, step)) {
                 b.path.clear();
                 b.hasGoal = false;
+                b.holdCoverChecked = b.hasCover = false;
                 b.state = 1;
                 b.timer = 0.2f + botRand(rng) * 0.5f;
             }
             break;
         case 1:  // hold an angle for a moment (anchors hold it for good); a new goal sends it off
             if (b.hasGoal) { b.state = 0; b.path.clear(); break; }
+            if (b.holdOnly && b.hasHoldLook && !b.holdCoverChecked) {
+                // An anchor: hold the angle from here, but find cover from it to step back into.
+                b.holdCoverChecked = true;
+                b.hasCover = findCover(s, d.pos, b.holdLook + Vec3{0, 0, 64}, 160.0f, b.cover, b.peek);
+                b.peek = d.pos;
+                b.inCover = false;
+                b.coverTimer = 2.0f + botRand(rng) * 3.0f;
+            }
+            if (b.holdOnly && b.hasCover) {
+                if ((b.coverTimer -= kTickDt) <= 0) {
+                    b.inCover = !b.inCover;
+                    b.coverTimer = b.inCover ? 0.8f + botRand(rng) * 1.4f : 2.5f + botRand(rng) * 3.5f;
+                }
+                stepToward(d, s, b.inCover ? b.cover : b.peek, 130.0f * kTickDt);
+                break;
+            }
             if ((b.timer -= kTickDt) <= 0 && !b.holdOnly) b.state = 0;
             break;
-        case 2:  // fighting: jiggle (strafe a step, stop and shoot, like CS bots); when you're gone, go and look
+        case 2:  // fighting: from cover if it has some, else jiggle (strafe a step, stop and shoot, like CS bots)
+            if (b.hasCover) {
+                if ((b.coverTimer -= kTickDt) <= 0) {
+                    b.inCover = !b.inCover;
+                    if (b.inCover) b.firstShots = false;
+                    const bool hurt = d.hp < 45.0f;  // hurt: stays hidden longer, waits for you to come
+                    b.coverTimer = b.inCover ? (hurt ? 1.2f + botRand(rng) * 1.3f : 0.35f + botRand(rng) * 0.55f)
+                                             : 0.6f + botRand(rng) * 0.8f;
+                }
+                const Vec3 to = b.inCover ? b.cover : b.firstShots ? d.pos : b.peek;
+                b.strafing = !stepToward(d, s, to, 200.0f * kTickDt);
+                if (s.now - b.lastSawAt > 2.5) {  // peeked and peeked, nobody there: go and look / hold
+                    b.hasCover = b.strafing = false;
+                    b.coverFor = -3;
+                    b.state = b.holdOnly ? 1 : 3;
+                    b.timer = 1.0f;
+                    b.path.clear();
+                }
+                break;
+            }
             if (!b.sees) {
                 b.strafing = false;
                 if ((b.timer -= kTickDt) <= 0) { b.state = 3; b.path.clear(); }
@@ -173,7 +296,10 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     // Face you when fighting, otherwise the way they walk (anchors: back to their angle).
     const Vec3 mv = d.pos - d.prevPos;
     const float idle = b.holdOnly && b.state == 1 ? b.holdYaw : d.yaw;
-    const float want = b.state == 2 ? toYaw : length2d(mv) > 0.01f ? std::atan2(mv.y, mv.x) / kDegToRad : idle;
+    const bool anchoring = b.holdOnly && b.state == 1 && b.hasCover;  // stepping in and out of cover: keeps its angle
+    const float want = b.state == 2 ? toYaw
+                       : anchoring || length2d(mv) <= 0.01f ? idle
+                                                           : std::atan2(mv.y, mv.x) / kDegToRad;
     d.yaw = turnToward(d.yaw, want, (b.state == 2 ? 600.0f : 360.0f) * kTickDt);
     b.aimed = b.sees && !b.strafing && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;  // they stop to shoot
 }

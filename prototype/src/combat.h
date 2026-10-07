@@ -121,3 +121,18 @@ float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, 
 
 // Recoil recovery while not firing.
 void decayRecoil(WeaponState& ws, float dt);
+
+// ---- Grenades: CS:GO's throw and flight. Pure and deterministic: the game, the trajectory preview and
+// the bots' throws all use these, so a preview shows exactly where the grenade will go. ----
+constexpr float kNadeGravity = 320.0f;     // 0.4 x 800, like CS
+constexpr float kNadeThrowSpeed = 675.0f;  // a full throw; the underhand lob is 0.3 x
+// Velocity of a throw from view angles (pitch + = down): CS lifts the aim (10 degrees at the horizon,
+// none straight up or down) and adds 1.25x the thrower's own velocity.
+Vec3 grenadeThrowVelocity(float viewPitch, float viewYaw, bool lob, const Vec3& throwerVelocity);
+// One tick of flight: gravity, bounces off walls (45% speed kept), coming to rest on floors.
+struct NadeStep { bool bounced = false, landed = false; float impactSpeed = 0; };
+NadeStep stepGrenade(const World& world, Vec3& pos, Vec3& vel);
+// Where a grenade thrown now goes off: flash and HE on their fuse, molotov on its first landing (or
+// fuse), smoke once it has stopped (or fuse + 4 s). `path` (optional) gets the position every tick.
+Vec3 predictGrenade(const World& world, Vec3 pos, Vec3 vel, int type, std::vector<Vec3>* path = nullptr);
+constexpr double grenadeFuse(int type) { return type == 3 ? 2.0 : 1.5; }  // type: 0 smoke, 1 flash, 2 HE, 3 molotov

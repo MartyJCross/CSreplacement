@@ -61,7 +61,7 @@ prototype/
 5. **No asset files and no copyrighted content.** Sounds are synthesized in `audio.cpp` and models are boxes in `fx.cpp`. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts as closely as possible so the owner can judge speed. It is still built from code (no extracted map files). Revisit before anything is shared publicly.
 6. **Keep it portable to MSVC.** It's C++20, standard library and SDL3 only. No GCC/Clang-only extensions. Code must compile warning-clean with `-Wall -Wextra -pedantic` (Linux) and `/W4` (MSVC).
 7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildFeelLab()`. Don't move Feel Lab geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The Dust tests check bot spots and run a simulated player along the main routes, with allowed time windows. If you change `kDustAreas`, keep those passing and look at the printed run times.
-8. **Settings belong in the config and the menu.** A new tunable gets a `Config` field, load + save in `config.cpp`, the default config text, and if player-facing an entry in `menuItems()` in `main.cpp`.
+8. **Settings belong in the config and the menu.** A new tunable gets a `Config` field, load + save in `config.cpp`, the default config text, and if player-facing a row in `menuRows()` (the right settings page) in `main.cpp`.
 
 ## 5. Build and test
 
@@ -130,16 +130,25 @@ See `prototype/README.md` for full details. Each item below lists where its code
   impacts bigger); grenade models per type; particles can glow.
 - **Maps** (Play screen MAP):
   - Feel Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course
-  - Dust2 (`kDustAreas` on a 32u grid, `dust_scale` 60% default, 50..100): smooth ramps, roofed tunnels, B window,
-    arches, wooden doors, materials, HUD callouts. Test coordinates use `dpt(x, y)` (real-Dust2 coords, scaled).
-- **Modes** (Play screen MODE, Dust only, `mode`): 0 practice (peek bots), 1 deathmatch (`bots.cpp` roaming, spawns
+  - Dust2 (`kDustAreas` on a 32u grid, `dust_scale` 60% default, 50..100): lanes at real proportions, smooth ramps,
+    roofed tunnels, B window, arches, wooden doors, materials, HUD callouts. Buildings of varied height; facade decor
+    (`World::decor`: drawn, never collided; keep it thin/flat or above head height); ~40 cover props (`anchored()` to
+    an area edge so they stay against walls at every scale). Surfaces by material in the box shader (alpha 240 stone,
+    224 wood, 208 metal; Feel Lab keeps the 255 dev grid). Test coordinates use `dpt(x, y)` (real-Dust2 coords, scaled).
+- **Modes** (Play screen MODE, Dust only, `mode`): 4 prefire (`dustPrefireRoutes()`, `startPrefire`, frozen bots,
+  timed), 0 practice (peek bots), 1 deathmatch (`bots.cpp` roaming, spawns
   anywhere), 2 retakes (bomb pre-planted, defuse with E; `dustRetakeSites()`), 3 competitive 5v5 (`Game::Comp`,
   `startCompRound`/`compTick`/`endCompRound`: MR12, CS economy, buy menu, bomb carry/drop/plant/defuse, bots fight
   bots via `BotSenses::targets`, goals via `BotBrain::goal`). Ts stage (`Comp::stagePoint`) then execute (`executing`); CTs split or stack, far
-  CTs rotate when Ts reach the site (`rotated`). Automated runs log rounds + executes to `comp_log.txt`.
+  CTs rotate when Ts reach the site (`rotated`). Execute utility: `Comp::throws` + `botThrow` (solves throws with
+  `predictGrenade`). Team spawns never see each other (tested). Automated runs log rounds, executes, throws and
+  alive counts to `comp_log.txt` (an idle test player can't die, so its side rarely wins by elimination).
+- **Bot cover** (`findCover` in bots.cpp): a hidden spot + a peek spot next to it; fights alternate peek/cover,
+  anchors (`holdLook`) hold from beside cover. Tested in `testBotCover`.
 - **Grenades** (`main.cpp`): smoke, flash (`flashBang`: player white-out + bot `blindUntil`), HE (`heExplode`),
   molotov (`igniteMolotov` + fires; smoke extinguishes). Damage goes through `hurtPlayer` / `hurtBot`.
-  CS:GO throw physics: 675 u/s (lob x0.3), pitch remapped like CS (-10 deg + ...), +1.25x player velocity, gravity 320.
+  CS:GO throw physics in the sim lib (`grenadeThrowVelocity`, `stepGrenade`, `predictGrenade` in combat.cpp); the
+  game, the trajectory preview (`nade_preview`) and bot throws share them (tested: preview == real flight).
 - **Combat record:** `recordDamage` feeds the kill feed, per-life damage report, assists, ADR/HS%/MVP scoreboard.
 - **HUD:** radar (`buildRadar`, spotting), subtle hitmarker + tick (`hitmarker`, `hitsound`), Tab scoreboard.
 - **Menus** (`MenuScreen`, `menuRows`, `drawMenu`, `menuUse` in main.cpp): main menu at launch, Esc pause menu,
@@ -151,13 +160,14 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
   short boom). Measure with `--dump-sounds` before changing tone.
 - **Screenshot helpers:** `--spawn X Y YAW` (world coords: Dust is scaled!), `--weapon`, `--inspect N`,
-  `--smoke --nade T`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`.
+  `--smoke --nade T`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`, `--weapon 5` (grenade out).
 
 ## 8. Roadmap (owner priorities first)
 
 1. **Multiplayer** (Phase 2 in `docs/06-build-process.md`): see the owner's investigation notes; start with a
    1v1 LAN listen server, then a dedicated server. Needs prediction, interpolation, lag compensation, the hitbox
    contract (`docs/04-netcode-and-hitreg.md`) and a bot-duel hit-reg harness.
-2. Competitive polish: executes, CT setups and rotations are in; next would be bot grenades and smarter retakes.
+2. Competitive polish: executes, CT setups, rotations, cover and execute utility are in; next could be CT utility
+   (molotovs on executes) and smarter post-plant positions.
 3. Not chosen yet by the owner (offered): prefire practice routes, grenade lineup save/teleport + trajectory
    preview, developer console with CS command names, jumpthrow bind, viewmodel presets, net_graph overlay, ladders.

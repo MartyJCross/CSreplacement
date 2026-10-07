@@ -50,7 +50,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | V | Noclip (fly where you look; Shift = slow) |
 | C | Clear bullet decals |
 | Alt+Enter | Toggle fullscreen |
-| Esc | **Menu.** The game opens on the **main menu** (Play, Settings, Controls, Quit). In a game, Esc pauses: Resume, Change mode or map, Reset position (practice), Settings, Controls, Main menu, Quit. **Play** picks the mode and its options (map, bots, minutes, Dust size); START loads it fresh. **Settings** has pages: Mouse + view, Crosshair + HUD, Weapons + skins, Video + sound, Gameplay. Hover or ↑/↓ to select, click or Enter to press, ←/→, wheel or right click to change a setting (Shift = ×5); saved to `config.cfg`. Esc goes back |
+| Esc | **Menu.** The game opens on the **main menu** (Play, Settings, Controls, Quit). In a game, Esc pauses: Resume, Change mode or map, Reset position (practice) / Restart route (prefire), Settings, Controls, Main menu, Quit. **Play** picks the mode and its options (map, bots, minutes, Dust size); START loads it fresh. **Settings** has pages: Mouse + view, Crosshair + HUD, Weapons + skins, Video + sound, Gameplay. Hover or ↑/↓ to select, click or Enter to press, ←/→, wheel or right click to change a setting (Shift = ×5); saved to `config.cfg`. Esc goes back |
 
 ## The map
 
@@ -74,7 +74,10 @@ Dust2 at **60% of real size** by default (`dust_scale`, Play screen DUST SIZE, 5
 
 - **Every route:** T spawn, outside long, long doors, long A with the blue container and the pit, the A ramp, A site with goose; top mid, mid, xbox (jump on it to reach catwalk), catwalk, short; mid doors, CT mid, CT spawn, the CT ramp, mid to B, B doors and **B window** (see and shoot through it, can't climb through); outside, upper and lower tunnels, the tunnel exit, B site with the back plat, car and boxes. **Arches** over top mid, short and CT mid.
 - **Real slopes:** the ramps (A ramp, CT ramp, short stairs, top mid, mid, the tunnel stairs...) are smooth slopes, not steps. You slide up and down them like in Source, and jumping onto one doesn't snag.
-- **Materials:** crates and doors are wood, the container and car metal, the rest stone. You hear it in your footsteps (and the bots'), and bullets go through wood twice as easily as stone; metal is the hardest.
+- **Proportions like the real map:** lanes are as narrow as Dust2's (mid, catwalk, the tunnels and long were far too wide before), so it plays tight rather than open.
+- **Scenery:** buildings of different heights with stone-block walls, a trim along their foot and top, windows with painted shutters, doors under cloth awnings and wooden beam ends; flagstone and sand floors, plank crates, a ribbed metal container and barrels. None of the scenery on walls blocks you or your bullets (it's all thin and flat against the wall or above head height).
+- **Cover everywhere:** crates, barrels and cars in every area (long, the pit, both sites, mid, the tunnels, both spawns), mostly against walls so the lanes keep their width.
+- **Materials:** crates and doors are wood, the container, cars and barrels metal, the rest stone. You hear it in your footsteps (and the bots'), and bullets go through wood twice as easily as stone; metal is the hardest.
 - **It's built from memory,** so it isn't a perfect copy. The headless tests run a simulated player along the main routes and print the run times.
 
 In practice mode the 4 bots peek from cover: the long corner, mid doors, the B and A default boxes, B doors and short. They hold the angle for a random time, react in 0.25–0.55 s with slight random aim error (your own shots stay fully deterministic), and respawn 2–4 s after you kill them.
@@ -87,7 +90,9 @@ Top-left on Dust (`radar`, Settings → Crosshair + HUD): the whole map north-up
 
 **4** takes out a grenade; **4 again** cycles smoke → flashbang → HE → molotov. Mouse 1 throws, Mouse 2 lobs, then you switch back. **G** quick-throws the current one. Competitive: you only have what you bought (1 smoke, 2 flashes, 1 HE, 1 molotov); everywhere else they're unlimited.
 
-They fly like CS:GO: thrown at 675 u/s (a lob is 30% of that) about 10° above where you aim, plus 1.25× your running velocity, under grenade gravity (320 u/s²), bouncing off walls: a high throw carries about 1,400 units before its first bounce.
+They fly like CS:GO: thrown at 675 u/s (a lob is 30% of that) about 10° above where you aim, plus 1.25× your running velocity, under grenade gravity (320 u/s²), bouncing off walls: a throw 45° up carries about 1,470 units before its first bounce, a level throw about 750.
+
+**Trajectory preview** (`nade_preview`, Settings → Gameplay): while you hold a grenade, dots show exactly where a full throw would go and a cross where it goes off (smoke: where it stops). It uses the same code as the real grenade, so it's never off. Default: everywhere but competitive (`nade_preview 2` = always, `0` = off).
 
 - **Smoke:** pops once it has stopped rolling (1.5 s at the earliest), lasts 15 s, blocks sight (yours and the bots'). Same throw = same landing spot.
 - **Flashbang:** whites you out if you can see it, fully if you're looking at it, less if you're turned away; your ears ring. Bots facing it go blind for a few seconds.
@@ -111,7 +116,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Money, like CS:** start with $800; win $3,250 ($3,500 for a bomb win); loss bonus $1,400 rising by $500 per loss in a row up to $3,400; Ts get $800 more for a plant; $300 per kill ($100 with the sniper).
 - **Buy menu (B):** in your spawn during the first 20 s of a round. 1 rifle $2,700 · 2 sniper $4,750 · 3 kevlar $650 · 4 kevlar + helmet $1,000 · 5 smoke $300 · 6 flashbang $200 · 7 HE $300 · 8 molotov $400 · 9 defuse kit $400 (CT). Kevlar takes body and arm hits to 77.5%, a helmet does the same for the head. If you survive, you keep what you had.
 - **The bomb:** a random T carries it. Hold **E** on either site for 3.2 s to plant. If the carrier dies it drops; walk over it to pick it up (T bots go and fetch it). CTs defuse with **E**: 5 s with a kit, 10 without. You can't move while planting or defusing.
-- **The bots:** Ts gather at a staging point (long, short / catwalk or B tunnels), then execute together after 20 s at the latest: the carrier goes for the plant, the rest take the site's angles. CTs either split (two A, two B, one mid) or stack one site; once Ts show up on a site, the far CTs rotate, and after a plant they all retake. Bots spawn looking out of spawn and jiggle in fights (a quick strafe, stop, shoot). They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
+- **Spawns:** both teams spread over their spawn, you at the front, and nobody is in sight of the other team's spawn when the round starts (the long mid-doors sightline is kept clear; tested).
+- **The bots:** Ts gather at a staging point (long, short / catwalk or B tunnels), then execute together after 20 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant, the rest take the site's angles. CTs either split (two A, two B, one mid) or stack one site; once Ts show up on a site, the far CTs rotate, and after a plant they all retake. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
 - **When you die** you spectate (fly) until the next round.
 - **Tab** shows both teams with money for yours; the radar shows your teammates and anything they spot.
 
@@ -120,12 +126,17 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **The match:** 5 minutes (`dm_minutes`) against 10 bots (`dm_bots`, up to 16); results screen, then a new match.
 - **Spawns are anywhere on the map**, away from the bots and out of their sight, with every gun reloaded and 1 s of protection. Bots respawn 2–4 s after you kill them, out of your sight.
 - **A kill gives you +40 HP** (up to 100).
-- **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a 0.25–0.55 s reaction once they've turned to face you. Half the time they roam towards your part of the map, and in a fight they jiggle (strafe a step, stop, shoot).
+- **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a 0.25–0.55 s reaction once they've turned to face you. Half the time they roam towards your part of the map. In a fight they use cover when there's some close by (shoot, duck behind it, peek again), else they jiggle (strafe a step, stop, shoot). They spawn out of sight of where you are and of where you'll be a moment later.
 
 ## Retakes (Play: MODE)
 
-- **Each round** the bomb is already planted on a random site, held by 4 bots (`rt_bots`, 1–6) facing the way you'll come. You start at a random entry (A: CT spawn, long or catwalk; B: tunnels, mid to B or CT mid).
+- **Each round** the bomb is already planted on a random site, held by 4 bots (`rt_bots`, 1–6) facing the way you'll come, holding from beside cover. You start at a random entry (A: CT spawn, long or catwalk; B: tunnels, mid to B or CT mid); spots you can see from your entry are used last, so nobody's in view when the round starts.
 - **Defuse it** (hold E for 5 s, you have a kit) before the 40 s fuse runs out. Killing everyone isn't enough, like CS. Lose if it blows or you die. Kills heal +40 HP.
+
+## Prefire (Play: MODE)
+
+- **Pick a route** (A long, B tunnels, mid, A short). Bots stand at the usual defender angles along it, facing the way you come: the long corner, pit, goose, behind the default boxes, B doors, back plat, mid doors and so on. They never move; with BOTS SHOOT BACK on they turn on you and shoot.
+- **The clock** starts when you move or shoot and stops when the last one dies: your time, accuracy and headshots, and the best time per route this session. Die and the route starts over; Esc → RESTART ROUTE any time.
 
 ## Kill feed, damage report, scoreboard
 

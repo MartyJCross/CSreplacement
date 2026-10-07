@@ -1,4 +1,5 @@
 #include "combat.h"
+#include "movement.h"
 #include <algorithm>
 
 const char* hitGroupName(HitGroup g) {
@@ -316,4 +317,39 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
     ws.shotCounter++;
     ws.recoilIndex = std::min(ws.recoilIndex + 1.0f, float(w.patternLen - 1));
     return res;
+}
+
+Vec3 grenadeThrowVelocity(float viewPitch, float viewYaw, bool lob, const Vec3& throwerVelocity) {
+    const float pitch = viewPitch < 0 ? -10.0f + viewPitch * (80.0f / 90.0f) : -10.0f + viewPitch * (100.0f / 90.0f);
+    return anglesToForward(pitch, viewYaw) * (kNadeThrowSpeed * (lob ? 0.3f : 1.0f)) + throwerVelocity * 1.25f;
+}
+
+NadeStep stepGrenade(const World& world, Vec3& pos, Vec3& vel) {
+    NadeStep r;
+    vel.z -= kNadeGravity * kTickDt;
+    const Vec3 next = pos + vel * kTickDt;
+    const TraceResult tr = world.traceRay(pos, next);
+    if (tr.fraction < 1.0f) {
+        const float into = dot(vel, tr.normal);
+        vel = (vel - tr.normal * (2.0f * into)) * 0.45f;
+        if (tr.normal.z > 0.7f && length(vel) < 20.0f) vel = {};  // comes to rest on the floor
+        pos = tr.endpos + tr.normal * 0.1f;
+        r.bounced = true;
+        r.landed = tr.normal.z > 0.7f;
+        r.impactSpeed = -into;
+    } else {
+        pos = next;
+    }
+    return r;
+}
+
+Vec3 predictGrenade(const World& world, Vec3 pos, Vec3 vel, int type, std::vector<Vec3>* path) {
+    const int fuseTicks = int(grenadeFuse(type) * kTickRate + 0.5);
+    for (int t = 1; t < kTickRate * 10; ++t) {
+        const NadeStep st = stepGrenade(world, pos, vel);
+        if (path) path->push_back(pos);
+        const bool smokeReady = type != 0 || length(vel) < 1.0f || t > fuseTicks + 4 * kTickRate;
+        if ((t >= fuseTicks && smokeReady) || (type == 3 && st.landed)) break;
+    }
+    return pos;
 }

@@ -4,7 +4,7 @@
 #include <vector>
 #include "vecmath.h"
 
-enum Material : uint8_t { kMatStone = 0, kMatWood = 1, kMatMetal = 2 };
+enum Material : uint8_t { kMatStone = 0, kMatWood = 1, kMatMetal = 2, kMatPlain = 3 };  // plain: decor only, no pattern
 
 // A box, or a ramp (wedge): the same footprint, but its top slopes from lowZ at one edge up to
 // maxs.z at the opposite edge.
@@ -32,6 +32,9 @@ struct TraceResult {
 
 struct World {
     std::vector<Box> solids;
+    // Scenery that is drawn but never collides (wall trim, windows, beams, awnings). Keep it thin, against
+    // walls or above head height, so it can never hide a player or stop a shot you'd expect to land.
+    std::vector<Box> decor;
 
     // Sweep an AABB (given by mins/maxs relative to origin) from start to end.
     TraceResult traceBox(const Vec3& start, const Vec3& end, const Vec3& mins, const Vec3& maxs) const;
@@ -103,6 +106,15 @@ struct RetakeSite {
     std::vector<RetakeSpot> holds, entries;
 };
 const std::vector<RetakeSite>& dustRetakeSites();
+
+// Prefire practice: where you start (looking the way to go) and the spots bots hold along the route,
+// each looking back at where you come from, in the order you meet them. Real-Dust2 coordinates.
+struct PrefireRoute {
+    const char* name;
+    RetakeSpot start;
+    std::vector<RetakeSpot> bots;
+};
+const std::vector<PrefireRoute>& dustPrefireRoutes();
 
 // KZ / bhop course (behind the spray wall): start pad, lava floor, pads, end pad.
 constexpr float kKzMinY = -880.0f, kKzMaxY = -580.0f;
