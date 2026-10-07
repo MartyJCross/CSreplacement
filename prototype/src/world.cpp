@@ -857,7 +857,7 @@ const std::vector<PeekSpot>& dustPeekSpots() {
     return spots;
 }
 
-World buildFeelLab() {
+World buildLab() {
     World w;
     auto add = [&](Vec3 mn, Vec3 mx, uint32_t color) { w.solids.push_back({mn, mx, color}); };
 

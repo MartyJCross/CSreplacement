@@ -73,7 +73,7 @@ struct Dummy {
     int lastSpot = -1;
     float stepDist = 0;  // footstep accumulator (cosmetic)
     // Facing in degrees (0 = +X, like the player's yaw); hitboxes turn with it. 180 = facing -X, the
-    // Feel Lab default. shownYaw is the facing drawn on the last frame: shots test against that.
+    // Lab default. shownYaw is the facing drawn on the last frame: shots test against that.
     float yaw = 180, prevYaw = 180, shownYaw = 180;
     // Competitive: kevlar (body/arms take 77.5%) and helmet (the same for the head); your teammates
     // are `friendly` - your bullets pass through them.

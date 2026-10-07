@@ -4,7 +4,7 @@
 
 namespace {
 
-const char* kDefaultConfig = R"(// Feel Lab config. Edit and restart the game.
+const char* kDefaultConfig = R"(// Crisp config. Edit and restart the game.
 // Sensitivity uses CS's m_yaw 0.022, so your CS sensitivity feels identical (same DPI).
 sensitivity 1.2
 m_yaw 0.022
@@ -82,7 +82,7 @@ prefire_bots_shoot 1
 bool saveConfig(const std::string& path, const Config& c) {
     std::ofstream out(path);
     if (!out) return false;
-    out << "// Feel Lab config. Written by the in-game menus (Esc); you can also edit it by hand.\n";
+    out << "// Crisp config. Written by the in-game menus (Esc); you can also edit it by hand.\n";
     out << "sensitivity " << c.sensitivity << "\nm_yaw " << c.m_yaw << "\nm_pitch " << c.m_pitch
         << "\nzoom_sensitivity_ratio " << c.zoom_sensitivity_ratio << "\nfov " << c.fov << "\nfps_max " << c.fps_max
         << "\nvsync " << c.vsync << "\nfullscreen " << c.fullscreen << "\nwidth " << c.width << "\nheight " << c.height

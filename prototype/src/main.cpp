@@ -1,4 +1,4 @@
-// Feel Lab: single-player movement + shooting prototype.
+// Crisp: single-player movement + shooting prototype.
 // Fixed 128 Hz simulation, uncapped rendering with interpolation, raw mouse input.
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -1302,7 +1302,7 @@ void compTick(Game& g) {
 
 void loadMap(Game& g, Renderer& r, int id) {
     g.mapId = id;
-    g.world = id == 1 ? buildDust() : buildFeelLab();
+    g.world = id == 1 ? buildDust() : buildLab();
     if (id == 1) {
         g.dummies.assign(g.mode == 1   ? size_t(g.dmBots)
                          : g.mode == 2 ? size_t(g.rtBots)
@@ -1340,7 +1340,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.hp = 100;
     g.deadUntil = g.dmOverUntil = g.rtResultUntil = g.pf.resultUntil = -1;  // no result screen left over from another mode
     resetPosition(g);
-    // Feel Lab keeps its dev grid; Dust gets surfaces by material (render.cpp: stone, wood, metal, plain).
+    // The Lab keeps its dev grid; Dust gets surfaces by material (render.cpp: stone, wood, metal, plain).
     std::vector<BoxInstance> statics;
     auto addStatic = [&](const Box& b) {
         statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
@@ -1376,7 +1376,7 @@ void loadMap(Game& g, Renderer& r, int id) {
 }
 
 void resetGame(Game& g, const Options& opt) {
-    g.world = buildFeelLab();
+    g.world = buildLab();
     g.dummies = buildDummies();
     g.player = {};
     g.player.origin = opt.spawnOverride ? Vec3{opt.spawnX, opt.spawnY, 0} : Vec3{0, 0, 0};
@@ -2151,7 +2151,7 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 // The PLAY screen's choices; they only take effect on START.
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
-const char* const kMapNames[] = {"FEEL LAB", "DUST2"};
+const char* const kMapNames[] = {"THE LAB", "DUST2"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE"};
 const char* const kRouteNames[] = {"A LONG", "B TUNNELS", "MID", "A SHORT"};
 const char* const kKnifeNames[] = {"BUTTERFLY", "KARAMBIT", "M9 BAYONET", "TALON"};
@@ -2168,7 +2168,7 @@ constexpr size_t kControlLines = sizeof(kControls) / sizeof(kControls[0]);
 
 const char* menuTitle(int screen) {
     switch (screen) {
-        case kMenuMain: return "FEEL LAB";
+        case kMenuMain: return "CRISP";
         case kMenuPause: return "PAUSED";
         case kMenuPlay: return "PLAY";
         case kMenuSettings: return "SETTINGS";
@@ -2325,7 +2325,7 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
     hud.rect(L.x - 14 * fs, L.top - 14 * fs, L.w + 28 * fs, L.bottom - L.top + 28 * fs, 0x15181CE8);
     hud.text(L.x, L.top, menuTitle(screen), 0xFFD060FF, screen == kMenuMain ? s * 3 : s * 2);
     if (screen == kMenuMain) {
-        const std::string ver = "V" FEELLAB_VERSION;
+        const std::string ver = "V" CRISP_VERSION;
         hud.text(L.x + L.w - hud.textWidth(ver), L.top + 8 * fs, ver, 0x808080FF);
     }
     if (screen == kMenuControls) {
@@ -2738,7 +2738,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
 
 int fatal(const std::string& msg, SDL_Window* window, bool showBox) {
     std::fprintf(stderr, "error: %s\n", msg.c_str());
-    if (showBox) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Feel Lab", msg.c_str(), window);
+    if (showBox) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Crisp", msg.c_str(), window);
     return 1;
 }
 
@@ -2773,11 +2773,11 @@ int main(int argc, char** argv) {
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, msaa);
     }
-    SDL_Window* window = SDL_CreateWindow("Feel Lab v" FEELLAB_VERSION, winW, winH, flags);
+    SDL_Window* window = SDL_CreateWindow("Crisp v" CRISP_VERSION, winW, winH, flags);
     if (!window && msaa > 0) {  // the driver can't do it: carry on without anti-aliasing
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
-        window = SDL_CreateWindow("Feel Lab v" FEELLAB_VERSION, winW, winH, flags);
+        window = SDL_CreateWindow("Crisp v" CRISP_VERSION, winW, winH, flags);
     }
     if (!window) return fatal(SDL_GetError(), nullptr, showErrors);
     if (fullscreen && cfg.width && cfg.height) {

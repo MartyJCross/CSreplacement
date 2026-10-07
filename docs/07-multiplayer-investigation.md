@@ -1,6 +1,6 @@
 # 07 — Multiplayer: where we are and how to get there
 
-An investigation only; nothing is built yet. The design target is already written up in [04 — Netcode & hit registration](04-netcode-and-hitreg.md). This note covers the practical path from today's Feel Lab code to playing against a friend.
+An investigation only; nothing is built yet. The design target is already written up in [04 — Netcode & hit registration](04-netcode-and-hitreg.md). This note covers the practical path from today's Crisp code to playing against a friend.
 
 ## What we already have that helps
 

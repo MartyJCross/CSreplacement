@@ -44,7 +44,7 @@ struct World {
     bool boxFits(const Vec3& origin, const Vec3& mins, const Vec3& maxs) const;
 
     // Optional 2D broadphase for big maps (call once after filling `solids`). Without it every
-    // trace tests every box, which is fine for the small Feel Lab.
+    // trace tests every box, which is fine for the small Lab.
     void buildIndex(float cellSize = 256.0f);
     bool indexed() const { return idxW_ > 0; }
 
@@ -61,8 +61,8 @@ private:
 bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin, const Vec3& bmax,
                 float& tHit, Vec3* normalOut = nullptr);
 
-// Builds the "feel lab" greybox map.
-World buildFeelLab();
+// Builds the Lab: the greybox test map (range, spray wall, crates, stairs, KZ course).
+World buildLab();
 
 // Dust2 at real scale (~4200 x 4250 units, +y = north). Built from named floor areas on a 32-unit
 // grid (flat areas, ramps, roofed tunnels); everything else is solid wall. See world.cpp.

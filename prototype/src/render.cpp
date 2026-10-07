@@ -57,7 +57,7 @@ void main() {
 }
 )";
 
-// Surfaces, picked by the colour's alpha: 255 dev grid (Feel Lab), 240 stone, 224 wood, 208 metal,
+// Surfaces, picked by the colour's alpha: 255 dev grid (the Lab), 240 stone, 224 wood, 208 metal,
 // 128 emissive, 0 plain. The patterns are a few ALU ops (no textures) and fade out with distance so
 // they never shimmer.
 const char* kBoxFS = R"(#version 330 core

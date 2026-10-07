@@ -30,7 +30,7 @@ int g_failures = 0;
     } while (0)
 
 const World& lab() {
-    static World w = buildFeelLab();
+    static World w = buildLab();
     return w;
 }
 

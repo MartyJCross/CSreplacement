@@ -1,4 +1,4 @@
-# Feel Lab: single-player prototype
+# Crisp: single-player prototype
 
 This is a deliberately tiny prototype for testing **movement and shooting feel**. It has:
 
@@ -21,8 +21,8 @@ Everything is generated in code: there are no asset files, and the whole downloa
 
 ## Download and play (Windows)
 
-1. On GitHub, open **Actions → Feel Lab prototype**, click the latest green run, and download **FeelLab-windows-x64** at the bottom of the page.
-2. Unzip it anywhere and run `feellab.exe`. No installer is needed.
+1. On GitHub, open **Actions → Crisp prototype**, click the latest green run, and download **Crisp-windows-x64** at the bottom of the page.
+2. Unzip it anywhere and run `crisp.exe`. No installer is needed.
 3. On first launch a `config.cfg` is created next to the exe. Edit it to set your sensitivity, crosshair, resolution and so on, then restart.
 
 If Windows SmartScreen warns about an unknown app, click **More info → Run anyway**. The exe isn't code-signed.
@@ -101,7 +101,7 @@ They fly like CS:GO: thrown at 675 u/s (a lob is 30% of that) about 10° above w
 
 ## Performance
 
-`feellab.exe --bench 10` runs 10 s at real speed and writes `bench.txt` (avg FPS, 1% low, time per frame part, GPU). On the owner's Ryzen 7 4800H (integrated Radeon), 1080p deathmatch at 4x MSAA went from 126 to ~190 FPS average and 62 to ~130 1% low with:
+`crisp.exe --bench 10` runs 10 s at real speed and writes `bench.txt` (avg FPS, 1% low, time per frame part, GPU). On the owner's Ryzen 7 4800H (integrated Radeon), 1080p deathmatch at 4x MSAA went from 126 to ~190 FPS average and 62 to ~130 1% low with:
 - a depth pre-pass, so every pixel is shaded once (`depth_prepass`)
 - world boxes culled to the view and drawn nearest-first each frame
 - lighting worked out per face instead of per pixel
@@ -178,7 +178,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
 - **Volume** is `volume` in `config.cfg` (0..1).
-- **Sounds are synthesized at startup.** To listen to them as files, run `feellab.exe --dump-sounds <folder>` and it writes every variant as a WAV.
+- **Sounds are synthesized at startup.** To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV.
 
 
 ## Bots, smokes, wallbangs, KZ
@@ -250,7 +250,7 @@ You need CMake 3.24+ and a C++20 compiler (Visual Studio 2022 on Windows). SDL3 
 ```
 cmake -S prototype -B build
 cmake --build build --config Release
-build/Release/feellab.exe        # Windows (Visual Studio generator)
+build/Release/crisp.exe        # Windows (Visual Studio generator)
 build/sim_tests                  # headless movement/weapon tests (any OS)
 ```
 
@@ -259,7 +259,7 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | File | What |
 |---|---|
 | `src/movement.*` | Kinematic player movement: friction/accel, air strafing, step-up, crouch-jump, stamina |
-| `src/world.*` | Maps made of boxes and ramps (Feel Lab, Dust2 from a grid of named areas, materials), swept-box / ray traces incl. sloped ramps, broadphase, retake/team spawn data |
+| `src/world.*` | Maps made of boxes and ramps (the Lab, Dust2 from a grid of named areas, materials), swept-box / ray traces incl. sloped ramps, broadphase, retake/team spawn data |
 | `src/nav.*` | Bot navigation on the Dust grid: walkable / roamable cells, shortest routes, following a route |
 | `src/bots.*` | Bot brains: spawning anywhere, roaming or walking to a goal, holding angles, sight cone, choosing a target among enemies, hearing, chasing (tested headless) |
 | `src/combat.*` | Weapons, recoil patterns, deterministic spread, dummies and turned hitboxes, armor, material wallbangs, hit detection |

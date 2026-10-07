@@ -36,7 +36,7 @@ struct Config {
     int hitsound = 1;            // 1 = a tick sound when you hit
     int view_smooth_steps = 1;   // 1 = the camera eases over stairs/steps instead of popping up (cosmetic)
     float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped
-    int map = 0;               // 0 = feel lab, 1 = dust (Play screen)
+    int map = 0;               // 0 = the Lab, 1 = dust (Play screen)
     int dust_scale = 60;       // Dust's size in % of real Dust2 (50..100)
     int msaa = 4;              // anti-aliasing samples (0 = off); applies on restart
     int depth_prepass = 1;     // 1 = depth pre-pass (faster on most GPUs, identical image)
