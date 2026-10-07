@@ -187,7 +187,19 @@ struct Game {
     bool rtResultWin = false;
     const char* rtResultText = "";
     double dmEnd = 0, dmOverUntil = -1, spawnProtectUntil = 0;
-    int dmKills = 0, dmDeaths = 0, dmShownSecs = -1;
+    int dmShownSecs = -1;
+
+    // Combat record: kill feed, damage report and scoreboard. Agent ids: -1 = you, i = bot i.
+    struct Stats { int kills = 0, deaths = 0, assists = 0, hsKills = 0, mvps = 0, roundKills = 0; float damage = 0; };
+    Stats you;
+    std::vector<Stats> botStats;
+    struct FeedEntry { std::string text; uint32_t color; double time; };
+    std::deque<FeedEntry> feed;
+    std::vector<float> dmgGiven, dmgTaken;  // this life, per bot (the damage report when you die)
+    std::vector<int> hitsGiven, hitsTaken;
+    std::vector<float> dmgTable;            // [(victim + 1) * (n + 1) + attacker + 1]: damage this life (assists)
+    std::vector<std::string> report;
+    double reportUntil = -1;
     Vec3 noisePos;                // last sound you made (footsteps, shots) that bots can hear
     double noiseAt = -100;
     float noiseRadius = 0;
@@ -270,6 +282,83 @@ void makeNoise(Game& g, const Vec3& pos, float radius) {
     g.noisePos = pos;
     g.noiseAt = g.simTime;
     g.noiseRadius = radius;
+}
+
+// ---- Combat record ----
+std::string agentName(int id) {
+    if (id < 0) return "YOU";
+    char b[16];
+    std::snprintf(b, sizeof(b), "BOT %d", id + 1);
+    return b;
+}
+
+Game::Stats& statsOf(Game& g, int id) { return id < 0 ? g.you : g.botStats[size_t(id)]; }
+const Game::Stats& statsOf(const Game& g, int id) { return id < 0 ? g.you : g.botStats[size_t(id)]; }
+
+// Fresh scores and per-life tallies, sized for the current bots.
+void resetRecord(Game& g) {
+    size_t n = g.dummies.size();
+    g.you = {};
+    g.botStats.assign(n, {});
+    g.dmgGiven.assign(n, 0.0f);
+    g.dmgTaken.assign(n, 0.0f);
+    g.hitsGiven.assign(n, 0);
+    g.hitsTaken.assign(n, 0);
+    g.dmgTable.assign((n + 1) * (n + 1), 0.0f);
+    g.feed.clear();
+    g.reportUntil = -1;
+}
+
+// Every hit goes through here: damage (ADR), the damage report, assists (41+ damage, like CS), kills
+// (kill feed, HS%). `amount` is what the victim actually lost (capped at their remaining HP).
+void recordDamage(Game& g, int attacker, int victim, float amount, bool head, const char* weapon, bool wallbang,
+                  bool kill) {
+    const size_t n = g.dummies.size() + 1;
+    if (g.botStats.size() + 1 != n) resetRecord(g);
+    statsOf(g, attacker).damage += amount;
+    if (attacker < 0 && victim >= 0) { g.dmgGiven[size_t(victim)] += amount; g.hitsGiven[size_t(victim)]++; }
+    if (victim < 0 && attacker >= 0) { g.dmgTaken[size_t(attacker)] += amount; g.hitsTaken[size_t(attacker)]++; }
+    float* row = &g.dmgTable[size_t(victim + 1) * n];
+    row[attacker + 1] += amount;
+    if (!kill) return;
+    Game::Stats& k = statsOf(g, attacker);
+    k.kills++;
+    k.roundKills++;
+    if (head) k.hsKills++;
+    statsOf(g, victim).deaths++;
+    for (size_t a = 0; a < n; ++a)
+        if (int(a) - 1 != attacker && row[a] >= 41.0f) statsOf(g, int(a) - 1).assists++;
+    std::fill(row, row + n, 0.0f);
+    std::string t = agentName(attacker) + "  [" + weapon + "]  " + agentName(victim);
+    if (head) t += "  HS";
+    if (wallbang) t += "  WALLBANG";
+    g.feed.push_back({t, attacker < 0 ? 0xFFFFFFu : victim < 0 ? 0xFF6060u : 0xB4B4B4u, g.simTime});
+    while (g.feed.size() > 5) g.feed.pop_front();
+}
+
+// When you die: who you damaged and who damaged you this life (CS prints this in the console).
+void buildDamageReport(Game& g) {
+    g.report.clear();
+    auto section = [&](const char* title, const std::vector<float>& dmg, const std::vector<int>& hits) {
+        g.report.push_back(title);
+        bool any = false;
+        for (size_t i = 0; i < dmg.size(); ++i) {
+            if (!hits[i]) continue;
+            char line[64];
+            std::snprintf(line, sizeof(line), "  %-8s %3d IN %d HIT%s", agentName(int(i)).c_str(), int(dmg[i] + 0.5f),
+                          hits[i], hits[i] == 1 ? "" : "S");
+            g.report.push_back(line);
+            any = true;
+        }
+        if (!any) g.report.push_back("  NONE");
+    };
+    section("DAMAGE GIVEN", g.dmgGiven, g.hitsGiven);
+    section("DAMAGE TAKEN", g.dmgTaken, g.hitsTaken);
+    g.reportUntil = g.simTime + 4.0;
+    std::fill(g.dmgGiven.begin(), g.dmgGiven.end(), 0.0f);
+    std::fill(g.dmgTaken.begin(), g.dmgTaken.end(), 0.0f);
+    std::fill(g.hitsGiven.begin(), g.hitsGiven.end(), 0);
+    std::fill(g.hitsTaken.begin(), g.hitsTaken.end(), 0);
 }
 
 // Respawn: full magazines, no reload in progress, recoil reset, unscoped.
@@ -358,8 +447,8 @@ Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
 void startDeathmatch(Game& g) {
     g.dmEnd = g.simTime + 60.0 * g.dmMinutes;
     g.dmOverUntil = -1;
-    g.dmKills = g.dmDeaths = 0;
     g.shots = g.hits = g.headshots = 0;
+    resetRecord(g);
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         g.dummies[i] = Dummy{};
         g.dummies[i].respawnLeft = 0.01f;  // they spawn on the first tick, after you
@@ -419,6 +508,7 @@ void startRetakeRound(Game& g) {
 void endRetakeRound(Game& g, bool won, const char* why) {
     if (g.rtResultUntil >= 0) return;
     (won ? g.rtWon : g.rtLost)++;
+    if (won) g.you.mvps++;  // you're the only one retaking: a win is your MVP
     g.rtResultWin = won;
     g.rtResultText = why;
     g.rtResultUntil = g.simTime + 3.0;
@@ -450,6 +540,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.botState.assign(n, -1);
     g.botSpot.assign(n, -1);
     g.bots.assign(n, BotBrain{});
+    resetRecord(g);
     g.drill = false;
     g.kzState = 0;
     g.nades.clear();
@@ -676,12 +767,15 @@ void simTick(Game& g, const Options& opt) {
                 g.hp = std::min(100.0f, g.hp + 40.0f);
                 pushHitLog(g, "+40 HP", 0x60ff60);
             }
+            {
+                const Dummy& hitDummy = g.dummies[size_t(r.dummyIndex)];
+                float hpBefore = hitDummy.hp + r.damage;  // fireBullet already took it off
+                recordDamage(g, -1, r.dummyIndex, std::min(r.damage, std::max(0.0f, hpBefore)), r.group == kHead,
+                             wd.name, r.penCount > 0, r.kill);
+            }
             if (g.mode == 1) {
                 BotBrain& b = g.bots[size_t(r.dummyIndex)];
-                if (r.kill) {
-                    g.dmKills++;
-                    b.deaths++;
-                } else {  // hit but alive: they turn on you
+                if (!r.kill) {  // hit but alive: they turn on you
                     b.alertUntil = g.simTime + 2.0;
                     b.lastSeen = g.player.origin;
                     if (b.state != 2) { b.state = 3; b.path.clear(); }
@@ -985,27 +1079,25 @@ void simTick(Game& g, const Options& opt) {
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
             if (hit && g.simTime < g.spawnProtectUntil) hit = 0;  // deathmatch spawn protection
             if (hit) {
-                g.hp -= hit == 2 ? 100.0f : 26.0f;
+                const float dmg = hit == 2 ? 100.0f : 26.0f;
+                recordDamage(g, int(i), -1, std::min(dmg, std::max(0.0f, g.hp)), hit == 2, "RIFLE", false,
+                             g.hp - dmg <= 0);
+                g.hp -= dmg;
                 g.hurtUntil = g.simTime + 0.25;
                 sound(g, Sfx::HitBody, 0.9f, 0.0f, 0.7f);
                 if (g.hp <= 0) {
                     g.deaths++;
                     g.hp = 100;
                     g.deadUntil = g.simTime + 1.2;
+                    buildDamageReport(g);
                     if (g.mode == 1 && g.mapId == 1) {
-                        g.dmDeaths++;
-                        g.bots[i].kills++;
-                        char kb[48];
-                        std::snprintf(kb, sizeof(kb), "KILLED BY BOT %d%s", int(i) + 1, hit == 2 ? "  HEADSHOT" : "");
-                        pushHitLog(g, kb, 0xff4040);
                         g.spawn = pickDmSpawn(g, true);
                         g.spawnYaw = rnd(g) * 360.0f - 180.0f;
                         g.spawnProtectUntil = g.deadUntil + 1.0;
                         for (BotBrain& b : g.bots)
                             if (b.state == 2) { b.state = 1; b.timer = 1.0f; }
-                    } else {
-                        pushHitLog(g, "YOU DIED", 0xff4040);
-                        if (g.mode == 2 && g.mapId == 1) endRetakeRound(g, false, "YOU DIED");
+                    } else if (g.mode == 2 && g.mapId == 1) {
+                        endRetakeRound(g, false, "YOU DIED");
                     }
                     refillAmmo(g);  // respawn with full magazines, like CS
                     resetPosition(g);
@@ -1269,35 +1361,47 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (g.mapId == 1 && g.callout[0]) hud.text(cx - hud.textWidth(g.callout, s * 2) / 2, 12.0f * s, g.callout, 0xFFFFFFD0, s * 2);
     if (g.mapId == 1 && g.mode == 1) {
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
-        std::snprintf(buf, sizeof(buf), "%d:%02d   KILLS %d   DEATHS %d", left / 60, left % 60, g.dmKills, g.dmDeaths);
+        std::snprintf(buf, sizeof(buf), "%d:%02d   KILLS %d   DEATHS %d", left / 60, left % 60, g.you.kills, g.you.deaths);
         hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
-        if (g.showScores || g.dmOverUntil >= 0) {
-            // Scoreboard (Tab), and the results screen at the end of a match.
-            float rowH = 11.0f * s, panelW = 60.0f * 6 * s, panelH = rowH * float(g.bots.size() + 7);
-            float px = cx - panelW / 2, py = cy - panelH / 2 - 40.0f * s;
-            hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
-            if (g.dmOverUntil >= 0) std::snprintf(buf, sizeof(buf), "MATCH OVER");
-            else std::snprintf(buf, sizeof(buf), "DEATHMATCH   %d:%02d LEFT", left / 60, left % 60);
-            hud.text(px, py, buf, 0xFFD060FF, s * 2);
-            float ry = py + rowH * 2.5f;
-            auto row = [&](const char* name, int k, int d, const char* extra, uint32_t col) {
-                char line[96];
-                std::snprintf(line, sizeof(line), "%-10s  KILLS %3d   DEATHS %3d   %s", name, k, d, extra);
-                hud.text(px, ry, line, col);
-                ry += rowH;
-            };
-            char extra[64];
-            std::snprintf(extra, sizeof(extra), "HS %d%%  ACC %d%%", g.dmKills ? g.headshots * 100 / std::max(1, g.hits) : 0,
-                          g.shots ? g.hits * 100 / g.shots : 0);
-            row("YOU", g.dmKills, g.dmDeaths, extra, 0xFFFFFFFF);
-            ry += rowH * 0.5f;
-            for (size_t i = 0; i < g.bots.size(); ++i) {
-                char name[16];
-                std::snprintf(name, sizeof(name), "BOT %d", int(i) + 1);
-                row(name, g.bots[i].kills, g.bots[i].deaths, "", 0xC8C8C8FF);
-            }
-            if (g.dmOverUntil >= 0) hud.text(px, ry + rowH, "NEXT MATCH STARTS IN A FEW SECONDS", 0xA0A0A0FF);
+    }
+    if (g.mapId == 1 && g.mode != 0 && (g.showScores || g.dmOverUntil >= 0)) {
+        // Scoreboard (Tab), and the results screen at the end of a deathmatch. Sorted by kills.
+        // ADR = damage per round (retakes) or per life (deathmatch).
+        int left = int(std::max(0.0, g.dmEnd - g.simTime));
+        float rowH = 11.0f * s, panelW = 76.0f * 6 * s, panelH = rowH * float(g.bots.size() + 7);
+        float px = cx - panelW / 2, py = cy - panelH / 2 - 40.0f * s;
+        hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
+        if (g.mode == 1 && g.dmOverUntil >= 0) std::snprintf(buf, sizeof(buf), "MATCH OVER");
+        else if (g.mode == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   %d:%02d LEFT", left / 60, left % 60);
+        else std::snprintf(buf, sizeof(buf), "RETAKES   WON %d   LOST %d", g.rtWon, g.rtLost);
+        hud.text(px, py, buf, 0xFFD060FF, s * 2);
+        float ry = py + rowH * 2.5f;
+        hud.text(px, ry, "NAME          K    A    D    ADR   HS%   MVP", 0xA0A0A0FF);
+        ry += rowH * 1.3f;
+        const int rounds = g.mode == 2 ? std::max(1, g.rtWon + g.rtLost) : 0;
+        std::vector<int> order;
+        for (int i = -1; i < int(g.botStats.size()); ++i) order.push_back(i);
+        std::stable_sort(order.begin(), order.end(),
+                         [&](int a, int b) { return statsOf(g, a).kills > statsOf(g, b).kills; });
+        for (int id : order) {
+            const Game::Stats& ps = statsOf(g, id);
+            int per = rounds ? rounds : ps.deaths + 1;
+            char line[96];
+            std::snprintf(line, sizeof(line), "%-10s %4d %4d %4d %6.0f %5d %5d", agentName(id).c_str(), ps.kills,
+                          ps.assists, ps.deaths, double(ps.damage) / per, ps.kills ? ps.hsKills * 100 / ps.kills : 0,
+                          ps.mvps);
+            hud.text(px, ry, line, id < 0 ? 0xFFFFFFFF : 0xC8C8C8FF);
+            ry += rowH;
         }
+        if (g.mode == 1 && g.dmOverUntil >= 0) hud.text(px, ry + rowH, "NEXT MATCH STARTS IN A FEW SECONDS", 0xA0A0A0FF);
+    }
+    // Damage report after you die (bottom-left, like the console in CS).
+    if (g.simTime < g.reportUntil) {
+        float rx = 16.0f * s, rowH2 = 10.0f * s, top = float(h) - 60.0f * s - rowH2 * float(g.report.size());
+        hud.rect(rx - 6 * s, top - 6 * s, 160.0f * s, rowH2 * float(g.report.size()) + 12 * s, 0x15181CC0);
+        for (size_t k = 0; k < g.report.size(); ++k)
+            hud.text(rx, top + rowH2 * float(k), g.report[k],
+                     g.report[k][0] == ' ' ? 0xE0E0E0FFu : 0xFFD060FFu);
     }
     if (g.mapId == 1 && g.mode == 2) {
         int left = int(std::max(0.0, g.rtRoundEnd - g.simTime)), alive = 0;
@@ -1337,8 +1441,16 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         for (const char* l : help) { hud.text(x, y, l, 0xE0E0E0D0); y += lh; }
     }
 
-    // Top-right: hit log.
+    // Top-right: kill feed (6 s), then the hit log under it.
     float ry = 10.0f * s;
+    for (const Game::FeedEntry& e : g.feed) {
+        if (g.simTime - e.time > 6.0) continue;
+        float tw = hud.textWidth(e.text);
+        hud.rect(float(w) - tw - 18.0f * s, ry - 2.0f * s, tw + 12.0f * s, lh, 0x101216B0);
+        hud.text(float(w) - tw - 12.0f * s, ry, e.text, (e.color << 8) | 0xFF);
+        ry += lh + 2.0f * s;
+    }
+    ry += lh * 0.5f;
     for (const HitLogEntry& e : g.hitLog) {
         float age = float(g.simTime - e.time);
         if (age > 4) continue;

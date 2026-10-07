@@ -14,7 +14,6 @@ struct BotBrain {
     Vec3 lastSeen;            // where they last saw or heard you
     double alertUntil = 0;    // just got shot: aware all round for a moment
     bool sees = false, aimed = false;
-    int kills = 0, deaths = 0;
     // Retakes: an anchor that holds its angle (holdYaw) instead of roaming. It still turns on you,
     // checks noises and fights, then holds wherever it ends up.
     bool holdOnly = false;
