@@ -341,6 +341,53 @@ void testWallbang() {
     }
 }
 
+// Ramps (wedges): walk up and down smoothly, rays land on the slope, jumping onto one doesn't snag.
+void testRamps() {
+    std::printf("ramps\n");
+    World w;
+    w.solids.push_back({{-800, -400, -16}, {1200, 400, 0}, 0x808080});           // ground
+    Box ramp{{0, -200, -16}, {400, 200, 100}, 0x808080};                          // rises 100 over 400 (14 deg)
+    ramp.slope = kRisePosX;
+    ramp.lowZ = 0;
+    w.solids.push_back(ramp);
+    w.solids.push_back({{400, -200, -16}, {700, 200, 100}, 0x808080});            // platform at the top
+    MoveParams bhop;  // no landing slowdown, so a snag on the ramp would show up as lost speed
+    bhop.staminaJumpCost = bhop.staminaLandCost = 0;
+    auto runOn = [&](PlayerState& ps, float yaw, int ticks, int& airborne, float& minSpeed, bool jumpAtRamp) {
+        MoveInput in;
+        in.forward = 1;
+        airborne = 0;
+        minSpeed = 1e9f;
+        for (int t = 0; t < ticks; ++t) {
+            in.jumpPressed = jumpAtRamp && ps.onGround && ps.origin.x > -40 && ps.origin.x < -20;
+            playerMove(ps, in, yaw, 250, w, bhop);
+            if (!ps.onGround) ++airborne;
+            if (ps.origin.x > 20 && ps.origin.x < 380) minSpeed = std::min(minSpeed, length2d(ps.velocity));
+        }
+    };
+    int air;
+    float minSpeed;
+    PlayerState up = spawnAt({-300, 0, 0});
+    runOn(up, 0, kTickRate * 3, air, minSpeed, false);
+    std::printf("  walk up: ended at x %.0f z %.1f, slowest on the ramp %.0f u/s, airborne ticks %d\n",
+                double(up.origin.x), double(up.origin.z), double(minSpeed), air);
+    CHECK(up.origin.x > 400 && std::fabs(up.origin.z - 100) < 1 && minSpeed > 225 && air == 0, "up");
+    PlayerState down = spawnAt({650, 0, 100});
+    runOn(down, 180, kTickRate * 3, air, minSpeed, false);
+    std::printf("  walk down: ended at x %.0f z %.1f, airborne ticks %d\n", double(down.origin.x),
+                double(down.origin.z), air);
+    CHECK(down.origin.x < -50 && std::fabs(down.origin.z) < 1 && air == 0, "down");
+    TraceResult tr = w.traceRay({200, 0, 300}, {200, 0, -50});
+    std::printf("  ray down at x 200: z %.2f, normal z %.3f\n", double(tr.endpos.z), double(tr.normal.z));
+    CHECK(std::fabs(tr.endpos.z - 50) < 0.1f && tr.normal.z > 0.96f && tr.normal.z < 0.98f, "ray");
+    PlayerState hop = spawnAt({-300, 0, 0});
+    runOn(hop, 0, kTickRate * 3, air, minSpeed, true);
+    std::printf("  jump onto the ramp: slowest on it %.0f u/s\n", double(minSpeed));
+    // Landing on an upward slope turns some speed into the slope (Source does the same); a snag on a
+    // step edge would stop you dead.
+    CHECK(minSpeed > 150 && hop.origin.x > 300, "jump onto ramp kept speed %.0f", double(minSpeed));
+}
+
 // Materials: the rifle (24 units of penetration) goes through 40 units of wood but not 40 of stone.
 void testMaterialWallbang() {
     std::printf("material wallbang\n");
@@ -475,7 +522,10 @@ void testDustDeathmatch() {
     int badSpawns = 0;
     for (int k = 0; k < 300; ++k) {
         Vec3 p = randomSpawnPoint(nav, dust(), none, 0, none, rng);
-        badSpawns += !(nav.roamable(p) && dust().boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)));
+        // Like the game: stand on the real ground under the spot (ramps are smooth, the grid is stepped).
+        TraceResult down = dust().traceBox(p + Vec3{0, 0, 24}, p - Vec3{0, 0, 24}, hullMins(), hullMaxs(false));
+        badSpawns += !(nav.roamable(p) && down.fraction < 1.0f && !down.startSolid &&
+                       dust().boxFits(down.endpos, hullMins(), hullMaxs(false)));
         spawnAreas.insert(dustCallout(p));
     }
     std::printf("  %zu roamable cells; 300 spawns landed in %zu different areas, %d bad\n", nav.roamCount(),
@@ -679,6 +729,7 @@ int main() {
     testWallbang();
     testRayVsBoxes();
     testMaterialWallbang();
+    testRamps();
     testDustMap();
     testDustBroadphase();
     testDustRoutes();

@@ -10,8 +10,10 @@ void NavGrid::build(const MapGrid& grid, const World& world, const Vec3& seed) {
     clear_.assign(n, 0);
     for (int j = 0; j < m.h; ++j)
         for (int i = 0; i < m.w; ++i)
+            // Checked 20 units up: on a smooth ramp the grid's stepped height can sit a little inside the
+            // slope. Props (crates are 44+ tall) and low ceilings still rule a cell out.
             clear_[size_t(m.index(i, j))] =
-                m.walkable(i, j) && world.boxFits(m.center(i, j) + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false));
+                m.walkable(i, j) && world.boxFits(m.center(i, j) + Vec3{0, 0, 20.0f}, hullMins(), hullMaxs(false));
     edge_.assign(n, 0);
     for (int j = 0; j < m.h; ++j)
         for (int i = 0; i < m.w; ++i) {

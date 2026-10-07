@@ -11,6 +11,7 @@ struct BoxInstance {
     float maxs[3];
     uint8_t rgba[4];  // alpha selects shading: 255 = lit + world grid, 0 = lit, 128 = unlit (emissive)
     float rot[3] = {0, 0, 0};  // optional yaw: pivot x, pivot y, angle in radians (0 = axis-aligned)
+    float slope[2] = {0, 0};   // ramps: which way the top rises (world.h Slope), top height at the low edge
 };
 
 BoxInstance makeBox(const Vec3& mins, const Vec3& maxs, uint32_t rgb, bool grid);

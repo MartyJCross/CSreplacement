@@ -13,6 +13,7 @@ layout(location = 2) in vec3 iMin;
 layout(location = 3) in vec3 iMax;
 layout(location = 4) in vec4 iColor;
 layout(location = 5) in vec3 iRot;  // pivot xy + yaw (radians)
+layout(location = 6) in vec2 iSlope;  // ramps: rise direction (1 +x, 2 -x, 3 +y, 4 -y) and the low edge's top
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 out vec3 vWorld;
@@ -23,6 +24,16 @@ invariant gl_Position;  // the depth pre-pass and the colour pass must agree exa
 void main() {
     vec3 p = iMin + aPos * (iMax - iMin);
     vec3 n = aNormal;
+    if (iSlope.x > 0.5) {
+        // Ramp: lower the top corners along the rise; the top face gets the slope's normal.
+        int dir = int(iSlope.x + 0.5);
+        float t = dir == 1 ? aPos.x : dir == 2 ? 1.0 - aPos.x : dir == 3 ? aPos.y : 1.0 - aPos.y;
+        if (aPos.z > 0.5) p.z = mix(iSlope.y, iMax.z, t);
+        if (aNormal.z > 0.5) {
+            float run = dir <= 2 ? iMax.x - iMin.x : iMax.y - iMin.y, k = (iMax.z - iSlope.y) / run;
+            n = normalize(dir == 1 ? vec3(-k, 0, 1) : dir == 2 ? vec3(k, 0, 1) : dir == 3 ? vec3(0, -k, 1) : vec3(0, k, 1));
+        }
+    }
     if (iRot.z != 0.0) {
         float c = cos(iRot.z), s = sin(iRot.z);
         vec2 d = p.xy - iRot.xy;
@@ -180,6 +191,9 @@ void setupInstanceVao(unsigned vao, unsigned cubeVbo, unsigned instVbo) {
     glEnableVertexAttribArray(5);
     glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(BoxInstance, rot)));
     glVertexAttribDivisor(5, 1);
+    glEnableVertexAttribArray(6);
+    glVertexAttribPointer(6, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(BoxInstance, slope)));
+    glVertexAttribDivisor(6, 1);
 }
 
 void pushQuad(std::vector<HudVert>& v, float x0, float y0, float x1, float y1, float u0, float v0, float u1,

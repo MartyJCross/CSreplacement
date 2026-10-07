@@ -6,11 +6,21 @@
 
 enum Material : uint8_t { kMatStone = 0, kMatWood = 1, kMatMetal = 2 };
 
+// A box, or a ramp (wedge): the same footprint, but its top slopes from lowZ at one edge up to
+// maxs.z at the opposite edge.
+enum Slope : uint8_t { kFlat = 0, kRisePosX, kRiseNegX, kRisePosY, kRiseNegY };
+
 struct Box {
     Vec3 mins, maxs;
     uint32_t color;  // 0xRRGGBB
     uint8_t material = kMatStone;  // footstep sound + how easily bullets go through
+    uint8_t slope = kFlat;         // which way the top rises (ramps)
+    float lowZ = 0;                // ramps: top height at the low edge
 };
+
+// The (outward) planes of a ramp, as n.p <= d. Six of them: four sides, bottom, and the slope.
+struct Plane { Vec3 n; float d; };
+void rampPlanes(const Box& b, Plane out[6]);
 
 struct TraceResult {
     float fraction = 1.0f;  // 0..1 of the way from start to end

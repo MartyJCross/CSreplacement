@@ -427,7 +427,9 @@ void applyConfig(Game& g, const Config& cfg) {
 
 void resetPosition(Game& g) {
     g.player = {};
-    g.player.origin = g.spawn;
+    // Stand on the real ground under the spawn (spawn heights come from a stepped grid; ramps are smooth).
+    TraceResult down = g.world.traceBox(g.spawn + Vec3{0, 0, 24}, g.spawn - Vec3{0, 0, 24}, hullMins(), hullMaxs(false));
+    g.player.origin = down.fraction < 1.0f && !down.startSolid ? down.endpos : g.spawn;
     g.player.onGround = true;
     g.prevPlayer = g.player;
     g.viewYaw = g.spawnYaw;
@@ -740,7 +742,11 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.hp = 100;
     resetPosition(g);
     std::vector<BoxInstance> statics;
-    for (const Box& b : g.world.solids) statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
+    for (const Box& b : g.world.solids) {
+        statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
+        statics.back().slope[0] = float(b.slope);
+        statics.back().slope[1] = b.lowZ;
+    }
     r.setStaticBoxes(statics);
     r.clearDecals();
     if (id == 1) g.nav.build(dustGrid(), g.world, dustSpawn().pos);

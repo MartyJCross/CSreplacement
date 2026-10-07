@@ -7,6 +7,81 @@
 namespace {
 // Keep this far away from surfaces after a sweep so the next trace never starts inside.
 constexpr float kDistEpsilon = 0.03125f;
+
+// Plane offset so the moving box's nearest corner touches it (Minkowski sum with the box).
+float offsetDist(const Plane& p, const Vec3& mins, const Vec3& maxs) {
+    Vec3 ofs{p.n.x < 0 ? maxs.x : mins.x, p.n.y < 0 ? maxs.y : mins.y, p.n.z < 0 ? maxs.z : mins.z};
+    return p.d - dot(ofs, p.n);
+}
+
+// Sweeps a box (mins/maxs) from start along delta against a ramp, Quake-style (clip against each plane
+// pushed out by the box). For an axis-aligned ramp these planes are every separating axis, so it's
+// exact. Returns the entry fraction and normal, -1 for no hit; `inside` if it starts embedded.
+float sweepRamp(const Box& b, const Vec3& start, const Vec3& delta, const Vec3& mins, const Vec3& maxs, Vec3& normal,
+                bool& inside) {
+    Plane pl[6];
+    rampPlanes(b, pl);
+    float enter = -1.0f, leave = 2.0f, nearest = -1e30f, nearestD2 = 0;
+    Vec3 enterN, nearestN;
+    bool startOut = false;
+    for (const Plane& p : pl) {
+        float dist = offsetDist(p, mins, maxs);
+        float d1 = dot(start, p.n) - dist, d2 = dot(start + delta, p.n) - dist;
+        if (d1 > nearest) { nearest = d1; nearestN = p.n; nearestD2 = d2; }
+        if (d1 > 0) startOut = true;
+        if (d1 > 0 && d2 > 0) return -1.0f;  // the whole move stays outside this face
+        if (d1 <= 0 && d2 <= 0) continue;
+        float f = d1 / (d1 - d2);
+        if (d1 > d2) {
+            if (f > enter) { enter = f; enterN = p.n; }
+        } else if (f < leave) {
+            leave = f;
+        }
+    }
+    if (!startOut) {
+        if (-nearest < kDistEpsilon) {  // just touching: block unless moving away from that face
+            if (nearestD2 > nearest) return -1.0f;
+            normal = nearestN;
+            return 0.0f;
+        }
+        inside = true;
+        return -1.0f;
+    }
+    if (enter >= 0 && enter < leave) {
+        normal = enterN;
+        return enter;
+    }
+    return -1.0f;
+}
+
+bool overlapsRamp(const Box& b, const Vec3& origin, const Vec3& mins, const Vec3& maxs) {
+    Plane pl[6];
+    rampPlanes(b, pl);
+    for (const Plane& p : pl)
+        if (dot(origin, p.n) - offsetDist(p, mins, maxs) >= 0) return false;
+    return true;
+}
+}  // namespace
+
+void rampPlanes(const Box& b, Plane out[6]) {
+    out[0] = {{-1, 0, 0}, -b.mins.x};
+    out[1] = {{1, 0, 0}, b.maxs.x};
+    out[2] = {{0, -1, 0}, -b.mins.y};
+    out[3] = {{0, 1, 0}, b.maxs.y};
+    out[4] = {{0, 0, -1}, -b.mins.z};
+    // Top: z <= lowZ + k * (distance from the low edge).
+    const float rise = b.maxs.z - b.lowZ;
+    Vec3 n{0, 0, 1};
+    float d = b.maxs.z;
+    switch (b.slope) {
+        case kRisePosX: { float k = rise / (b.maxs.x - b.mins.x); n = {-k, 0, 1}; d = b.lowZ - k * b.mins.x; break; }
+        case kRiseNegX: { float k = rise / (b.maxs.x - b.mins.x); n = {k, 0, 1}; d = b.lowZ + k * b.maxs.x; break; }
+        case kRisePosY: { float k = rise / (b.maxs.y - b.mins.y); n = {0, -k, 1}; d = b.lowZ - k * b.mins.y; break; }
+        case kRiseNegY: { float k = rise / (b.maxs.y - b.mins.y); n = {0, k, 1}; d = b.lowZ + k * b.maxs.y; break; }
+        default: break;
+    }
+    float len = length(n);
+    out[5] = {n * (1.0f / len), d / len};
 }
 
 bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin, const Vec3& bmax,
@@ -112,6 +187,18 @@ TraceResult World::traceBox(const Vec3& start, const Vec3& end, const Vec3& mins
 
     float bestT = 1.0f;  // in units of delta
     auto test = [&](const Box& b) {
+        if (b.slope != kFlat) {  // ramp
+            Vec3 n;
+            bool inside = false;
+            float t = sweepRamp(b, start, delta, mins, maxs, n, inside);
+            if (inside) tr.startSolid = true;
+            if (t >= 0 && t < bestT) {
+                bestT = t;
+                tr.normal = n;
+                tr.box = int(&b - solids.data());
+            }
+            return;
+        }
         // Minkowski-expand the solid by the moving box, then trace a ray.
         Vec3 emin = b.mins - maxs, emax = b.maxs - mins;
         float t;
@@ -145,7 +232,7 @@ bool World::boxFits(const Vec3& origin, const Vec3& mins, const Vec3& maxs) cons
     bool fits = true;
     forCandidates(a.x, a.y, b.x, b.y, [&](const Box& s) {
         if (a.x < s.maxs.x && b.x > s.mins.x && a.y < s.maxs.y && b.y > s.mins.y && a.z < s.maxs.z && b.z > s.mins.z)
-            fits = false;
+            if (s.slope == kFlat || overlapsRamp(s, origin, mins, maxs)) fits = false;
     });
     return fits;
 }
@@ -423,9 +510,40 @@ World buildDust() {
     };
     std::vector<int64_t> key(n, -1);
 
+    // Ramps: a ramp area that kept its whole rectangle becomes one smooth wedge (its cells are left out
+    // of the stepped floors below). The grid keeps its steps for the bots' navigation.
+    std::vector<char> smooth(n, 0);
+    for (int a = 0; a < kDustAreaCount; ++a) {
+        const DustArea& d = kDustAreas[a];
+        if (d.axis == 0) continue;
+        int i0 = m.w, j0 = m.h, i1 = -1, j1 = -1;
+        for (int j = 0; j < m.h; ++j)
+            for (int i = 0; i < m.w; ++i)
+                if (m.area[size_t(m.index(i, j))] == a) { i0 = std::min(i0, i); i1 = std::max(i1, i); j0 = std::min(j0, j); j1 = std::max(j1, j); }
+        if (i1 < 0) continue;
+        bool whole = true;
+        for (int j = j0; j <= j1 && whole; ++j)
+            for (int i = i0; i <= i1 && whole; ++i) whole = m.area[size_t(m.index(i, j))] == a;
+        if (!whole) continue;  // partly covered by another area: stays stepped
+        float u0, u1;
+        d.axis == 'x' ? scaledSpan(d.x0, d.x1, u0, u1) : scaledSpan(d.y0, d.y1, u0, u1);
+        const float s = dustScale();
+        auto zAt = [&](float u) { return (d.z0 + (d.z1 - d.z0) * std::clamp((u - u0) / (u1 - u0), 0.0f, 1.0f)) * s; };
+        Box b{{m.x0 + float(i0) * m.cell, m.y0 + float(j0) * m.cell, kDustBottom},
+              {m.x0 + float(i1 + 1) * m.cell, m.y0 + float(j1 + 1) * m.cell, 0}, d.color};
+        float zA = d.axis == 'x' ? zAt(b.mins.x) : zAt(b.mins.y), zB = d.axis == 'x' ? zAt(b.maxs.x) : zAt(b.maxs.y);
+        if (std::fabs(zB - zA) < 1.0f) continue;
+        b.slope = d.axis == 'x' ? (zB > zA ? kRisePosX : kRiseNegX) : (zB > zA ? kRisePosY : kRiseNegY);
+        b.lowZ = std::min(zA, zB);
+        b.maxs.z = std::max(zA, zB);
+        w.solids.push_back(b);
+        for (int j = j0; j <= j1; ++j)
+            for (int i = i0; i <= i1; ++i) smooth[size_t(m.index(i, j))] = 1;
+    }
+
     // Floors (one key per height + colour).
     for (size_t c = 0; c < n; ++c)
-        if (m.area[c] >= 0) key[c] = (zKey(m.floor[c]) << 24) | int64_t(kDustAreas[m.area[c]].color);
+        if (m.area[c] >= 0 && !smooth[c]) key[c] = (zKey(m.floor[c]) << 24) | int64_t(kDustAreas[m.area[c]].color);
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
     });
