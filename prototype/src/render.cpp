@@ -16,8 +16,10 @@ layout(location = 5) in vec3 iRot;  // pivot xy + yaw (radians)
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 out vec3 vWorld;
-out vec3 vNormal;
+flat out vec3 vNormal;
+flat out vec3 vLit;  // colour after lighting (constant per face, so worked out per vertex)
 out vec4 vColor;
+invariant gl_Position;  // the depth pre-pass and the colour pass must agree exactly
 void main() {
     vec3 p = iMin + aPos * (iMax - iMin);
     vec3 n = aNormal;
@@ -29,15 +31,21 @@ void main() {
     }
     p = (uModel * vec4(p, 1.0)).xyz;
     vWorld = p;
-    vNormal = mat3(uModel) * n;
+    vec3 wn = normalize(mat3(uModel) * n);
+    vNormal = wn;
     vColor = iColor;
+    // Fixed directional light: tops brightest, sides shaded so shapes read clearly.
+    float light = 0.45 + 0.55 * clamp(wn.z, 0.0, 1.0) + 0.30 * abs(wn.x) * (1.0 - abs(wn.z)) + 0.20 * abs(wn.y) * (1.0 - abs(wn.z));
+    light = min(light, 1.0);
+    vLit = iColor.rgb * light * (wn.z > 0.5 ? vec3(1.04, 1.0, 0.93) : vec3(0.95, 0.98, 1.05));  // warm sun, cool shade
     gl_Position = uViewProj * vec4(p, 1.0);
 }
 )";
 
 const char* kBoxFS = R"(#version 330 core
 in vec3 vWorld;
-in vec3 vNormal;
+flat in vec3 vNormal;
+flat in vec3 vLit;
 in vec4 vColor;
 uniform vec3 uEye;
 out vec4 oColor;
@@ -49,11 +57,8 @@ float grid(vec2 p, float spacing) {
 }
 void main() {
     if (vColor.a > 0.4 && vColor.a < 0.6) { oColor = vec4(vColor.rgb, 1.0); return; }  // emissive
-    vec3 n = normalize(vNormal);
-    // Fixed directional light: tops brightest, sides shaded so shapes read clearly.
-    float light = 0.45 + 0.55 * clamp(n.z, 0.0, 1.0) + 0.30 * abs(n.x) * (1.0 - abs(n.z)) + 0.20 * abs(n.y) * (1.0 - abs(n.z));
-    light = min(light, 1.0);
-    vec3 c = vColor.rgb * light * (n.z > 0.5 ? vec3(1.04, 1.0, 0.93) : vec3(0.95, 0.98, 1.05));  // warm sun, cool shade
+    vec3 n = vNormal;
+    vec3 c = vLit;
     if (vColor.a > 0.9) {
         vec2 uv = abs(n.z) > 0.5 ? vWorld.xy : (abs(n.x) > 0.5 ? vWorld.yz : vWorld.xz);
         float g = grid(uv, 64.0) * 0.22 + grid(uv, 16.0) * 0.07;
@@ -63,6 +68,12 @@ void main() {
     c = mix(c, vec3(0.55, 0.74, 0.95), clamp(d / 9000.0, 0.0, 0.30));
     oColor = vec4(c, 1.0);
 }
+)";
+
+// Depth pre-pass: same vertex shader, no colour. Fills the depth buffer so the colour pass shades
+// every pixel once instead of once per overlapping box (big win on integrated GPUs).
+const char* kDepthFS = R"(#version 330 core
+void main() {}
 )";
 
 const char* kHudVS = R"(#version 330 core
@@ -239,6 +250,10 @@ void HudBatch::text(float x, float y, const std::string& s, uint32_t rgba, int s
 bool Renderer::init(std::string& err) {
     boxProgram_ = compileProgram(kBoxVS, kBoxFS, err);
     if (!boxProgram_) return false;
+    depthProgram_ = compileProgram(kBoxVS, kDepthFS, err);
+    if (!depthProgram_) return false;
+    uDepthViewProj_ = glGetUniformLocation(depthProgram_, "uViewProj");
+    uDepthModel_ = glGetUniformLocation(depthProgram_, "uModel");
     hudProgram_ = compileProgram(kHudVS, kHudFS, err);
     if (!hudProgram_) return false;
     uViewProj_ = glGetUniformLocation(boxProgram_, "uViewProj");
@@ -305,9 +320,46 @@ bool Renderer::init(std::string& err) {
 }
 
 void Renderer::setStaticBoxes(const std::vector<BoxInstance>& boxes) {
+    staticCpu_ = boxes;
+    visible_.reserve(boxes.size());
+    order_.reserve(boxes.size());
     glBindBuffer(GL_ARRAY_BUFFER, staticInst_);
-    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(boxes.size() * sizeof(BoxInstance)), boxes.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(boxes.size() * sizeof(BoxInstance)), nullptr, GL_STREAM_DRAW);
     staticCount_ = int(boxes.size());
+}
+
+void Renderer::cullStatic(const Mat4& vp, const Vec3& eye) {
+    // Frustum planes from the view-projection matrix (column-major): row3 +- row0/1/2.
+    float planes[6][4];
+    for (int p = 0; p < 6; ++p) {
+        int r = p / 2;
+        float s = (p % 2) ? -1.0f : 1.0f;
+        for (int k = 0; k < 4; ++k) planes[p][k] = vp.m[k * 4 + 3] + s * vp.m[k * 4 + r];
+    }
+    order_.clear();
+    for (int i = 0; i < staticCount_; ++i) {
+        const BoxInstance& b = staticCpu_[size_t(i)];
+        bool inside = true;
+        for (int p = 0; p < 6 && inside; ++p) {
+            const float* q = planes[p];
+            float x = q[0] > 0 ? b.maxs[0] : b.mins[0], y = q[1] > 0 ? b.maxs[1] : b.mins[1],
+                  z = q[2] > 0 ? b.maxs[2] : b.mins[2];
+            inside = q[0] * x + q[1] * y + q[2] * z + q[3] >= 0;
+        }
+        if (!inside) continue;
+        float dx = std::max({b.mins[0] - eye.x, 0.0f, eye.x - b.maxs[0]});
+        float dy = std::max({b.mins[1] - eye.y, 0.0f, eye.y - b.maxs[1]});
+        float dz = std::max({b.mins[2] - eye.z, 0.0f, eye.z - b.maxs[2]});
+        order_.push_back({dx * dx + dy * dy + dz * dz, i});
+    }
+    std::sort(order_.begin(), order_.end());
+    visible_.clear();
+    for (const auto& o : order_) visible_.push_back(staticCpu_[size_t(o.second)]);
+    visibleCount_ = int(visible_.size());
+    glBindBuffer(GL_ARRAY_BUFFER, staticInst_);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(staticCpu_.size() * sizeof(BoxInstance)), nullptr, GL_STREAM_DRAW);
+    if (visibleCount_ > 0)
+        glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(size_t(visibleCount_) * sizeof(BoxInstance)), visible_.data());
 }
 
 void Renderer::addDecal(const BoxInstance& b) {
@@ -332,25 +384,37 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glDisable(GL_BLEND);
+    Mat4 id = identity();
+    int n = std::min(int(dynamicBoxes.size()), kMaxDynamicBoxes);
+    if (n > 0) uploadDynamic(dynamicBoxes, n);
+    cullStatic(viewProj, eye);
+    auto drawAll = [&]() {
+        glBindVertexArray(staticVao_);
+        if (visibleCount_ > 0) glDrawArraysInstanced(GL_TRIANGLES, 0, 36, visibleCount_);
+        if (n > 0) {
+            glBindVertexArray(dynVao_);
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);
+        }
+        if (decalCount_ > 0) {
+            glBindVertexArray(decalVao_);
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 36, decalCount_);
+        }
+    };
+    if (depthPrepass_) {
+        glUseProgram(depthProgram_);
+        glUniformMatrix4fv(uDepthViewProj_, 1, GL_FALSE, viewProj.m);
+        glUniformMatrix4fv(uDepthModel_, 1, GL_FALSE, id.m);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        drawAll();
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDepthMask(GL_FALSE);  // depth is final: the colour pass only shades the visible surface
+    }
     glUseProgram(boxProgram_);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE, viewProj.m);
-    Mat4 id = identity();
     glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
     glUniform3f(uEye_, eye.x, eye.y, eye.z);
-
-    glBindVertexArray(staticVao_);
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 36, staticCount_);
-
-    int n = std::min(int(dynamicBoxes.size()), kMaxDynamicBoxes);
-    if (n > 0) {
-        uploadDynamic(dynamicBoxes, n);
-        glBindVertexArray(dynVao_);
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);
-    }
-    if (decalCount_ > 0) {
-        glBindVertexArray(decalVao_);
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 36, decalCount_);
-    }
+    drawAll();
+    glDepthMask(GL_TRUE);
 }
 
 void Renderer::uploadDynamic(const std::vector<BoxInstance>& boxes, int n) {

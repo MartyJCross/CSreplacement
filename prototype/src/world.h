@@ -67,6 +67,11 @@ struct MapGrid {
     float floorAt(float x, float y) const;  // kNoFloor inside walls / outside the map
     Vec3 center(int i, int j) const { return {x0 + (float(i) + 0.5f) * cell, y0 + (float(j) + 0.5f) * cell, floor[size_t(index(i, j))]}; }
 };
+// Dust's size relative to real Dust2 (default 0.6, range 0.5..1). Heights scale too, so slopes stay
+// walkable; headroom, crates and doorways (at least 96 wide) keep their real size. Returns true if it
+// changed: rebuild the world (buildDust) and anything built from the grid.
+bool setDustScale(float scale);
+float dustScale();
 const MapGrid& dustGrid();
 const char* dustCallout(const Vec3& p);  // area name under p ("" in walls)
 struct MapSpawn { Vec3 pos; float yaw; };

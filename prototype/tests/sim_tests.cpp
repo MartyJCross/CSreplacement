@@ -349,7 +349,7 @@ void testRayVsBoxes() {
     CHECK(tr.fraction < 1 && hitX > 2559 && hitX < 2560.01f, "x %.2f", hitX);
 }
 
-// ---- Dust (real-scale Dust2) ----
+// ---- Dust (Dust2 at a scale of the real map; 60% by default) ----
 
 const World& dust() {
     static World w = buildDust();
@@ -367,6 +367,12 @@ const NavGrid& dustNav() {
 }
 
 bool dustRoute(Vec3 from, Vec3 to, std::vector<Vec3>& out) { return dustNav().findPath(from, to, out); }
+
+// A point given in real-Dust2 coordinates, at the map's current scale, on the floor.
+Vec3 dpt(float x, float y) {
+    float s = dustScale();
+    return {x * s, y * s, dustGrid().floorAt(x * s, y * s)};
+}
 
 // Runs a simulated player along `path` (holding W, steering at a point a little ahead) and returns
 // the time taken, or -1 if they got stuck.
@@ -495,10 +501,10 @@ void testDustDeathmatch() {
     // Sight: a bot looking away doesn't see you; once you shoot it, it turns on you.
     Dummy d;
     BotBrain b;
-    spawnDeathmatchBot(d, b, {-350, -800, dustGrid().floorAt(-350, -800)}, rng);
+    spawnDeathmatchBot(d, b, dpt(-350, -800), rng);
     d.yaw = d.prevYaw = -90;  // facing south, you're to the north
     sense.playerUp = true;
-    sense.playerOrigin = {-350, -300, dustGrid().floorAt(-350, -300)};
+    sense.playerOrigin = dpt(-350, -300);
     sense.playerEye = sense.playerOrigin + Vec3{0, 0, kStandEye};
     bool aimedBehind = false;
     for (int t = 0; t < kTickRate; ++t) {
@@ -522,7 +528,9 @@ void testDustDeathmatch() {
 
     // A bot walks from the CT end of B site to the pit: through doors, tunnels, ramps and stairs.
     std::vector<Vec3> path;
-    CHECK(dustNav().findPath({-1700, 2300, 0}, {1700, 300, 0}, path), "bot route");
+    bool routed = dustNav().findPath(dpt(-1700, 2300), dpt(1750, 420), path);
+    CHECK(routed, "bot route");
+    if (!routed) return;
     Vec3 pos = path.front();
     size_t next = 1;
     int ticks = 0;
@@ -563,10 +571,10 @@ void testTurnedHitboxes() {
 // Walk the main routes with a simulated player at knife speed (250 u/s) and print the run times.
 void testDustRoutes() {
     std::printf("dust routes (knife, 250 u/s)\n");
-    const Landmark tSpawn{"T spawn", dustSpawn().pos}, ctSpawn{"CT spawn", {-150, 2750, 0}},
-        longDoors{"long doors", {775, 380, 0}}, aSite{"A site", {1300, 2900, 0}}, bSite{"B site", {-1850, 2400, 0}},
-        midDoors{"mid doors", {-176, 1896, 0}}, cat{"catwalk", {300, 1700, 0}}, pit{"pit", {1700, 350, 0}},
-        lower{"lower tunnels", {-1100, 1150, 0}};
+    const Landmark tSpawn{"T spawn", dustSpawn().pos}, ctSpawn{"CT spawn", dpt(-150, 2750)},
+        longDoors{"long doors", dpt(775, 380)}, aSite{"A site", dpt(1300, 2900)}, bSite{"B site", dpt(-1850, 2400)},
+        midDoors{"mid doors", dpt(-176, 1896)}, cat{"catwalk", dpt(300, 1700)}, pit{"pit", dpt(1700, 350)},
+        lower{"lower tunnels", dpt(-1100, 1150)};
     struct Route { Landmark a, b; float minS, maxS; };
     const Route routes[] = {
         {tSpawn, longDoors, 4, 10},  {tSpawn, aSite, 10, 22},  {tSpawn, bSite, 11, 22},
@@ -580,13 +588,40 @@ void testDustRoutes() {
         float dist = 0, secs = found ? runRoute(path, 250.0f, &dist) : -1.0f;
         std::printf("  %-9s -> %-13s %5.1f s  (%4.0f units)\n", rt.a.name, rt.b.name, double(secs), double(dist));
         CHECK(found, "no route %s -> %s", rt.a.name, rt.b.name);
-        CHECK(secs >= rt.minS && secs <= rt.maxS, "%s -> %s took %.1f s (stuck = -1)", rt.a.name, rt.b.name, double(secs));
+        const float sc = dustScale();  // the windows are for real-size Dust2; the map can be smaller
+        CHECK(secs >= rt.minS * sc && secs <= rt.maxS * sc, "%s -> %s took %.1f s (stuck = -1)", rt.a.name, rt.b.name,
+              double(secs));
     }
+}
+
+// Every Dust size the menu offers still has all its routes and valid bot spots.
+void testDustScales() {
+    std::printf("dust sizes\n");
+    const float keep = dustScale();
+    for (float sc : {0.5f, 0.75f, 1.0f}) {
+        setDustScale(sc);
+        World w = buildDust();
+        NavGrid nav;
+        nav.build(dustGrid(), w, dustSpawn().pos);
+        const float pts[][2] = {{-150, 2750}, {775, 380}, {1300, 2900}, {-1850, 2400}, {-176, 1896},
+                                {300, 1700}, {1750, 420}, {-1100, 1150}};
+        std::vector<Vec3> path;
+        int missing = 0, badSpots = 0;
+        for (const auto& pt : pts) missing += !nav.findPath(dustSpawn().pos, dpt(pt[0], pt[1]), path);
+        for (const PeekSpot& sp : dustPeekSpots())
+            for (Vec3 p : {sp.cover, sp.peek})
+                badSpots += !(p.z > MapGrid::kNoFloor && w.boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)));
+        std::printf("  %3.0f%%: %zu boxes, %zu roamable cells, %d unreachable landmarks, %d bad bot spots\n",
+                    double(sc * 100), w.solids.size(), nav.roamCount(), missing, badSpots);
+        CHECK(missing == 0 && badSpots == 0, "scale %.2f", double(sc));
+    }
+    setDustScale(keep);
 }
 
 }  // namespace
 
 int main() {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);  // unbuffered: a crash still shows how far we got
     testMaxSpeed();
     testJumpHeight();
     testCounterStrafe();
@@ -604,6 +639,7 @@ int main() {
     testDustRoutes();
     testDustDeathmatch();
     testTurnedHitboxes();
+    testDustScales();
     if (g_failures) {
         std::printf("\n%d check(s) FAILED\n", g_failures);
         return 1;

@@ -104,6 +104,16 @@ On Dust the 4 bots play the angles:
 - They respawn 2–4 s after you kill them, at a free spot.
 - You can hear their footsteps when they peek.
 
+**Size:** Dust is 60% of real Dust2 by default (`dust_scale`, Esc menu: DUST SIZE, 50-100%). Everything scales evenly, heights too, so slopes stay walkable; crates, headroom and doorways (at least 96 units wide) keep their real size.
+
+## Performance
+
+`feellab.exe --bench 10` runs 10 s at real speed and writes `bench.txt` (avg FPS, 1% low, time per frame part, GPU). On the owner's Ryzen 7 4800H (integrated Radeon), 1080p deathmatch at 4x MSAA went from 126 to ~190 FPS average and 62 to ~130 1% low with:
+- a depth pre-pass, so every pixel is shaded once (`depth_prepass`)
+- world boxes culled to the view and drawn nearest-first each frame
+- lighting worked out per face instead of per pixel
+- `msaa 0` gives ~275 FPS if you'd rather have frames than smooth edges
+
 ## Deathmatch (F7)
 
 **F7** starts deathmatch on Dust2 (and back to practice). It's saved, so the game reopens in deathmatch.

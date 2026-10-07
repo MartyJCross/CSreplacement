@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,7 @@ struct Options {
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
     bool showMenu = false;                       // --menu (settings menu, for screenshots)
     bool throwSmoke = false, bots = false;       // --smoke, --bots (for screenshots)
+    float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -64,6 +66,8 @@ Options parseArgs(int argc, char** argv) {
             o.throwSmoke = true;
         } else if (a == "--bots") {
             o.bots = true;
+        } else if (a == "--bench") {
+            o.benchSeconds = float(std::atof(next()));
         } else if (a == "--menu") {
             o.showMenu = true;
         } else if (a == "--zoom") {
@@ -1004,6 +1008,7 @@ std::vector<MenuItem> menuItems(Config& c) {
         {"SMOOTH STAIRS (CAMERA)", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
         {"SPRAY CAMERA SHAKE", nullptr, &c.view_shake, 1, 0, 1, kOnOff},
         {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
+        {"DUST SIZE (% OF REAL DUST2)", nullptr, &c.dust_scale, 5, 50, 100},
         {"DEATHMATCH BOTS", nullptr, &c.dm_bots, 1, 1, 16},
         {"DEATHMATCH MINUTES", nullptr, &c.dm_minutes, 1, 1, 30},
         {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
@@ -1306,7 +1311,14 @@ int main(int argc, char** argv) {
     std::string err;
     if (!renderer.init(err)) return fatal(err, window, showErrors);
 
-    const bool automated = !opt.screenshotPath.empty();
+    const bool bench = opt.benchSeconds > 0;
+    const bool automated = !opt.screenshotPath.empty() || bench;
+    // Benchmark: where each frame's time goes (CPU sections + GPU via glFinish), written to bench.txt.
+    struct BenchStats {
+        double sim = 0, scene = 0, draw = 0, hud = 0, gpu = 0, swap = 0, elapsed = 0;
+        std::vector<float> frames;
+        size_t dynBoxes = 0;
+    } benchStats;
     Game g;
     resetGame(g, opt);
     Audio audio;
@@ -1316,7 +1328,14 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     applyConfig(g, cfg);
     g.mode = cfg.mode == 1 ? 1 : 0;
+    renderer.setDepthPrepass(cfg.depth_prepass != 0);
+    setDustScale(float(cfg.dust_scale) / 100.0f);
     loadMap(g, renderer, cfg.map == 1 || g.mode == 1 ? 1 : 0);
+    // Settings changed (menu, F5): a new Dust size rebuilds the map right away.
+    auto settingsChanged = [&]() {
+        applyConfig(g, cfg);
+        if (setDustScale(float(cfg.dust_scale) / 100.0f) && g.mapId == 1) loadMap(g, renderer, 1);
+    };
     if (opt.spawnOverride) {
         float floorZ = g.mapId == 1 ? dustGrid().floorAt(opt.spawnX, opt.spawnY) : 0.0f;
         g.spawn = {opt.spawnX, opt.spawnY, floorZ > MapGrid::kNoFloor ? floorZ : 0.0f};
@@ -1354,7 +1373,12 @@ int main(int argc, char** argv) {
         uint64_t frameStart = SDL_GetPerformanceCounter();
         double dt = double(frameStart - last) / freq;
         last = frameStart;
-        if (automated) dt = 1.0 / 240.0;  // deterministic steps for screenshots/tests
+        if (automated && !bench) dt = 1.0 / 240.0;  // deterministic steps for screenshots/tests
+        if (bench) {  // a slow turn with the rifle firing on and off, like play
+            g.viewYaw = wrapDeg(float(g.viewYaw) + float(dt) * 720.0f / opt.benchSeconds);
+            g.fireHeld = std::fmod(benchStats.elapsed, 3.0) < 1.2;
+            if (g.fireHeld && g.weapon->ammo == 0) g.reloadLatch = true;
+        }
         dt = std::min(dt, 0.25);
 
         float frameYawDelta = 0, framePitchDelta = 0;  // for weapon sway
@@ -1396,7 +1420,7 @@ int main(int argc, char** argv) {
                     if (!paused) {
                         g.jumpLatch = true;
                     } else if (e.wheel.y != 0 && adjustMenu(cfg, menuSel, e.wheel.y > 0 ? 1 : -1, false)) {
-                        applyConfig(g, cfg);
+                        settingsChanged();
                         saveConfig(cfgPath, cfg);
                         g.hudDirty = true;
                     }
@@ -1418,7 +1442,7 @@ int main(int argc, char** argv) {
                         g.hudDirty = true;
                     } else if (paused && (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT)) {
                         if (adjustMenu(cfg, menuSel, sc == SDL_SCANCODE_RIGHT ? 1 : -1, (e.key.mod & SDL_KMOD_SHIFT) != 0)) {
-                            applyConfig(g, cfg);
+                            settingsChanged();
                             saveConfig(cfgPath, cfg);
                             g.hudDirty = true;
                         }
@@ -1460,7 +1484,7 @@ int main(int argc, char** argv) {
                         else if (sc == SDL_SCANCODE_F6) resetPosition(g);
                         else if (sc == SDL_SCANCODE_F5) {
                             cfg = loadConfig(cfgPath);
-                            applyConfig(g, cfg);
+                            settingsChanged();
                             pushHitLog(g, "CONFIG RELOADED", 0x80ff80);
                             g.hudDirty = true;
                         }
@@ -1492,6 +1516,7 @@ int main(int argc, char** argv) {
                 tickAcc -= kTickDt;
             }
         }
+        const uint64_t tSim = SDL_GetPerformanceCounter();
         float alpha = float(tickAcc / kTickDt);
         if (automated && opt.startZoom && frame == 60) { g.zoom = opt.startZoom; g.hudDirty = true; }
         if (automated && opt.throwSmoke && frame == 30) g.throwLatch = true;
@@ -1619,6 +1644,7 @@ int main(int argc, char** argv) {
                          g.player.onGround, float(reloadProgress), ws.def->reloadTime});
         }
 
+        const uint64_t tScene = SDL_GetPerformanceCounter();
         renderer.beginFrame(pixW, pixH);
         renderer.drawBoxes(viewProj, eye, dynamicBoxes);
         modelDraws.clear();
@@ -1636,6 +1662,7 @@ int main(int argc, char** argv) {
             for (const ModelDraw& md : modelDraws) renderer.drawModel(vmViewProj, md.model, md.boxes);
         }
 
+        const uint64_t tDraw = SDL_GetPerformanceCounter();
         // HUD: rebuild at most ~60 Hz unless something changed (keeps uploads tiny at 1000+ FPS).
         double nowSec = double(frameStart) / freq;
         bool markerExpired = hitMarkerShownUntil > 0 && g.simTime >= g.hitMarkerUntil;
@@ -1648,7 +1675,10 @@ int main(int argc, char** argv) {
         }
         renderer.drawHud(hud, rebuild);
 
-        if (automated && frame == opt.screenshotFrame) {
+        const uint64_t tHud = SDL_GetPerformanceCounter();
+        if (bench) glFinish();  // so GPU time shows up as GPU, not inside the next frame
+        const uint64_t tGpu = SDL_GetPerformanceCounter();
+        if (!opt.screenshotPath.empty() && frame == opt.screenshotFrame) {
             bool ok = renderer.screenshot(opt.screenshotPath);
             std::fprintf(stderr, "screenshot %s: %s (shots %d, hits %d)\n", opt.screenshotPath.c_str(),
                          ok ? "ok" : SDL_GetError(), g.shots, g.hits);
@@ -1657,6 +1687,40 @@ int main(int argc, char** argv) {
 
         SDL_GL_SwapWindow(window);
         ++frame;
+        if (bench && frame > 30) {  // skip warm-up frames
+            const uint64_t tSwap = SDL_GetPerformanceCounter();
+            auto ms = [&](uint64_t a, uint64_t b) { return double(b - a) * 1000.0 / freq; };
+            BenchStats& b = benchStats;
+            b.sim += ms(frameStart, tSim);
+            b.scene += ms(tSim, tScene);
+            b.draw += ms(tScene, tDraw);
+            b.hud += ms(tDraw, tHud);
+            b.gpu += ms(tHud, tGpu);
+            b.swap += ms(tGpu, tSwap);
+            b.frames.push_back(float(ms(frameStart, tSwap)));
+            b.dynBoxes += dynamicBoxes.size();
+            b.elapsed += dt;
+            if (b.elapsed >= opt.benchSeconds) {
+                size_t n = b.frames.size();
+                std::vector<float> sorted = b.frames;
+                std::sort(sorted.begin(), sorted.end());
+                double total = 0;
+                for (float f : b.frames) total += f;
+                std::string out = std::string(base ? base : "") + "bench.txt";
+                char report[640];
+                std::snprintf(report, sizeof(report),
+                              "GPU: %s\nresolution %dx%d  msaa %d  map %d  mode %d  bots %zu  static boxes %zu\n"
+                              "frames %zu  avg %.0f fps (%.3f ms)  1%% low %.0f fps (%.3f ms)  dynamic boxes/frame %.0f\n"
+                              "ms per frame:  input+sim %.3f  scene %.3f  draw calls %.3f  hud %.3f  gpu %.3f  swap %.3f\n",
+                              reinterpret_cast<const char*>(glGetString(GL_RENDERER)), pixW, pixH, std::clamp(cfg.msaa, 0, 8),
+                              g.mapId, g.mode, g.dummies.size(), g.world.solids.size(), n, 1000.0 * double(n) / total,
+                              total / double(n), 1000.0 / double(sorted[n * 99 / 100]), double(sorted[n * 99 / 100]),
+                              double(b.dynBoxes) / double(n), b.sim / double(n), b.scene / double(n), b.draw / double(n),
+                              b.hud / double(n), b.gpu / double(n), b.swap / double(n));
+                std::ofstream(out) << report;
+                running = false;
+            }
+        }
 
         if (cfg.fps_max > 0 && !automated) {
             double target = 1.0 / cfg.fps_max;

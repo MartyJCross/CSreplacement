@@ -2,6 +2,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 #include "vecmath.h"
 
@@ -52,13 +53,23 @@ public:
     void drawModel(const Mat4& viewProj, const Mat4& model, const std::vector<BoxInstance>& boxes);
     // Starts the first-person weapon pass: fresh depth so the weapon never clips into walls.
     void clearDepth();
+    // Depth pre-pass for the world: each pixel is shaded once (on by default; off for comparison).
+    void setDepthPrepass(bool on) { depthPrepass_ = on; }
     // Uploads the HUD only when `changed` is true; otherwise redraws the last upload.
     void drawHud(const HudBatch& hud, bool changed);
 
     bool screenshot(const std::string& path);
 
 private:
-    unsigned boxProgram_ = 0, hudProgram_ = 0;
+    unsigned boxProgram_ = 0, hudProgram_ = 0, depthProgram_ = 0;
+    int uDepthViewProj_ = -1, uDepthModel_ = -1;
+    bool depthPrepass_ = true;
+    // World boxes kept on the CPU so each frame can drop the ones off screen and draw the rest
+    // nearest-first (the GPU then rejects hidden pixels early).
+    std::vector<BoxInstance> staticCpu_, visible_;
+    std::vector<std::pair<float, int>> order_;
+    int visibleCount_ = 0;
+    void cullStatic(const Mat4& viewProj, const Vec3& eye);
     void uploadDynamic(const std::vector<BoxInstance>& boxes, int n);
     int uViewProj_ = -1, uModel_ = -1, uEye_ = -1, uScreen_ = -1, uFont_ = -1;
     unsigned cubeVbo_ = 0;

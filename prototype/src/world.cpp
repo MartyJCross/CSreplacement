@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <utility>
 
 namespace {
 // Keep this far away from surfaces after a sweep so the next trace never starts inside.
@@ -256,37 +257,70 @@ float MapGrid::floorAt(float x, float y) const {
     return cellAt(x, y, i, j) ? floor[size_t(index(i, j))] : kNoFloor;
 }
 
+namespace {
+
+float g_dustScale = 0.6f;
+bool g_dustBuilt = false;
+MapGrid g_dustGrid;
+
+// An area's extent along one axis at the current scale. It never shrinks below min(original, 96)
+// units, so doorways stay a doorway (and thin areas don't fall between grid cells).
+void scaledSpan(float a0, float a1, float& b0, float& b1) {
+    float c = (a0 + a1) * 0.5f * g_dustScale;
+    float len = std::max((a1 - a0) * g_dustScale, std::min(a1 - a0, 96.0f));
+    b0 = c - len * 0.5f;
+    b1 = c + len * 0.5f;
+}
+
+void buildDustGrid() {
+    const float s = g_dustScale;
+    MapGrid m;
+    m.cell = 32;
+    m.x0 = std::floor(-2400.0f * s / m.cell) * m.cell - 64;
+    m.y0 = std::floor(-1216.0f * s / m.cell) * m.cell - 64;
+    m.w = int(std::ceil((1952.0f * s - m.x0) / m.cell)) + 2;
+    m.h = int(std::ceil((3264.0f * s - m.y0) / m.cell)) + 2;
+    size_t n = size_t(m.w * m.h);
+    m.floor.assign(n, MapGrid::kNoFloor);
+    m.ceiling.assign(n, MapGrid::kOpenSky);
+    m.area.assign(n, -1);
+    for (int a = 0; a < kDustAreaCount; ++a) {
+        const DustArea& d = kDustAreas[a];
+        float x0, x1, y0, y1;
+        scaledSpan(d.x0, d.x1, x0, x1);
+        scaledSpan(d.y0, d.y1, y0, y1);
+        for (int j = 0; j < m.h; ++j)
+            for (int i = 0; i < m.w; ++i) {
+                float cx = m.x0 + (float(i) + 0.5f) * m.cell, cy = m.y0 + (float(j) + 0.5f) * m.cell;
+                if (cx < x0 || cx >= x1 || cy < y0 || cy >= y1) continue;
+                float t = d.axis == 'x' ? (cx - x0) / (x1 - x0) : d.axis == 'y' ? (cy - y0) / (y1 - y0) : 0.0f;
+                // Heights scale with the map, so every slope stays exactly as walkable.
+                float z = std::round((d.z0 + (d.z1 - d.z0) * t) * s / 4.0f) * 4.0f;
+                size_t c = size_t(m.index(i, j));
+                m.floor[c] = z;
+                m.ceiling[c] = d.roof > 0 ? z + d.roof : MapGrid::kOpenSky;  // headroom never shrinks
+                m.area[c] = a;
+            }
+    }
+    g_dustGrid = std::move(m);
+    g_dustBuilt = true;
+}
+
+}  // namespace
+
+bool setDustScale(float scale) {
+    scale = std::clamp(scale, 0.5f, 1.0f);
+    if (g_dustBuilt && scale == g_dustScale) return false;
+    g_dustScale = scale;
+    buildDustGrid();
+    return true;
+}
+
+float dustScale() { return g_dustScale; }
+
 const MapGrid& dustGrid() {
-    static const MapGrid grid = [] {
-        MapGrid m;
-        m.x0 = -2400;
-        m.y0 = -1216;
-        m.cell = 32;
-        m.w = 136;  // to x = 1952
-        m.h = 140;  // to y = 3264
-        size_t n = size_t(m.w * m.h);
-        m.floor.assign(n, MapGrid::kNoFloor);
-        m.ceiling.assign(n, MapGrid::kOpenSky);
-        m.area.assign(n, -1);
-        for (int a = 0; a < kDustAreaCount; ++a) {
-            const DustArea& d = kDustAreas[a];
-            for (int j = 0; j < m.h; ++j)
-                for (int i = 0; i < m.w; ++i) {
-                    float cx = m.x0 + (float(i) + 0.5f) * m.cell, cy = m.y0 + (float(j) + 0.5f) * m.cell;
-                    if (cx < d.x0 || cx >= d.x1 || cy < d.y0 || cy >= d.y1) continue;
-                    float t = d.axis == 'x'   ? (cx - d.x0) / (d.x1 - d.x0)
-                              : d.axis == 'y' ? (cy - d.y0) / (d.y1 - d.y0)
-                                              : 0.0f;
-                    float z = std::round((d.z0 + (d.z1 - d.z0) * t) / 4.0f) * 4.0f;
-                    size_t c = size_t(m.index(i, j));
-                    m.floor[c] = z;
-                    m.ceiling[c] = d.roof > 0 ? z + d.roof : MapGrid::kOpenSky;
-                    m.area[c] = a;
-                }
-        }
-        return m;
-    }();
-    return grid;
+    if (!g_dustBuilt) buildDustGrid();
+    return g_dustGrid;
 }
 
 const char* dustCallout(const Vec3& p) {
@@ -297,7 +331,10 @@ const char* dustCallout(const Vec3& p) {
     return a >= 0 ? kDustAreas[a].name : "";
 }
 
-MapSpawn dustSpawn() { return {{-350, -800, dustGrid().floorAt(-350, -800)}, 90.0f}; }
+MapSpawn dustSpawn() {
+    float x = -350.0f * g_dustScale, y = -800.0f * g_dustScale;
+    return {{x, y, dustGrid().floorAt(x, y)}, 90.0f};
+}
 
 World buildDust() {
     const MapGrid& m = dustGrid();
@@ -368,16 +405,24 @@ World buildDust() {
         rect(i0, j0, i1, j1, float((k >> 24) - 65536), float((k & 0xFFFFFF) - 65536), kDRoof);
     });
 
-    // Props, standing on the floor under their centre.
+    // Props, standing on the floor under their centre. Crates keep their real size wherever the map's
+    // scale puts them; `anchored` ones are placed relative to a point that scales (a wall edge).
+    const float sc = dustScale();
     auto prop = [&](float x0, float y0, float x1, float y1, float h, uint32_t color, float lift = 0) {
-        float z = m.floorAt((x0 + x1) * 0.5f, (y0 + y1) * 0.5f) + lift;
-        w.solids.push_back({{x0, y0, z}, {x1, y1, z + h}, color});
+        float cx = (x0 + x1) * 0.5f * sc, cy = (y0 + y1) * 0.5f * sc, hx = (x1 - x0) * 0.5f, hy = (y1 - y0) * 0.5f;
+        float z = m.floorAt(cx, cy) + lift;
+        w.solids.push_back({{cx - hx, cy - hy, z}, {cx + hx, cy + hy, z + h}, color});
+    };
+    auto anchored = [&](float ax, float ay, float dx0, float dy0, float dx1, float dy1, float h, uint32_t color) {
+        float x = ax * sc, y = ay * sc;
+        float z = m.floorAt(x + (dx0 + dx1) * 0.5f, y + (dy0 + dy1) * 0.5f);
+        w.solids.push_back({{x + dx0, y + dy0, z}, {x + dx1, y + dy1, z + h}, color});
     };
     prop(-500, -800, -440, -740, 64, kDCrate);    // T spawn crates
     prop(-60, -1000, 20, -920, 64, kDCrate);
     prop(1050, 450, 1150, 650, 96, kDBlue);       // long: the blue container outside the doors
     prop(1560, 200, 1640, 280, 48, kDCrate);      // pit box
-    prop(70, 1320, 150, 1400, 52, kDCrate);       // xbox (jump on it to reach catwalk)
+    anchored(150, 1360, -80, -40, 0, 40, 52, kDCrate);  // xbox, against the catwalk ledge (jump on it)
     prop(1200, 2650, 1290, 2740, 64, kDCrate);    // A default box (double stack)
     prop(1215, 2665, 1275, 2725, 48, kDCrate, 64);
     prop(1550, 2500, 1610, 2560, 48, kDCrate);    // A site box near the ramp
@@ -387,26 +432,42 @@ World buildDust() {
     prop(-1700, 2900, -1550, 3000, 56, 0x8a3b32); // B car
     prop(-2280, 2200, -2200, 2280, 64, kDCrate);  // B site, by the wall
     prop(-500, 2100, -440, 2160, 64, kDCrate);    // CT mid
-    prop(-1430, 2280, -1340, 2296, 128, kDWood);  // B doors: open door leaf
-    prop(892, 300, 900, 380, 128, kDWood);        // long doors: door leaf against the frame
+    {
+        // Door leaves stand at the edge of their (scaled, at least 96 wide) doorway.
+        float y0, y1;
+        scaledSpan(2140, 2280, y0, y1);
+        w.solids.push_back({{-1420.0f * sc - 10, y1, 32 * sc}, {-1350.0f * sc + 10, y1 + 16, 32 * sc + 128}, kDWood});
+        scaledSpan(300, 460, y0, y1);
+        w.solids.push_back({{900.0f * sc - 8, y0, 0}, {900.0f * sc, y0 + 80, 128}, kDWood});
+    }
 
     w.buildIndex();
     return w;
 }
 
 const std::vector<PeekSpot>& dustPeekSpots() {
-    static const std::vector<PeekSpot> spots = [] {
+    static std::vector<PeekSpot> spots;
+    static float builtFor = -1;
+    if (builtFor != dustScale()) {
+        builtFor = dustScale();
         const MapGrid& m = dustGrid();
-        auto at = [&](float x, float y) { return Vec3{x, y, m.floorAt(x, y)}; };
-        return std::vector<PeekSpot>{
-            {at(1220, 720), at(1220, 400)},      // long corner, behind the blue container -> doors
-            {at(-320, 1990), at(-180, 1990)},    // CT mid, through mid doors
-            {at(-1880, 2640), at(-1770, 2640)},  // B default box -> tunnel exit
-            {at(1240, 2800), at(1350, 2800)},    // A default box -> A ramp / long
-            {at(-1520, 2420), at(-1520, 2210)},  // B site -> through B doors
-            {at(600, 2500), at(350, 2500)},      // short -> down the catwalk stairs
+        const float sc = builtFor;
+        // rel(): a fixed offset from something that scales (a box's centre); at(): a point that scales.
+        auto rel = [&](float ax, float ay, float dx, float dy) {
+            Vec3 p{ax * sc + dx, ay * sc + dy, 0};
+            p.z = m.floorAt(p.x, p.y);
+            return p;
         };
-    }();
+        auto at = [&](float x, float y) { return rel(x, y, 0, 0); };
+        spots = {
+            {rel(1100, 550, 120, 170), rel(1100, 550, 120, -150)},    // long corner, behind the blue container -> doors
+            {at(-320, 1990), at(-180, 1990)},                          // CT mid, through mid doors
+            {rel(-1890, 2540, 10, 100), rel(-1890, 2540, 120, 100)},  // B default box -> tunnel exit
+            {rel(1245, 2695, -5, 105), rel(1245, 2695, 105, 105)},    // A default box -> A ramp / long
+            {at(-1520, 2420), at(-1520, 2210)},                        // B site -> through B doors
+            {at(600, 2500), at(350, 2500)},                            // short -> down the catwalk stairs
+        };
+    }
     return spots;
 }
 

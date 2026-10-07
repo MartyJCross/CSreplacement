@@ -66,10 +66,12 @@ typedef std::ptrdiff_t GLintptr;
     X(void, Viewport, (GLint x, GLint y, GLsizei w, GLsizei h))                                      \
     X(void, ClearColor, (GLfloat r, GLfloat g, GLfloat b, GLfloat a))                                \
     X(void, Clear, (GLbitfield mask))                                                                \
+    X(void, Finish, (void))                                                                          \
     X(void, Enable, (GLenum cap))                                                                    \
     X(void, Disable, (GLenum cap))                                                                   \
     X(void, DepthFunc, (GLenum func))                                                                \
     X(void, DepthMask, (GLboolean flag))                                                             \
+    X(void, ColorMask, (GLboolean r, GLboolean g, GLboolean b, GLboolean a))                         \
     X(void, BlendFunc, (GLenum s, GLenum d))                                                         \
     X(void, CullFace, (GLenum mode))                                                                 \
     X(void, PixelStorei, (GLenum pname, GLint param))                                                \

@@ -131,6 +131,11 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Deathmatch** (F7, Dust only, `mode 1`): 10 bots by default roam the whole map (`bots.cpp`), 150° view
   cone, hear footsteps and gunshots, chase; spawns anywhere out of sight; +40 HP per kill; respawn reloads
   every gun; timed match, Tab scoreboard (`dm_bots`, `dm_minutes`).
+- **Dust size** (`dust_scale`, default 60%, 50..100): `setDustScale()` rebuilds the grid; heights scale too;
+  crates/headroom/doorways (>= 96) don't. Test coordinates use `dpt(x, y)` (real-Dust2 coords, scaled).
+- **Performance:** the owner's laptop has only an integrated Radeon (GPU-bound, fill-rate). Depth pre-pass,
+  per-frame frustum cull + front-to-back sort of world boxes, per-face lighting. Measure with
+  `feellab --bench 10` (writes bench.txt) before and after any rendering change.
 - **Spray feedback** (cosmetic): view-model kick builds through a spray, camera roll around the crosshair
   (`view_shake`), shell casings, far impacts drawn bigger.
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
