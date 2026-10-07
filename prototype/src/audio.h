@@ -7,7 +7,7 @@
 #include <vector>
 #include "vecmath.h"
 
-enum class Sfx { RifleShot, DryFire, MagOut, MagIn, Bolt, Draw, Footstep, Land, HitBody, HitHead, Count };
+enum class Sfx { RifleShot, DryFire, MagOut, MagIn, Bolt, Draw, Footstep, Land, HitBody, HitHead, SniperShot, Count };
 
 class Audio {
 public:

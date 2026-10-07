@@ -87,8 +87,10 @@ World buildFeelLab() {
     World w;
     auto add = [&](Vec3 mn, Vec3 mx, uint32_t color) { w.solids.push_back({mn, mx, color}); };
 
-    const uint32_t kFloor = 0x5a6370, kWall = 0x9aa3ad, kCrate = 0xc08a4a, kStair = 0x7d8794,
-                   kSpray = 0x30343a, kPillar = 0x8c7a6b, kLane = 0x4d5662;
+    // Warm sunlit palette: sand floor, plaster walls, painted accents.
+    const uint32_t kFloor = 0xc9b48a, kWall = 0xe6dcc6, kCrate = 0xb5763a, kStair = 0xb8603e,
+                   kSpray = 0x1f4a52, kPillar = 0x5b7fa6, kLane = 0xe8c547, kPeek = 0x86a873, kLintel = 0x9c3d3d,
+                   kLowWall = 0x6f8fb3, kTrimBlue = 0x2f6fb0, kTrimOrange = 0xd9822b, kTrimTeal = 0x2a8c84;
 
     // Floor and boundary walls. Player spawns at (0,0) facing +X.
     add({-512, -1024, -16}, {2560, 1024, 0}, kFloor);
@@ -119,12 +121,18 @@ World buildFeelLab() {
     add({896, 400, 0}, {1088, 608, 128}, kStair);
 
     // Peek wall with a doorway (gap y 600..664, 112 high) and dummies behind it.
-    add({1280, 300, 0}, {1296, 600, 256}, kWall);
-    add({1280, 664, 0}, {1296, 1024, 256}, kWall);
-    add({1280, 600, 112}, {1296, 664, 256}, kWall);
+    add({1280, 300, 0}, {1296, 600, 256}, kPeek);
+    add({1280, 664, 0}, {1296, 1024, 256}, kPeek);
+    add({1280, 600, 112}, {1296, 664, 256}, kLintel);
 
     // A low wall to jump-peek / crouch behind near the range.
-    add({1600, -300, 0}, {1616, -120, 40}, kWall);
+    add({1600, -300, 0}, {1616, -120, 40}, kLowWall);
+
+    // Painted trim bands high on the boundary walls (out of reach: purely visual orientation cues).
+    add({-512, -1024, 200}, {-510, 1024, 216}, kTrimTeal);      // behind spawn
+    add({2558, -1024, 200}, {2560, 1024, 216}, kTrimOrange);    // far end of the range
+    add({-512, -1024, 200}, {2560, -1022, 216}, kTrimBlue);     // right side
+    add({-512, 1022, 200}, {2560, 1024, 216}, kTrimBlue);       // left side
 
     return w;
 }

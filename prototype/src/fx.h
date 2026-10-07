@@ -6,7 +6,7 @@
 #include "render.h"
 #include "vecmath.h"
 
-enum class ViewWeapon { Rifle, Pistol, Knife };
+enum class ViewWeapon { Rifle, Pistol, Sniper, Knife };
 
 struct ViewModelInput {
     float dt;                  // frame time

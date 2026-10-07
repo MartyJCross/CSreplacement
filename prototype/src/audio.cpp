@@ -129,6 +129,14 @@ std::vector<std::vector<float>> synthesize() {
     addTone(hitHead, 0, 0.15f, 1280, 1280, 0.09f);
     normalize(hitHead, 0.6f);
 
+    // Sniper: harder crack, heavier blast, long rolling tail.
+    auto& snipe = s[size_t(Sfx::SniperShot)] = buffer(1.2f);
+    addNoise(snipe, 0, 1.0f, 3000, 18000, 0.005f, rng, 0.0002f);
+    addNoise(snipe, 0, 1.0f, 100, 2200, 0.07f, rng, 0.0004f);
+    addNoise(snipe, 0.006f, 0.45f, 40, 500, 0.35f, rng, 0.02f);
+    addTone(snipe, 0, 1.0f, 110, 32, 0.09f);
+    normalize(snipe, 0.98f);
+
     return s;
 }
 
@@ -136,7 +144,7 @@ std::vector<std::vector<float>> synthesize() {
 
 bool Audio::dumpWavs(const std::string& dir) {
     const char* names[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw",
-                           "footstep", "land", "hit_body", "hit_head"};
+                           "footstep", "land", "hit_body", "hit_head", "sniper_shot"};
     static_assert(sizeof(names) / sizeof(names[0]) == size_t(Sfx::Count), "name every sound");
     std::vector<std::vector<float>> all = synthesize();
     for (size_t i = 0; i < all.size(); ++i) {

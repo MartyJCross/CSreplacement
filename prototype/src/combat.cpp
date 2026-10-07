@@ -38,6 +38,14 @@ const WeaponDef kPistol = {
     0.34f, 3.5f, 6.0f, 0.25f, kPistolPattern, 12, false,
 };
 
+// Bolt-action sniper: one-shot body kill, big single kick, slow cycle. Semi-auto.
+const RecoilStep kSniperPattern[2] = {{0.0f, 0.0f}, {2.2f, 0.0f}};
+
+const WeaponDef kSniper = {
+    "SNIPER", true, 200.0f, 115.0f, 0.99f, 1.46f, 5, 3.6f,
+    0.34f, 8.0f, 12.0f, 0.0f, kSniperPattern, 2, false,
+};
+
 const WeaponDef kKnife = {
     "KNIFE", false, 250.0f, 0, 1, 1, 0, 0, 0.34f, 0, 0, 0, nullptr, 0, false,
 };
@@ -62,6 +70,7 @@ float hitGroupMultiplier(HitGroup g) {
 const WeaponDef& rifleDef() { return kRifle; }
 const WeaponDef& knifeDef() { return kKnife; }
 const WeaponDef& pistolDef() { return kPistol; }
+const WeaponDef& sniperDef() { return kSniper; }
 
 RecoilStep recoilAt(const WeaponDef& w, float index) {
     RecoilStep sum{0, 0};

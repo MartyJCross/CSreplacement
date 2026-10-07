@@ -193,6 +193,36 @@ void testNoAutoBhop() {
     CHECK(end < start, "chained hops should lose speed");
 }
 
+void testBhop() {
+    std::printf("bunny hop (bhop 1)\n");
+    MoveParams bh;
+    bh.staminaJumpCost = 0;
+    bh.staminaLandCost = 0;
+    auto hops = [&](bool strafe) {
+        PlayerState ps = spawnAt({-400, 0, 0});
+        MoveInput in;
+        in.forward = 1;
+        for (int t = 0; t < kTickRate; ++t) playerMove(ps, in, 0, 250, lab(), bh);
+        float yaw = 0;
+        in.forward = 0;
+        in.side = strafe ? -1.0f : 0.0f;  // hold A while turning left: classic air strafe
+        if (!strafe) in.forward = 1;
+        int landings = 0;
+        for (int t = 0; t < kTickRate * 6 && landings < 6; ++t) {
+            in.jumpPressed = true;  // holding jump = auto-hop
+            bool wasGround = ps.onGround;
+            playerMove(ps, in, yaw, 250, lab(), bh);
+            if (strafe && !ps.onGround) yaw += 1.1f;
+            if (!wasGround && ps.onGround) ++landings;
+        }
+        return length2d(ps.velocity);
+    };
+    float straight = hops(false), strafed = hops(true);
+    std::printf("  speed after 6 hops: straight %.1f, air-strafing %.1f (start 250)\n", straight, strafed);
+    CHECK(straight > 249.0f, "perfect hops keep speed: %.1f", straight);
+    CHECK(strafed > 275.0f, "air strafing gains speed: %.1f", strafed);
+}
+
 void testDeterminism() {
     std::printf("determinism\n");
     auto simulate = [] {
@@ -300,6 +330,7 @@ int main() {
     testStairs();
     testCrates();
     testNoAutoBhop();
+    testBhop();
     testDeterminism();
     testWeapon();
     testRayVsBoxes();

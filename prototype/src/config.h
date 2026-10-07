@@ -26,6 +26,9 @@ struct Config {
     int show_viewmodel = 1;
     int spread_spray = 0;      // 1 = random spread grows during sprays (CS-like)
     int spread_movement = 0;   // 1 = random spread while moving/airborne (CS-like)
+    int bhop = 1;              // 1 = hold jump to auto-hop, no stamina penalty; 0 = CS-style anti-bhop
+    int camera_extrapolate = 1;  // 1 = zero-lag camera (render your position at "now", not 1 tick behind)
+    float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped
 };
 
 // Loads `path`; writes a commented default file there if it doesn't exist.

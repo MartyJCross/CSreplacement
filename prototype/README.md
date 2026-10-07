@@ -34,12 +34,13 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Key | Action |
 |---|---|
 | WASD | Move |
-| Space / mouse wheel | Jump (one jump per press; no auto-hop) |
+| Space / mouse wheel | Jump. **Hold Space to bunny hop** (auto-jump on landing) |
 | Ctrl | Crouch (crouch in the air = crouch-jump) |
 | Shift | Walk |
 | Mouse 1 | Fire |
 | R | Reload |
-| 1 / 2 / 3 | Rifle / pistol (semi-auto) / knife (knife = faster movement) |
+| 1 / 2 / 3 / 4 | Rifle / pistol (semi-auto) / knife (faster movement) / sniper |
+| Mouse 2 | Sniper scope: 40 → 15 FOV → off. Unscopes on shot, re-scopes after the bolt |
 | V | Noclip (fly where you look; Shift = slow) |
 | F6 | Reset to spawn |
 | F5 | Reload `config.cfg` live (sensitivity, crosshair, viewmodel, volume, spread) |
@@ -71,6 +72,27 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 - **SPEED / SPREAD / ACCURATE:** horizontal speed, your current bullet spread in degrees, and `ACCURATE` (green) when you're slow enough for a perfect first shot (≤ 34% of rifle speed, ~73 u/s).
 - **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **78 ms** counter-strafing vs **~200 ms** releasing.
 - **Hit log (top right):** hitgroup, damage, kill, distance in metres.
+
+## Bunny hopping
+
+`bhop 1` is on by default:
+- Hold Space (or spam the wheel) and you jump the instant you land, so ground friction never touches you.
+- There's no stamina slowdown.
+- Air-strafe to gain speed: hold A while turning left (or D while turning right), without W.
+
+Perfect hops keep 250 u/s, and good strafes build to 500+. Set `bhop 0` for CS-style anti-bhop: one jump per press, and landing slows you down.
+
+## Sniper
+
+- **One-shot body kill:** 115 damage (it's a leg shot that doesn't kill).
+- **Bolt action:** 1.46 s between shots, 5 rounds.
+- **Movement:** half speed while scoped.
+- **No crosshair unscoped,** like CS, so noscopes are a skill rather than luck. There's still no random spread.
+- **Scoped sensitivity** is scaled so flicks feel the same as unscoped (`zoom_sensitivity_ratio`, default 1).
+
+## Zero-lag camera
+
+`camera_extrapolate 1` is on by default. The simulation runs at 128 ticks, so a normal interpolated camera shows your position up to one tick (7.8 ms) in the past. This one draws you where you are *now*: the latest tick plus the time since, with collision and step-up checks. Movement keys show up on screen with no added delay. Set it to 0 to compare.
 
 ## No random spread
 

@@ -36,7 +36,8 @@ struct Options {
     float spawnX = 0, spawnY = 0, spawnYaw = 0;
     float autofireStart = -1, autofireEnd = -1;  // --autofire start end (sim seconds)
     int windowW = 0, windowH = 0;                // --windowed W H
-    int startWeapon = 0;                         // --weapon 1|2|3
+    int startWeapon = 0;                         // --weapon 1|2|3|4
+    int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -54,6 +55,8 @@ Options parseArgs(int argc, char** argv) {
         } else if (a == "--autofire") {
             o.autofireStart = float(std::atof(next()));
             o.autofireEnd = float(std::atof(next()));
+        } else if (a == "--zoom") {
+            o.startZoom = std::atoi(next());
         } else if (a == "--weapon") {
             o.startWeapon = std::atoi(next());
         } else if (a == "--windowed") {
@@ -74,7 +77,12 @@ struct Game {
     World world;
     MoveParams moveParams;
     PlayerState player, prevPlayer;
-    WeaponState rifle, pistol, knife;
+    WeaponState rifle, pistol, sniper, knife;
+    // Sniper scope: 0 = unscoped, 1 = 40 FOV, 2 = 15 FOV. Unscopes on shot, re-scopes after the bolt.
+    int zoom = 0, resumeZoom = 0;
+    double resumeZoomAt = -1, boltAt = -1;
+    bool zoomLatch = false;
+    bool autoHop = true;
     Vec3 spawn;
     float spawnYaw = 0;
     bool noclip = false;
@@ -123,11 +131,30 @@ struct Game {
 };
 
 ViewWeapon viewWeaponOf(const Game& g) {
-    return g.weapon == &g.rifle ? ViewWeapon::Rifle : g.weapon == &g.pistol ? ViewWeapon::Pistol : ViewWeapon::Knife;
+    return g.weapon == &g.rifle    ? ViewWeapon::Rifle
+           : g.weapon == &g.pistol ? ViewWeapon::Pistol
+           : g.weapon == &g.sniper ? ViewWeapon::Sniper
+                                   : ViewWeapon::Knife;
+}
+
+float zoomFov(int level, float baseFov) { return level == 1 ? 40.0f : level == 2 ? 15.0f : baseFov; }
+
+// Scales mouse sensitivity so a scoped flick covers the same screen distance per count, like CS.
+float zoomSensScale(const Game& g, const Config& cfg) {
+    if (g.zoom == 0) return 1.0f;
+    float a = std::tan(zoomFov(g.zoom, cfg.fov) * 0.5f * kDegToRad), b = std::tan(cfg.fov * 0.5f * kDegToRad);
+    return a / b * cfg.zoom_sensitivity_ratio;
 }
 
 void applyConfig(Game& g, const Config& cfg) {
-    for (WeaponState* w : {&g.rifle, &g.pistol}) {
+    g.moveParams = MoveParams{};
+    g.autoHop = cfg.bhop != 0;
+    if (g.autoHop) {
+        // Bunny hopping: no stamina slowdown on jump/land; air-strafing keeps and builds speed.
+        g.moveParams.staminaJumpCost = 0;
+        g.moveParams.staminaLandCost = 0;
+    }
+    for (WeaponState* w : {&g.rifle, &g.pistol, &g.sniper}) {
         w->spraySpread = cfg.spread_spray != 0;
         w->moveSpread = cfg.spread_movement != 0;
     }
@@ -172,6 +199,8 @@ void resetGame(Game& g, const Options& opt) {
     g.knife.def = &knifeDef();
     g.pistol.def = &pistolDef();
     g.pistol.ammo = pistolDef().magSize;
+    g.sniper.def = &sniperDef();
+    g.sniper.ammo = sniperDef().magSize;
     g.spawn = g.player.origin;
     g.spawnYaw = float(g.viewYaw);
     g.aliveSince.assign(g.dummies.size(), 0.0);
@@ -202,12 +231,17 @@ void simTick(Game& g, const Options& opt) {
     in.side = float(keys[SDL_SCANCODE_D]) - float(keys[SDL_SCANCODE_A]);
     in.walk = keys[SDL_SCANCODE_LSHIFT];
     in.duck = keys[SDL_SCANCODE_LCTRL];
-    in.jumpPressed = g.jumpLatch;
+    in.jumpPressed = g.jumpLatch || (g.autoHop && keys[SDL_SCANCODE_SPACE]);
     g.jumpLatch = false;
 
     // Weapon switching / reload.
     if (g.switchTo) {
-        WeaponState* target = g.switchTo == 1 ? &g.rifle : g.switchTo == 2 ? &g.pistol : &g.knife;
+        WeaponState* target = g.switchTo == 1   ? &g.rifle
+                              : g.switchTo == 2 ? &g.pistol
+                              : g.switchTo == 4 ? &g.sniper
+                                                : &g.knife;
+        g.zoom = 0;
+        g.resumeZoomAt = -1;
         if (target != g.weapon) {
             g.weapon->reloadEndTime = -1;
             g.weapon = target;
@@ -223,9 +257,30 @@ void simTick(Game& g, const Options& opt) {
     if (g.reloadLatch && wd.canFire && ws.reloadEndTime < 0 && ws.ammo < wd.magSize) {
         ws.reloadEndTime = g.simTime + wd.reloadTime;
         g.reloadStage = 0;
+        g.zoom = 0;
+        g.resumeZoomAt = -1;
         g.hudDirty = true;
     }
     g.reloadLatch = false;
+
+    // Scope (right click) and the sniper's bolt cycle.
+    const bool sniperOut = &ws == &g.sniper;
+    if (g.zoomLatch && sniperOut && ws.reloadEndTime < 0) {
+        g.zoom = (g.zoom + 1) % 3;
+        g.resumeZoomAt = -1;
+        sound(g, Sfx::DryFire, 0.25f, 0.0f, 1.6f);
+        g.hudDirty = true;
+    }
+    g.zoomLatch = false;
+    if (g.resumeZoomAt >= 0 && g.simTime >= g.resumeZoomAt) {
+        if (sniperOut && ws.reloadEndTime < 0) g.zoom = g.resumeZoom;
+        g.resumeZoomAt = -1;
+        g.hudDirty = true;
+    }
+    if (g.boltAt >= 0 && g.simTime >= g.boltAt) {
+        sound(g, Sfx::Bolt, 0.8f, 0.0f, 0.9f);
+        g.boltAt = -1;
+    }
     if (ws.reloadEndTime >= 0) {
         // Reload sounds keyed to the animation: mag out, mag in, bolt.
         double progress = g.simTime - (ws.reloadEndTime - wd.reloadTime);
@@ -261,8 +316,18 @@ void simTick(Game& g, const Options& opt) {
 
         // Cosmetics: shot sound, weapon kick, tracer, impacts.
         bool isPistol = &ws == &g.pistol;
-        sound(g, Sfx::RifleShot, isPistol ? 0.7f : 0.9f, 0.0f,
-              (isPistol ? 1.32f : 0.97f) + float(ws.shotCounter % 7) * 0.01f);
+        if (sniperOut) {
+            sound(g, Sfx::SniperShot, 1.0f);
+            g.boltAt = g.simTime + 0.55;
+            if (g.zoom > 0) {  // unscope on shot, come back after the bolt like CS
+                g.resumeZoom = g.zoom;
+                g.zoom = 0;
+                g.resumeZoomAt = ws.nextFireTime - 0.15;
+            }
+        } else {
+            sound(g, Sfx::RifleShot, isPistol ? 0.7f : 0.9f, 0.0f,
+                  (isPistol ? 1.32f : 0.97f) + float(ws.shotCounter % 7) * 0.01f);
+        }
         g.vm.onShot(ws.shotCounter * 2654435761u);
         g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
         Vec3 shotDir = normalize(r.end - r.start);
@@ -297,6 +362,8 @@ void simTick(Game& g, const Options& opt) {
         if (ws.ammo == 0) {
             ws.reloadEndTime = g.simTime + wd.reloadTime;
             g.reloadStage = 0;
+            g.zoom = 0;
+            g.resumeZoomAt = -1;
         }
         g.hudDirty = true;
     }
@@ -313,7 +380,8 @@ void simTick(Game& g, const Options& opt) {
         g.player.origin += g.player.velocity * kTickDt;
         g.player.onGround = false;
     } else {
-        playerMove(g.player, in, float(g.viewYaw), wd.maxSpeed, g.world, g.moveParams);
+        float maxSpeed = wd.maxSpeed * (g.zoom > 0 ? 0.5f : 1.0f);  // scoped = half speed
+        playerMove(g.player, in, float(g.viewYaw), maxSpeed, g.world, g.moveParams);
     }
 
     for (size_t i = 0; i < g.dummies.size(); ++i) {
@@ -432,8 +500,25 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         hud.rect(cx - t0 - grow, cy - gap - len - grow, th + 2 * grow, len + 2 * grow, col);
         if (cfg.crosshair_dot) hud.rect(cx - t0 - grow, cy - t0 - grow, th + 2 * grow, th + 2 * grow, col);
     };
-    if (cfg.crosshair_outline) crossRects(1, 0x000000C0);
-    crossRects(0, xc);
+    const bool sniper = g.weapon == &g.sniper;
+    if (sniper && g.zoom > 0) {
+        // Scope: black outside a circle (drawn as horizontal strips) + thin full-screen crosshair.
+        float r = float(h) * 0.47f;
+        hud.rect(0, 0, cx - r, float(h), 0x000000FF);
+        hud.rect(cx + r, 0, float(w) - (cx + r), float(h), 0x000000FF);
+        hud.rect(cx - r, 0, 2 * r, cy - r, 0x000000FF);
+        hud.rect(cx - r, cy + r, 2 * r, float(h) - (cy + r), 0x000000FF);
+        for (float yy = -r; yy < r; yy += 2.0f) {
+            float half = std::sqrt(std::max(0.0f, r * r - (yy + 1.0f) * (yy + 1.0f)));
+            hud.rect(cx - r, cy + yy, r - half, 2.0f, 0x000000FF);
+            hud.rect(cx + half, cy + yy, r - half, 2.0f, 0x000000FF);
+        }
+        hud.rect(0, cy, float(w), 1, 0x000000FF);
+        hud.rect(cx, 0, 1, float(h), 0x000000FF);
+    } else if (!sniper) {  // like CS: the sniper has no crosshair unscoped
+        if (cfg.crosshair_outline) crossRects(1, 0x000000C0);
+        crossRects(0, xc);
+    }
 
     // Hit marker.
     if (g.simTime < g.hitMarkerUntil) {
@@ -480,7 +565,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (showHelp) {
         const char* help[] = {
             "WASD MOVE   SPACE/WHEEL JUMP   CTRL CROUCH   SHIFT WALK",
-            "MOUSE1 FIRE   R RELOAD   1 RIFLE   2 PISTOL   3 KNIFE (FASTER)",
+            "MOUSE1 FIRE   MOUSE2 SCOPE   R RELOAD   1 RIFLE   2 PISTOL   3 KNIFE   4 SNIPER",
+            "HOLD SPACE TO BUNNY HOP - AIR STRAFE (A/D + TURN) TO GAIN SPEED",
             "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG",
             "C CLEAR DECALS   F3 AIM DRILL   F1 HIDE HELP   ALT+ENTER FULLSCREEN   ESC PAUSE",
             "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL",
@@ -632,8 +718,9 @@ int main(int argc, char** argv) {
                     break;
                 case SDL_EVENT_MOUSE_MOTION:
                     if (!paused) {
-                        double dyaw = -double(e.motion.xrel) * cfg.sensitivity * cfg.m_yaw;
-                        double dpitch = double(e.motion.yrel) * cfg.sensitivity * cfg.m_pitch;
+                        double sens = cfg.sensitivity * zoomSensScale(g, cfg);
+                        double dyaw = -double(e.motion.xrel) * sens * cfg.m_yaw;
+                        double dpitch = double(e.motion.yrel) * sens * cfg.m_pitch;
                         g.viewYaw += dyaw;
                         g.viewPitch += dpitch;
                         frameYawDelta += float(dyaw);
@@ -646,6 +733,7 @@ int main(int argc, char** argv) {
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
                     if (paused) { setPaused(false); break; }
                     if (e.button.button == SDL_BUTTON_LEFT) { g.fireHeld = true; g.fireLatch = true; }
+                    if (e.button.button == SDL_BUTTON_RIGHT) g.zoomLatch = true;
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_UP:
                     if (e.button.button == SDL_BUTTON_LEFT) g.fireHeld = false;
@@ -667,6 +755,7 @@ int main(int argc, char** argv) {
                         else if (sc == SDL_SCANCODE_1) g.switchTo = 1;
                         else if (sc == SDL_SCANCODE_2) g.switchTo = 2;
                         else if (sc == SDL_SCANCODE_3) g.switchTo = 3;
+                        else if (sc == SDL_SCANCODE_4) g.switchTo = 4;
                         else if (sc == SDL_SCANCODE_V) { g.noclip = !g.noclip; g.hudDirty = true; }
                         else if (sc == SDL_SCANCODE_F6) resetPosition(g);
                         else if (sc == SDL_SCANCODE_F5) {
@@ -693,6 +782,7 @@ int main(int argc, char** argv) {
             }
         }
         float alpha = float(tickAcc / kTickDt);
+        if (automated && opt.startZoom && frame == 60) { g.zoom = opt.startZoom; g.hudDirty = true; }
 
         for (const BoxInstance& d : g.pendingDecals) renderer.addDecal(d);
         g.pendingDecals.clear();
@@ -700,6 +790,29 @@ int main(int argc, char** argv) {
         // Camera: interpolated position, latest mouse angles, plus partial recoil view punch.
         Vec3 origin = lerp(g.prevPlayer.origin, g.player.origin, alpha);
         float eyeZ = eyeHeight(g.prevPlayer) + (eyeHeight(g.player) - eyeHeight(g.prevPlayer)) * alpha;
+        if (cfg.camera_extrapolate && !paused) {
+            // Zero-lag camera: draw yourself where you are *now* (latest tick + elapsed time), not
+            // interpolated up to one tick (7.8 ms) in the past. Collision-checked, with step-up.
+            const PlayerState& p = g.player;
+            float t = alpha * kTickDt;
+            Vec3 target = p.origin + p.velocity * t;
+            if (g.noclip) {
+                origin = target;
+            } else {
+                if (!p.onGround) target.z -= 0.5f * g.moveParams.gravity * t * t;
+                Vec3 mins = hullMins(), maxs = hullMaxs(p.ducked);
+                TraceResult tr = g.world.traceBox(p.origin, target, mins, maxs);
+                if (tr.fraction < 1.0f && p.onGround) {
+                    Vec3 up{0, 0, g.moveParams.stepSize};
+                    TraceResult a = g.world.traceBox(p.origin + up, target + up, mins, maxs);
+                    TraceResult d = g.world.traceBox(a.endpos, a.endpos - up - Vec3{0, 0, 2}, mins, maxs);
+                    origin = a.fraction > tr.fraction ? d.endpos : tr.endpos;
+                } else {
+                    origin = tr.endpos;
+                }
+            }
+            eyeZ = eyeHeight(p);
+        }
         Vec3 eye = origin + Vec3{0, 0, eyeZ};
         float recoilIdx = g.recoilIndexPrev + (g.weapon->recoilIndex - g.recoilIndexPrev) * alpha;
         RecoilStep punch = g.weapon->def->canFire ? recoilAt(*g.weapon->def, recoilIdx) : RecoilStep{0, 0};
@@ -707,7 +820,7 @@ int main(int argc, char** argv) {
         float camYaw = float(g.viewYaw) - punch.right * cfg.view_recoil_tracking;
 
         float aspect = pixH > 0 ? float(pixW) / float(pixH) : 1.0f;
-        float vfov = 2.0f * std::atan(std::tan(cfg.fov * 0.5f * kDegToRad) * 0.75f);
+        float vfov = 2.0f * std::atan(std::tan(zoomFov(g.zoom, cfg.fov) * 0.5f * kDegToRad) * 0.75f);
         Mat4 viewProj = perspective(vfov, aspect, 2.0f, 16384.0f) * viewFromAngles(eye, camPitch, camYaw);
 
         // Dummies at their interpolated positions; remember exactly what we drew for hit tests.
@@ -724,8 +837,8 @@ int main(int argc, char** argv) {
                 squash = std::max(0.06f, 1.0f - t / 0.22f);
             }
             for (const Hitbox& hb : dummyHitboxes()) {
-                uint32_t base = hb.group == kHead ? 0xe0b48a : hb.group == kChest ? 0x9c3c3c
-                              : hb.group == kStomach ? 0x86363a : 0x3e4450;
+                uint32_t base = hb.group == kHead ? 0xe8b98c : hb.group == kChest ? 0x2f4f8a
+                              : hb.group == kStomach ? 0x24365e : 0x22252b;
                 uint32_t col = lerpColor(base, 0xffffff, std::min(1.0f, d.flash[hb.group] / 0.15f));
                 Vec3 mn = hb.mins, mx = hb.maxs;
                 mn.z *= squash;
@@ -754,7 +867,7 @@ int main(int argc, char** argv) {
         for (const ModelDraw& md : modelDraws) renderer.drawModel(viewProj, md.model, md.boxes);
 
         // First-person weapon: own FOV and fresh depth so it never clips into walls.
-        if (cfg.show_viewmodel) {
+        if (cfg.show_viewmodel && g.zoom == 0) {
             float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
             Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * viewFromAngles(eye, camPitch, camYaw);
             modelDraws.clear();

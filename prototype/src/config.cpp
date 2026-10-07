@@ -43,6 +43,12 @@ show_viewmodel 1
 // Set to 1 for CS-like random spread during sprays / while moving.
 spread_spray 0
 spread_movement 0
+// 1 = bunny hopping: hold jump (or spam the wheel) to hop on landing, no landing slowdown.
+bhop 1
+// 1 = zero-lag camera: your view is drawn where you are *now*, not up to one tick behind.
+camera_extrapolate 1
+// Scoped sensitivity multiplier (1 = matched to unscoped, like CS).
+zoom_sensitivity_ratio 1
 )";
 
 }  // namespace
@@ -94,6 +100,9 @@ Config loadConfig(const std::string& path) {
         else if (key == "show_viewmodel") i(c.show_viewmodel);
         else if (key == "spread_spray") i(c.spread_spray);
         else if (key == "spread_movement") i(c.spread_movement);
+        else if (key == "bhop") i(c.bhop);
+        else if (key == "camera_extrapolate") i(c.camera_extrapolate);
+        else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
     }
     return c;
 }

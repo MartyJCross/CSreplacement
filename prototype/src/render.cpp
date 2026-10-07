@@ -44,14 +44,14 @@ void main() {
     // Fixed directional light: tops brightest, sides shaded so shapes read clearly.
     float light = 0.45 + 0.55 * clamp(n.z, 0.0, 1.0) + 0.30 * abs(n.x) * (1.0 - abs(n.z)) + 0.20 * abs(n.y) * (1.0 - abs(n.z));
     light = min(light, 1.0);
-    vec3 c = vColor.rgb * light;
+    vec3 c = vColor.rgb * light * (n.z > 0.5 ? vec3(1.04, 1.0, 0.93) : vec3(0.95, 0.98, 1.05));  // warm sun, cool shade
     if (vColor.a > 0.9) {
         vec2 uv = abs(n.z) > 0.5 ? vWorld.xy : (abs(n.x) > 0.5 ? vWorld.yz : vWorld.xz);
         float g = grid(uv, 64.0) * 0.22 + grid(uv, 16.0) * 0.07;
         c *= 1.0 - g * vColor.a;
     }
     float d = length(vWorld - uEye);
-    c = mix(c, vec3(0.62, 0.70, 0.78), clamp(d / 9000.0, 0.0, 0.35));
+    c = mix(c, vec3(0.55, 0.74, 0.95), clamp(d / 9000.0, 0.0, 0.30));
     oColor = vec4(c, 1.0);
 }
 )";
@@ -311,7 +311,7 @@ void Renderer::beginFrame(int width, int height) {
     width_ = width;
     height_ = height;
     glViewport(0, 0, width, height);
-    glClearColor(0.62f, 0.70f, 0.78f, 1.0f);
+    glClearColor(0.55f, 0.74f, 0.95f, 1.0f);
     glDepthMask(GL_TRUE);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }

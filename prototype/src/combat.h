@@ -30,6 +30,7 @@ struct WeaponDef {
 
 const WeaponDef& rifleDef();
 const WeaponDef& pistolDef();
+const WeaponDef& sniperDef();
 const WeaponDef& knifeDef();
 
 struct WeaponState {
