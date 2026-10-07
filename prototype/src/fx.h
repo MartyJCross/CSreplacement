@@ -33,6 +33,7 @@ public:
     // Cosmetics: 0 butterfly, 1 karambit, 2 M9 bayonet, 3 talon; gun finish 0 factory .. 4.
     void setKnife(int k) { knife_ = k; }
     void setFinish(int f) { finish_ = f; }
+    void setGrenade(int type) { grenade_ = type; }  // 0 smoke, 1 flash, 2 HE, 3 molotov
     void update(const ViewModelInput& in);
     // Builds the weapon in world space for the given camera basis.
     void build(const Vec3& eye, float pitchDeg, float yawDeg, float offX, float offY, float offZ, float bobScale,
@@ -51,7 +52,7 @@ private:
     float sinceShot_ = 1;      // seconds since the last shot
     int shotsInRow_ = 0;       // consecutive shots in this spray (kick builds up)
     float inspectT_ = -1;      // seconds into the inspect animation, < 0 when not inspecting
-    int knife_ = 0, finish_ = 0;
+    int knife_ = 0, finish_ = 0, grenade_ = 0;
     float inspectLength() const;
     float flashLeft_ = 0;
     uint32_t flashSeed_ = 0;
@@ -62,6 +63,7 @@ struct Particle {
     Vec3 pos, vel;
     float life, maxLife, size;
     uint32_t color;
+    bool glow = false;  // unlit (fire, sparks)
 };
 
 struct Tracer {
@@ -74,6 +76,7 @@ public:
     // `scale` > 1 makes far impacts bigger so you can still read where a spray lands.
     void impact(const Vec3& pos, const Vec3& normal, uint32_t color, float scale = 1.0f);
     void shell(const Vec3& pos, const Vec3& vel);  // ejected brass
+    void burst(const Vec3& pos, uint32_t color, float scale);  // grenade going off
     // Floor height under (x, y) for particles to land on (nullptr = flat floor at 0).
     void setGround(float (*groundAt)(float x, float y)) { ground_ = groundAt; }
     void blood(const Vec3& pos, const Vec3& dir);

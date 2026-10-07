@@ -418,7 +418,15 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
         }
     } else {
         if (weapon_ == ViewWeapon::Grenade) {
-            out.push_back({world, toBoxes(kGrenade)});
+            // One body, tinted per type: smoke grey-green, flash pale grey, HE olive, molotov bottle brown.
+            const uint32_t body[4] = {0x4f5a4a, 0xc9ccd0, 0x55602e, 0x7a4a1a};
+            std::vector<BoxInstance> boxes = toBoxes(kGrenade);
+            boxes[0] = makeBox(kGrenade[0].mins, kGrenade[0].maxs, body[std::clamp(grenade_, 0, 3)], false);
+            if (grenade_ == 3) {  // molotov: taller bottle with a burning rag
+                boxes[0] = makeBox({-1.1f, -1.1f, -4.6f}, {1.1f, 1.1f, 2.4f}, body[3], false);
+                boxes.push_back(makeEmissive({-0.5f, -0.5f, -6.2f}, {0.5f, 0.5f, -4.6f}, 0xffa030));
+            }
+            out.push_back({world, boxes});
         } else if (knife_ == 0) {
             out.push_back({world, toBoxes(kButterflyHand)});
             out.push_back({world, toBoxes(kButterflySafe)});
@@ -455,6 +463,22 @@ void Effects::impact(const Vec3& pos, const Vec3& normal, uint32_t color, float 
     for (int i = 0; i < 4; ++i) {  // dust puff (bigger far away so a spray's landing spot stays readable)
         Vec3 v = normal * 35.0f + Vec3{rnd(), rnd(), rnd()} * 15.0f + Vec3{0, 0, 260.0f};
         particles_.push_back({pos + normal * 1.0f, v, 0, 0.26f, (1.8f + rnd() * 0.6f) * scale, 0xb9b2a3});
+    }
+    if (particles_.size() > 600) particles_.erase(particles_.begin(), particles_.begin() + 100);
+}
+
+void Effects::burst(const Vec3& pos, uint32_t color, float scale) {
+    for (int i = 0; i < 10; ++i) {  // fireball: big glowing blobs that shrink fast
+        Vec3 v = Vec3{rnd(), rnd(), rnd() * 0.5f + 0.6f} * (90.0f * scale);
+        particles_.push_back({pos + Vec3{0, 0, 16}, v, 0, 0.25f, 26.0f * scale, i % 2 ? color : 0xfff0c0, true});
+    }
+    for (int i = 0; i < 30; ++i) {  // hot sparks
+        Vec3 v = Vec3{rnd(), rnd(), rnd() * 0.5f + 0.7f} * (300.0f * scale);
+        particles_.push_back({pos + Vec3{0, 0, 6}, v, 0, 0.45f + 0.3f * (rnd() * 0.5f + 0.5f), 4.0f * scale, color, true});
+    }
+    for (int i = 0; i < 12; ++i) {  // smoke left behind
+        Vec3 v = Vec3{rnd() * 60.0f, rnd() * 60.0f, 120.0f + rnd() * 40.0f} * scale;
+        particles_.push_back({pos + Vec3{0, 0, 10}, v, 0, 1.4f, 18.0f * scale, 0x6b6f75});
     }
     if (particles_.size() > 600) particles_.erase(particles_.begin(), particles_.begin() + 100);
 }
@@ -500,7 +524,8 @@ void Effects::update(float dt) {
 void Effects::appendParticles(std::vector<BoxInstance>& out) const {
     for (const Particle& p : particles_) {
         float h = p.size * 0.5f * std::sqrt(1.0f - p.life / p.maxLife);
-        out.push_back(makeBox(p.pos - Vec3{h, h, h}, p.pos + Vec3{h, h, h}, p.color, false));
+        out.push_back(p.glow ? makeEmissive(p.pos - Vec3{h, h, h}, p.pos + Vec3{h, h, h}, p.color)
+                             : makeBox(p.pos - Vec3{h, h, h}, p.pos + Vec3{h, h, h}, p.color, false));
     }
 }
 

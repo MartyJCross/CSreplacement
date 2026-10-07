@@ -46,6 +46,7 @@ struct Options {
     bool throwSmoke = false, bots = false;       // --smoke, --bots (for screenshots)
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
     int inspectFrame = -1;                       // --inspect N: start an inspect on frame N (screenshots)
+    int nadeType = 0;                            // --nade T: grenade type for --smoke (0 smoke .. 3 molotov)
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -67,6 +68,8 @@ Options parseArgs(int argc, char** argv) {
             o.throwSmoke = true;
         } else if (a == "--bots") {
             o.bots = true;
+        } else if (a == "--nade") {
+            o.nadeType = std::atoi(next());
         } else if (a == "--inspect") {
             o.inspectFrame = std::atoi(next());
         } else if (a == "--bench") {
@@ -165,8 +168,14 @@ struct Game {
     int histHead = 0;
 
     // Smoke grenades (G). Deterministic bounces, so lineups repeat exactly.
-    struct Nade { Vec3 pos, vel; double detonateAt; };
+    // Grenades. Slot 4 holds one type at a time (press 4 again to cycle, like CS); G quick-throws it.
+    enum NadeType { kSmokeNade = 0, kFlashNade, kHeNade, kMolotov, kNadeTypes };
+    struct Nade { Vec3 pos, vel; double detonateAt; int type = kSmokeNade; };
     struct Smoke { Vec3 pos; double start; };
+    struct Fire { Vec3 pos; double start, nextTick; };
+    std::vector<Fire> fires;
+    int nadeType = kSmokeNade;
+    double flashFull = 0, flashEnd = 0;  // flashed: white until flashFull, fading out until flashEnd
     std::vector<Nade> nades;
     std::vector<Smoke> smokes;
     bool throwLatch = false;
@@ -515,6 +524,135 @@ void endRetakeRound(Game& g, bool won, const char* why) {
     g.hudDirty = true;
 }
 
+// ---- Damage: bullets, grenades and fire all come through these ----
+
+// You take damage from `attacker` (bot id, or -2 for your own grenade / the world). Returns true if
+// it killed you: you respawn per the mode's rules.
+bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon) {
+    if (g.deadUntil >= 0 || g.noclip || g.simTime < g.spawnProtectUntil || dmg <= 0) return false;
+    const bool dies = g.hp - dmg <= 0;
+    if (attacker >= 0) recordDamage(g, attacker, -1, std::min(dmg, std::max(0.0f, g.hp)), head, weapon, false, dies);
+    g.hp -= dmg;
+    g.hurtUntil = g.simTime + 0.25;
+    sound(g, Sfx::HitBody, 0.9f, 0.0f, 0.7f);
+    g.hudDirty = true;
+    if (!dies) return false;
+    if (attacker < 0) {  // your own HE / molotov
+        g.you.deaths++;
+        g.feed.push_back({std::string("YOU  [") + weapon + "]", 0xFF6060u, g.simTime});
+    }
+    g.deaths++;
+    g.hp = 100;
+    g.deadUntil = g.simTime + 1.2;
+    g.flashFull = g.flashEnd = 0;
+    buildDamageReport(g);
+    if (g.mode == 1 && g.mapId == 1) {
+        g.spawn = pickDmSpawn(g, true);
+        g.spawnYaw = rnd(g) * 360.0f - 180.0f;
+        g.spawnProtectUntil = g.deadUntil + 1.0;
+        for (BotBrain& b : g.bots)
+            if (b.state == 2) { b.state = 1; b.timer = 1.0f; }
+    } else if (g.mode == 2 && g.mapId == 1) {
+        endRetakeRound(g, false, "YOU DIED");
+    }
+    refillAmmo(g);  // respawn with full magazines, like CS
+    resetPosition(g);
+    std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
+    return true;
+}
+
+// A bot that died: when (and whether) it comes back depends on the mode.
+void botDied(Game& g, size_t i) {
+    Dummy& d = g.dummies[i];
+    if (g.botsFire || g.mapId == 1) d.respawnLeft = 2.0f + rnd(g) * 2.0f;  // no insta-respawn when they fight back
+    if (g.mode == 2) d.respawnLeft = 1e9f;                                // retakes: dead for the round
+}
+
+// A bot takes non-bullet damage (HE, fire) from `attacker` (-1 = you).
+void hurtBot(Game& g, size_t i, int attacker, float dmg, const char* weapon) {
+    Dummy& d = g.dummies[i];
+    if (!d.alive() || dmg <= 0) return;
+    float applied = std::min(dmg, d.hp);
+    d.hp -= dmg;
+    d.flash[kChest] = 0.15f;
+    const bool kill = d.hp <= 0;
+    recordDamage(g, attacker, int(i), applied, false, weapon, false, kill);
+    if (kill) {
+        d.respawnLeft = 1.0f;
+        botDied(g, i);
+        if (attacker < 0 && g.botsFire && g.hp < 100.0f) g.hp = std::min(100.0f, g.hp + 40.0f);
+    } else if (attacker < 0 && i < g.bots.size()) {
+        g.bots[i].alertUntil = g.simTime + 2.0;
+        g.bots[i].lastSeen = g.player.origin;
+    }
+}
+
+constexpr float kHeRadius = 350.0f, kFireRadius = 110.0f;
+constexpr double kFireLife = 7.0;
+
+// Flashbang: blinds whoever can see it, fully if they're looking at it. Your ears ring.
+void flashBang(Game& g, const Vec3& pos) {
+    if (g.audio) g.audio->play3D(Sfx::FlashBang, pos, g.lastRenderEye, float(g.viewYaw), 5000.0f, 1.0f);
+    g.fx.burst(pos, 0xfffbe8, 1.0f);
+    auto strength = [&](const Vec3& eye, const Vec3& look) {
+        Vec3 to = pos - eye;
+        float dist = length(to);
+        if (dist > 2400.0f || g.world.traceRay(eye, pos).fraction < 1.0f) return 0.0f;
+        float facing = dot(to * (1.0f / std::max(dist, 1.0f)), look);
+        float f = facing > 0.55f ? 1.0f : facing > -0.2f ? 0.5f : 0.15f;  // looking away still stings a bit
+        return f * std::clamp(1.0f - (dist - 350.0f) / 2050.0f, 0.15f, 1.0f);
+    };
+    if (g.deadUntil < 0) {
+        float k = strength(g.lastRenderEye, anglesToForward(float(g.viewPitch), float(g.viewYaw)));
+        if (k > 0.1f) {
+            g.flashFull = std::max(g.flashFull, g.simTime + 1.9 * k);
+            g.flashEnd = std::max(g.flashEnd, g.simTime + 4.9 * k);
+            sound(g, Sfx::FlashRing, 0.6f * k);
+        }
+    }
+    for (size_t i = 0; i < g.dummies.size() && i < g.bots.size(); ++i) {
+        const Dummy& d = g.dummies[i];
+        if (!d.alive()) continue;
+        float y = d.yaw * kDegToRad;
+        float k = strength(d.pos + Vec3{0, 0, 64}, {std::cos(y), std::sin(y), 0});
+        if (k > 0.1f) g.bots[i].blindUntil = std::max(g.bots[i].blindUntil, g.simTime + 3.6 * k);
+    }
+}
+
+// HE: up to 98 damage, falling off to nothing at kHeRadius; walls stop it.
+void heExplode(Game& g, const Vec3& pos) {
+    if (g.audio) g.audio->play3D(Sfx::Explosion, pos, g.lastRenderEye, float(g.viewYaw), 6000.0f, 1.0f);
+    g.fx.burst(pos, 0xffa040, 1.4f);
+    auto damageAt = [&](const Vec3& c) {
+        float d = length(c - pos);
+        if (d > kHeRadius || g.world.traceRay(pos + Vec3{0, 0, 4}, c).fraction < 1.0f) return 0.0f;
+        return 98.0f * std::pow(1.0f - d / kHeRadius, 1.4f);
+    };
+    for (size_t i = 0; i < g.dummies.size(); ++i)
+        if (g.dummies[i].alive()) hurtBot(g, i, -1, damageAt(g.dummies[i].pos + Vec3{0, 0, 40}), "HE");
+    hurtPlayer(g, -2, damageAt(g.player.origin + Vec3{0, 0, 40}), false, "HE");
+}
+
+bool insideSmoke(const Game& g, const Vec3& p, float extra) {
+    for (const Game::Smoke& s : g.smokes) {
+        float r = kSmokeRadius * smokeGrow(s, g.simTime) + extra;
+        if (r > extra && length2d(s.pos - p) < r && std::fabs(s.pos.z - p.z) < 160.0f) return true;
+    }
+    return false;
+}
+
+// Molotov: a patch of fire where it lands - unless it lands in a smoke.
+void igniteMolotov(Game& g, const Vec3& at) {
+    TraceResult down = g.world.traceRay(at + Vec3{0, 0, 8}, at - Vec3{0, 0, 400});
+    Vec3 p = down.endpos;
+    if (insideSmoke(g, p, 0)) {
+        if (g.audio) g.audio->play3D(Sfx::Fire, p, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.6f, 1.6f);
+        return;  // fizzles
+    }
+    g.fires.push_back({p, g.simTime, g.simTime});
+    if (g.audio) g.audio->play3D(Sfx::Explosion, p, g.lastRenderEye, float(g.viewYaw), 2500.0f, 0.45f, 1.7f);
+}
+
 void loadMap(Game& g, Renderer& r, int id) {
     g.mapId = id;
     g.world = id == 1 ? buildDust() : buildFeelLab();
@@ -545,6 +683,8 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.kzState = 0;
     g.nades.clear();
     g.smokes.clear();
+    g.fires.clear();
+    g.flashFull = g.flashEnd = 0;
     g.hp = 100;
     resetPosition(g);
     std::vector<BoxInstance> statics;
@@ -629,11 +769,19 @@ void simTick(Game& g, const Options& opt) {
         g.grenadeReturnAt = -1;
         g.zoom = 0;
         g.resumeZoomAt = -1;
-        if (target != g.weapon) {
+        if (g.switchTo == 4 && g.weapon == &g.grenade) {  // 4 again: next grenade type, like CS
+            g.nadeType = (g.nadeType + 1) % Game::kNadeTypes;
+            g.grenade.nextFireTime = std::max(g.grenade.nextFireTime, g.simTime + 0.25);
+            g.vm.setGrenade(g.nadeType);
+            g.vm.onDraw(ViewWeapon::Grenade);
+            sound(g, Sfx::Draw, 0.6f, 0.0f, 1.2f);
+            g.hudDirty = true;
+        } else if (target != g.weapon) {
             g.weapon->reloadEndTime = -1;
             g.lastWeapon = g.weapon;
             g.weapon = target;
             g.weapon->nextFireTime = std::max(g.weapon->nextFireTime, g.simTime + 0.25);  // draw time
+            g.vm.setGrenade(g.nadeType);
             g.vm.onDraw(viewWeaponOf(g));
             sound(g, Sfx::Draw, 0.7f);
             g.hudDirty = true;
@@ -755,9 +903,7 @@ void simTick(Game& g, const Options& opt) {
             std::snprintf(buf, sizeof(buf), "%s %d%s%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
                           r.kill ? "  KILL" : "", r.penCount ? "  WALLBANG" : "", r.distance * 0.0254f);
             pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
-            if (r.kill && (g.botsFire || g.mapId == 1))  // no insta-respawn when they fight back
-                g.dummies[size_t(r.dummyIndex)].respawnLeft = 2.0f + rnd(g) * 2.0f;
-            if (r.kill && g.mode == 2) g.dummies[size_t(r.dummyIndex)].respawnLeft = 1e9f;  // retakes: dead for the round
+            if (r.kill) botDied(g, size_t(r.dummyIndex));
             if (!r.kill && g.mode == 2) {  // a retake anchor you hit turns on you
                 BotBrain& b = g.bots[size_t(r.dummyIndex)];
                 b.alertUntil = g.simTime + 2.0;
@@ -913,11 +1059,12 @@ void simTick(Game& g, const Options& opt) {
             break;
     }
 
-    // ---- Smoke grenades ----
+    // ---- Grenades: smoke, flash, HE, molotov ----
     if (g.throwLatch) {
         Vec3 f = anglesToForward(float(g.viewPitch), float(g.viewYaw));
         float throwSpeed = g.throwLob ? 380.0f : 750.0f;
-        g.nades.push_back({g.lastRenderEye + f * 16.0f, f * throwSpeed + g.player.velocity, g.simTime + 1.6});
+        double fuse = g.nadeType == Game::kMolotov ? 2.2 : 1.6;  // a molotov bursts when it lands
+        g.nades.push_back({g.lastRenderEye + f * 16.0f, f * throwSpeed + g.player.velocity, g.simTime + fuse, g.nadeType});
         g.throwLob = false;
         sound(g, Sfx::Draw, 0.6f, 0.0f, 1.3f);
         g.throwLatch = false;
@@ -927,18 +1074,27 @@ void simTick(Game& g, const Options& opt) {
         n.vel.z -= 800.0f * kTickDt;
         Vec3 next = n.pos + n.vel * kTickDt;
         TraceResult tr = g.world.traceRay(n.pos, next);
+        bool landed = false;
         if (tr.fraction < 1.0f) {
             float into = dot(n.vel, tr.normal);
             n.vel = (n.vel - tr.normal * (2.0f * into)) * 0.45f;
             n.pos = tr.endpos + tr.normal * 0.1f;
+            landed = tr.normal.z > 0.7f;
             if (-into > 80.0f && g.audio)
                 g.audio->play3D(Sfx::Footstep, n.pos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.4f, 1.8f);
         } else {
             n.pos = next;
         }
-        if (g.simTime >= n.detonateAt) {
-            g.smokes.push_back({n.pos, g.simTime});
-            if (g.audio) g.audio->play3D(Sfx::Land, n.pos, g.lastRenderEye, float(g.viewYaw), 2500.0f, 1.0f, 0.55f);
+        if (g.simTime >= n.detonateAt || (n.type == Game::kMolotov && landed)) {
+            switch (n.type) {
+                case Game::kSmokeNade:
+                    g.smokes.push_back({n.pos, g.simTime});
+                    if (g.audio) g.audio->play3D(Sfx::Land, n.pos, g.lastRenderEye, float(g.viewYaw), 2500.0f, 1.0f, 0.55f);
+                    break;
+                case Game::kFlashNade: flashBang(g, n.pos); break;
+                case Game::kHeNade: heExplode(g, n.pos); break;
+                default: igniteMolotov(g, n.pos); break;
+            }
             g.nades.erase(g.nades.begin() + long(k));
         } else {
             ++k;
@@ -947,6 +1103,26 @@ void simTick(Game& g, const Options& opt) {
     g.smokes.erase(std::remove_if(g.smokes.begin(), g.smokes.end(),
                                   [&](const Game::Smoke& s) { return g.simTime - s.start > kSmokeLife; }),
                    g.smokes.end());
+    // Fire: burns for kFireLife, 10 damage every 0.25 s to anyone standing in it; a smoke puts it out.
+    for (size_t k = 0; k < g.fires.size();) {
+        Game::Fire& f = g.fires[k];
+        if (g.simTime - f.start > kFireLife || insideSmoke(g, f.pos, kFireRadius * 0.6f)) {
+            g.fires.erase(g.fires.begin() + long(k));
+            continue;
+        }
+        if (g.simTime >= f.nextTick) {
+            f.nextTick = g.simTime + 0.25;
+            auto inFire = [&](const Vec3& feet) {
+                return length2d(feet - f.pos) < kFireRadius && feet.z - f.pos.z > -24.0f && feet.z - f.pos.z < 48.0f;
+            };
+            for (size_t i = 0; i < g.dummies.size(); ++i)
+                if (g.dummies[i].alive() && inFire(g.dummies[i].pos)) hurtBot(g, i, -1, 10.0f, "MOLOTOV");
+            if (inFire(g.player.origin)) hurtPlayer(g, -2, 10.0f, false, "MOLOTOV");
+            if (g.audio && rnd(g) < 0.6f)
+                g.audio->play3D(Sfx::Fire, f.pos, g.lastRenderEye, float(g.viewYaw), 1800.0f, 0.7f);
+        }
+        ++k;
+    }
 
     // ---- Dust bots: hide, peek, hold an angle, return; respawn at a free spot ----
     if (g.mapId == 1 && g.mode == 0) {
@@ -1046,7 +1222,7 @@ void simTick(Game& g, const Options& opt) {
             // Deathmatch bots need to see you (view cone) and have turned to face you first.
             bool los = g.mode != 0 && g.mapId == 1
                            ? d.alive() && g.bots[i].aimed
-                           : d.alive() && length(simEye - head) < 4000.0f &&
+                           : d.alive() && length(simEye - head) < 4000.0f && g.simTime >= g.bots[i].blindUntil &&
                                  g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
             if (!los) { g.botSeen[i] = 0; continue; }
             if (g.botSeen[i] == 0) g.botReact[i] = 0.25f + rnd(g) * 0.3f;  // human-ish reaction time
@@ -1077,36 +1253,8 @@ void simTick(Game& g, const Options& opt) {
                                 far ? 6500.0f : 4000.0f, far ? 1.0f : 0.75f);
             }
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
-            if (hit && g.simTime < g.spawnProtectUntil) hit = 0;  // deathmatch spawn protection
-            if (hit) {
-                const float dmg = hit == 2 ? 100.0f : 26.0f;
-                recordDamage(g, int(i), -1, std::min(dmg, std::max(0.0f, g.hp)), hit == 2, "RIFLE", false,
-                             g.hp - dmg <= 0);
-                g.hp -= dmg;
-                g.hurtUntil = g.simTime + 0.25;
-                sound(g, Sfx::HitBody, 0.9f, 0.0f, 0.7f);
-                if (g.hp <= 0) {
-                    g.deaths++;
-                    g.hp = 100;
-                    g.deadUntil = g.simTime + 1.2;
-                    buildDamageReport(g);
-                    if (g.mode == 1 && g.mapId == 1) {
-                        g.spawn = pickDmSpawn(g, true);
-                        g.spawnYaw = rnd(g) * 360.0f - 180.0f;
-                        g.spawnProtectUntil = g.deadUntil + 1.0;
-                        for (BotBrain& b : g.bots)
-                            if (b.state == 2) { b.state = 1; b.timer = 1.0f; }
-                    } else if (g.mode == 2 && g.mapId == 1) {
-                        endRetakeRound(g, false, "YOU DIED");
-                    }
-                    refillAmmo(g);  // respawn with full magazines, like CS
-                    resetPosition(g);
-                    std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
-                    g.hudDirty = true;
-                    break;  // nobody else shoots at your new spawn this tick
-                }
-                g.hudDirty = true;
-            }
+            if (hit && hurtPlayer(g, int(i), hit == 2 ? 100.0f : 26.0f, hit == 2, "RIFLE"))
+                break;  // you died: nobody else shoots at your new spawn this tick
         }
     }
 
@@ -1430,8 +1578,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (showHelp) {
         const char* help[] = {
             "WASD MOVE   SPACE/WHEEL JUMP   CTRL CROUCH   SHIFT WALK",
-            "MOUSE1 FIRE   MOUSE2 SCOPE   R RELOAD   1 PRIMARY   2 PISTOL   3 KNIFE   4 SMOKE   Q LAST WEAPON",
-            "B BUY MENU (RIFLE / SNIPER)   TAB SCORES   G QUICK SMOKE (SMOKE OUT: MOUSE1 THROW, MOUSE2 LOB)",
+            "MOUSE1 FIRE   MOUSE2 SCOPE   R RELOAD   1 PRIMARY   2 PISTOL   3 KNIFE   4 GRENADE (4 AGAIN: NEXT)   Q LAST",
+            "B BUY MENU   TAB SCORES   G QUICK THROW   GRENADE OUT: MOUSE1 THROW, MOUSE2 LOB",
             "HOLD SPACE TO BUNNY HOP - AIR STRAFE (A/D + TURN) TO GAIN SPEED",
             "F INSPECT   V NOCLIP   C CLEAR DECALS   ALT+ENTER FULLSCREEN",
             "KZ COURSE: GREEN PAD BEHIND THE SPRAY WALL - HOP THE BLUE PADS, AVOID THE LAVA",
@@ -1463,10 +1611,19 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (ws.def->canFire) {
         if (ws.reloadEndTime >= 0) std::snprintf(buf, sizeof(buf), "%s  RELOADING", ws.def->name);
         else std::snprintf(buf, sizeof(buf), "%s  %d / %d", ws.def->name, ws.ammo, ws.def->magSize);
+    } else if (g.weapon == &g.grenade) {
+        const char* names[Game::kNadeTypes] = {"SMOKE", "FLASHBANG", "HE GRENADE", "MOLOTOV"};
+        std::snprintf(buf, sizeof(buf), "%s  (4: NEXT)", names[g.nadeType]);
     } else {
         std::snprintf(buf, sizeof(buf), "%s", ws.def->name);
     }
     hud.text(float(w) - hud.textWidth(buf, s * 2) - 16.0f * s, float(h) - 24.0f * s, buf, 0xFFFFFFFF, s * 2);
+
+    // Flashed: white over everything, holding full for a while, then fading.
+    if (g.simTime < g.flashEnd) {
+        float k = g.simTime < g.flashFull ? 1.0f : float((g.flashEnd - g.simTime) / std::max(0.01, g.flashEnd - g.flashFull));
+        hud.rect(0, 0, float(w), float(h), 0xFFFFFF00u | uint32_t(255.0f * std::clamp(k, 0.0f, 1.0f)));
+    }
 
     if (paused) {
         hud.rect(0, 0, float(w), float(h), 0x000000A0);
@@ -1784,7 +1941,10 @@ int main(int argc, char** argv) {
         const uint64_t tSim = SDL_GetPerformanceCounter();
         float alpha = float(tickAcc / kTickDt);
         if (automated && opt.startZoom && frame == 60) { g.zoom = opt.startZoom; g.hudDirty = true; }
-        if (automated && opt.throwSmoke && frame == 30) g.throwLatch = true;
+        if (automated && opt.throwSmoke && frame == 30) {
+            g.nadeType = std::clamp(opt.nadeType, 0, Game::kNadeTypes - 1);
+            g.throwLatch = true;
+        }
         if (automated && frame == opt.inspectFrame) g.vm.inspect();
         if (automated && opt.bots && frame == 1) g.botsFire = true;
         if (automated && opt.showMenu && frame == 60) { paused = true; menuSel = 2; g.hudDirty = true; }
@@ -1885,8 +2045,25 @@ int main(int argc, char** argv) {
         float fdt = float(dt);
         g.fx.update(paused ? 0.0f : fdt);
         g.fx.appendParticles(dynamicBoxes);
-        for (const Game::Nade& n : g.nades)
-            dynamicBoxes.push_back(makeBox(n.pos - Vec3{1.5f, 1.5f, 1.5f}, n.pos + Vec3{1.5f, 1.5f, 2.5f}, 0x3b4a2f, false));
+        for (const Game::Nade& n : g.nades) {
+            const uint32_t nadeColor[Game::kNadeTypes] = {0x3b4a2f, 0xd6d8da, 0x4a5a2a, 0x7a4a1a};
+            dynamicBoxes.push_back(
+                makeBox(n.pos - Vec3{1.5f, 1.5f, 1.5f}, n.pos + Vec3{1.5f, 1.5f, 2.5f}, nadeColor[n.type], false));
+        }
+        for (const Game::Fire& f : g.fires) {
+            // Flames: glowing columns that flicker (cosmetic hash of time), dying down at the end.
+            float age = float(g.simTime + tickAcc - f.start);
+            float life = std::clamp(std::min(age / 0.3f, float(kFireLife - age) / 1.0f), 0.0f, 1.0f);
+            int tick = int((g.simTime + tickAcc) * 14.0);
+            for (uint32_t pi = 0; pi < 26; ++pi) {
+                uint32_t hsh = (pi + 1) * 2654435761u, flick = (pi * 977u + uint32_t(tick)) * 2246822519u;
+                float a = float(hsh % 6283) / 1000.0f, rr = std::sqrt(float((hsh >> 8) % 1000) / 1000.0f);
+                Vec3 c = f.pos + Vec3{std::cos(a) * rr * kFireRadius, std::sin(a) * rr * kFireRadius, 0};
+                float hgt = (10.0f + float(flick % 26)) * life, wdt = 5.0f + float((hsh >> 4) % 5);
+                uint32_t col = (flick >> 8) % 3 == 0 ? 0xffd25a : (flick >> 8) % 3 == 1 ? 0xff8a2a : 0xe8461c;
+                dynamicBoxes.push_back(makeEmissive(c - Vec3{wdt, wdt, 0}, c + Vec3{wdt, wdt, hgt}, col));
+            }
+        }
         for (const Game::Smoke& sm : g.smokes) {
             // Deterministic puffs; grows in over 0.6 s and fades over the last 1.5 s.
             float k = smokeGrow(sm, g.simTime + tickAcc);

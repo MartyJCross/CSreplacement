@@ -68,7 +68,8 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     const float toYaw = yawTo(d.pos, s.playerOrigin);
     const float dist = length(s.playerEye - head);
     const bool inView = std::fabs(wrapDeg(toYaw - d.yaw)) < 75.0f || dist < 250.0f || s.now < b.alertUntil;
-    b.sees = s.playerUp && inView && dist < 4000.0f && sightClear(s, head, s.playerEye);
+    const bool blind = s.now < b.blindUntil;
+    b.sees = s.playerUp && !blind && inView && dist < 4000.0f && sightClear(s, head, s.playerEye);
     if (b.sees) {
         b.lastSeen = s.playerOrigin;
         if (b.state != 2) { b.state = 2; b.path.clear(); }

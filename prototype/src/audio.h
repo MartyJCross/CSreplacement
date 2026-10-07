@@ -13,6 +13,7 @@ enum class Sfx {
     PistolShot, RifleShotFar,  // far = a rifle heard from a distance (muffled, more echo)
     HitMarker,                 // crisp tick when your bullet connects
     FootstepWood, FootstepMetal,  // steps on crates/doors and on the container/car
+    FlashBang, FlashRing, Explosion, Fire,  // grenades: flash pop, your ears ringing, HE, molotov crackle
     Count
 };
 

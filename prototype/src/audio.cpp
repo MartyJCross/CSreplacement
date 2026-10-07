@@ -300,6 +300,55 @@ std::vector<float> footstepMetal(Rng& r) {  // boot on sheet metal: a short clan
     return b;
 }
 
+std::vector<float> flashBang(Rng& r) {  // sharp, bright pop
+    auto b = buffer(0.6f);
+    addNoise(b, 0, 1.0f, 1500, 14000, 0.012f, r, 0.0002f);
+    addNoise(b, 0, 0.7f, 200, 2500, 0.04f, r, 0.0004f);
+    addTone(b, 0, 0.3f, 180 * r.jitter(0.05f), 90, 0.04f);
+    highpass(b, 120);
+    addReflections(b, 50, 50, 4, 0.25f, 0.6f, 5000, r);
+    fadeTail(b);
+    normalize(b, 0.95f);
+    return b;
+}
+
+std::vector<float> flashRing(Rng& r) {  // tinnitus: a high whine with a slow beat, fading over 3 s
+    auto b = buffer(3.0f);
+    float f = 3600.0f * r.jitter(0.03f);
+    for (size_t i = 0; i < b.size(); ++i) {
+        float t = float(i) / kRate;
+        float env = std::min(1.0f, t / 0.05f) * std::exp(-t / 1.1f);
+        b[i] = (std::sin(2.0f * kPi * f * t) + 0.6f * std::sin(2.0f * kPi * (f + 7.0f) * t)) * env;
+    }
+    fadeTail(b);
+    normalize(b, 0.35f);
+    return b;
+}
+
+std::vector<float> explosion(Rng& r) {  // HE: crack, big boom, rumble and debris
+    auto b = buffer(1.6f);
+    addNoise(b, 0, 0.9f, 1200, 10000, 0.01f, r, 0.0002f);
+    addNoise(b, 0, 1.0f, 60, 1500, 0.12f * r.jitter(0.1f), r, 0.001f);
+    addTone(b, 0, 0.8f, 75 * r.jitter(0.05f), 32, 0.18f);
+    addGrit(b, 0.05f, 0.4f, 0.25f, r);
+    highpass(b, 40);
+    saturate(b, 2.0f);
+    addReflections(b, 80, 90, 6, 0.35f, 0.66f, 2500, r);
+    fadeTail(b);
+    normalize(b, 0.98f);
+    return b;
+}
+
+std::vector<float> fireCrackle(Rng& r) {  // molotov fire: a short burst of crackles over a roar
+    auto b = buffer(0.45f);
+    addNoise(b, 0, 0.35f, 120, 1200, 0.3f, r, 0.05f);
+    for (int k = 0; k < 9; ++k)
+        addNoise(b, (r.noise() * 0.5f + 0.5f) * 0.4f, 0.6f * std::fabs(r.noise()), 1500, 9000, 0.004f, r, 0.0002f);
+    fadeTail(b);
+    normalize(b, 0.6f);
+    return b;
+}
+
 struct SoundBank {
     std::vector<std::vector<float>> clips;
     std::vector<int> first, count;
@@ -315,6 +364,8 @@ SoundBank synthesize() {
         {Sfx::HitHead, hitHead, 3},      {Sfx::SniperShot, sniperShot, 3}, {Sfx::PistolShot, pistolShot, 4},
         {Sfx::RifleShotFar, rifleShotFar, 3},    {Sfx::HitMarker, hitMarker, 3},
         {Sfx::FootstepWood, footstepWood, 4},    {Sfx::FootstepMetal, footstepMetal, 4},
+        {Sfx::FlashBang, flashBang, 2},          {Sfx::FlashRing, flashRing, 1},
+        {Sfx::Explosion, explosion, 3},          {Sfx::Fire, fireCrackle, 4},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -334,7 +385,8 @@ SoundBank synthesize() {
 bool Audio::dumpWavs(const std::string& dir) {
     const char* names[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw", "footstep",
                            "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
-                           "hit_marker", "footstep_wood", "footstep_metal"};
+                           "hit_marker", "footstep_wood", "footstep_metal", "flash_bang", "flash_ring",
+                           "explosion", "fire"};
     static_assert(sizeof(names) / sizeof(names[0]) == size_t(Sfx::Count), "name every sound");
     SoundBank bank = synthesize();
     for (size_t s = 0; s < size_t(Sfx::Count); ++s)
