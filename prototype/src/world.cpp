@@ -241,7 +241,7 @@ bool World::boxFits(const Vec3& origin, const Vec3& mins, const Vec3& maxs) cons
 // Dust2 at real scale. Coordinates are Source units, +x = east, +y = north, 250 u/s = knife run.
 // The layout is described as named floor areas on a 32-unit grid; later areas override earlier
 // ones. Any cell no area covers is solid wall, with its height taken from the nearest floor.
-// Ramps are stepped per cell (at most 16 units a step, so you walk up them) until real slopes exist.
+// Ramps are smooth wedges for movement; the grid keeps them as steps for the bots' navigation.
 // ---------------------------------------------------------------------------------------------
 namespace {
 

@@ -1,2 +1,4 @@
 # Local CMake build output (see CLAUDE.md section 5)
 /build/
+# Personal editor settings
+/.vscode/

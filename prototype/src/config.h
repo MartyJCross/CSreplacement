@@ -36,11 +36,11 @@ struct Config {
     int hitsound = 1;            // 1 = a tick sound when you hit
     int view_smooth_steps = 1;   // 1 = the camera eases over stairs/steps instead of popping up (cosmetic)
     float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped
-    int map = 0;               // 0 = feel lab, 1 = dust (F8 switches)
+    int map = 0;               // 0 = feel lab, 1 = dust (Play screen)
     int dust_scale = 60;       // Dust's size in % of real Dust2 (50..100)
     int msaa = 4;              // anti-aliasing samples (0 = off); applies on restart
     int depth_prepass = 1;     // 1 = depth pre-pass (faster on most GPUs, identical image)
-    int mode = 0;              // 0 = practice, 1 = deathmatch on Dust (F7 switches)
+    int mode = 0;              // 0 practice, 1 deathmatch, 2 retakes, 3 competitive, 4 prefire (Play screen)
     int dm_bots = 10;          // deathmatch: number of bots
     int dm_minutes = 5;        // deathmatch: match length
     int rt_bots = 4;           // retakes: bots holding the site (1..6)

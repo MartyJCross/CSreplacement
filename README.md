@@ -1,6 +1,6 @@
 # CSreplacement: research and plan for a CS:GO-like tactical shooter
 
-This repo holds research and design only. There is no game code here. It sets out what it would take to build a tactical FPS where **shooting, movement and positioning come first**, which runs at **700+ FPS** on high-end PCs and has **hit registration players can trust** on online servers.
+This repo holds the research and plan, plus **Feel Lab**, a playable single-player prototype (see below). The research sets out what it would take to build a tactical FPS where **shooting, movement and positioning come first**, which runs at **700+ FPS** on high-end PCs and has **hit registration players can trust** on online servers.
 
 ## Documents
 
@@ -12,6 +12,7 @@ This repo holds research and design only. There is no game code here. It sets ou
 | 04 | [Netcode & hit registration](docs/04-netcode-and-hitreg.md) | 128 Hz hybrid model, the hitbox contract, lag compensation, testing hit reg |
 | 05 | [Performance budget](docs/05-performance-budget.md) | How to hit 700+ FPS 1% lows: CPU/GPU frame budgets and rules |
 | 06 | [Build process & roadmap](docs/06-build-process.md) | Team, phases with gates, CI/CD, repo layout, cost, risks, first steps |
+| 07 | [Multiplayer investigation](docs/07-multiplayer-investigation.md) | The path from the prototype to playing a friend online: refactor, ENet, hosting options |
 
 ## The short answer: what would it take?
 
@@ -29,9 +30,9 @@ This repo holds research and design only. There is no game code here. It sets ou
 
 **Biggest non-technical risk:** player population. Plan for community servers, bots, low-population modes and a pro/creator programme from day one.
 
-## Prototype
+## Prototype: Feel Lab
 
-[`prototype/`](prototype/) is a minimal single-player **feel lab** in C++20, SDL3 and OpenGL 3.3. It has 128-tick movement, one rifle with a spray pattern, a first-person weapon model, synthesized sound with positional footsteps, target dummies and a grey-box test map. A GitHub Action builds a Windows `.exe` on every push. See [prototype/README.md](prototype/README.md) to download and play.
+[`prototype/`](prototype/) is a single-player C++20 / SDL3 / OpenGL 3.3 game built to test the feel: 128-tick CS-style movement, rifle, pistol, sniper and knives with fixed spray patterns, grenades, and a Dust2 recreation (scenery, cover, real proportions) with bots. Modes: practice, deathmatch, retakes, competitive 5v5 (economy, bomb) and prefire. Everything is drawn from boxes and the sounds are synthesized, so there are no asset files. The version is shown on the main menu; a GitHub Action builds a Windows `.exe` on every push. See [prototype/README.md](prototype/README.md) to download and play, and [CLAUDE.md](CLAUDE.md) for how the code is organised.
 
 ## Recommended first step
 

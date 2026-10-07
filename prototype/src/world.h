@@ -65,7 +65,7 @@ bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin
 World buildFeelLab();
 
 // Dust2 at real scale (~4200 x 4250 units, +y = north). Built from named floor areas on a 32-unit
-// grid (flat areas, stepped ramps, roofed tunnels); everything else is solid wall. See world.cpp.
+// grid (flat areas, ramps, roofed tunnels); everything else is solid wall. See world.cpp.
 World buildDust();
 struct PeekSpot { Vec3 cover, peek; };  // bot hides at `cover`, steps out to `peek`
 const std::vector<PeekSpot>& dustPeekSpots();

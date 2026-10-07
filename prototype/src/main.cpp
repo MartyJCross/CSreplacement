@@ -168,7 +168,6 @@ struct Game {
     Vec3 eyeHistory[64];
     int histHead = 0;
 
-    // Smoke grenades (G). Deterministic bounces, so lineups repeat exactly.
     // Grenades. Slot 4 holds one type at a time (press 4 again to cycle, like CS); G quick-throws it.
     enum NadeType { kSmokeNade = 0, kFlashNade, kHeNade, kMolotov, kNadeTypes };
     struct Nade { Vec3 pos, vel; int type = kSmokeNade; int ticks = 0; };  // ticks in flight (fuse)
@@ -2825,7 +2824,7 @@ int main(int argc, char** argv) {
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     setDustScale(float(cfg.dust_scale) / 100.0f);
     loadMap(g, renderer, cfg.map == 1 || g.mode != 0 ? 1 : 0);
-    // Settings changed (menu, F5): a new Dust size rebuilds the map right away.
+    // Settings changed (menu, config reload): a new Dust size rebuilds the map right away.
     auto settingsChanged = [&]() {
         applyConfig(g, cfg);
         if (setDustScale(float(cfg.dust_scale) / 100.0f) && g.mapId == 1) loadMap(g, renderer, 1);

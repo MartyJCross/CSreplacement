@@ -66,7 +66,7 @@ zoom_sensitivity_ratio 1
 msaa 4
 // Dust's size in percent of real Dust2 (50..100). Everything scales but crates, headroom and doorways.
 dust_scale 60
-// Deathmatch on Dust (F7): number of bots and match length in minutes.
+// Deathmatch: number of bots and match length in minutes.
 dm_bots 10
 dm_minutes 5
 // Retakes: bots holding the site, 1..6.
@@ -82,7 +82,7 @@ prefire_bots_shoot 1
 bool saveConfig(const std::string& path, const Config& c) {
     std::ofstream out(path);
     if (!out) return false;
-    out << "// Feel Lab config. Written by the in-game settings menu (Esc); you can also edit it by hand.\n";
+    out << "// Feel Lab config. Written by the in-game menus (Esc); you can also edit it by hand.\n";
     out << "sensitivity " << c.sensitivity << "\nm_yaw " << c.m_yaw << "\nm_pitch " << c.m_pitch
         << "\nzoom_sensitivity_ratio " << c.zoom_sensitivity_ratio << "\nfov " << c.fov << "\nfps_max " << c.fps_max
         << "\nvsync " << c.vsync << "\nfullscreen " << c.fullscreen << "\nwidth " << c.width << "\nheight " << c.height
