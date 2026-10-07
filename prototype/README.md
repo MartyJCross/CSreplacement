@@ -45,6 +45,8 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | F6 | Reset to spawn |
 | F5 | Reload `config.cfg` live (sensitivity, crosshair, viewmodel, volume, spread) |
 | C | Clear bullet decals |
+| G | Throw a smoke (deterministic bounces, so lineups repeat; jump-throws carry your momentum) |
+| F4 | Bots shoot back (toggle). You get HP, a damage flash and death/respawn |
 | F3 | Aim drill: killed range dummies respawn at random spots, and the HUD shows time-to-kill (last + average) |
 | F1 | Toggle help |
 | Alt+Enter | Toggle fullscreen |
@@ -72,6 +74,18 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 - **SPEED / SPREAD / ACCURATE:** horizontal speed, your current bullet spread in degrees, and `ACCURATE` (green) when you're slow enough for a perfect first shot (≤ 34% of rifle speed, ~73 u/s).
 - **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **78 ms** counter-strafing vs **~200 ms** releasing.
 - **Hit log (top right):** hitgroup, damage, kill, distance in metres.
+
+## Bots, smokes, wallbangs, KZ
+
+- **Bots shoot back (F4).** Any dummy that can see you reacts after 0.4 s and fires every 0.3 s. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. There's no random aim. Smokes block their vision.
+- **Smokes (G):**
+  - they pop 1.6 s after the throw and last 15 s
+  - same throw = same landing spot every time
+- **Wallbangs:**
+  - rifle and sniper bullets go through thin walls (rifle 24 units, sniper 40) and lose damage; the pistol can't
+  - the hit log shows `WALLBANG`
+  - try the peek wall: the dummies behind the solid part can be shot through it
+- **KZ course:** start on the green pad behind the spray wall and hop the blue pads over the lava to the yellow pad. The gaps get wider, so the last ones need bhop speed. The timer runs at the top of the screen and keeps your best time. Touching lava sends you back to the start.
 
 ## Bunny hopping
 

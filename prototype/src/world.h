@@ -14,6 +14,7 @@ struct TraceResult {
     Vec3 endpos;
     Vec3 normal;            // surface normal at impact (valid if fraction < 1)
     bool startSolid = false;
+    int box = -1;           // index into World::solids that was hit
 };
 
 struct World {
@@ -33,3 +34,10 @@ bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin
 
 // Builds the "feel lab" greybox map.
 World buildFeelLab();
+
+// KZ / bhop course (behind the spray wall): start pad, lava floor, pads, end pad.
+constexpr float kKzMinY = -880.0f, kKzMaxY = -580.0f;
+constexpr float kKzStartMinX = 720.0f, kKzStartMaxX = 848.0f;  // start pad
+constexpr float kKzLavaMinX = 848.0f, kKzLavaMaxX = 2352.0f;   // touching the floor here = reset
+constexpr float kKzEndMinX = 2352.0f, kKzEndMaxX = 2540.0f;    // end pad
+constexpr float kKzPadHeight = 24.0f;

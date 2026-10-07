@@ -61,6 +61,7 @@ TraceResult World::traceBox(const Vec3& start, const Vec3& end, const Vec3& mins
         if (t < bestT) {
             bestT = t;
             tr.normal = n;
+            tr.box = int(&b - solids.data());
         }
     }
 
@@ -127,6 +128,21 @@ World buildFeelLab() {
 
     // A low wall to jump-peek / crouch behind near the range.
     add({1600, -300, 0}, {1616, -120, 40}, kLowWall);
+
+    // KZ course: hop pad to pad over lava, gaps get wider (the last ones need air-strafe speed).
+    add({kKzStartMinX, kKzMinY, 0}, {kKzStartMaxX, kKzMaxY, kKzPadHeight}, 0x3fae5a);
+    add({kKzLavaMinX, kKzMinY, 0}, {kKzLavaMaxX, kKzMaxY, 0.25f}, 0xd2401e);
+    {
+        const float gaps[6] = {100, 120, 140, 160, 180, 200};
+        float x = kKzLavaMinX;
+        for (float gapLen : gaps) {
+            x += gapLen;
+            add({x, kKzMinY, 0}, {x + 64, kKzMaxY, kKzPadHeight}, 0x5b7fa6);
+            x += 64;
+        }
+        // x is now 2252: the final 100-unit gap leads to the end pad at 2352.
+    }
+    add({kKzEndMinX, kKzMinY, 0}, {kKzEndMaxX, kKzMaxY, kKzPadHeight}, 0xe8c547);
 
     // Painted trim bands high on the boundary walls (out of reach: purely visual orientation cues).
     add({-512, -1024, 200}, {-510, 1024, 216}, kTrimTeal);      // behind spawn

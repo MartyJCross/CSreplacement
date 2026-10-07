@@ -26,6 +26,7 @@ struct WeaponDef {
     const RecoilStep* pattern;
     int patternLen;
     bool automatic;          // false = one shot per click
+    float penetration = 0;   // units of wall a bullet can pass through (0 = none)
 };
 
 const WeaponDef& rifleDef();
@@ -84,6 +85,9 @@ struct ShotResult {
     bool hitWorld = false;
     float distance = 0;
     int sprayIndex = 0;
+    // Wallbangs: walls the bullet passed through (entry/exit points for decals).
+    int penCount = 0;
+    Vec3 penEntry[2], penExit[2], penNormal[2];
 };
 
 // Fires one bullet. `dummyRenderPos` are the dummy positions the player was looking at (what you see

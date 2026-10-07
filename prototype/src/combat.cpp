@@ -24,7 +24,7 @@ const RecoilStep kRiflePattern[30] = {
 
 const WeaponDef kRifle = {
     "RIFLE", true, 215.0f, 36.0f, 0.98f, 0.1f, 30, 2.4f,
-    0.34f, 5.0f, 8.0f, 0.12f, kRiflePattern, 30, true,
+    0.34f, 5.0f, 8.0f, 0.12f, kRiflePattern, 30, true, 24.0f,
 };
 
 // Semi-auto pistol: strong per-shot kick that climbs fast and recovers fast. Tap, don't spam.
@@ -35,7 +35,7 @@ const RecoilStep kPistolPattern[12] = {
 
 const WeaponDef kPistol = {
     "PISTOL", true, 240.0f, 35.0f, 0.91f, 0.15f, 12, 2.2f,
-    0.34f, 3.5f, 6.0f, 0.25f, kPistolPattern, 12, false,
+    0.34f, 3.5f, 6.0f, 0.25f, kPistolPattern, 12, false, 0.0f,
 };
 
 // Bolt-action sniper: one-shot body kill, big single kick, slow cycle. Semi-auto.
@@ -43,7 +43,7 @@ const RecoilStep kSniperPattern[2] = {{0.0f, 0.0f}, {2.2f, 0.0f}};
 
 const WeaponDef kSniper = {
     "SNIPER", true, 200.0f, 115.0f, 0.99f, 1.46f, 5, 3.6f,
-    0.34f, 8.0f, 12.0f, 0.0f, kSniperPattern, 2, false,
+    0.34f, 8.0f, 12.0f, 0.0f, kSniperPattern, 2, false, 40.0f,
 };
 
 const WeaponDef kKnife = {
@@ -187,27 +187,55 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
     float yaw = viewYaw - punch.right + std::cos(theta) * radius;
     Vec3 dir = anglesToForward(pitch, yaw);
 
+    // Trace in segments: hit a wall -> if it is thin enough for this weapon, pass through
+    // (losing damage) and keep going. Up to two walls.
     const float kRange = 8192.0f;
-    Vec3 end = eye + dir * kRange;
-    TraceResult wt = world.traceRay(eye, end);
-    float bestT = wt.fraction * kRange;
-    res.normal = wt.normal;
-    res.hitWorld = wt.fraction < 1.0f;
-
-    for (size_t i = 0; i < dummies.size(); ++i) {
-        if (!dummies[i].alive()) continue;
-        const Vec3& base = dummyRenderPos[i];
-        for (const Hitbox& hb : dummyHitboxes()) {
-            float t;
-            Vec3 n;
-            if (rayHitsBox(eye, dir, bestT, base + hb.mins, base + hb.maxs, t, &n) && t >= 0 && t < bestT) {
-                bestT = t;
-                res.dummyIndex = int(i);
-                res.group = hb.group;
-                res.normal = n;
-                res.hitWorld = false;
+    float bestT = kRange, travelled = 0, dmgScale = 1.0f, penLeft = w.penetration;
+    Vec3 segStart = eye;
+    for (int seg = 0; seg < 3; ++seg) {
+        float remaining = kRange - travelled;
+        TraceResult wt = world.traceRay(segStart, segStart + dir * remaining);
+        float segT = wt.fraction * remaining;
+        bool hitDummy = false;
+        for (size_t i = 0; i < dummies.size(); ++i) {
+            if (!dummies[i].alive()) continue;
+            const Vec3& base = dummyRenderPos[i];
+            for (const Hitbox& hb : dummyHitboxes()) {
+                float t;
+                Vec3 n;
+                if (rayHitsBox(segStart, dir, segT, base + hb.mins, base + hb.maxs, t, &n) && t >= 0 && t < segT) {
+                    segT = t;
+                    res.dummyIndex = int(i);
+                    res.group = hb.group;
+                    res.normal = n;
+                    hitDummy = true;
+                }
             }
         }
+        bestT = travelled + segT;
+        if (hitDummy) { res.hitWorld = false; break; }
+        res.normal = wt.normal;
+        res.hitWorld = wt.fraction < 1.0f;
+        if (!res.hitWorld || wt.box < 0 || res.penCount >= 2) break;
+
+        // Thickness of the box along the ray.
+        const Box& b = world.solids[size_t(wt.box)];
+        Vec3 entry = segStart + dir * segT;
+        float thick = 1e30f;
+        for (int a = 0; a < 3; ++a) {
+            if (std::fabs(dir[a]) < 1e-6f) continue;
+            float exitPlane = dir[a] > 0 ? b.maxs[a] : b.mins[a];
+            thick = std::min(thick, (exitPlane - entry[a]) / dir[a]);
+        }
+        if (thick > penLeft) break;
+        res.penEntry[res.penCount] = entry;
+        res.penExit[res.penCount] = entry + dir * thick;
+        res.penNormal[res.penCount] = wt.normal;
+        res.penCount++;
+        dmgScale *= 1.0f - 0.5f * thick / w.penetration;
+        penLeft -= thick;
+        travelled += segT + thick + 0.1f;
+        segStart = entry + dir * (thick + 0.1f);
     }
 
     res.start = eye;
@@ -216,7 +244,7 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
 
     if (res.dummyIndex >= 0) {
         Dummy& d = dummies[res.dummyIndex];
-        res.damage = w.damage * hitGroupMultiplier(res.group) * std::pow(w.rangeModifier, bestT / 500.0f);
+        res.damage = w.damage * hitGroupMultiplier(res.group) * std::pow(w.rangeModifier, bestT / 500.0f) * dmgScale;
         d.hp -= res.damage;
         d.flash[res.group] = 0.15f;
         if (d.hp <= 0) {

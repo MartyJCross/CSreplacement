@@ -39,6 +39,7 @@ struct Options {
     int startWeapon = 0;                         // --weapon 1|2|3|4
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
     bool showMenu = false;                       // --menu (settings menu, for screenshots)
+    bool throwSmoke = false, bots = false;       // --smoke, --bots (for screenshots)
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -56,6 +57,10 @@ Options parseArgs(int argc, char** argv) {
         } else if (a == "--autofire") {
             o.autofireStart = float(std::atof(next()));
             o.autofireEnd = float(std::atof(next()));
+        } else if (a == "--smoke") {
+            o.throwSmoke = true;
+        } else if (a == "--bots") {
+            o.bots = true;
         } else if (a == "--menu") {
             o.showMenu = true;
         } else if (a == "--zoom") {
@@ -131,7 +136,55 @@ struct Game {
     std::vector<double> aliveSince;
     int drillKills = 0;
     double drillTtkSum = 0, lastTtk = -1;
+
+    // Bots shoot back (F4). They aim at where you were 0.2 s ago: move and they miss.
+    bool botsFire = false;
+    float hp = 100;
+    int deaths = 0;
+    double hurtUntil = 0, deadUntil = -1;
+    std::vector<float> botSeen, botCooldown;
+    Vec3 eyeHistory[64];
+    int histHead = 0;
+
+    // Smoke grenades (G). Deterministic bounces, so lineups repeat exactly.
+    struct Nade { Vec3 pos, vel; double detonateAt; };
+    struct Smoke { Vec3 pos; double start; };
+    std::vector<Nade> nades;
+    std::vector<Smoke> smokes;
+    bool throwLatch = false;
+
+    // KZ course timer.
+    int kzState = 0;  // 0 idle, 1 on start pad, 2 running
+    double kzStart = 0, kzLast = -1, kzBest = -1;
 };
+
+constexpr double kSmokeLife = 15.0;
+constexpr float kSmokeRadius = 140.0f;
+
+float smokeGrow(const Game::Smoke& s, double now) {
+    double age = now - s.start;
+    if (age < 0 || age > kSmokeLife) return 0.0f;
+    float grow = float(std::min(1.0, age / 0.6));
+    float fade = float(std::clamp((kSmokeLife - age) / 1.5, 0.0, 1.0));
+    return grow * fade;
+}
+
+// True if the segment a->b passes through any active smoke cloud.
+bool smokeBlocks(const Game& g, const Vec3& a, const Vec3& b) {
+    for (const Game::Smoke& s : g.smokes) {
+        float r = kSmokeRadius * smokeGrow(s, g.simTime);
+        if (r < 40.0f) continue;
+        Vec3 c = s.pos + Vec3{0, 0, 60}, ab = b - a;
+        float t = std::clamp(dot(c - a, ab) / std::max(dot(ab, ab), 1e-6f), 0.0f, 1.0f);
+        Vec3 p = a + ab * t;
+        if (dot(c - p, c - p) < r * r) return true;
+    }
+    return false;
+}
+
+bool inRect(const Vec3& p, float x0, float x1, float y0, float y1) {
+    return p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
+}
 
 ViewWeapon viewWeaponOf(const Game& g) {
     return g.weapon == &g.rifle    ? ViewWeapon::Rifle
@@ -207,6 +260,8 @@ void resetGame(Game& g, const Options& opt) {
     g.spawn = g.player.origin;
     g.spawnYaw = float(g.viewYaw);
     g.aliveSince.assign(g.dummies.size(), 0.0);
+    g.botSeen.assign(g.dummies.size(), 0.0f);
+    g.botCooldown.assign(g.dummies.size(), 0.0f);
     g.switchTo = opt.startWeapon;
     g.weapon = &g.rifle;
     g.lastRenderEye = g.player.origin + Vec3{0, 0, kStandEye};
@@ -340,13 +395,17 @@ void simTick(Game& g, const Options& opt) {
         } else if (r.hitWorld) {
             g.fx.impact(r.end, r.normal, 0x5c6168);
         }
+        for (int k = 0; k < r.penCount; ++k) {  // wallbang: debris on both sides of each wall
+            g.fx.impact(r.penEntry[k], r.penNormal[k], 0x5c6168);
+            g.fx.impact(r.penExit[k], -r.penNormal[k], 0x5c6168);
+        }
 
         if (r.dummyIndex >= 0) {
             g.hits++;
             if (r.group == kHead) g.headshots++;
             char buf[96];
-            std::snprintf(buf, sizeof(buf), "%s %d%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
-                          r.kill ? "  KILL" : "", r.distance * 0.0254f);
+            std::snprintf(buf, sizeof(buf), "%s %d%s%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
+                          r.kill ? "  KILL" : "", r.penCount ? "  WALLBANG" : "", r.distance * 0.0254f);
             pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
             if (r.kill && g.drill && g.dummies[size_t(r.dummyIndex)].respawns > 0) {
                 g.lastTtk = g.simTime - g.aliveSince[size_t(r.dummyIndex)];
@@ -361,6 +420,10 @@ void simTick(Game& g, const Options& opt) {
             uint32_t col = lerpColor(0xffe650, 0xe02828, t);
             Vec3 c = r.end + r.normal * 0.6f, h{1.4f, 1.4f, 1.4f};
             g.pendingDecals.push_back(makeBox(c - h, c + h, col, false));
+        }
+        for (int k = 0; k < r.penCount; ++k) {
+            Vec3 h{1.4f, 1.4f, 1.4f}, c = r.penEntry[k] + r.penNormal[k] * 0.6f;
+            g.pendingDecals.push_back(makeBox(c - h, c + h, 0xffe650, false));
         }
         if (ws.ammo == 0) {
             ws.reloadEndTime = g.simTime + wd.reloadTime;
@@ -456,6 +519,122 @@ void simTick(Game& g, const Options& opt) {
                 g.hudDirty = true;
             }
             break;
+    }
+
+    // ---- Smoke grenades ----
+    if (g.throwLatch) {
+        Vec3 f = anglesToForward(float(g.viewPitch), float(g.viewYaw));
+        g.nades.push_back({g.lastRenderEye + f * 16.0f, f * 750.0f + g.player.velocity, g.simTime + 1.6});
+        sound(g, Sfx::Draw, 0.6f, 0.0f, 1.3f);
+        g.throwLatch = false;
+    }
+    for (size_t k = 0; k < g.nades.size();) {
+        Game::Nade& n = g.nades[k];
+        n.vel.z -= 800.0f * kTickDt;
+        Vec3 next = n.pos + n.vel * kTickDt;
+        TraceResult tr = g.world.traceRay(n.pos, next);
+        if (tr.fraction < 1.0f) {
+            float into = dot(n.vel, tr.normal);
+            n.vel = (n.vel - tr.normal * (2.0f * into)) * 0.45f;
+            n.pos = tr.endpos + tr.normal * 0.1f;
+            if (-into > 80.0f && g.audio)
+                g.audio->play3D(Sfx::Footstep, n.pos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.4f, 1.8f);
+        } else {
+            n.pos = next;
+        }
+        if (g.simTime >= n.detonateAt) {
+            g.smokes.push_back({n.pos, g.simTime});
+            if (g.audio) g.audio->play3D(Sfx::Land, n.pos, g.lastRenderEye, float(g.viewYaw), 2500.0f, 1.0f, 0.55f);
+            g.nades.erase(g.nades.begin() + long(k));
+        } else {
+            ++k;
+        }
+    }
+    g.smokes.erase(std::remove_if(g.smokes.begin(), g.smokes.end(),
+                                  [&](const Game::Smoke& s) { return g.simTime - s.start > kSmokeLife; }),
+                   g.smokes.end());
+
+    // ---- Bots shoot back ----
+    Vec3 simEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
+    g.eyeHistory[g.histHead] = simEye;
+    g.histHead = (g.histHead + 1) & 63;
+    if (g.deadUntil >= 0 && g.simTime >= g.deadUntil) g.deadUntil = -1;
+    if (g.botsFire && g.deadUntil < 0 && !g.noclip) {
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            const Dummy& d = g.dummies[i];
+            Vec3 head = d.pos + Vec3{0, 0, 64};
+            bool los = d.alive() && length(simEye - head) < 2400.0f &&
+                       g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
+            if (!los) { g.botSeen[i] = 0; continue; }
+            g.botSeen[i] += kTickDt;
+            g.botCooldown[i] -= kTickDt;
+            if (g.botSeen[i] < 0.4f || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
+            g.botCooldown[i] = 0.3f;
+
+            Vec3 aim = g.eyeHistory[(g.histHead - 1 - 26 + 64) & 63] - Vec3{0, 0, 16};  // your chest 0.2 s ago
+            Vec3 dir = normalize(aim - head);
+            TraceResult wt = g.world.traceRay(head, head + dir * 3000.0f);
+            float maxT = wt.fraction * 3000.0f, bestT = maxT;
+            float hh = g.player.ducked ? kDuckHeight : kStandHeight;
+            Vec3 o = g.player.origin;
+            int hit = 0;  // 1 body, 2 head
+            float t;
+            if (rayHitsBox(head, dir, bestT, o + Vec3{-13, -13, 0}, o + Vec3{13, 13, hh - 10}, t) && t >= 0) {
+                bestT = t; hit = 1;
+            }
+            if (rayHitsBox(head, dir, bestT, o + Vec3{-5, -5, hh - 10}, o + Vec3{5, 5, hh}, t) && t >= 0) {
+                bestT = t; hit = 2;
+            }
+            if (g.audio) g.audio->play3D(Sfx::RifleShot, d.pos, simEye, float(g.viewYaw), 4000.0f, 0.75f, 1.05f);
+            g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
+            if (hit) {
+                g.hp -= hit == 2 ? 100.0f : 26.0f;
+                g.hurtUntil = g.simTime + 0.25;
+                sound(g, Sfx::HitBody, 0.9f, 0.0f, 0.7f);
+                if (g.hp <= 0) {
+                    g.deaths++;
+                    g.hp = 100;
+                    g.deadUntil = g.simTime + 1.2;
+                    pushHitLog(g, "YOU DIED", 0xff4040);
+                    resetPosition(g);
+                    std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
+                }
+                g.hudDirty = true;
+            }
+        }
+    }
+
+    // ---- KZ course ----
+    {
+        const PlayerState& p = g.player;
+        bool onStart = p.onGround && p.origin.z > kKzPadHeight - 1 &&
+                       inRect(p.origin, kKzStartMinX, kKzStartMaxX, kKzMinY, kKzMaxY);
+        bool onEnd = p.onGround && p.origin.z > kKzPadHeight - 1 &&
+                     inRect(p.origin, kKzEndMinX, kKzEndMaxX, kKzMinY, kKzMaxY);
+        bool inLava = p.onGround && p.origin.z < 1.0f && inRect(p.origin, kKzLavaMinX, kKzLavaMaxX, kKzMinY, kKzMaxY);
+        if (inLava) {
+            g.player = {};
+            g.player.origin = {(kKzStartMinX + kKzStartMaxX) / 2, (kKzMinY + kKzMaxY) / 2, kKzPadHeight};
+            g.player.onGround = true;
+            g.prevPlayer = g.player;
+            g.kzState = 1;
+            sound(g, Sfx::Land, 0.8f, 0.0f, 0.6f);
+            g.hudDirty = true;
+        } else if (onStart) {
+            g.kzState = 1;
+        } else if (g.kzState == 1) {
+            g.kzState = 2;
+            g.kzStart = g.simTime;
+        } else if (g.kzState == 2 && onEnd) {
+            g.kzLast = g.simTime - g.kzStart;
+            if (g.kzBest < 0 || g.kzLast < g.kzBest) g.kzBest = g.kzLast;
+            g.kzState = 0;
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "KZ FINISH %.3f S", g.kzLast);
+            pushHitLog(g, buf, 0x80ff80);
+            sound(g, Sfx::HitHead, 0.8f);
+            g.hudDirty = true;
+        }
     }
 
     g.simTime += kTickDt;
@@ -626,12 +805,30 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         hud.text(x, y, buf, 0xFFD060FF);
     }
     y += lh * 1.5f;
+    if (g.botsFire) {
+        std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
+        hud.text(x, y, buf, 0xFF8060FF);
+        y += lh;
+        std::snprintf(buf, sizeof(buf), "HP %.0f", double(g.hp));
+        hud.text(16.0f * s, float(h) - 24.0f * s, buf, g.hp > 30 ? 0xFFFFFFFF : 0xFF5050FF, s * 2);
+        if (g.simTime < g.hurtUntil) hud.rect(0, 0, float(w), float(h), 0xC0000040);
+        if (g.deadUntil >= 0) {
+            const char* dead = "YOU DIED";
+            hud.text(cx - hud.textWidth(dead, s * 3) / 2, cy - 60.0f * s, dead, 0xFF4040FF, s * 3);
+        }
+    }
+    if (g.kzState == 2 || g.kzLast >= 0) {
+        if (g.kzState == 2) std::snprintf(buf, sizeof(buf), "KZ %.2f", g.simTime - g.kzStart);
+        else std::snprintf(buf, sizeof(buf), "KZ LAST %.3f   BEST %.3f", g.kzLast, g.kzBest);
+        hud.text(cx - hud.textWidth(buf, s * 2) / 2, 12.0f * s, buf, g.kzState == 2 ? 0xFFFFFFFF : 0x80FF80FF, s * 2);
+    }
     if (showHelp) {
         const char* help[] = {
             "WASD MOVE   SPACE/WHEEL JUMP   CTRL CROUCH   SHIFT WALK",
             "MOUSE1 FIRE   MOUSE2 SCOPE   R RELOAD   1 RIFLE   2 PISTOL   3 KNIFE   4 SNIPER",
             "HOLD SPACE TO BUNNY HOP - AIR STRAFE (A/D + TURN) TO GAIN SPEED",
-            "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG",
+            "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG   G SMOKE   F4 BOTS SHOOT BACK",
+            "KZ COURSE: GREEN PAD BEHIND THE SPRAY WALL - HOP THE BLUE PADS, AVOID THE LAVA",
             "C CLEAR DECALS   F3 AIM DRILL   F1 HIDE HELP   ALT+ENTER FULLSCREEN   ESC PAUSE",
             "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL",
         };
@@ -865,6 +1062,13 @@ int main(int argc, char** argv) {
                         else if (sc == SDL_SCANCODE_2) g.switchTo = 2;
                         else if (sc == SDL_SCANCODE_3) g.switchTo = 3;
                         else if (sc == SDL_SCANCODE_4) g.switchTo = 4;
+                        else if (sc == SDL_SCANCODE_G) g.throwLatch = true;
+                        else if (sc == SDL_SCANCODE_F4) {
+                            g.botsFire = !g.botsFire;
+                            g.hp = 100;
+                            std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
+                            g.hudDirty = true;
+                        }
                         else if (sc == SDL_SCANCODE_V) { g.noclip = !g.noclip; g.hudDirty = true; }
                         else if (sc == SDL_SCANCODE_F6) resetPosition(g);
                         else if (sc == SDL_SCANCODE_F5) {
@@ -892,6 +1096,8 @@ int main(int argc, char** argv) {
         }
         float alpha = float(tickAcc / kTickDt);
         if (automated && opt.startZoom && frame == 60) { g.zoom = opt.startZoom; g.hudDirty = true; }
+        if (automated && opt.throwSmoke && frame == 30) g.throwLatch = true;
+        if (automated && opt.bots && frame == 1) g.botsFire = true;
         if (automated && opt.showMenu && frame == 60) { paused = true; menuSel = 2; g.hudDirty = true; }
 
         for (const BoxInstance& d : g.pendingDecals) renderer.addDecal(d);
@@ -962,6 +1168,23 @@ int main(int argc, char** argv) {
         float fdt = float(dt);
         g.fx.update(paused ? 0.0f : fdt);
         g.fx.appendParticles(dynamicBoxes);
+        for (const Game::Nade& n : g.nades)
+            dynamicBoxes.push_back(makeBox(n.pos - Vec3{1.5f, 1.5f, 1.5f}, n.pos + Vec3{1.5f, 1.5f, 2.5f}, 0x3b4a2f, false));
+        for (const Game::Smoke& sm : g.smokes) {
+            // Deterministic puffs; grows in over 0.6 s and fades over the last 1.5 s.
+            float k = smokeGrow(sm, g.simTime + tickAcc);
+            if (k <= 0) continue;
+            for (uint32_t pi = 0; pi < 44; ++pi) {
+                uint32_t hsh = (pi + 1) * 2654435761u;
+                float a = float(hsh % 6283) / 1000.0f, rr = float((hsh >> 8) % 1000) / 1000.0f;
+                float zz = float((hsh >> 16) % 1000) / 1000.0f;
+                float rad = kSmokeRadius * 0.8f * std::sqrt(rr) * k;
+                Vec3 c = sm.pos + Vec3{std::cos(a) * rad, std::sin(a) * rad, 20.0f + zz * 110.0f * k};
+                float sz = (34.0f + float((hsh >> 4) % 26)) * k;
+                uint32_t shade = 0xbcc0c6 + ((hsh >> 12) % 3) * 0x060606;
+                dynamicBoxes.push_back(makeBox(c - Vec3{sz, sz, sz * 0.8f}, c + Vec3{sz, sz, sz * 0.8f}, shade, false));
+            }
+        }
         {
             const WeaponState& ws = *g.weapon;
             double reloadProgress =

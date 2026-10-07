@@ -312,6 +312,28 @@ void testWeapon() {
     CHECK(recover(29) < 1300, "spray recovery");
 }
 
+void testWallbang() {
+    std::printf("wallbang\n");
+    World w = lab();
+    std::vector<Dummy> dummies = buildDummies();
+    std::vector<Vec3> pos;
+    for (const Dummy& d : dummies) pos.push_back(d.pos);
+    // Dummy 6 stands behind the solid part of the peek wall (x 1280..1296, 16 units thick).
+    Vec3 eye{1000, 700, 64}, target = pos[6] + Vec3{0, 0, 52};
+    Vec3 d = normalize(target - eye);
+    float pitch = -std::asin(d.z) / kDegToRad, yaw = std::atan2(d.y, d.x) / kDegToRad;
+    for (const WeaponDef* def : {&rifleDef(), &pistolDef()}) {
+        WeaponState ws;
+        ws.def = def;
+        std::vector<Dummy> dd = dummies;
+        ShotResult r = fireBullet(ws, eye, pitch, yaw, 0, true, false, w, dd, pos);
+        std::printf("  %s through 16u wall: dummy %d walls %d dmg %.1f\n", def->name, r.dummyIndex, r.penCount,
+                    r.damage);
+        if (def == &rifleDef()) CHECK(r.dummyIndex == 6 && r.penCount == 1 && r.damage < 36.0f, "rifle wallbang");
+        else CHECK(r.dummyIndex < 0, "pistol cannot wallbang");
+    }
+}
+
 void testRayVsBoxes() {
     std::printf("ray traces\n");
     TraceResult tr = lab().traceRay({0, 0, 64}, {4000, 0, 64});
@@ -333,6 +355,7 @@ int main() {
     testBhop();
     testDeterminism();
     testWeapon();
+    testWallbang();
     testRayVsBoxes();
     if (g_failures) {
         std::printf("\n%d check(s) FAILED\n", g_failures);
