@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 # The build number shown on the main menu and in the window title. Bump it for every build handed out
 # (the zip is named FeelLab-v<version>.zip).
-project(FeelLab VERSION 0.2.0 LANGUAGES C CXX)
+project(FeelLab VERSION 0.2.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

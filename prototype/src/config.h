@@ -45,6 +45,7 @@ struct Config {
     int dm_minutes = 5;        // deathmatch: match length
     int rt_bots = 4;           // retakes: bots holding the site (1..6)
     int nade_preview = 1;      // grenade trajectory preview: 0 off, 1 everywhere but competitive, 2 always
+    int prefire_bots_shoot = 1;  // prefire: the bots shoot back
 };
 
 // Loads `path`; writes a commented default file there if it doesn't exist.

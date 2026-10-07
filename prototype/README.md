@@ -135,7 +135,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 
 ## Prefire (Play: MODE)
 
-- **Pick a route** (A long, B tunnels, mid, A short). Bots stand at the usual defender angles along it, facing the way you come: the long corner, pit, goose, behind the default boxes, B doors, back plat, mid doors and so on. They never move; with BOTS SHOOT BACK on they turn on you and shoot.
+- **Pick a route** (A long, B tunnels, mid, A short). Bots stand at the usual defender angles along it, facing the way you come: the long corner, pit, goose, behind the default boxes, B doors, back plat, mid doors and so on. They never move, but they turn on you and shoot (BOTS SHOOT BACK on the Play screen, `prefire_bots_shoot`, on by default).
 - **The clock** starts when you move or shoot and stops when the last one dies: your time, accuracy and headshots, and the best time per route this session. Die and the route starts over; Esc → RESTART ROUTE any time.
 
 ## Kill feed, damage report, scoreboard

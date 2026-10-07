@@ -73,6 +73,8 @@ dm_minutes 5
 rt_bots 4
 // Grenade trajectory preview while holding a grenade: 0 off, 1 everywhere but competitive, 2 always.
 nade_preview 1
+// Prefire: the bots shoot back (1) or are just targets (0).
+prefire_bots_shoot 1
 )";
 
 }  // namespace
@@ -98,7 +100,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\nknife " << c.knife << "\nfinish " << c.finish << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
         << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
-        << "\nnade_preview " << c.nade_preview << "\n";
+        << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot << "\n";
     return bool(out);
 }
 
@@ -168,6 +170,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "dm_minutes") i(c.dm_minutes);
         else if (key == "rt_bots") i(c.rt_bots);
         else if (key == "nade_preview") i(c.nade_preview);
+        else if (key == "prefire_bots_shoot") i(c.prefire_bots_shoot);
     }
     return c;
 }

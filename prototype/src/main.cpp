@@ -1339,6 +1339,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.fires.clear();
     g.flashFull = g.flashEnd = 0;
     g.hp = 100;
+    g.deadUntil = g.dmOverUntil = g.rtResultUntil = g.pf.resultUntil = -1;  // no result screen left over from another mode
     resetPosition(g);
     // Feel Lab keeps its dev grid; Dust gets surfaces by material (render.cpp: stone, wood, metal, plain).
     std::vector<BoxInstance> statics;
@@ -1916,7 +1917,9 @@ void simTick(Game& g, const Options& opt) {
         sense.now = g.simTime;
         sense.playerOrigin = g.player.origin;
         sense.playerEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
-        sense.playerUp = g.deadUntil < 0 && !g.noclip && g.dmOverUntil < 0 && g.rtResultUntil < 0 && g.pf.resultUntil < 0;
+        const bool resultScreen = (g.mode == 1 && g.dmOverUntil >= 0) || (g.mode == 2 && g.rtResultUntil >= 0) ||
+                                  (g.mode == 4 && g.pf.resultUntil >= 0);
+        sense.playerUp = g.deadUntil < 0 && !g.noclip && !resultScreen;
         sense.noiseFresh = g.simTime - g.noiseAt < 1.5 * kTickDt;
         sense.noisePos = g.noisePos;
         sense.noiseRadius = g.noiseRadius;
@@ -2147,7 +2150,7 @@ const char* const kCrosshairColorNames[] = {"GREEN", "YELLOW", "CYAN", "WHITE", 
 int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 
 // The PLAY screen's choices; they only take effect on START.
-struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0; };
+struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"FEEL LAB", "DUST2"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE"};
@@ -2204,7 +2207,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
             std::vector<MenuItem> r = {{"MODE", nullptr, &g_gameMenu.mode, 1, 0, 4, kModeNames}};
             if (m.mode == 4) {
                 r.push_back({"ROUTE", nullptr, &g_gameMenu.route, 1, 0, 3, kRouteNames});
-                r.push_back({"BOTS SHOOT BACK", nullptr, &g_gameMenu.bots, 1, 0, 1, kOnOff});
+                r.push_back({"BOTS SHOOT BACK", nullptr, &c.prefire_bots_shoot, 1, 0, 1, kOnOff});
             }
             if (m.mode == 0) {
                 r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 1, kMapNames});
@@ -2871,7 +2874,7 @@ int main(int argc, char** argv) {
         g.mode = m.mode;
         g.pf.route = m.route;
         loadMap(g, renderer, m.mode != 0 ? 1 : m.map);
-        if (g.mode == 4) g.botsFire = m.bots != 0;
+        if (g.mode == 4) g.botsFire = cfg.prefire_bots_shoot != 0;
         if (g.mode == 0) {
             g.botsFire = m.bots != 0;
             if (g.mapId == 0 && m.drill) setDrill(g, true);
