@@ -195,6 +195,10 @@ struct Game {
     double rtRoundEnd = 0, rtResultUntil = -1;
     bool rtResultWin = false;
     const char* rtResultText = "";
+    // The planted bomb (retakes): 40 s fuse, hold E beside it for 5 s to defuse (you have a kit).
+    Vec3 bombPos;
+    bool bombActive = false, defuseHeld = false;
+    double bombExplodeAt = 0, defuseStart = -1, nextBeep = 0;
     double dmEnd = 0, dmOverUntil = -1, spawnProtectUntil = 0;
     int dmShownSecs = -1;
 
@@ -505,8 +509,13 @@ void startRetakeRound(Game& g) {
         g.bots[i] = b;
     }
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
-    g.rtRoundEnd = g.simTime + kRetakeRoundTime;
+    g.rtRoundEnd = g.simTime + kRetakeRoundTime;  // = the bomb's fuse
     g.rtResultUntil = -1;
+    g.bombPos = dustPoint(site.bombX, site.bombY);
+    g.bombActive = true;
+    g.bombExplodeAt = g.rtRoundEnd;
+    g.defuseStart = -1;
+    g.nextBeep = g.simTime;
     g.dmShownSecs = -1;
     char msg[48];
     std::snprintf(msg, sizeof(msg), "RETAKE %s", site.name);
@@ -758,6 +767,8 @@ void simTick(Game& g, const Options& opt) {
     in.duck = keys[SDL_SCANCODE_LCTRL];
     in.jumpPressed = g.jumpLatch || (g.autoHop && keys[SDL_SCANCODE_SPACE]);
     g.jumpLatch = false;
+    g.defuseHeld = keys[SDL_SCANCODE_E];
+    if (g.defuseStart >= 0) in = MoveInput{};  // like CS: you can't move while defusing
 
     // Weapon switching / reload.
     if (g.switchTo) {
@@ -1173,14 +1184,37 @@ void simTick(Game& g, const Options& opt) {
         int secs = int(std::max(0.0, g.dmEnd - g.simTime));
         if (secs != g.dmShownSecs) { g.dmShownSecs = secs; g.hudDirty = true; }
     }
-    // ---- Retakes: round clock, win when the site is clear, lose on time or death ----
+    // ---- Retakes: the bomb's planted. Defuse it (hold E for 5 s) to win; lose if it blows or you die ----
     if (g.mapId == 1 && g.mode == 2) {
-        bool anyAlive = false;
-        for (const Dummy& d : g.dummies) anyAlive |= d.alive();
-        if (g.rtResultUntil < 0) {
-            if (!anyAlive) endRetakeRound(g, true, "SITE CLEARED");
-            else if (g.simTime >= g.rtRoundEnd) endRetakeRound(g, false, "OUT OF TIME");
-        } else if (g.simTime >= g.rtResultUntil) {
+        if (g.rtResultUntil < 0 && g.bombActive) {
+            const bool near = length2d(g.player.origin - g.bombPos) < 72.0f &&
+                              std::fabs(g.player.origin.z - g.bombPos.z) < 64.0f && g.player.onGround && g.deadUntil < 0;
+            if (near && g.defuseHeld) {
+                if (g.defuseStart < 0) {
+                    g.defuseStart = g.simTime;
+                    if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.9f);
+                    makeNoise(g, g.bombPos, 1800.0f);  // they hear the kit
+                }
+                if (g.simTime - g.defuseStart >= 5.0) {
+                    g.bombActive = false;
+                    endRetakeRound(g, true, "BOMB DEFUSED");
+                }
+            } else {
+                g.defuseStart = -1;
+            }
+            if (g.bombActive && g.simTime >= g.nextBeep) {  // beeps speed up as the fuse runs down
+                double left = g.bombExplodeAt - g.simTime;
+                g.nextBeep = g.simTime + std::clamp(left / kRetakeRoundTime, 0.1, 1.0);
+                if (g.audio) g.audio->play3D(Sfx::BombBeep, g.bombPos, g.lastRenderEye, float(g.viewYaw), 2600.0f, 0.8f);
+            }
+            if (g.bombActive && g.simTime >= g.bombExplodeAt) {
+                g.bombActive = false;
+                g.defuseStart = -1;
+                if (g.audio) g.audio->play3D(Sfx::Explosion, g.bombPos, g.lastRenderEye, float(g.viewYaw), 9000.0f, 1.0f, 0.7f);
+                g.fx.burst(g.bombPos, 0xffa040, 3.0f);
+                endRetakeRound(g, false, "BOMB EXPLODED");
+            }
+        } else if (g.rtResultUntil >= 0 && g.simTime >= g.rtResultUntil) {
             startRetakeRound(g);
         }
         int secs = int(std::max(0.0, g.rtRoundEnd - g.simTime));
@@ -1554,9 +1588,22 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (g.mapId == 1 && g.mode == 2) {
         int left = int(std::max(0.0, g.rtRoundEnd - g.simTime)), alive = 0;
         for (const Dummy& d : g.dummies) alive += d.alive();
-        std::snprintf(buf, sizeof(buf), "RETAKE %s   0:%02d   BOTS LEFT %d   WON %d  LOST %d",
+        std::snprintf(buf, sizeof(buf), "BOMB PLANTED %s   0:%02d   BOTS LEFT %d   WON %d  LOST %d",
                       dustRetakeSites()[size_t(g.rtSite)].name, left, alive, g.rtWon, g.rtLost);
         hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, left <= 10 ? 0xFF8060FF : 0xFFFFFFFF);
+        if (g.bombActive && g.rtResultUntil < 0) {
+            if (g.defuseStart >= 0) {  // defuse bar
+                float k = float(std::clamp((g.simTime - g.defuseStart) / 5.0, 0.0, 1.0)), bw = 160.0f * s;
+                hud.rect(cx - bw / 2, cy + 40.0f * s, bw, 8.0f * s, 0x000000A0);
+                hud.rect(cx - bw / 2, cy + 40.0f * s, bw * k, 8.0f * s, 0x60C0FFFF);
+                hud.text(cx - hud.textWidth("DEFUSING") / 2, cy + 52.0f * s, "DEFUSING", 0xFFFFFFFF);
+            } else if (length2d(g.player.origin - g.bombPos) < 72.0f) {
+                hud.text(cx - hud.textWidth("HOLD E TO DEFUSE") / 2, cy + 40.0f * s, "HOLD E TO DEFUSE", 0xFFFFFFFF);
+            } else if (alive == 0) {
+                hud.text(cx - hud.textWidth("SITE CLEAR - DEFUSE THE BOMB") / 2, cy + 40.0f * s,
+                         "SITE CLEAR - DEFUSE THE BOMB", 0x60FF60FF);
+            }
+        }
         if (g.rtResultUntil >= 0) {
             uint32_t col = g.rtResultWin ? 0x60FF60FF : 0xFF5050FF;
             hud.text(cx - hud.textWidth(g.rtResultText, s * 3) / 2, cy - 90.0f * s, g.rtResultText, col, s * 3);
@@ -2049,6 +2096,13 @@ int main(int argc, char** argv) {
             const uint32_t nadeColor[Game::kNadeTypes] = {0x3b4a2f, 0xd6d8da, 0x4a5a2a, 0x7a4a1a};
             dynamicBoxes.push_back(
                 makeBox(n.pos - Vec3{1.5f, 1.5f, 1.5f}, n.pos + Vec3{1.5f, 1.5f, 2.5f}, nadeColor[n.type], false));
+        }
+        if (g.mapId == 1 && g.mode == 2 && g.bombActive) {  // the bomb, its light blinking with the beeps
+            const Vec3& b = g.bombPos;
+            dynamicBoxes.push_back(makeBox(b + Vec3{-7, -5, 0}, b + Vec3{7, 5, 4}, 0x4a4f36, false));
+            dynamicBoxes.push_back(makeBox(b + Vec3{-5, -3, 4}, b + Vec3{3, 3, 5}, 0x22252a, false));
+            if (g.nextBeep - g.simTime > 0.5 * std::clamp((g.bombExplodeAt - g.simTime) / kRetakeRoundTime, 0.1, 1.0))
+                dynamicBoxes.push_back(makeEmissive(b + Vec3{4, -1, 4}, b + Vec3{6, 1, 6}, 0xff2020));
         }
         for (const Game::Fire& f : g.fires) {
             // Flames: glowing columns that flicker (cosmetic hash of time), dying down at the end.

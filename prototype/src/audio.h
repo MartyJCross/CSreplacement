@@ -14,6 +14,7 @@ enum class Sfx {
     HitMarker,                 // crisp tick when your bullet connects
     FootstepWood, FootstepMetal,  // steps on crates/doors and on the container/car
     FlashBang, FlashRing, Explosion, Fire,  // grenades: flash pop, your ears ringing, HE, molotov crackle
+    BombBeep, Defuse,                       // the planted bomb's beep; the defuse kit clicking on
     Count
 };
 

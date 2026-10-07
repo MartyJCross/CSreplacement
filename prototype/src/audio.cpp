@@ -349,6 +349,25 @@ std::vector<float> fireCrackle(Rng& r) {  // molotov fire: a short burst of crac
     return b;
 }
 
+std::vector<float> bombBeep(Rng&) {  // the C4 chirp
+    auto b = buffer(0.12f);
+    addTone(b, 0, 0.8f, 2650, 2650, 0.04f);
+    addTone(b, 0, 0.3f, 5300, 5300, 0.02f);
+    fadeTail(b);
+    normalize(b, 0.5f);
+    return b;
+}
+
+std::vector<float> defuseKit(Rng& r) {  // kit clicks onto the bomb
+    auto b = buffer(0.35f);
+    addMetal(b, 0, 0.7f, 1600, 0.02f, r);
+    addMetal(b, 0.12f, 0.5f, 2100, 0.02f, r);
+    addNoise(b, 0.05f, 0.25f, 800, 5000, 0.05f, r, 0.005f);
+    fadeTail(b);
+    normalize(b, 0.55f);
+    return b;
+}
+
 struct SoundBank {
     std::vector<std::vector<float>> clips;
     std::vector<int> first, count;
@@ -366,6 +385,7 @@ SoundBank synthesize() {
         {Sfx::FootstepWood, footstepWood, 4},    {Sfx::FootstepMetal, footstepMetal, 4},
         {Sfx::FlashBang, flashBang, 2},          {Sfx::FlashRing, flashRing, 1},
         {Sfx::Explosion, explosion, 3},          {Sfx::Fire, fireCrackle, 4},
+        {Sfx::BombBeep, bombBeep, 1},            {Sfx::Defuse, defuseKit, 1},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -386,7 +406,7 @@ bool Audio::dumpWavs(const std::string& dir) {
     const char* names[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw", "footstep",
                            "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
                            "hit_marker", "footstep_wood", "footstep_metal", "flash_bang", "flash_ring",
-                           "explosion", "fire"};
+                           "explosion", "fire", "bomb_beep", "defuse"};
     static_assert(sizeof(names) / sizeof(names[0]) == size_t(Sfx::Count), "name every sound");
     SoundBank bank = synthesize();
     for (size_t s = 0; s < size_t(Sfx::Count); ++s)

@@ -340,7 +340,7 @@ Vec3 dustPoint(float x, float y) {
 
 const std::vector<RetakeSite>& dustRetakeSites() {
     static const std::vector<RetakeSite> sites = {
-        {"A",
+        {"A", 1380, 2560,  // bomb: beside the default box
          {
              {1240, 2860, 1500, 2200},  // behind the default box, on the ramp
              {1750, 3060, 1450, 2300},  // goose
@@ -354,7 +354,7 @@ const std::vector<RetakeSite>& dustRetakeSites() {
              {1550, 1500, 1550, 2500},  // long
              {300, 1500, 300, 2300},    // catwalk
          }},
-        {"B",
+        {"B", -1780, 2700,  // bomb: beside the default box
          {
              {-2150, 3000, -2100, 1950},  // back plat, on the tunnel exit
              {-1880, 2650, -2100, 1950},  // behind the default box

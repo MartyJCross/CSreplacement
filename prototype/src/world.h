@@ -87,6 +87,7 @@ Vec3 dustPoint(float x, float y);
 struct RetakeSpot { float x, y, lookX, lookY; };
 struct RetakeSite {
     const char* name;
+    float bombX, bombY;  // where the bomb is planted
     std::vector<RetakeSpot> holds, entries;
 };
 const std::vector<RetakeSite>& dustRetakeSites();

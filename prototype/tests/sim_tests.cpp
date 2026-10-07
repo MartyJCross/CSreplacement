@@ -634,6 +634,10 @@ void testDustScales() {
                 badSpots += !(p.z > MapGrid::kNoFloor && w.boxFits(p + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false)));
         // Retakes: every hold spot and entry is standing room, and every entry can walk onto its site.
         for (const RetakeSite& site : dustRetakeSites()) {
+            if (!nav.standable(dustPoint(site.bombX, site.bombY))) {
+                std::printf("    %s bomb spot is not standing room\n", site.name);
+                ++badSpots;
+            }
             for (const RetakeSpot& h : site.holds)
                 if (!nav.standable(dustPoint(h.x, h.y))) {
                     std::printf("    %s hold (%.0f, %.0f) is not standing room\n", site.name, double(h.x), double(h.y));
