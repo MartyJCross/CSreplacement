@@ -2167,6 +2167,10 @@ void drawMenu(HudBatch& hud, const Config& cfg, bool practice, int w, int h, int
     hud.rect(0, 0, float(w), float(h), g_menu.root == kMenuMain ? 0x06080BD8 : 0x000000A0);
     hud.rect(L.x - 14 * fs, L.top - 14 * fs, L.w + 28 * fs, L.bottom - L.top + 28 * fs, 0x15181CE8);
     hud.text(L.x, L.top, menuTitle(screen), 0xFFD060FF, screen == kMenuMain ? s * 3 : s * 2);
+    if (screen == kMenuMain) {
+        const std::string ver = "V" FEELLAB_VERSION;
+        hud.text(L.x + L.w - hud.textWidth(ver), L.top + 8 * fs, ver, 0x808080FF);
+    }
     if (screen == kMenuControls) {
         float y = L.top + L.rowH * 3.0f;
         for (const auto& c : kControls) {
@@ -2587,11 +2591,11 @@ int main(int argc, char** argv) {
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, msaa);
     }
-    SDL_Window* window = SDL_CreateWindow("Feel Lab", winW, winH, flags);
+    SDL_Window* window = SDL_CreateWindow("Feel Lab v" FEELLAB_VERSION, winW, winH, flags);
     if (!window && msaa > 0) {  // the driver can't do it: carry on without anti-aliasing
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
-        window = SDL_CreateWindow("Feel Lab", winW, winH, flags);
+        window = SDL_CreateWindow("Feel Lab v" FEELLAB_VERSION, winW, winH, flags);
     }
     if (!window) return fatal(SDL_GetError(), nullptr, showErrors);
     if (fullscreen && cfg.width && cfg.height) {

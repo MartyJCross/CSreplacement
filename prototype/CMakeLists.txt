@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
-project(FeelLab LANGUAGES C CXX)
+# The build number shown on the main menu and in the window title. Bump it for every build handed out
+# (the zip is named FeelLab-v<version>.zip).
+project(FeelLab VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -53,6 +55,7 @@ if(FEELLAB_BUILD_GAME)
     src/audio.cpp
     src/fx.cpp)
   target_link_libraries(feellab PRIVATE feellab_sim SDL3::SDL3-static)
+  target_compile_definitions(feellab PRIVATE FEELLAB_VERSION="${PROJECT_VERSION}")
   if(MSVC)
     target_link_options(feellab PRIVATE /INCREMENTAL:NO)
   endif()

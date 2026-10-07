@@ -19,6 +19,9 @@ There are two parts:
 - The owner plays on a **Windows laptop (Ryzen 7 4800H)** and doesn't build from source by default.
 - They get builds from **GitHub Actions**: every push that touches `prototype/**` builds a Windows `.exe` artifact named `FeelLab-windows-x64`.
 - **After every change you push, give them the artifact download link** (Actions → "Feel Lab prototype" → latest run → artifact), and say clearly what changed and what they should test.
+- **Versions:** `project(FeelLab VERSION x.y.z)` in `prototype/CMakeLists.txt` is shown on the main menu and in the
+  window title. Bump it for every build you hand over (patch for fixes, minor for features). For a local zip, build
+  Release, then run `powershell -File prototype	ools\make_zip.ps1`: it writes `Desktop\FeelLab-v<version>.zip`.
 - Be honest about what you verified (tests, screenshots) versus what only they can judge: feel, sound, FPS on their hardware.
 
 ## 3. Repository layout
