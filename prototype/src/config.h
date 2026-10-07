@@ -3,7 +3,7 @@
 #include <string>
 
 struct Config {
-    float sensitivity = 2.0f;
+    float sensitivity = 1.2f;
     float m_yaw = 0.022f;     // degrees per mouse count, same as CS: your CS sensitivity carries over
     float m_pitch = 0.022f;
     float fov = 90.0f;        // horizontal FOV at 4:3, like CS (wider screens get more, not less)
@@ -31,6 +31,10 @@ struct Config {
     int view_smooth_steps = 1;   // 1 = the camera eases over stairs/steps instead of popping up (cosmetic)
     float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped
     int map = 0;               // 0 = feel lab, 1 = dust (F8 switches)
+    int msaa = 4;              // anti-aliasing samples (0 = off); applies on restart
+    int mode = 0;              // 0 = practice, 1 = deathmatch on Dust (F7 switches)
+    int dm_bots = 6;           // deathmatch: number of bots
+    int dm_minutes = 5;        // deathmatch: match length
 };
 
 // Loads `path`; writes a commented default file there if it doesn't exist.

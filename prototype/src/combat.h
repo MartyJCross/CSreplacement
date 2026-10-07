@@ -33,6 +33,7 @@ const WeaponDef& rifleDef();
 const WeaponDef& pistolDef();
 const WeaponDef& sniperDef();
 const WeaponDef& knifeDef();
+const WeaponDef& grenadeDef();  // smoke grenade slot: thrown, never fires bullets
 
 struct WeaponState {
     const WeaponDef* def = nullptr;
@@ -71,6 +72,9 @@ struct Dummy {
     uint32_t respawns = 0;
     int lastSpot = -1;
     float stepDist = 0;  // footstep accumulator (cosmetic)
+    // Facing in degrees (0 = +X, like the player's yaw); hitboxes turn with it. 180 = facing -X, the
+    // Feel Lab default. shownYaw is the facing drawn on the last frame: shots test against that.
+    float yaw = 180, prevYaw = 180, shownYaw = 180;
     bool alive() const { return respawnLeft <= 0; }
 };
 

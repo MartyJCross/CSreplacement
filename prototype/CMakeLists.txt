@@ -17,7 +17,8 @@ option(FEELLAB_BUILD_GAME "Build the game executable (needs SDL3)" ON)
 add_library(feellab_sim STATIC
   src/world.cpp
   src/movement.cpp
-  src/combat.cpp)
+  src/combat.cpp
+  src/nav.cpp)
 target_include_directories(feellab_sim PUBLIC src)
 if(MSVC)
   # /fp:precise (default) - never /fp:fast: movement must be deterministic.

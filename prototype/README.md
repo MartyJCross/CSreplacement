@@ -39,15 +39,19 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Shift | Walk |
 | Mouse 1 | Fire |
 | R | Reload |
-| 1 / 2 / 3 / 4 | Rifle / pistol (semi-auto) / knife (faster movement) / sniper |
-| Mouse 2 | Sniper scope: 40 → 15 FOV → off. Stays scoped when you fire |
+| 1 / 2 / 3 / 4 | Like CS: primary (rifle, or sniper if you picked it with B) / pistol (semi-auto) / knife (faster movement) / smoke grenade |
+| Q | Switch back to your previous weapon |
+| B | Buy menu: pick your primary, 1 = rifle, 2 = sniper. You're holding it straight away |
+| Mouse 2 | Sniper scope: 40 → 15 FOV → off. Stays scoped when you fire. With the smoke out: underhand lob |
+| Tab | Scoreboard (deathmatch) |
 | V | Noclip (fly where you look; Shift = slow) |
 | F6 | Reset to spawn |
 | F5 | Reload `config.cfg` live (sensitivity, crosshair, viewmodel, volume, spread) |
 | C | Clear bullet decals |
-| G | Throw a smoke (deterministic bounces, so lineups repeat; jump-throws carry your momentum) |
+| G | Quick smoke without switching (deterministic bounces, so lineups repeat; jump-throws carry your momentum). With the smoke out (4), Mouse 1 throws and Mouse 2 lobs, then you switch back to your previous weapon |
 | F4 | Bots shoot back (toggle). You get HP, a damage flash and death/respawn |
 | F3 | Aim drill: killed range dummies respawn at random spots, and the HUD shows time-to-kill (last + average) |
+| F7 | Deathmatch on Dust2 (toggle) |
 | F8 | Switch map: Feel Lab / Dust2 (real scale) |
 | F1 | Toggle help |
 | Alt+Enter | Toggle fullscreen |
@@ -62,18 +66,11 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
   - a wall with a doorway, with dummies behind it to practise jiggle-peeking
 - **Right:** a dark spray wall. Stand on the small marker and spray. Bullet decals go **yellow → red** through the magazine, so you can see the pattern.
 
-## Sound
-
-- **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS.
-- **The two strafing dummies on the range and the one behind the doorway** make footsteps that are panned and attenuated by distance (audible to ~1600 units). Close your eyes and point at them.
-- **Volume** is `volume` in `config.cfg` (0..1).
-- **Sounds are synthesized at startup.** To listen to them as files, run `feellab.exe --dump-sounds <folder>` and it writes WAVs.
-
 ## What the HUD tells you
 
 - **FPS / 1% LOW / MS:** average FPS, the 1% low (99th percentile frame time) and average frame time, updated every 0.5 s.
 - **SPEED / SPREAD / ACCURATE:** horizontal speed, your current bullet spread in degrees, and `ACCURATE` (green) when you're slow enough for a perfect first shot (≤ 34% of rifle speed, ~73 u/s).
-- **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **78 ms** counter-strafing vs **~200 ms** releasing.
+- **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **62 ms** counter-strafing vs **~195 ms** releasing.
 - **Hit log (top right):** hitgroup, damage, kill, distance in metres.
 
 ## Dust map (F8)
@@ -106,6 +103,41 @@ On Dust the 4 bots play the angles:
 - They see and shoot up to 4,000 units, so long A and mid are real sightlines.
 - They respawn 2–4 s after you kill them, at a free spot.
 - You can hear their footsteps when they peek.
+
+## Deathmatch (F7)
+
+**F7** starts deathmatch on Dust2 (and back to practice). It's saved, so the game reopens in deathmatch.
+
+- **The match:**
+  - it lasts 5 minutes (`dm_minutes`) against 6 bots (`dm_bots`); both are in the Esc menu and apply from the next match
+  - your kills, deaths and the clock show under the area name; **Tab** shows the scoreboard with HS % and accuracy
+  - at the end you get the results screen, and a new match starts by itself
+- **Spawns:**
+  - you respawn 1.2 s after dying, at a spawn away from the bots and out of their sight, with full ammo and 1 s of protection
+  - bots respawn 2–4 s after you kill them, somewhere you can't see
+- **The bots:**
+  - they walk the real routes (doors, tunnels, ramps), stopping now and then to hold an angle
+  - they see in a 150° cone in front of them, so you can catch one from behind. A bot you shoot turns on you
+  - they hear your running footsteps (about 1,100 units) and your gunshots (about 2,200), and come to check
+  - they stop to shoot, like CS bots, after a 0.25–0.55 s reaction, and they have to turn to face you first
+
+## Players: facing, arms, anti-aliasing
+
+- **Bots turn to face you** when they fight, and face where they're walking otherwise. Their hitboxes turn with them. Head-on you see about 27 units of shoulders; side-on, about 21.
+- **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable, also like CS.
+- **Anti-aliasing** (`msaa 4`, Esc menu, applies on restart) smooths edges so far-away players stop shimmering and are easier to pick out.
+
+## Sound
+
+- **Every sound has 2–6 variants.** Each play picks a different one, with a little random pitch and volume, so repeats never sound identical.
+- **Gunshots** have a heavy mid "bark" and boom plus slapback echo off the walls. Rifle, pistol and sniper each have their own sound.
+- **Bots shooting from more than ~1,400 units away** sound distant: muffled, no crack, mostly echo.
+- **Footsteps** are boot-on-grit (heel, toe scuff, crunch), and landing has a bit of gear rattle.
+- **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
+- **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
+- **Volume** is `volume` in `config.cfg` (0..1).
+- **Sounds are synthesized at startup.** To listen to them as files, run `feellab.exe --dump-sounds <folder>` and it writes every variant as a WAV.
+
 
 ## Bots, smokes, wallbangs, KZ
 
@@ -186,12 +218,13 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | File | What |
 |---|---|
 | `src/movement.*` | Kinematic player movement: friction/accel, air strafing, step-up, crouch-jump, stamina |
-| `src/world.*` | Grey-box map (axis-aligned boxes) and swept-box / ray traces |
+| `src/world.*` | Maps made of axis-aligned boxes (Feel Lab, Dust2 from a grid of named areas), swept-box / ray traces, broadphase |
+| `src/nav.*` | Bot navigation on the Dust grid: walkable cells, shortest routes, following a route |
 | `src/combat.*` | Rifle, recoil pattern, deterministic spread, dummies and hitboxes, hit detection |
 | `src/render.*`, `src/gl.*` | OpenGL 3.3: every 3D object is an instanced box; the HUD is a single batch |
 | `src/fx.*` | First-person weapon models and animation, tracers, particles (cosmetic only) |
 | `src/audio.*` | SDL3 audio mixer and procedural sound synthesis |
-| `src/main.cpp` | Window, raw input, 128 Hz fixed-step loop with interpolation, HUD |
-| `tests/sim_tests.cpp` | Headless checks: speeds, jump height, counter-strafe timing, collision, stairs, crates, determinism |
+| `src/main.cpp` | Window, raw input, 128 Hz fixed-step loop with interpolation, bots (peek + deathmatch AI), HUD |
+| `tests/sim_tests.cpp` | Headless checks: speeds, jump height, counter-strafe timing, collision, stairs, crates, determinism, Dust routes and run times, deathmatch spawns and bot walking, turned hitboxes |
 
-Shots are tested against exactly what was on your screen the frame you clicked: the interpolated dummy positions and camera. That's the single-player version of "what you see is what you hit".
+Shots are tested against exactly what was on your screen the frame you clicked: the interpolated dummy positions, facings and camera. That's the single-player version of "what you see is what you hit".

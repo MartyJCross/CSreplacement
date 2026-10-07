@@ -69,6 +69,10 @@ float hitGroupMultiplier(HitGroup g) {
 
 const WeaponDef& rifleDef() { return kRifle; }
 const WeaponDef& knifeDef() { return kKnife; }
+const WeaponDef& grenadeDef() {
+    static const WeaponDef kGrenade = {"SMOKE", false, 245.0f, 0, 1, 1, 0, 0, 0.34f, 0, 0, 0, nullptr, 0, false};
+    return kGrenade;
+}
 const WeaponDef& pistolDef() { return kPistol; }
 const WeaponDef& sniperDef() { return kSniper; }
 
@@ -107,12 +111,14 @@ void decayRecoil(WeaponState& ws, float dt) {
 }
 
 const std::vector<Hitbox>& dummyHitboxes() {
-    // Dummies face -X (toward spawn), so they're wider along Y.
+    // Model space: the dummy faces -X, so it's wider along Y. Arms count as chest, like CS.
     static const std::vector<Hitbox> boxes = {
         {{-5.0f, -8.0f, 0}, {5.0f, 8.0f, 34}, kLegs},
         {{-6.0f, -9.0f, 34}, {6.0f, 9.0f, 46}, kStomach},
         {{-6.5f, -10.0f, 46}, {6.5f, 10.0f, 58}, kChest},
         {{-4.5f, -4.5f, 59}, {4.5f, 4.5f, 69}, kHead},
+        {{-13.0f, -13.5f, 44}, {3.0f, -10.0f, 57}, kChest},  // right arm, reaching to the grip
+        {{-15.0f, 10.0f, 44}, {1.0f, 13.5f, 57}, kChest},    // left arm, on the handguard
     };
     return boxes;
 }
@@ -142,6 +148,7 @@ std::vector<Dummy> buildDummies() {
 
 void updateDummy(Dummy& d, float dt) {
     d.prevPos = d.pos;
+    d.prevYaw = d.yaw;
     for (float& f : d.flash) f = std::max(0.0f, f - dt);
     if (!d.alive()) {
         d.respawnLeft -= dt;
@@ -220,15 +227,18 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
         bool hitDummy = false;
         for (size_t i = 0; i < dummies.size(); ++i) {
             if (!dummies[i].alive()) continue;
-            const Vec3& base = dummyRenderPos[i];
+            // Test in the dummy's model space (it faces -X there): turn the ray by -(yaw - 180).
+            const float a = -(dummies[i].shownYaw - 180.0f) * kDegToRad, c = std::cos(a), s = std::sin(a);
+            auto toModel = [&](const Vec3& v) { return Vec3{c * v.x - s * v.y, s * v.x + c * v.y, v.z}; };
+            const Vec3 localStart = toModel(segStart - dummyRenderPos[i]), localDir = toModel(dir);
             for (const Hitbox& hb : dummyHitboxes()) {
                 float t;
                 Vec3 n;
-                if (rayHitsBox(segStart, dir, segT, base + hb.mins, base + hb.maxs, t, &n) && t >= 0 && t < segT) {
+                if (rayHitsBox(localStart, localDir, segT, hb.mins, hb.maxs, t, &n) && t >= 0 && t < segT) {
                     segT = t;
                     res.dummyIndex = int(i);
                     res.group = hb.group;
-                    res.normal = n;
+                    res.normal = Vec3{c * n.x + s * n.y, -s * n.x + c * n.y, n.z};  // back to world space
                     hitDummy = true;
                 }
             }

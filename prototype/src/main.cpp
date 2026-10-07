@@ -4,6 +4,7 @@
 #include <SDL3/SDL_main.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
@@ -16,6 +17,7 @@
 #include "fx.h"
 #include "gl.h"
 #include "movement.h"
+#include "nav.h"
 #include "render.h"
 #include "world.h"
 
@@ -36,7 +38,7 @@ struct Options {
     float spawnX = 0, spawnY = 0, spawnYaw = 0;
     float autofireStart = -1, autofireEnd = -1;  // --autofire start end (sim seconds)
     int windowW = 0, windowH = 0;                // --windowed W H
-    int startWeapon = 0;                         // --weapon 1|2|3|4
+    int startWeapon = 0;                         // --weapon 1|2|3|4 (4 = sniper as primary)
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
     bool showMenu = false;                       // --menu (settings menu, for screenshots)
     bool throwSmoke = false, bots = false;       // --smoke, --bots (for screenshots)
@@ -85,7 +87,14 @@ struct Game {
     World world;
     MoveParams moveParams;
     PlayerState player, prevPlayer;
-    WeaponState rifle, pistol, sniper, knife;
+    WeaponState rifle, pistol, sniper, knife, grenade;
+    // CS-style slots: 1 = primary (rifle or sniper, picked in the buy menu), 2 pistol, 3 knife,
+    // 4 smoke. Q = previous weapon.
+    WeaponState* primary = &rifle;
+    WeaponState* lastWeapon = &knife;
+    bool buyMenu = false;
+    bool throwLob = false;        // right click with the smoke out: short underhand throw
+    double grenadeReturnAt = -1;  // after a throw, switch back to the previous weapon
     // Sniper scope: 0 = unscoped, 1 = 40 FOV, 2 = 15 FOV. Unscopes on shot, re-scopes after the bolt.
     int zoom = 0, resumeZoom = 0;
     double resumeZoomAt = -1, boltAt = -1;
@@ -159,6 +168,27 @@ struct Game {
     std::vector<int> botState, botSpot;  // state: 0 hidden, 1 peeking out, 2 holding, 3 returning
     std::vector<float> botTimer, botReact;
 
+    // Deathmatch (mode 1, Dust only): bots roam the map on the nav grid and respawn around it.
+    int mode = 0, dmBots = 6, dmMinutes = 5;
+    NavGrid nav;
+    struct Bot {
+        std::vector<Vec3> path;
+        size_t next = 0;
+        int state = -1;           // -1 just spawned, 0 roam, 1 hold an angle, 2 fighting, 3 investigate
+        float timer = 0;
+        Vec3 lastSeen;            // where they last saw or heard you
+        double alertUntil = 0;    // just got shot: aware all round for a moment
+        bool sees = false, aimed = false;
+        int kills = 0, deaths = 0;
+    };
+    std::vector<Bot> bots;
+    double dmEnd = 0, dmOverUntil = -1, spawnProtectUntil = 0;
+    int dmKills = 0, dmDeaths = 0, dmShownSecs = -1;
+    Vec3 noisePos;                // last sound you made (footsteps, shots) that bots can hear
+    double noiseAt = -100;
+    float noiseRadius = 0;
+    bool showScores = false;      // Tab held
+
     // Cosmetic: camera height offset that eases the view over stairs and stepped ramps.
     float stepSmooth = 0;
     const char* callout = "";  // Dust area name under the player (HUD)
@@ -202,10 +232,37 @@ float rnd(Game& g) {  // bots only: the player's shots stay deterministic
 }
 
 ViewWeapon viewWeaponOf(const Game& g) {
-    return g.weapon == &g.rifle    ? ViewWeapon::Rifle
-           : g.weapon == &g.pistol ? ViewWeapon::Pistol
-           : g.weapon == &g.sniper ? ViewWeapon::Sniper
-                                   : ViewWeapon::Knife;
+    return g.weapon == &g.rifle     ? ViewWeapon::Rifle
+           : g.weapon == &g.pistol  ? ViewWeapon::Pistol
+           : g.weapon == &g.sniper  ? ViewWeapon::Sniper
+           : g.weapon == &g.grenade ? ViewWeapon::Grenade
+                                    : ViewWeapon::Knife;
+}
+
+float wrapDeg(float a) {
+    while (a > 180.0f) a -= 360.0f;
+    while (a < -180.0f) a += 360.0f;
+    return a;
+}
+float yawTo(const Vec3& from, const Vec3& to) { return std::atan2(to.y - from.y, to.x - from.x) / kDegToRad; }
+// Turns `yaw` toward `target` by at most `maxStep` degrees.
+float turnToward(float yaw, float target, float maxStep) {
+    return wrapDeg(yaw + std::clamp(wrapDeg(target - yaw), -maxStep, maxStep));
+}
+
+// Something bots can hear: footsteps (~1100 units) or gunshots (~2200).
+void makeNoise(Game& g, const Vec3& pos, float radius) {
+    if (g.noiseAt == g.simTime && g.noiseRadius >= radius) return;
+    g.noisePos = pos;
+    g.noiseAt = g.simTime;
+    g.noiseRadius = radius;
+}
+
+void refillAmmo(Game& g) {
+    for (WeaponState* w : {&g.rifle, &g.pistol, &g.sniper}) {
+        w->ammo = w->def->magSize;
+        w->reloadEndTime = -1;
+    }
 }
 
 float zoomFov(int level, float baseFov) { return level == 1 ? 40.0f : level == 2 ? 15.0f : baseFov; }
@@ -219,6 +276,8 @@ float zoomSensScale(const Game& g, const Config& cfg) {
 
 void applyConfig(Game& g, const Config& cfg) {
     g.moveParams = MoveParams{};
+    g.dmBots = std::clamp(cfg.dm_bots, 1, 12);       // takes effect at the next match
+    g.dmMinutes = std::clamp(cfg.dm_minutes, 1, 60);
     g.autoHop = cfg.bhop != 0;
     if (g.autoHop) {
         // Bunny hopping: no stamina slowdown on jump/land; air-strafing keeps and builds speed.
@@ -258,11 +317,63 @@ void setDrill(Game& g, bool on) {
     }
 }
 
+// Deathmatch spawn point. For you: far from the bots and out of their sight. For a bot: out of
+// your sight and not on top of another bot. Some randomness so spawns don't become predictable.
+Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
+    const std::vector<Vec3>& spots = dustDeathmatchSpawns();
+    const Vec3 eye = g.player.origin + Vec3{0, 0, kStandEye};
+    size_t start = size_t(rnd(g) * float(spots.size())) % spots.size();
+    float best = -1;
+    Vec3 pick = spots[start];
+    for (size_t k = 0; k < spots.size(); ++k) {
+        const Vec3& s = spots[(start + k) % spots.size()];
+        const Vec3 head = s + Vec3{0, 0, 64};
+        float score = 1800.0f;
+        if (forPlayer) {
+            for (const Dummy& d : g.dummies) {
+                if (!d.alive()) continue;
+                Vec3 dh = d.pos + Vec3{0, 0, 64};
+                float dist = length(dh - head);
+                if (g.world.traceRay(dh, head).fraction >= 1.0f) dist *= 0.1f;  // in their sight
+                score = std::min(score, dist);
+            }
+        } else {
+            score = std::min(score, length(eye - head) * (g.world.traceRay(eye, head).fraction >= 1.0f ? 0.1f : 1.0f));
+            for (size_t i = 0; i < g.dummies.size(); ++i)
+                if (i != self && g.dummies[i].alive() && length2d(g.dummies[i].pos - s) < 96.0f) score = 0;  // taken
+        }
+        score += rnd(g) * 600.0f;
+        if (score > best) { best = score; pick = s; }
+    }
+    return pick;
+}
+
+// (Re)starts a deathmatch: fresh scores, everyone respawns.
+void startDeathmatch(Game& g) {
+    g.dmEnd = g.simTime + 60.0 * g.dmMinutes;
+    g.dmOverUntil = -1;
+    g.dmKills = g.dmDeaths = 0;
+    g.shots = g.hits = g.headshots = 0;
+    for (size_t i = 0; i < g.dummies.size(); ++i) {
+        g.dummies[i] = Dummy{};
+        g.dummies[i].respawnLeft = 0.01f;  // they spawn on the first tick, after you
+        g.bots[i] = Game::Bot{};
+    }
+    g.spawn = pickDmSpawn(g, true);
+    g.spawnYaw = rnd(g) * 360.0f - 180.0f;
+    g.hp = 100;
+    g.deadUntil = -1;
+    refillAmmo(g);
+    resetPosition(g);
+    g.spawnProtectUntil = g.simTime + 1.0;
+    g.hudDirty = true;
+}
+
 void loadMap(Game& g, Renderer& r, int id) {
     g.mapId = id;
     g.world = id == 1 ? buildDust() : buildFeelLab();
     if (id == 1) {
-        g.dummies.assign(4, Dummy{});
+        g.dummies.assign(g.mode == 1 ? size_t(g.dmBots) : 4, Dummy{});
         for (Dummy& d : g.dummies) d.respawnLeft = 0.01f;  // spawn at a spot on the first tick
         g.spawn = dustSpawn().pos;
         g.spawnYaw = dustSpawn().yaw;
@@ -282,6 +393,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.botTimer.assign(n, 0.0f);
     g.botState.assign(n, -1);
     g.botSpot.assign(n, -1);
+    g.bots.assign(n, Game::Bot{});
     g.drill = false;
     g.kzState = 0;
     g.nades.clear();
@@ -292,6 +404,8 @@ void loadMap(Game& g, Renderer& r, int id) {
     for (const Box& b : g.world.solids) statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
     r.setStaticBoxes(statics);
     r.clearDecals();
+    if (id == 1) g.nav.build(dustGrid(), g.world);
+    if (id == 1 && g.mode == 1) startDeathmatch(g);
     g.hudDirty = true;
 }
 
@@ -310,12 +424,14 @@ void resetGame(Game& g, const Options& opt) {
     g.pistol.ammo = pistolDef().magSize;
     g.sniper.def = &sniperDef();
     g.sniper.ammo = sniperDef().magSize;
+    g.grenade.def = &grenadeDef();
     g.spawn = g.player.origin;
     g.spawnYaw = float(g.viewYaw);
     g.aliveSince.assign(g.dummies.size(), 0.0);
     g.botSeen.assign(g.dummies.size(), 0.0f);
     g.botCooldown.assign(g.dummies.size(), 0.0f);
-    g.switchTo = opt.startWeapon;
+    if (opt.startWeapon == 4) g.primary = &g.sniper;
+    g.switchTo = opt.startWeapon == 4 ? 1 : opt.startWeapon;
     g.weapon = &g.rifle;
     g.lastRenderEye = g.player.origin + Vec3{0, 0, kStandEye};
     g.lastDummyRenderPos.clear();
@@ -347,14 +463,17 @@ void simTick(Game& g, const Options& opt) {
 
     // Weapon switching / reload.
     if (g.switchTo) {
-        WeaponState* target = g.switchTo == 1   ? &g.rifle
+        WeaponState* target = g.switchTo == 1   ? g.primary
                               : g.switchTo == 2 ? &g.pistol
-                              : g.switchTo == 4 ? &g.sniper
+                              : g.switchTo == 4 ? &g.grenade
+                              : g.switchTo == 5 ? g.lastWeapon  // Q
                                                 : &g.knife;
+        g.grenadeReturnAt = -1;
         g.zoom = 0;
         g.resumeZoomAt = -1;
         if (target != g.weapon) {
             g.weapon->reloadEndTime = -1;
+            g.lastWeapon = g.weapon;
             g.weapon = target;
             g.weapon->nextFireTime = std::max(g.weapon->nextFireTime, g.simTime + 0.25);  // draw time
             g.vm.onDraw(viewWeaponOf(g));
@@ -382,6 +501,7 @@ void simTick(Game& g, const Options& opt) {
         sound(g, Sfx::DryFire, 0.25f, 0.0f, 1.6f);
         g.hudDirty = true;
     }
+    const bool lobLatch = g.zoomLatch && &ws == &g.grenade;
     g.zoomLatch = false;
     if (g.resumeZoomAt >= 0 && g.simTime >= g.resumeZoomAt) {
         if (sniperOut && ws.reloadEndTime < 0) g.zoom = g.resumeZoom;
@@ -405,6 +525,18 @@ void simTick(Game& g, const Options& opt) {
         g.hudDirty = true;
     }
 
+    // Smoke (slot 4): left click throws, right click lobs, then it's back to the previous weapon.
+    if (&ws == &g.grenade && (g.fireLatch || lobLatch) && g.simTime >= ws.nextFireTime && g.grenadeReturnAt < 0) {
+        g.throwLatch = true;
+        g.throwLob = !g.fireLatch;
+        g.grenadeReturnAt = g.simTime + 0.4;
+        g.fireLatch = false;
+    }
+    if (g.grenadeReturnAt >= 0 && g.simTime >= g.grenadeReturnAt) {
+        g.grenadeReturnAt = -1;
+        if (g.weapon == &g.grenade) g.switchTo = 5;
+    }
+
     bool autofire = opt.autofireStart >= 0 && g.simTime >= opt.autofireStart && g.simTime < opt.autofireEnd;
     // Semi-auto weapons fire once per click; automatic ones keep firing while held.
     bool wantFire = (wd.automatic && g.fireHeld) || g.fireLatch || autofire;
@@ -424,6 +556,7 @@ void simTick(Game& g, const Options& opt) {
         fired = true;
         ws.ammo--;
         g.shots++;
+        makeNoise(g, g.player.origin, 2200.0f);
 
         // Cosmetics: shot sound, weapon kick, tracer, impacts.
         bool isPistol = &ws == &g.pistol;
@@ -431,8 +564,7 @@ void simTick(Game& g, const Options& opt) {
             sound(g, Sfx::SniperShot, 1.0f);
             g.boltAt = g.simTime + 0.55;  // stays scoped through the bolt cycle
         } else {
-            sound(g, Sfx::RifleShot, isPistol ? 0.7f : 0.9f, 0.0f,
-                  (isPistol ? 1.32f : 0.97f) + float(ws.shotCounter % 7) * 0.01f);
+            sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 0.8f : 0.9f);
         }
         g.vm.onShot(ws.shotCounter * 2654435761u);
         g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
@@ -457,6 +589,17 @@ void simTick(Game& g, const Options& opt) {
             pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
             if (r.kill && (g.botsFire || g.mapId == 1))  // no insta-respawn when they fight back
                 g.dummies[size_t(r.dummyIndex)].respawnLeft = 2.0f + rnd(g) * 2.0f;
+            if (g.mode == 1) {
+                Game::Bot& b = g.bots[size_t(r.dummyIndex)];
+                if (r.kill) {
+                    g.dmKills++;
+                    b.deaths++;
+                } else {  // hit but alive: they turn on you
+                    b.alertUntil = g.simTime + 2.0;
+                    b.lastSeen = g.player.origin;
+                    if (b.state != 2) { b.state = 3; b.path.clear(); }
+                }
+            }
             if (r.kill && g.drill && g.dummies[size_t(r.dummyIndex)].respawns > 0) {
                 g.lastTtk = g.simTime - g.aliveSince[size_t(r.dummyIndex)];
                 g.drillTtkSum += g.lastTtk;
@@ -535,6 +678,7 @@ void simTick(Game& g, const Options& opt) {
                 g.stepLeft = !g.stepLeft;
                 float pitch = 0.92f + float((g.shots + int(g.simTime * 7)) % 16) * 0.01f;
                 sound(g, Sfx::Footstep, 0.5f, g.stepLeft ? -0.15f : 0.15f, pitch);
+                makeNoise(g, p.origin, 1100.0f);
             }
         } else {
             g.stepDist = std::min(g.stepDist, kStepStride * 0.6f);  // first step comes quickly
@@ -584,7 +728,9 @@ void simTick(Game& g, const Options& opt) {
     // ---- Smoke grenades ----
     if (g.throwLatch) {
         Vec3 f = anglesToForward(float(g.viewPitch), float(g.viewYaw));
-        g.nades.push_back({g.lastRenderEye + f * 16.0f, f * 750.0f + g.player.velocity, g.simTime + 1.6});
+        float throwSpeed = g.throwLob ? 380.0f : 750.0f;
+        g.nades.push_back({g.lastRenderEye + f * 16.0f, f * throwSpeed + g.player.velocity, g.simTime + 1.6});
+        g.throwLob = false;
         sound(g, Sfx::Draw, 0.6f, 0.0f, 1.3f);
         g.throwLatch = false;
     }
@@ -615,7 +761,7 @@ void simTick(Game& g, const Options& opt) {
                    g.smokes.end());
 
     // ---- Dust bots: hide, peek, hold an angle, return; respawn at a free spot ----
-    if (g.mapId == 1) {
+    if (g.mapId == 1 && g.mode == 0) {
         const auto& spots = dustPeekSpots();
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             Dummy& d = g.dummies[i];
@@ -648,6 +794,91 @@ void simTick(Game& g, const Options& opt) {
                 case 2: if (g.botTimer[i] <= 0) g.botState[i] = 3; break;
                 case 3: if (moveTo(sp.cover)) { g.botState[i] = 0; g.botTimer[i] = 0.6f + rnd(g) * 2.0f; } break;
             }
+            d.yaw = turnToward(d.yaw, yawTo(d.pos, g.player.origin), 540.0f * kTickDt);
+        }
+    }
+
+    // ---- Deathmatch: match clock, then the bots roam, react to what they see and hear, and chase ----
+    if (g.mapId == 1 && g.mode == 1) {
+        if (g.dmOverUntil < 0 && g.simTime >= g.dmEnd) {
+            g.dmOverUntil = g.simTime + 8.0;  // results screen, then a new match
+            g.hudDirty = true;
+        } else if (g.dmOverUntil >= 0 && g.simTime >= g.dmOverUntil) {
+            startDeathmatch(g);
+        }
+        int secs = int(std::max(0.0, g.dmEnd - g.simTime));
+        if (secs != g.dmShownSecs) { g.dmShownSecs = secs; g.hudDirty = true; }
+    }
+    if (g.mapId == 1 && g.mode == 1 && g.nav.ready()) {
+        const bool playerUp = g.deadUntil < 0 && !g.noclip && g.dmOverUntil < 0;
+        const Vec3 eye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
+        const bool heard = g.simTime - g.noiseAt < 1.5 * kTickDt;
+        const std::vector<Vec3>& spots = dustDeathmatchSpawns();
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            Dummy& d = g.dummies[i];
+            Game::Bot& b = g.bots[i];
+            if (!d.alive()) { b.state = -1; b.sees = b.aimed = false; continue; }
+            if (b.state < 0) {  // respawned
+                d.pos = d.prevPos = pickDmSpawn(g, false, i);
+                d.yaw = d.prevYaw = rnd(g) * 360.0f - 180.0f;
+                b.path.clear();
+                b.state = 0;
+                b.alertUntil = 0;
+            }
+            // Perception: a 150 degree view cone (all round for a moment after being shot), line of
+            // sight, no smoke in between.
+            const Vec3 head = d.pos + Vec3{0, 0, 64};
+            const float toYaw = yawTo(d.pos, g.player.origin);
+            const float dist = length(eye - head);
+            const bool inView = std::fabs(wrapDeg(toYaw - d.yaw)) < 75.0f || dist < 250.0f || g.simTime < b.alertUntil;
+            b.sees = playerUp && inView && dist < 4000.0f && g.world.traceRay(head, eye).fraction >= 1.0f &&
+                     !smokeBlocks(g, head, eye);
+            if (b.sees) {
+                b.lastSeen = g.player.origin;
+                if (b.state != 2) { b.state = 2; b.path.clear(); }
+                b.timer = 0.6f;  // keep the angle for a moment after losing sight
+            } else if (heard && playerUp && b.state != 2 && length(g.noisePos - d.pos) < g.noiseRadius) {
+                b.lastSeen = g.noisePos;
+                b.state = 3;
+                b.path.clear();
+            }
+            const float step = 215.0f * kTickDt;  // rifle run speed
+            switch (b.state) {
+                case 0:  // roam to a random spawn point
+                    if (b.path.empty()) {
+                        const Vec3& dest = spots[size_t(rnd(g) * float(spots.size())) % spots.size()];
+                        if (!g.nav.findPath(d.pos, dest, b.path)) break;
+                        b.next = 1;
+                    }
+                    if (followPath(d.pos, b.path, b.next, step)) {
+                        b.path.clear();
+                        b.state = 1;
+                        b.timer = 0.6f + rnd(g) * 1.8f;
+                    }
+                    break;
+                case 1:  // hold an angle
+                    if ((b.timer -= kTickDt) <= 0) b.state = 0;
+                    break;
+                case 2:  // fighting: stand and shoot (like CS bots); when you're gone, go and look
+                    if (!b.sees && (b.timer -= kTickDt) <= 0) { b.state = 3; b.path.clear(); }
+                    break;
+                case 3:  // investigate where you were last seen or heard
+                    if (b.path.empty()) {
+                        if (!g.nav.findPath(d.pos, b.lastSeen, b.path)) { b.state = 0; break; }
+                        b.next = 1;
+                    }
+                    if (followPath(d.pos, b.path, b.next, step)) {
+                        b.path.clear();
+                        b.state = 1;
+                        b.timer = 1.0f + rnd(g);
+                    }
+                    break;
+            }
+            // Face you when fighting, otherwise the way they walk.
+            const Vec3 mv = d.pos - d.prevPos;
+            const float want = b.state == 2 ? toYaw : length2d(mv) > 0.01f ? std::atan2(mv.y, mv.x) / kDegToRad : d.yaw;
+            d.yaw = turnToward(d.yaw, want, (b.state == 2 ? 600.0f : 360.0f) * kTickDt);
+            b.aimed = b.sees && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;
         }
     }
 
@@ -660,8 +891,11 @@ void simTick(Game& g, const Options& opt) {
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             const Dummy& d = g.dummies[i];
             Vec3 head = d.pos + Vec3{0, 0, 64};
-            bool los = d.alive() && length(simEye - head) < 4000.0f &&
-                       g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
+            // Deathmatch bots need to see you (view cone) and have turned to face you first.
+            bool los = g.mode == 1 && g.mapId == 1
+                           ? d.alive() && g.bots[i].aimed
+                           : d.alive() && length(simEye - head) < 4000.0f &&
+                                 g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
             if (!los) { g.botSeen[i] = 0; continue; }
             if (g.botSeen[i] == 0) g.botReact[i] = 0.25f + rnd(g) * 0.3f;  // human-ish reaction time
             g.botSeen[i] += kTickDt;
@@ -685,8 +919,13 @@ void simTick(Game& g, const Options& opt) {
             if (rayHitsBox(head, dir, bestT, o + Vec3{-5, -5, hh - 10}, o + Vec3{5, 5, hh}, t) && t >= 0) {
                 bestT = t; hit = 2;
             }
-            if (g.audio) g.audio->play3D(Sfx::RifleShot, d.pos, simEye, float(g.viewYaw), 4000.0f, 0.75f, 1.05f);
+            if (g.audio) {  // far away a gunshot is mostly echo: muffled, no crack
+                bool far = length(d.pos - simEye) > 1400.0f;
+                g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
+                                far ? 6500.0f : 4000.0f, far ? 1.0f : 0.75f);
+            }
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
+            if (hit && g.simTime < g.spawnProtectUntil) hit = 0;  // deathmatch spawn protection
             if (hit) {
                 g.hp -= hit == 2 ? 100.0f : 26.0f;
                 g.hurtUntil = g.simTime + 0.25;
@@ -695,9 +934,25 @@ void simTick(Game& g, const Options& opt) {
                     g.deaths++;
                     g.hp = 100;
                     g.deadUntil = g.simTime + 1.2;
-                    pushHitLog(g, "YOU DIED", 0xff4040);
+                    if (g.mode == 1 && g.mapId == 1) {
+                        g.dmDeaths++;
+                        g.bots[i].kills++;
+                        char kb[48];
+                        std::snprintf(kb, sizeof(kb), "KILLED BY BOT %d%s", int(i) + 1, hit == 2 ? "  HEADSHOT" : "");
+                        pushHitLog(g, kb, 0xff4040);
+                        g.spawn = pickDmSpawn(g, true);
+                        g.spawnYaw = rnd(g) * 360.0f - 180.0f;
+                        g.spawnProtectUntil = g.deadUntil + 1.0;
+                        refillAmmo(g);
+                        for (Game::Bot& b : g.bots)
+                            if (b.state == 2) { b.state = 1; b.timer = 1.0f; }
+                    } else {
+                        pushHitLog(g, "YOU DIED", 0xff4040);
+                    }
                     resetPosition(g);
                     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
+                    g.hudDirty = true;
+                    break;  // nobody else shoots at your new spawn this tick
                 }
                 g.hudDirty = true;
             }
@@ -794,6 +1049,9 @@ std::vector<MenuItem> menuItems(Config& c) {
         {"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
         {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
         {"SMOOTH STAIRS (CAMERA)", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
+        {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
+        {"DEATHMATCH BOTS", nullptr, &c.dm_bots, 1, 1, 12},
+        {"DEATHMATCH MINUTES", nullptr, &c.dm_minutes, 1, 1, 30},
         {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
         {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
     };
@@ -907,7 +1165,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
     y += lh * 1.5f;
     if (g.botsFire) {
-        std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
+        if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES   F7 PRACTICE");
+        else std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
         hud.text(x, y, buf, 0xFF8060FF);
         y += lh;
         std::snprintf(buf, sizeof(buf), "HP %.0f", double(g.hp));
@@ -919,6 +1178,46 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         }
     }
     if (g.mapId == 1 && g.callout[0]) hud.text(cx - hud.textWidth(g.callout, s * 2) / 2, 12.0f * s, g.callout, 0xFFFFFFD0, s * 2);
+    if (g.mapId == 1 && g.mode == 1) {
+        int left = int(std::max(0.0, g.dmEnd - g.simTime));
+        std::snprintf(buf, sizeof(buf), "%d:%02d   KILLS %d   DEATHS %d", left / 60, left % 60, g.dmKills, g.dmDeaths);
+        hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
+        if (g.showScores || g.dmOverUntil >= 0) {
+            // Scoreboard (Tab), and the results screen at the end of a match.
+            float rowH = 11.0f * s, panelW = 60.0f * 6 * s, panelH = rowH * float(g.bots.size() + 7);
+            float px = cx - panelW / 2, py = cy - panelH / 2 - 40.0f * s;
+            hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
+            if (g.dmOverUntil >= 0) std::snprintf(buf, sizeof(buf), "MATCH OVER");
+            else std::snprintf(buf, sizeof(buf), "DEATHMATCH   %d:%02d LEFT", left / 60, left % 60);
+            hud.text(px, py, buf, 0xFFD060FF, s * 2);
+            float ry = py + rowH * 2.5f;
+            auto row = [&](const char* name, int k, int d, const char* extra, uint32_t col) {
+                char line[96];
+                std::snprintf(line, sizeof(line), "%-10s  KILLS %3d   DEATHS %3d   %s", name, k, d, extra);
+                hud.text(px, ry, line, col);
+                ry += rowH;
+            };
+            char extra[64];
+            std::snprintf(extra, sizeof(extra), "HS %d%%  ACC %d%%", g.dmKills ? g.headshots * 100 / std::max(1, g.hits) : 0,
+                          g.shots ? g.hits * 100 / g.shots : 0);
+            row("YOU", g.dmKills, g.dmDeaths, extra, 0xFFFFFFFF);
+            ry += rowH * 0.5f;
+            for (size_t i = 0; i < g.bots.size(); ++i) {
+                char name[16];
+                std::snprintf(name, sizeof(name), "BOT %d", int(i) + 1);
+                row(name, g.bots[i].kills, g.bots[i].deaths, "", 0xC8C8C8FF);
+            }
+            if (g.dmOverUntil >= 0) hud.text(px, ry + rowH, "NEXT MATCH STARTS IN A FEW SECONDS", 0xA0A0A0FF);
+        }
+    }
+    if (g.buyMenu) {
+        float rowH = 11.0f * s, px = cx - 90.0f * s, py = cy + 40.0f * s;
+        hud.rect(px - 10 * s, py - 10 * s, 200.0f * s, rowH * 5 + 20 * s, 0x15181CE0);
+        hud.text(px, py, "BUY: PRIMARY WEAPON", 0xFFD060FF);
+        hud.text(px, py + rowH * 1.5f, g.primary == &g.rifle ? "1  RIFLE  <" : "1  RIFLE", 0xFFFFFFFF);
+        hud.text(px, py + rowH * 2.5f, g.primary == &g.sniper ? "2  SNIPER  <" : "2  SNIPER", 0xFFFFFFFF);
+        hud.text(px, py + rowH * 4.0f, "B OR ESC TO CLOSE", 0xA0A0A0FF);
+    }
     if (g.kzState == 2 || g.kzLast >= 0) {
         if (g.kzState == 2) std::snprintf(buf, sizeof(buf), "KZ %.2f", g.simTime - g.kzStart);
         else std::snprintf(buf, sizeof(buf), "KZ LAST %.3f   BEST %.3f", g.kzLast, g.kzBest);
@@ -927,11 +1226,12 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (showHelp) {
         const char* help[] = {
             "WASD MOVE   SPACE/WHEEL JUMP   CTRL CROUCH   SHIFT WALK",
-            "MOUSE1 FIRE   MOUSE2 SCOPE   R RELOAD   1 RIFLE   2 PISTOL   3 KNIFE   4 SNIPER",
+            "MOUSE1 FIRE   MOUSE2 SCOPE   R RELOAD   1 PRIMARY   2 PISTOL   3 KNIFE   4 SMOKE   Q LAST WEAPON",
+            "B BUY MENU (RIFLE / SNIPER)   TAB SCORES   G QUICK SMOKE (SMOKE OUT: MOUSE1 THROW, MOUSE2 LOB)",
             "HOLD SPACE TO BUNNY HOP - AIR STRAFE (A/D + TURN) TO GAIN SPEED",
-            "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG   G SMOKE   F4 BOTS SHOOT BACK",
+            "V NOCLIP   F6 RESET POSITION   F5 RELOAD CONFIG.CFG   F4 BOTS SHOOT BACK",
             "KZ COURSE: GREEN PAD BEHIND THE SPRAY WALL - HOP THE BLUE PADS, AVOID THE LAVA",
-            "F8 SWITCH MAP: FEEL LAB / DUST (BOTS PEEK FROM COVER AND SHOOT BACK)",
+            "F8 SWITCH MAP: FEEL LAB / DUST   F7 DEATHMATCH ON DUST",
             "C CLEAR DECALS   F3 AIM DRILL   F1 HIDE HELP   ALT+ENTER FULLSCREEN   ESC PAUSE",
             "LEFT: CRATES + STAIRS + DOOR   AHEAD: RANGE   RIGHT: SPRAY WALL",
         };
@@ -965,23 +1265,23 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         float px = cx - panelW / 2, py = cy - panelH / 2;
         hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
         hud.text(px, py, "SETTINGS", 0xFFD060FF, s * 2);
-        float ry = py + rowH * 2;
+        float my = py + rowH * 2;
         for (size_t k = 0; k < items.size(); ++k) {
             const MenuItem& it = items[k];
             bool selRow = int(k) == menuSel;
-            if (selRow) hud.rect(px - 4 * s, ry - 2 * s, panelW + 8 * s, rowH, 0x3A5F9AC0);
+            if (selRow) hud.rect(px - 4 * s, my - 2 * s, panelW + 8 * s, rowH, 0x3A5F9AC0);
             char val[48];
             if (it.f) std::snprintf(val, sizeof(val), it.step < 0.1f ? "%.2f" : "%.1f", double(*it.f));
             else if (it.labels) std::snprintf(val, sizeof(val), "%s", it.labels[*it.i - int(it.lo)]);
             else std::snprintf(val, sizeof(val), "%d", *it.i);
-            hud.text(px, ry, it.name, selRow ? 0xFFFFFFFF : 0xC8C8C8FF);
+            hud.text(px, my, it.name, selRow ? 0xFFFFFFFF : 0xC8C8C8FF);
             std::string v = selRow ? std::string("< ") + val + " >" : std::string(val);
-            hud.text(px + panelW - hud.textWidth(v), ry, v, selRow ? 0xFFFFFFFF : 0xC8C8C8FF);
-            ry += rowH;
+            hud.text(px + panelW - hud.textWidth(v), my, v, selRow ? 0xFFFFFFFF : 0xC8C8C8FF);
+            my += rowH;
         }
-        ry += rowH;
-        hud.text(px, ry, "UP/DOWN SELECT   LEFT/RIGHT CHANGE (SHIFT = x5)   SAVED AUTOMATICALLY", 0xA0A0A0FF);
-        hud.text(px, ry + rowH, "CLICK OR ESC TO RESUME   Q TO QUIT", 0xFFFFFFFF);
+        my += rowH;
+        hud.text(px, my, "UP/DOWN SELECT   LEFT/RIGHT CHANGE (SHIFT = x5)   SAVED AUTOMATICALLY", 0xA0A0A0FF);
+        hud.text(px, my + rowH, "CLICK OR ESC TO RESUME   Q TO QUIT", 0xFFFFFFFF);
     }
 }
 
@@ -1017,7 +1317,17 @@ int main(int argc, char** argv) {
     // High pixel density: render at native resolution even with Windows display scaling (125%/150%).
     SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
+    const int msaa = std::clamp(cfg.msaa, 0, 8);
+    if (msaa > 0) {
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, msaa);
+    }
     SDL_Window* window = SDL_CreateWindow("Feel Lab", winW, winH, flags);
+    if (!window && msaa > 0) {  // the driver can't do it: carry on without anti-aliasing
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
+        window = SDL_CreateWindow("Feel Lab", winW, winH, flags);
+    }
     if (!window) return fatal(SDL_GetError(), nullptr, showErrors);
     if (fullscreen && cfg.width && cfg.height) {
         // Exclusive mode at the requested resolution (e.g. 4:3 stretched).
@@ -1051,7 +1361,8 @@ int main(int argc, char** argv) {
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     applyConfig(g, cfg);
-    loadMap(g, renderer, cfg.map == 1 ? 1 : 0);
+    g.mode = cfg.mode == 1 ? 1 : 0;
+    loadMap(g, renderer, cfg.map == 1 || g.mode == 1 ? 1 : 0);
     if (opt.spawnOverride) {
         float floorZ = g.mapId == 1 ? dustGrid().floorAt(opt.spawnX, opt.spawnY) : 0.0f;
         g.spawn = {opt.spawnX, opt.spawnY, floorZ > MapGrid::kNoFloor ? floorZ : 0.0f};
@@ -1144,7 +1455,8 @@ int main(int argc, char** argv) {
                         if (e.key.repeat && !(paused && arrow)) break;  // held arrows repeat in the menu
                     }
                     SDL_Scancode sc = e.key.scancode;
-                    if (sc == SDL_SCANCODE_ESCAPE) setPaused(!paused);
+                    if (sc == SDL_SCANCODE_ESCAPE && g.buyMenu && !paused) { g.buyMenu = false; g.hudDirty = true; }
+                    else if (sc == SDL_SCANCODE_ESCAPE) setPaused(!paused);
                     else if (paused && sc == SDL_SCANCODE_Q) running = false;
                     else if (paused && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN)) {
                         int n = int(menuItems(cfg).size());
@@ -1163,10 +1475,26 @@ int main(int argc, char** argv) {
                     } else if (!paused) {
                         if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
+                        else if (g.buyMenu && (sc == SDL_SCANCODE_1 || sc == SDL_SCANCODE_2)) {
+                            g.primary = sc == SDL_SCANCODE_1 ? &g.rifle : &g.sniper;
+                            g.switchTo = 1;  // like buying in CS: you're holding it straight away
+                            g.buyMenu = false;
+                            g.hudDirty = true;
+                        }
                         else if (sc == SDL_SCANCODE_1) g.switchTo = 1;
                         else if (sc == SDL_SCANCODE_2) g.switchTo = 2;
                         else if (sc == SDL_SCANCODE_3) g.switchTo = 3;
                         else if (sc == SDL_SCANCODE_4) g.switchTo = 4;
+                        else if (sc == SDL_SCANCODE_Q) g.switchTo = 5;
+                        else if (sc == SDL_SCANCODE_B) { g.buyMenu = !g.buyMenu; g.hudDirty = true; }
+                        else if (sc == SDL_SCANCODE_F7) {
+                            g.mode = 1 - g.mode;
+                            loadMap(g, renderer, 1);
+                            cfg.mode = g.mode;
+                            cfg.map = 1;
+                            saveConfig(cfgPath, cfg);
+                            pushHitLog(g, g.mode == 1 ? "DEATHMATCH" : "PRACTICE", 0x80ff80);
+                        }
                         else if (sc == SDL_SCANCODE_G) g.throwLatch = true;
                         else if (sc == SDL_SCANCODE_F4) {
                             g.botsFire = !g.botsFire;
@@ -1186,6 +1514,8 @@ int main(int argc, char** argv) {
                         else if (sc == SDL_SCANCODE_F1) { showHelp = !showHelp; g.hudDirty = true; }
                         else if (sc == SDL_SCANCODE_F3 && g.mapId == 0) { setDrill(g, !g.drill); g.hudDirty = true; }
                         else if (sc == SDL_SCANCODE_F8) {
+                            g.mode = 0;  // deathmatch is Dust-only; F8 always goes to practice
+                            cfg.mode = 0;
                             loadMap(g, renderer, 1 - g.mapId);
                             cfg.map = g.mapId;
                             saveConfig(cfgPath, cfg);
@@ -1197,6 +1527,10 @@ int main(int argc, char** argv) {
             }
         }
 
+        {
+            bool tab = !paused && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_TAB];
+            if (tab != g.showScores) { g.showScores = tab; g.hudDirty = true; }
+        }
         if (!paused) {
             tickAcc += dt;
             while (tickAcc >= kTickDt) {
@@ -1262,6 +1596,9 @@ int main(int argc, char** argv) {
             const Dummy& d = g.dummies[i];
             Vec3 p = lerp(d.prevPos, d.pos, alpha);
             g.lastDummyRenderPos[i] = p;
+            const float shownYaw = wrapDeg(d.prevYaw + wrapDeg(d.yaw - d.prevYaw) * alpha);
+            g.dummies[i].shownYaw = shownYaw;  // shots test against exactly this facing
+            const float turn = (shownYaw - 180.0f) * kDegToRad;
             // Dead dummies collapse to the floor (cosmetic; they are no longer hittable).
             float squash = 1.0f;
             if (!d.alive()) {
@@ -1270,18 +1607,20 @@ int main(int argc, char** argv) {
                 squash = std::max(0.06f, 1.0f - t / 0.22f);
             }
             for (const Hitbox& hb : dummyHitboxes()) {
-                uint32_t base = hb.group == kHead ? 0xe8b98c : hb.group == kChest ? 0x2f4f8a
+                uint32_t tint = hb.group == kHead ? 0xe8b98c : hb.group == kChest ? 0x2f4f8a
                               : hb.group == kStomach ? 0x24365e : 0x22252b;
-                uint32_t col = lerpColor(base, 0xffffff, std::min(1.0f, d.flash[hb.group] / 0.15f));
+                uint32_t col = lerpColor(tint, 0xffffff, std::min(1.0f, d.flash[hb.group] / 0.15f));
                 Vec3 mn = hb.mins, mx = hb.maxs;
                 mn.z *= squash;
                 mx.z *= squash;
                 dynamicBoxes.push_back(makeBox(p + mn, p + mx, col, false));
+                yawBox(dynamicBoxes.back(), p, turn);
             }
             auto part = [&](Vec3 mn, Vec3 mx, uint32_t c) {
                 mn.z *= squash;
                 mx.z *= squash;
                 dynamicBoxes.push_back(makeBox(p + mn, p + mx, c, false));
+                yawBox(dynamicBoxes.back(), p, turn);
             };
             part({-4.8f, -4.8f, 65.5f}, {4.8f, 4.8f, 69.6f}, 0x3d4a2c);   // helmet
             part({-5.0f, -3.5f, 63.0f}, {-4.0f, 3.5f, 65.0f}, 0x1a1c20);   // visor band (faces -X)
@@ -1290,6 +1629,8 @@ int main(int argc, char** argv) {
             part({-5.4f, -8.3f, 0.0f}, {5.4f, 8.3f, 6.0f}, 0x1d1a17);      // boots
             part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x1e2024);  // rifle body
             part({-27.0f, -0.6f, 47.2f}, {-16.0f, 0.6f, 48.4f}, 0x111214); // rifle barrel
+            part({-13.3f, -13.2f, 46.0f}, {-10.0f, -10.3f, 49.5f}, 0xe8b98c);  // right hand
+            part({-15.3f, 10.3f, 46.0f}, {-12.0f, 13.2f, 49.5f}, 0xe8b98c);    // left hand
         }
         g.lastRenderEye = eye;
 

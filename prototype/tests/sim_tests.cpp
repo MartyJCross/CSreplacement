@@ -10,6 +10,7 @@
 
 #include "combat.h"
 #include "movement.h"
+#include "nav.h"
 #include "world.h"
 
 namespace {
@@ -353,75 +354,17 @@ const World& dust() {
     return w;
 }
 
-// Shortest walkable route between two points on the Dust grid: climbs of at most one step, any drop,
-// enough headroom, and never through a cell a prop blocks. Returns cell centres (on the floor).
-bool dustRoute(Vec3 from, Vec3 to, std::vector<Vec3>& out) {
-    const MapGrid& m = dustGrid();
-    int si, sj, ti, tj;
-    if (!m.cellAt(from.x, from.y, si, sj) || !m.cellAt(to.x, to.y, ti, tj)) return false;
-    static std::vector<char> clearCell;
-    if (clearCell.empty()) {
-        clearCell.assign(size_t(m.w * m.h), 0);
-        for (int j = 0; j < m.h; ++j)
-            for (int i = 0; i < m.w; ++i)
-                clearCell[size_t(m.index(i, j))] =
-                    m.walkable(i, j) && dust().boxFits(m.center(i, j) + Vec3{0, 0, 0.5f}, hullMins(), hullMaxs(false));
-    }
-    auto ok = [&](int i, int j) { return i >= 0 && j >= 0 && i < m.w && j < m.h && clearCell[size_t(m.index(i, j))]; };
-    auto step = [&](int a, int b, int c, int d) {
-        if (!ok(a, b) || !ok(c, d)) return false;
-        size_t p = size_t(m.index(a, b)), q = size_t(m.index(c, d));
-        if (m.floor[q] - m.floor[p] > MoveParams{}.stepSize) return false;
-        return std::min(m.ceiling[p], m.ceiling[q]) - std::max(m.floor[p], m.floor[q]) >= kStandHeight + 2;
-    };
-    if (!ok(si, sj) || !ok(ti, tj)) return false;
-    // Cells next to a wall or ledge cost a bit more, so routes keep off the edges like a player would.
-    auto edgeCost = [&](int i, int j) {
-        for (int dj = -1; dj <= 1; ++dj)
-            for (int di = -1; di <= 1; ++di)
-                if (!ok(i + di, j + dj) ||
-                    std::fabs(m.floor[size_t(m.index(i + di, j + dj))] - m.floor[size_t(m.index(i, j))]) > 20)
-                    return 1.0f;
-        return 0.0f;
-    };
-    std::vector<float> dist(size_t(m.w * m.h), 1e30f);
-    std::vector<int> prev(size_t(m.w * m.h), -1);
-    using Item = std::pair<float, int>;
-    std::vector<Item> heap;
-    auto cmp = [](const Item& a, const Item& b) { return a.first > b.first; };
-    dist[size_t(m.index(si, sj))] = 0;
-    heap.push_back({0.0f, m.index(si, sj)});
-    while (!heap.empty()) {
-        std::pop_heap(heap.begin(), heap.end(), cmp);
-        Item it = heap.back();
-        heap.pop_back();
-        int c = it.second, i = c % m.w, j = c / m.w;
-        if (it.first > dist[size_t(c)]) continue;
-        if (i == ti && j == tj) break;
-        for (int dj = -1; dj <= 1; ++dj)
-            for (int di = -1; di <= 1; ++di) {
-                if (!di && !dj) continue;
-                if (!step(i, j, i + di, j + dj)) continue;
-                if (di && dj && !(step(i, j, i + di, j) && step(i, j, i, j + dj) && step(i + di, j, i + di, j + dj) &&
-                                  step(i, j + dj, i + di, j + dj)))
-                    continue;
-                int n = m.index(i + di, j + dj);
-                float nd = dist[size_t(c)] + (di && dj ? 1.4142f : 1.0f) + edgeCost(i + di, j + dj);
-                if (nd < dist[size_t(n)]) {
-                    dist[size_t(n)] = nd;
-                    prev[size_t(n)] = c;
-                    heap.push_back({nd, n});
-                    std::push_heap(heap.begin(), heap.end(), cmp);
-                }
-            }
-    }
-    int t = m.index(ti, tj);
-    if (prev[size_t(t)] < 0 && t != m.index(si, sj)) return false;
-    out.clear();
-    for (int c = t; c >= 0; c = prev[size_t(c)]) out.push_back(m.center(c % m.w, c / m.w));
-    std::reverse(out.begin(), out.end());
-    return true;
+// The bots' navigation grid for Dust (the same code deathmatch bots use to find their way).
+const NavGrid& dustNav() {
+    static const NavGrid nav = [] {
+        NavGrid n;
+        n.build(dustGrid(), dust());
+        return n;
+    }();
+    return nav;
 }
+
+bool dustRoute(Vec3 from, Vec3 to, std::vector<Vec3>& out) { return dustNav().findPath(from, to, out); }
 
 // Runs a simulated player along `path` (holding W, steering at a point a little ahead) and returns
 // the time taken, or -1 if they got stuck.
@@ -492,6 +435,60 @@ void testDustBroadphase() {
     CHECK(mismatches == 0, "%d", mismatches);
 }
 
+// Deathmatch: every spawn is standing room, reachable from T spawn, and a bot walking a route with
+// followPath arrives with its feet on the floor the whole way.
+void testDustDeathmatch() {
+    std::printf("dust deathmatch\n");
+    const std::vector<Vec3>& spawns = dustDeathmatchSpawns();
+    int bad = 0;
+    std::vector<Vec3> path;
+    for (const Vec3& sp : spawns) {
+        bool ok = dustNav().standable(sp) && dustNav().findPath(dustSpawn().pos, sp, path);
+        if (!ok) std::printf("  spawn (%.0f, %.0f) not reachable\n", double(sp.x), double(sp.y));
+        bad += !ok;
+    }
+    std::printf("  %zu spawns, %d bad\n", spawns.size(), bad);
+    CHECK(bad == 0, "%d bad spawns", bad);
+
+    // A bot walks from the CT end of B site to the pit: through doors, tunnels, ramps and stairs.
+    CHECK(dustNav().findPath({-1700, 2300, 0}, {1700, 300, 0}, path), "bot route");
+    Vec3 pos = path.front();
+    size_t next = 1;
+    int ticks = 0;
+    float worstZ = 0;
+    while (!followPath(pos, path, next, 215.0f * kTickDt) && ticks < kTickRate * 60) {
+        ++ticks;
+        worstZ = std::max(worstZ, std::fabs(pos.z - dustGrid().floorAt(pos.x, pos.y)));
+    }
+    std::printf("  bot B site -> pit: %.1f s at rifle speed, feet at most %.1f units off the floor\n",
+                double(ticks) * kTickDt, double(worstZ));
+    CHECK(next >= path.size() && worstZ <= 16.5f, "arrived %d, worst z %.1f", int(next >= path.size()), double(worstZ));
+}
+
+// Dummies turn (yaw); hitboxes turn with them. Facing you they're wider than side-on.
+void testTurnedHitboxes() {
+    std::printf("turned hitboxes\n");
+    World empty;
+    auto widthSeen = [&](float yaw) {
+        std::vector<Dummy> dd(1);
+        dd[0].shownYaw = yaw;
+        std::vector<Vec3> pos{Vec3{}};
+        int hits = 0;
+        for (float y = -20; y <= 20; y += 0.5f) {  // sweep shots across the chest at z 52 from -X
+            WeaponState ws;
+            ws.def = &pistolDef();
+            dd[0].hp = 1e9f;
+            ShotResult r = fireBullet(ws, {-300, y, 52}, 0, 0, 0, true, false, empty, dd, pos);
+            hits += r.dummyIndex == 0;
+        }
+        return float(hits) * 0.5f;
+    };
+    float facing = widthSeen(180), side = widthSeen(90), diag = widthSeen(135);
+    std::printf("  chest-high width seen: facing %.1f, side-on %.1f, 45 deg %.1f units\n", double(facing), double(side),
+                double(diag));
+    CHECK(facing > 24.0f && side < 23.0f && diag > side, "facing %.1f side %.1f", double(facing), double(side));
+}
+
 // Walk the main routes with a simulated player at knife speed (250 u/s) and print the run times.
 void testDustRoutes() {
     std::printf("dust routes (knife, 250 u/s)\n");
@@ -534,6 +531,8 @@ int main() {
     testDustMap();
     testDustBroadphase();
     testDustRoutes();
+    testDustDeathmatch();
+    testTurnedHitboxes();
     if (g_failures) {
         std::printf("\n%d check(s) FAILED\n", g_failures);
         return 1;

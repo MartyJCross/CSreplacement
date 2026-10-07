@@ -12,15 +12,24 @@ layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 iMin;
 layout(location = 3) in vec3 iMax;
 layout(location = 4) in vec4 iColor;
+layout(location = 5) in vec3 iRot;  // pivot xy + yaw (radians)
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 out vec3 vWorld;
 out vec3 vNormal;
 out vec4 vColor;
 void main() {
-    vec3 p = (uModel * vec4(iMin + aPos * (iMax - iMin), 1.0)).xyz;
+    vec3 p = iMin + aPos * (iMax - iMin);
+    vec3 n = aNormal;
+    if (iRot.z != 0.0) {
+        float c = cos(iRot.z), s = sin(iRot.z);
+        vec2 d = p.xy - iRot.xy;
+        p.xy = iRot.xy + vec2(c * d.x - s * d.y, s * d.x + c * d.y);
+        n.xy = vec2(c * n.x - s * n.y, s * n.x + c * n.y);
+    }
+    p = (uModel * vec4(p, 1.0)).xyz;
     vWorld = p;
-    vNormal = mat3(uModel) * aNormal;
+    vNormal = mat3(uModel) * n;
     vColor = iColor;
     gl_Position = uViewProj * vec4(p, 1.0);
 }
@@ -157,6 +166,9 @@ void setupInstanceVao(unsigned vao, unsigned cubeVbo, unsigned instVbo) {
     glEnableVertexAttribArray(4);
     glVertexAttribPointer(4, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, reinterpret_cast<void*>(offsetof(BoxInstance, rgba)));
     glVertexAttribDivisor(4, 1);
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(BoxInstance, rot)));
+    glVertexAttribDivisor(5, 1);
 }
 
 void pushQuad(std::vector<HudVert>& v, float x0, float y0, float x1, float y1, float u0, float v0, float u1,

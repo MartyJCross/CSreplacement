@@ -299,6 +299,21 @@ const char* dustCallout(const Vec3& p) {
 
 MapSpawn dustSpawn() { return {{-350, -800, dustGrid().floorAt(-350, -800)}, 90.0f}; }
 
+const std::vector<Vec3>& dustDeathmatchSpawns() {
+    static const std::vector<Vec3> spots = [] {
+        const float xy[][2] = {
+            {-350, -800},  {100, -950},   {-1300, -700}, {-1900, 300},  {-2050, 1100}, {-1100, 1150},
+            {-1700, 2300}, {-2150, 2600}, {-1550, 2700}, {-1000, 2200}, {-300, 2150},  {-150, 2900},
+            {600, 2950},   {1100, 2600},  {1600, 2800},  {1500, 2200},  {1500, 1400},  {1200, 300},
+            {1700, 300},   {520, 0},      {-200, 0},     {-150, 900},   {300, 1700},   {450, 2500},
+        };
+        std::vector<Vec3> out;
+        for (const auto& p : xy) out.push_back({p[0], p[1], dustGrid().floorAt(p[0], p[1])});
+        return out;
+    }();
+    return spots;
+}
+
 World buildDust() {
     const MapGrid& m = dustGrid();
     World w;

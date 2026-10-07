@@ -9,10 +9,17 @@ struct BoxInstance {
     float mins[3];
     float maxs[3];
     uint8_t rgba[4];  // alpha selects shading: 255 = lit + world grid, 0 = lit, 128 = unlit (emissive)
+    float rot[3] = {0, 0, 0};  // optional yaw: pivot x, pivot y, angle in radians (0 = axis-aligned)
 };
 
 BoxInstance makeBox(const Vec3& mins, const Vec3& maxs, uint32_t rgb, bool grid);
 BoxInstance makeEmissive(const Vec3& mins, const Vec3& maxs, uint32_t rgb);
+// Turns a box around the vertical axis through `pivot` (player models facing a direction).
+inline void yawBox(BoxInstance& b, const Vec3& pivot, float yawRad) {
+    b.rot[0] = pivot.x;
+    b.rot[1] = pivot.y;
+    b.rot[2] = yawRad;
+}
 
 struct HudVert {
     float x, y, u, v;

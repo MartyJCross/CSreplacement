@@ -15,13 +15,14 @@ struct Rng {
         s ^= s << 13; s ^= s >> 17; s ^= s << 5;
         return float(s) / 2147483648.0f - 1.0f;
     }
+    float jitter(float amount) { return 1.0f + noise() * amount; }  // 1 +- amount
 };
 
 float lpCoef(float hz) { return 1.0f - std::exp(-2.0f * kPi * hz / kRate); }
 
 std::vector<float> buffer(float seconds) { return std::vector<float>(size_t(seconds * kRate), 0.0f); }
 
-// Filtered noise burst with exponential decay, added into `b` at time t0.
+// Band-limited noise burst with exponential decay, added into `b` at time t0.
 void addNoise(std::vector<float>& b, float t0, float amp, float lowHz, float highHz, float tau, Rng& rng,
               float attack = 0.0005f) {
     float lpHi = 0, lpLo = 0, aHi = lpCoef(highHz), aLo = lpCoef(lowHz);
@@ -37,7 +38,7 @@ void addNoise(std::vector<float>& b, float t0, float amp, float lowHz, float hig
     }
 }
 
-// Decaying sine with optional pitch glide (thumps, rings).
+// Decaying sine with a pitch glide from f0 to f1 (thumps, booms, rings).
 void addTone(std::vector<float>& b, float t0, float amp, float f0, float f1, float tau) {
     size_t start = size_t(t0 * kRate);
     float phase = 0;
@@ -51,15 +52,48 @@ void addTone(std::vector<float>& b, float t0, float amp, float f0, float f1, flo
     }
 }
 
-void addClick(std::vector<float>& b, float t0, float amp, float tone, Rng& rng) {
-    addNoise(b, t0, amp, 1500, 12000, 0.0025f, rng, 0.0001f);
-    addTone(b, t0, amp * 0.5f, tone, tone, 0.006f);
+// Struck metal: a cluster of inharmonic partials (ratios of a struck bar) plus a short click.
+void addMetal(std::vector<float>& b, float t0, float amp, float baseHz, float tau, Rng& rng) {
+    const float ratios[4] = {1.0f, 2.76f, 5.40f, 8.93f}, gains[4] = {1.0f, 0.6f, 0.35f, 0.18f};
+    for (int k = 0; k < 4; ++k)
+        addTone(b, t0, amp * gains[k] * 0.5f, baseHz * ratios[k], baseHz * ratios[k], tau / (1.0f + float(k) * 0.7f));
+    addNoise(b, t0, amp * 0.7f, 2000, 14000, 0.0018f, rng, 0.0001f);
 }
 
-// Single-tap echo: a cheap "room" that makes shots sound like they happen in a space.
-void addEcho(std::vector<float>& b, float delay, float gain) {
-    size_t d = size_t(delay * kRate);
-    for (size_t i = b.size(); i-- > d;) b[i] += b[i - d] * gain;
+// Sparse crunchy grains (sand / grit under a boot).
+void addGrit(std::vector<float>& b, float t0, float len, float amp, Rng& rng) {
+    for (int k = 0; k < 7; ++k) {
+        float t = t0 + (rng.noise() * 0.5f + 0.5f) * len;
+        addNoise(b, t, amp * (0.5f + 0.5f * std::fabs(rng.noise())), 1800, 7500, 0.0022f, rng, 0.0002f);
+    }
+}
+
+// Soft clip for weight: rounds off peaks and adds harmonics the ear reads as "punch".
+void saturate(std::vector<float>& b, float drive) {
+    float m = 0;
+    for (float v : b) m = std::max(m, std::fabs(v));
+    if (m <= 0) return;
+    for (float& v : b) v = std::tanh(v / m * drive);
+}
+
+void lowpass(std::vector<float>& b, float hz) {
+    float a = lpCoef(hz), y = 0;
+    for (float& v : b) { y += a * (v - y); v = y; }
+}
+
+// Outdoor slapback: a handful of darker, decaying reflections off the walls (cheap "space").
+void addReflections(std::vector<float>& b, float firstMs, float spreadMs, int taps, float gain, float decay,
+                    float darkHz, Rng& rng) {
+    std::vector<float> dry = b, wet(b.size(), 0.0f);
+    lowpass(dry, darkHz);
+    float g = gain;
+    for (int k = 0; k < taps; ++k) {
+        float ms = firstMs + spreadMs * (float(k) + 0.5f * (rng.noise() * 0.5f + 0.5f));
+        size_t d = size_t(ms * 0.001f * kRate);
+        for (size_t i = d; i < b.size(); ++i) wet[i] += dry[i - d] * g;
+        g *= decay;
+    }
+    for (size_t i = 0; i < b.size(); ++i) b[i] += wet[i];
 }
 
 void normalize(std::vector<float>& b, float peak) {
@@ -69,114 +103,220 @@ void normalize(std::vector<float>& b, float peak) {
         for (float& v : b) v = std::tanh(v / m * 1.4f) / std::tanh(1.4f) * peak;
 }
 
-std::vector<std::vector<float>> synthesize() {
+// Fade the last few ms so nothing ends with a click.
+void fadeTail(std::vector<float>& b) {
+    size_t n = std::min(b.size(), size_t(0.01f * kRate));
+    for (size_t i = 0; i < n; ++i) b[b.size() - 1 - i] *= float(i) / float(n);
+}
+
+// ---- The sounds. Each call jitters a few parameters, so every variant comes out a bit different. ----
+
+std::vector<float> rifleShot(Rng& r) {
+    auto b = buffer(0.75f);
+    addNoise(b, 0, 0.5f * r.jitter(0.1f), 1800, 9000, 0.004f, r, 0.0002f);            // crack
+    addNoise(b, 0, 1.0f, 120, 1800 * r.jitter(0.08f), 0.035f * r.jitter(0.1f), r, 0.0003f);  // blast body
+    addNoise(b, 0.001f, 0.9f, 400, 1600, 0.02f, r);                                    // mid bark
+    addTone(b, 0, 0.32f, 105 * r.jitter(0.05f), 48, 0.06f * r.jitter(0.1f));           // boom
+    addTone(b, 0, 0.14f, 62, 36, 0.09f);                                               // chest punch
+    addMetal(b, 0.028f * r.jitter(0.1f), 0.10f, 1900 * r.jitter(0.06f), 0.03f, r);    // bolt carrier
+    saturate(b, 2.2f);
+    addReflections(b, 55, 45, 6, 0.30f, 0.62f, 2500, r);
+    fadeTail(b);
+    normalize(b, 0.95f);
+    return b;
+}
+
+std::vector<float> rifleShotFar(Rng& r) {  // distant: no crack, dark, mostly echo
+    auto b = buffer(1.1f);
+    addNoise(b, 0, 1.0f, 90, 900, 0.05f * r.jitter(0.1f), r, 0.002f);
+    addTone(b, 0, 0.8f, 80 * r.jitter(0.05f), 40, 0.09f);
+    saturate(b, 1.6f);
+    addReflections(b, 90, 90, 7, 0.55f, 0.72f, 900, r);
+    lowpass(b, 1400);
+    fadeTail(b);
+    normalize(b, 0.85f);
+    return b;
+}
+
+std::vector<float> pistolShot(Rng& r) {  // snappier and lighter than the rifle
+    auto b = buffer(0.55f);
+    addNoise(b, 0, 0.75f * r.jitter(0.1f), 2000, 10000, 0.003f, r, 0.0002f);
+    addNoise(b, 0, 1.0f, 250, 2600 * r.jitter(0.08f), 0.022f * r.jitter(0.1f), r, 0.0003f);
+    addTone(b, 0, 0.22f, 150 * r.jitter(0.05f), 70, 0.03f);
+    addMetal(b, 0.018f, 0.12f, 2600 * r.jitter(0.06f), 0.025f, r);  // slide
+    saturate(b, 2.0f);
+    addReflections(b, 50, 40, 5, 0.24f, 0.6f, 3000, r);
+    fadeTail(b);
+    normalize(b, 0.9f);
+    return b;
+}
+
+std::vector<float> sniperShot(Rng& r) {  // big: heavy boom, long rolling echo
+    auto b = buffer(1.5f);
+    addNoise(b, 0, 0.8f, 2200, 12000, 0.005f, r, 0.0002f);
+    addNoise(b, 0, 1.0f, 90, 1600 * r.jitter(0.08f), 0.07f * r.jitter(0.1f), r, 0.0004f);
+    addNoise(b, 0.001f, 0.8f, 300, 1400, 0.03f, r);
+    addTone(b, 0, 0.42f, 85 * r.jitter(0.05f), 30, 0.11f);
+    addTone(b, 0, 0.16f, 50, 28, 0.16f);
+    saturate(b, 2.6f);
+    addReflections(b, 80, 85, 8, 0.4f, 0.7f, 1800, r);
+    fadeTail(b);
+    normalize(b, 0.98f);
+    return b;
+}
+
+std::vector<float> footstep(Rng& r) {  // boot on sand/stone: heel, roll, toe scuff, grit
+    auto b = buffer(0.2f);
+    float toe = 0.045f * r.jitter(0.25f);
+    addNoise(b, 0, 0.9f, 140 * r.jitter(0.15f), 2200 * r.jitter(0.15f), 0.011f * r.jitter(0.2f), r, 0.0008f);
+    addTone(b, 0, 0.3f, 85 * r.jitter(0.1f), 55, 0.012f);
+    addNoise(b, toe, 0.5f * r.jitter(0.25f), 500, 4500 * r.jitter(0.15f), 0.014f, r, 0.001f);
+    addGrit(b, 0.002f, toe + 0.03f, 0.18f, r);
+    lowpass(b, 6500);
+    fadeTail(b);
+    normalize(b, 0.7f);
+    return b;
+}
+
+std::vector<float> landing(Rng& r) {  // thud, grit and a little gear rattle
+    auto b = buffer(0.3f);
+    addTone(b, 0, 0.4f, 72 * r.jitter(0.08f), 40, 0.05f);
+    addNoise(b, 0, 0.9f, 120, 1200, 0.04f, r, 0.001f);
+    addGrit(b, 0.004f, 0.05f, 0.3f, r);
+    addMetal(b, 0.02f * r.jitter(0.2f), 0.06f, 1500 * r.jitter(0.1f), 0.02f, r);
+    addMetal(b, 0.05f * r.jitter(0.2f), 0.04f, 1900 * r.jitter(0.1f), 0.02f, r);
+    fadeTail(b);
+    normalize(b, 0.8f);
+    return b;
+}
+
+std::vector<float> hitBody(Rng& r) {  // dull, meaty thwack
+    auto b = buffer(0.15f);
+    addNoise(b, 0, 1.0f, 300, 3000 * r.jitter(0.1f), 0.012f * r.jitter(0.15f), r, 0.0003f);
+    addTone(b, 0, 0.3f, 165 * r.jitter(0.08f), 90, 0.022f);
+    addNoise(b, 0.005f, 0.45f, 700, 2000, 0.03f, r);
+    saturate(b, 1.8f);
+    fadeTail(b);
+    normalize(b, 0.62f);
+    return b;
+}
+
+std::vector<float> hitHead(Rng& r) {  // helmet "dink": bright ring over a thwack
+    auto b = buffer(0.6f);
+    addMetal(b, 0, 0.9f, 3050 * r.jitter(0.04f), 0.12f, r);
+    addTone(b, 0, 0.25f, 1450 * r.jitter(0.04f), 1450, 0.07f);
+    addNoise(b, 0, 0.5f, 300, 2500, 0.01f, r, 0.0003f);
+    fadeTail(b);
+    normalize(b, 0.6f);
+    return b;
+}
+
+std::vector<float> dryFire(Rng& r) {
+    auto b = buffer(0.08f);
+    addMetal(b, 0, 0.8f, 2300 * r.jitter(0.06f), 0.012f, r);
+    fadeTail(b);
+    normalize(b, 0.5f);
+    return b;
+}
+
+std::vector<float> magOut(Rng& r) {
+    auto b = buffer(0.28f);
+    addMetal(b, 0, 0.7f, 1500 * r.jitter(0.06f), 0.02f, r);
+    addMetal(b, 0.035f, 0.4f, 2100 * r.jitter(0.06f), 0.015f, r);
+    addNoise(b, 0.02f, 0.25f, 600, 5000, 0.05f, r, 0.004f);  // mag sliding out
+    fadeTail(b);
+    normalize(b, 0.55f);
+    return b;
+}
+
+std::vector<float> magIn(Rng& r) {
+    auto b = buffer(0.28f);
+    addNoise(b, 0, 0.2f, 600, 4000, 0.03f, r, 0.004f);
+    addMetal(b, 0.04f, 1.0f, 1200 * r.jitter(0.06f), 0.03f, r);  // seat
+    addTone(b, 0.04f, 0.4f, 170, 110, 0.03f);
+    fadeTail(b);
+    normalize(b, 0.65f);
+    return b;
+}
+
+std::vector<float> bolt(Rng& r) {
+    auto b = buffer(0.32f);
+    addMetal(b, 0, 0.6f, 1700 * r.jitter(0.06f), 0.025f, r);    // back
+    addNoise(b, 0.01f, 0.2f, 1500, 7000, 0.04f, r);
+    addMetal(b, 0.13f, 1.0f, 1350 * r.jitter(0.06f), 0.035f, r); // forward
+    addTone(b, 0.13f, 0.3f, 210, 150, 0.03f);
+    fadeTail(b);
+    normalize(b, 0.65f);
+    return b;
+}
+
+std::vector<float> drawSound(Rng& r) {
+    auto b = buffer(0.22f);
+    addNoise(b, 0, 0.3f, 500, 4500, 0.05f, r, 0.01f);  // cloth / holster
+    addMetal(b, 0.09f, 0.6f, 1800 * r.jitter(0.08f), 0.02f, r);
+    fadeTail(b);
+    normalize(b, 0.45f);
+    return b;
+}
+
+struct SoundBank {
+    std::vector<std::vector<float>> clips;
+    std::vector<int> first, count;
+};
+
+SoundBank synthesize() {
+    using Maker = std::vector<float> (*)(Rng&);
+    struct Entry { Sfx id; Maker make; int variants; };
+    const Entry entries[] = {
+        {Sfx::RifleShot, rifleShot, 4},  {Sfx::DryFire, dryFire, 2}, {Sfx::MagOut, magOut, 2},
+        {Sfx::MagIn, magIn, 2},          {Sfx::Bolt, bolt, 2},       {Sfx::Draw, drawSound, 2},
+        {Sfx::Footstep, footstep, 6},    {Sfx::Land, landing, 3},    {Sfx::HitBody, hitBody, 4},
+        {Sfx::HitHead, hitHead, 3},      {Sfx::SniperShot, sniperShot, 3}, {Sfx::PistolShot, pistolShot, 4},
+        {Sfx::RifleShotFar, rifleShotFar, 3},
+    };
+    static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
+    SoundBank bank;
+    bank.first.assign(size_t(Sfx::Count), 0);
+    bank.count.assign(size_t(Sfx::Count), 0);
     Rng rng;
-    std::vector<std::vector<float>> s(static_cast<size_t>(Sfx::Count));
-
-    auto& shot = s[size_t(Sfx::RifleShot)] = buffer(0.55f);
-    addNoise(shot, 0, 1.0f, 2500, 16000, 0.006f, rng, 0.0002f);  // supersonic crack
-    addNoise(shot, 0, 0.9f, 150, 2500, 0.045f, rng, 0.0004f);    // muzzle blast body
-    addNoise(shot, 0.004f, 0.35f, 60, 700, 0.17f, rng, 0.01f);   // room tail
-    addTone(shot, 0, 0.9f, 130, 42, 0.05f);                      // low thump
-    addClick(shot, 0.035f, 0.08f, 3200, rng);                    // action cycling
-    addTone(shot, 0, 0.5f, 70, 38, 0.08f);                       // chest punch
-    addEcho(shot, 0.095f, 0.22f);
-    addEcho(shot, 0.21f, 0.10f);
-    normalize(shot, 0.95f);
-
-    auto& dry = s[size_t(Sfx::DryFire)] = buffer(0.06f);
-    addClick(dry, 0, 0.8f, 2600, rng);
-    normalize(dry, 0.5f);
-
-    auto& magOut = s[size_t(Sfx::MagOut)] = buffer(0.25f);
-    addClick(magOut, 0, 0.7f, 1800, rng);
-    addClick(magOut, 0.03f, 0.4f, 2400, rng);
-    addNoise(magOut, 0.02f, 0.25f, 800, 6000, 0.05f, rng);
-    normalize(magOut, 0.55f);
-
-    auto& magIn = s[size_t(Sfx::MagIn)] = buffer(0.25f);
-    addClick(magIn, 0, 0.6f, 1500, rng);
-    addClick(magIn, 0.045f, 1.0f, 1200, rng);
-    addTone(magIn, 0.045f, 0.4f, 180, 120, 0.03f);
-    normalize(magIn, 0.65f);
-
-    auto& bolt = s[size_t(Sfx::Bolt)] = buffer(0.3f);
-    addClick(bolt, 0, 0.6f, 2200, rng);
-    addNoise(bolt, 0.01f, 0.2f, 1500, 7000, 0.04f, rng);
-    addClick(bolt, 0.13f, 1.0f, 1700, rng);
-    addTone(bolt, 0.13f, 0.3f, 220, 150, 0.03f);
-    normalize(bolt, 0.65f);
-
-    auto& draw = s[size_t(Sfx::Draw)] = buffer(0.2f);
-    addNoise(draw, 0, 0.3f, 600, 5000, 0.05f, rng, 0.01f);
-    addClick(draw, 0.09f, 0.7f, 2000, rng);
-    normalize(draw, 0.45f);
-
-    auto& step = s[size_t(Sfx::Footstep)] = buffer(0.16f);
-    addNoise(step, 0, 0.8f, 80, 1200, 0.014f, rng, 0.0008f);       // heel
-    addTone(step, 0, 0.7f, 120, 70, 0.018f);
-    addNoise(step, 0.004f, 0.3f, 2000, 8000, 0.008f, rng);         // grit
-    addNoise(step, 0.045f, 0.5f, 200, 2500, 0.010f, rng, 0.0005f); // toe
-    addNoise(step, 0.05f, 0.2f, 2000, 8000, 0.007f, rng);
-    normalize(step, 0.7f);
-
-    auto& land = s[size_t(Sfx::Land)] = buffer(0.25f);
-    addNoise(land, 0, 0.9f, 60, 600, 0.04f, rng, 0.001f);
-    addTone(land, 0, 1.0f, 90, 45, 0.05f);
-    addNoise(land, 0.01f, 0.25f, 1200, 5000, 0.02f, rng);
-    normalize(land, 0.8f);
-
-    auto& hitBody = s[size_t(Sfx::HitBody)] = buffer(0.12f);
-    addNoise(hitBody, 0, 0.9f, 200, 1800, 0.014f, rng, 0.0003f);
-    addTone(hitBody, 0, 0.6f, 190, 110, 0.025f);
-    normalize(hitBody, 0.6f);
-
-    // Headshot "dink": inharmonic metallic partials + a sharp transient.
-    auto& hitHead = s[size_t(Sfx::HitHead)] = buffer(0.9f);
-    addClick(hitHead, 0, 0.6f, 5000, rng);
-    addTone(hitHead, 0, 0.55f, 2450, 2450, 0.16f);
-    addTone(hitHead, 0, 0.35f, 3910, 3910, 0.11f);
-    addTone(hitHead, 0, 0.22f, 5340, 5340, 0.07f);
-    addTone(hitHead, 0, 0.15f, 1280, 1280, 0.09f);
-    normalize(hitHead, 0.6f);
-
-    // Sniper: harder crack, heavier blast, long rolling tail.
-    auto& snipe = s[size_t(Sfx::SniperShot)] = buffer(1.2f);
-    addNoise(snipe, 0, 1.0f, 3000, 18000, 0.005f, rng, 0.0002f);
-    addNoise(snipe, 0, 1.0f, 100, 2200, 0.07f, rng, 0.0004f);
-    addNoise(snipe, 0.006f, 0.45f, 40, 500, 0.35f, rng, 0.02f);
-    addTone(snipe, 0, 1.0f, 110, 32, 0.09f);
-    addEcho(snipe, 0.16f, 0.28f);
-    addEcho(snipe, 0.37f, 0.12f);
-    normalize(snipe, 0.98f);
-
-    return s;
+    for (const Entry& e : entries) {
+        bank.first[size_t(e.id)] = int(bank.clips.size());
+        bank.count[size_t(e.id)] = e.variants;
+        for (int v = 0; v < e.variants; ++v) bank.clips.push_back(e.make(rng));
+    }
+    return bank;
 }
 
 }  // namespace
 
 bool Audio::dumpWavs(const std::string& dir) {
-    const char* names[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw",
-                           "footstep", "land", "hit_body", "hit_head", "sniper_shot"};
+    const char* names[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw", "footstep",
+                           "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far"};
     static_assert(sizeof(names) / sizeof(names[0]) == size_t(Sfx::Count), "name every sound");
-    std::vector<std::vector<float>> all = synthesize();
-    for (size_t i = 0; i < all.size(); ++i) {
-        std::ofstream f(dir + "/" + names[i] + ".wav", std::ios::binary);
-        if (!f) return false;
-        auto u32 = [&](uint32_t v) { f.write(reinterpret_cast<const char*>(&v), 4); };
-        auto u16 = [&](uint16_t v) { f.write(reinterpret_cast<const char*>(&v), 2); };
-        uint32_t bytes = uint32_t(all[i].size() * 2);
-        f.write("RIFF", 4); u32(36 + bytes); f.write("WAVEfmt ", 8);
-        u32(16); u16(1); u16(1); u32(kRate); u32(kRate * 2); u16(2); u16(16);
-        f.write("data", 4); u32(bytes);
-        for (float v : all[i]) u16(uint16_t(int16_t(std::clamp(v, -1.0f, 1.0f) * 32767.0f)));
-    }
+    SoundBank bank = synthesize();
+    for (size_t s = 0; s < size_t(Sfx::Count); ++s)
+        for (int v = 0; v < bank.count[s]; ++v) {
+            const std::vector<float>& clip = bank.clips[size_t(bank.first[s] + v)];
+            std::ofstream f(dir + "/" + names[s] + "_" + std::to_string(v + 1) + ".wav", std::ios::binary);
+            if (!f) return false;
+            auto u32 = [&](uint32_t x) { f.write(reinterpret_cast<const char*>(&x), 4); };
+            auto u16 = [&](uint16_t x) { f.write(reinterpret_cast<const char*>(&x), 2); };
+            uint32_t bytes = uint32_t(clip.size() * 2);
+            f.write("RIFF", 4); u32(36 + bytes); f.write("WAVEfmt ", 8);
+            u32(16); u16(1); u16(1); u32(kRate); u32(kRate * 2); u16(2); u16(16);
+            f.write("data", 4); u32(bytes);
+            for (float x : clip) u16(uint16_t(int16_t(std::clamp(x, -1.0f, 1.0f) * 32767.0f)));
+        }
     return true;
 }
 
 bool Audio::init(float masterVolume) {
     master_ = masterVolume;
-    sounds_ = synthesize();
+    SoundBank bank = synthesize();
+    sounds_ = std::move(bank.clips);
+    first_ = std::move(bank.first);
+    count_ = std::move(bank.count);
+    last_.assign(first_.size(), -1);
     voices_.reserve(kMaxVoices);
     pending_.reserve(kMaxVoices);
     mixBuf_.resize(4096 * 2);
@@ -192,13 +332,25 @@ void Audio::shutdown() {
     stream_ = nullptr;
 }
 
+float Audio::rand01() {
+    rng_ ^= rng_ << 13; rng_ ^= rng_ >> 17; rng_ ^= rng_ << 5;
+    return float(rng_ & 0xFFFFFF) / float(0x1000000);
+}
+
 void Audio::play(Sfx s, float gain, float pan, float pitch) {
     if (!stream_ || gain <= 0.001f) return;
+    // Pick a variant (not the one we just played) and nudge pitch +-2.5% and volume +-1 dB.
+    size_t id = size_t(s);
+    int n = count_[id], v = int(rand01() * float(n)) % n;
+    if (n > 1 && v == last_[id]) v = (v + 1) % n;
+    last_[id] = v;
+    pitch *= 0.975f + 0.05f * rand01();
+    gain *= 0.89f + 0.22f * rand01();
     pan = std::clamp(pan, -1.0f, 1.0f);
     float a = (pan + 1.0f) * kPi * 0.25f;  // equal-power pan
-    Voice v{int(s), 0.0, pitch, std::cos(a) * gain * 1.4142f, std::sin(a) * gain * 1.4142f};
+    Voice voice{first_[id] + v, 0.0, pitch, std::cos(a) * gain * 1.4142f, std::sin(a) * gain * 1.4142f};
     std::lock_guard<std::mutex> lock(mutex_);
-    if (pending_.size() < kMaxVoices) pending_.push_back(v);
+    if (pending_.size() < kMaxVoices) pending_.push_back(voice);
 }
 
 void Audio::play3D(Sfx s, const Vec3& pos, const Vec3& listener, float listenerYawDeg, float maxDist, float gain,

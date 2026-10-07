@@ -71,6 +71,8 @@ const MapGrid& dustGrid();
 const char* dustCallout(const Vec3& p);  // area name under p ("" in walls)
 struct MapSpawn { Vec3 pos; float yaw; };
 MapSpawn dustSpawn();
+// Deathmatch spawn points spread over the whole map (on the floor).
+const std::vector<Vec3>& dustDeathmatchSpawns();
 
 // KZ / bhop course (behind the spray wall): start pad, lava floor, pads, end pad.
 constexpr float kKzMinY = -880.0f, kKzMaxY = -580.0f;

@@ -83,6 +83,15 @@ const Part kKnife[] = {
     {{-1.6f, -2.2f, 3.5f}, {1.6f, 1.6f, 13.0f}, kSleeve},         // forearm
 };
 
+const Part kGrenade[] = {
+    {{-1.3f, -1.3f, -2.6f}, {1.3f, 1.3f, 2.4f}, 0x4f5a4a},      // canister
+    {{-1.35f, -1.35f, -1.0f}, {1.35f, 1.35f, -0.4f}, 0x2a2e28}, // band
+    {{-0.6f, -0.6f, -3.6f}, {0.6f, 0.6f, -2.6f}, kMetal},       // fuse
+    {{-0.25f, 0.6f, -3.4f}, {0.25f, 1.6f, 1.2f}, kMetal},       // spoon
+    {{-1.6f, -1.8f, -0.4f}, {1.6f, 1.2f, 3.0f}, kGlove},        // hand
+    {{-1.6f, -2.2f, 3.0f}, {1.6f, 1.6f, 13.0f}, kSleeve},       // forearm
+};
+
 template <size_t N>
 std::vector<BoxInstance> toBoxes(const Part (&parts)[N]) {
     std::vector<BoxInstance> out;
@@ -212,7 +221,7 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
             out.push_back(flash);
         }
     } else {
-        out.push_back({world, toBoxes(kKnife)});
+        out.push_back({world, weapon_ == ViewWeapon::Grenade ? toBoxes(kGrenade) : toBoxes(kKnife)});
     }
 }
 

@@ -6,7 +6,7 @@ namespace {
 
 const char* kDefaultConfig = R"(// Feel Lab config. Edit and restart the game.
 // Sensitivity uses CS's m_yaw 0.022, so your CS sensitivity feels identical (same DPI).
-sensitivity 2.0
+sensitivity 1.2
 m_yaw 0.022
 m_pitch 0.022
 // Horizontal FOV at 4:3, same as CS's 90.
@@ -51,6 +51,11 @@ camera_extrapolate 1
 view_smooth_steps 1
 // Scoped sensitivity multiplier (1 = matched to unscoped, like CS).
 zoom_sensitivity_ratio 1
+// Anti-aliasing samples (0 = off, 2, 4, 8). Smooths edges so far-away players are easier to see. Restart to apply.
+msaa 4
+// Deathmatch on Dust (F7): number of bots and match length in minutes.
+dm_bots 6
+dm_minutes 5
 )";
 
 }  // namespace
@@ -73,7 +78,8 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
         << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
-        << "\nmap " << c.map << "\n";
+        << "\nmap " << c.map << "\nmsaa " << c.msaa << "\nmode " << c.mode << "\ndm_bots " << c.dm_bots
+        << "\ndm_minutes " << c.dm_minutes << "\n";
     return bool(out);
 }
 
@@ -129,6 +135,10 @@ Config loadConfig(const std::string& path) {
         else if (key == "view_smooth_steps") i(c.view_smooth_steps);
         else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
         else if (key == "map") i(c.map);
+        else if (key == "msaa") i(c.msaa);
+        else if (key == "mode") i(c.mode);
+        else if (key == "dm_bots") i(c.dm_bots);
+        else if (key == "dm_minutes") i(c.dm_minutes);
     }
     return c;
 }
