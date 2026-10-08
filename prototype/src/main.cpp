@@ -3331,6 +3331,11 @@ int main(int argc, char** argv) {
         const uint64_t tScene = SDL_GetPerformanceCounter();
         renderer.beginFrame(pixW, pixH);
         renderer.drawBoxes(viewProj, eye, dynamicBoxes);
+        {  // the sky behind it (the camera roll is a degree or so: ignored here)
+            const float ty = std::tan(vfov * 0.5f), tx = ty * aspect;
+            const Vec3 f = anglesToForward(camPitch, camYaw), r = yawToRight(camYaw), u = cross(r, f);
+            renderer.drawSky(f, r * tx, u * ty);
+        }
         modelDraws.clear();
         g.fx.appendTracers(modelDraws);
         for (const ModelDraw& md : modelDraws) renderer.drawModel(viewProj, md.model, md.boxes);

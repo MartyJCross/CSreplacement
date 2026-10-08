@@ -135,7 +135,33 @@ void main() {
         }
     }
     float d = length(vWorld - uEye);
-    c = mix(c, vec3(0.55, 0.74, 0.95), clamp(d / 9000.0, 0.0, 0.30));
+    c = mix(c, vec3(0.80, 0.84, 0.87), clamp(d / 9000.0, 0.0, 0.30));  // haze: the horizon colour
+    oColor = vec4(c, 1.0);
+}
+)";
+
+// Sky: one full-screen triangle at the far plane, drawn after the world, so only pixels nothing else
+// covered get shaded. A gradient from a deep blue overhead to a warm, pale horizon, and a sun.
+const char* kSkyVS = R"(#version 330 core
+out vec2 vNdc;
+void main() {
+    vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
+    vNdc = p;
+    gl_Position = vec4(p, 1.0, 1.0);
+}
+)";
+
+const char* kSkyFS = R"(#version 330 core
+in vec2 vNdc;
+uniform vec3 uFwd, uRight, uUp;  // camera basis; right/up scaled by tan(half fov)
+out vec4 oColor;
+void main() {
+    vec3 d = normalize(uFwd + uRight * vNdc.x + uUp * vNdc.y);
+    const vec3 zenith = vec3(0.30, 0.52, 0.86), horizon = vec3(0.80, 0.84, 0.87), ground = vec3(0.74, 0.70, 0.62);
+    vec3 c = d.z >= 0.0 ? mix(horizon, zenith, pow(clamp(d.z, 0.0, 1.0), 0.5))
+                        : mix(horizon, ground, clamp(-d.z * 4.0, 0.0, 1.0));
+    float s = max(dot(d, normalize(vec3(0.5, 0.25, 0.83))), 0.0);  // the sun: high, the way the shading lights
+    c += vec3(1.0, 0.86, 0.62) * (pow(s, 600.0) * 1.6 + pow(s, 24.0) * 0.16);
     oColor = vec4(c, 1.0);
 }
 )";
@@ -329,6 +355,12 @@ bool Renderer::init(std::string& err) {
     uDepthModel_ = glGetUniformLocation(depthProgram_, "uModel");
     hudProgram_ = compileProgram(kHudVS, kHudFS, err);
     if (!hudProgram_) return false;
+    skyProgram_ = compileProgram(kSkyVS, kSkyFS, err);
+    if (!skyProgram_) return false;
+    uSkyFwd_ = glGetUniformLocation(skyProgram_, "uFwd");
+    uSkyRight_ = glGetUniformLocation(skyProgram_, "uRight");
+    uSkyUp_ = glGetUniformLocation(skyProgram_, "uUp");
+    glGenVertexArrays(1, &skyVao_);  // no vertex data: the triangle comes from gl_VertexID
     uViewProj_ = glGetUniformLocation(boxProgram_, "uViewProj");
     uModel_ = glGetUniformLocation(boxProgram_, "uModel");
     uEye_ = glGetUniformLocation(boxProgram_, "uEye");
@@ -448,7 +480,7 @@ void Renderer::beginFrame(int width, int height) {
     width_ = width;
     height_ = height;
     glViewport(0, 0, width, height);
-    glClearColor(0.55f, 0.74f, 0.95f, 1.0f);
+    glClearColor(0.80f, 0.84f, 0.87f, 1.0f);
     glDepthMask(GL_TRUE);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
@@ -487,6 +519,20 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
     glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
     glUniform3f(uEye_, eye.x, eye.y, eye.z);
     drawAll();
+    glDepthMask(GL_TRUE);
+}
+
+void Renderer::drawSky(const Vec3& fwd, const Vec3& right, const Vec3& up) {
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);  // at the far plane: only where the depth buffer is still clear
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glUseProgram(skyProgram_);
+    glUniform3f(uSkyFwd_, fwd.x, fwd.y, fwd.z);
+    glUniform3f(uSkyRight_, right.x, right.y, right.z);
+    glUniform3f(uSkyUp_, up.x, up.y, up.z);
+    glBindVertexArray(skyVao_);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
     glDepthMask(GL_TRUE);
 }
 

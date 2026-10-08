@@ -52,6 +52,8 @@ public:
     void drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vector<BoxInstance>& dynamicBoxes);
     // Boxes in a local space transformed by `model` (weapon models, tracers).
     void drawModel(const Mat4& viewProj, const Mat4& model, const std::vector<BoxInstance>& boxes);
+    // The sky, behind everything already drawn: camera forward, and right/up scaled by tan(half fov).
+    void drawSky(const Vec3& fwd, const Vec3& right, const Vec3& up);
     // Starts the first-person weapon pass: fresh depth so the weapon never clips into walls.
     void clearDepth();
     // Depth pre-pass for the world: each pixel is shaded once (on by default; off for comparison).
@@ -62,7 +64,8 @@ public:
     bool screenshot(const std::string& path);
 
 private:
-    unsigned boxProgram_ = 0, hudProgram_ = 0, depthProgram_ = 0;
+    unsigned boxProgram_ = 0, hudProgram_ = 0, depthProgram_ = 0, skyProgram_ = 0, skyVao_ = 0;
+    int uSkyFwd_ = -1, uSkyRight_ = -1, uSkyUp_ = -1;
     int uDepthViewProj_ = -1, uDepthModel_ = -1;
     bool depthPrepass_ = true;
     // World boxes kept on the CPU so each frame can drop the ones off screen and draw the rest
