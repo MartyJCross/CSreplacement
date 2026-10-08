@@ -2,6 +2,7 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include "font.h"
+#include "stb_image.h"  // JPEG decoding (public domain), compiled in crisp_third_party
 #include "gl.h"
 
 namespace {
@@ -57,9 +58,10 @@ void main() {
 }
 )";
 
-// Surfaces, picked by the colour's alpha: 255 dev grid (the Lab), 240 stone, 224 wood, 208 metal,
-// 128 emissive, 0 plain. The patterns are a few ALU ops (no textures) and fade out with distance so
-// they never shimmer.
+// Surfaces, picked by the colour's alpha: 255 dev grid (the Lab), 240 stone, 236 paving, 224 wood, 208 metal,
+// 128 emissive, 0 plain. With textures loaded (uHasTex) the stone/wood/metal surfaces sample a detail map
+// (128 = the box's own colour) from uTex (mipmapped, so no shimmer); without, they use procedural patterns
+// (a few ALU ops that fade out with distance).
 const char* kBoxFS = R"(#version 330 core
 in vec3 vWorld;
 flat in vec3 vNormal;
@@ -68,6 +70,8 @@ flat in vec3 vMin;
 flat in vec3 vMax;
 in vec4 vColor;
 uniform vec3 uEye;
+uniform sampler2DArray uTex;  // layers: 0 sandstone, 1 plaster, 2 sand, 3 paving, 4 planks, 5 shutter, 6 plate
+uniform int uHasTex;
 out vec4 oColor;
 float grid(vec2 p, float spacing) {
     vec2 g = abs(fract(p / spacing - 0.5) - 0.5) * spacing;
@@ -107,7 +111,25 @@ void main() {
         vec3 lo = vWorld - vMin, hi = vMax - vWorld;
         vec3 e = min(lo, hi);
         float edge = top ? min(e.x, e.y) : (abs(n.x) > 0.5 ? min(e.y, e.z) : min(e.x, e.z));
-        if (a > 0.91) {  // stone: worn flagstones and sand on the ground, block courses on walls
+        if (uHasTex == 1) {
+            float layer = 0.0, scale = 128.0;  // world units per repeat
+            if (a > 0.933) {  // stone: sand underfoot; walls sandstone, or plaster on some buildings
+                if (top) { layer = 2.0; scale = 160.0; }
+                else layer = hash12(floor(vMin.xy / 256.0)) < 0.3 ? 1.0 : 0.0;
+            } else if (a > 0.91) {  // paving: the sites
+                layer = top ? 3.0 : 0.0;
+                scale = 112.0;
+            } else if (a > 0.85) {  // wood
+                layer = 4.0;
+                scale = 64.0;
+            } else {  // metal: painted (the blue container) or bare plate
+                layer = vColor.b > vColor.r + 0.08 ? 5.0 : 6.0;
+                scale = 96.0;
+            }
+            c *= texture(uTex, vec3(uv / scale, layer)).rgb * 2.0;
+            if (a < 0.91)  // crates, doors, metal: keep a darker frame round each face
+                c *= 1.0 - 0.18 * (1.0 - smoothstep(4.0, 4.0 + fwidth(edge), edge));
+        } else if (a > 0.91) {  // stone: worn flagstones and sand on the ground, block courses on walls
             if (top) {
                 float tile = hash12(floor(uv / 96.0));
                 float j = max(joint(uv.x, 96.0, 0.8), joint(uv.y, 96.0, 0.8)) * near;
@@ -358,6 +380,10 @@ bool Renderer::init(std::string& err) {
     skyProgram_ = compileProgram(kSkyVS, kSkyFS, err);
     if (!skyProgram_) return false;
     uSkyFwd_ = glGetUniformLocation(skyProgram_, "uFwd");
+    uTex_ = glGetUniformLocation(boxProgram_, "uTex");
+    uHasTex_ = glGetUniformLocation(boxProgram_, "uHasTex");
+    glUseProgram(boxProgram_);
+    glUniform1i(uHasTex_, 0);  // procedural surfaces until loadTextures()
     uSkyRight_ = glGetUniformLocation(skyProgram_, "uRight");
     uSkyUp_ = glGetUniformLocation(skyProgram_, "uUp");
     glGenVertexArrays(1, &skyVao_);  // no vertex data: the triangle comes from gl_VertexID
@@ -520,6 +546,38 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
     glUniform3f(uEye_, eye.x, eye.y, eye.z);
     drawAll();
     glDepthMask(GL_TRUE);
+}
+
+int Renderer::loadTextures(const std::string& dir) {
+    static const char* const kNames[] = {"sandstone", "plaster", "sand", "paving", "planks", "shutter", "plate"};
+    constexpr int kSize = 512, kLayers = int(sizeof(kNames) / sizeof(kNames[0]));
+    std::vector<unsigned char> pixels(size_t(kSize) * kSize * 3 * kLayers);
+    for (int k = 0; k < kLayers; ++k) {
+        int w = 0, h = 0, n = 0;
+        unsigned char* px = stbi_load((dir + "/" + kNames[k] + ".jpg").c_str(), &w, &h, &n, 3);
+        const bool ok = px && w == kSize && h == kSize;
+        if (ok) std::copy(px, px + size_t(kSize) * kSize * 3, pixels.begin() + std::ptrdiff_t(size_t(k) * kSize * kSize * 3));
+        if (px) stbi_image_free(px);
+        if (!ok) return 0;  // all or nothing: the procedural surfaces stay
+    }
+    glGenTextures(1, &texArray_);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, texArray_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGB8, kSize, kSize, kLayers, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    GLfloat maxAniso = 1.0f;  // anisotropic filtering keeps floors sharp at a glancing angle
+    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
+    glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_ANISOTROPY, std::min(8.0f, std::max(1.0f, maxAniso)));
+    glActiveTexture(GL_TEXTURE0);  // the HUD's font stays on unit 0
+    glUseProgram(boxProgram_);
+    glUniform1i(uTex_, 1);
+    glUniform1i(uHasTex_, 1);
+    return kLayers;
 }
 
 void Renderer::drawSky(const Vec3& fwd, const Vec3& right, const Vec3& up) {

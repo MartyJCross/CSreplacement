@@ -1410,8 +1410,8 @@ void loadMap(Game& g, Renderer& r, int id) {
     auto addStatic = [&](const Box& b) {
         statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
         if (id == 1) {
-            static const uint8_t kSurface[4] = {240, 224, 208, 0};  // kMatStone, kMatWood, kMatMetal, kMatPlain
-            statics.back().rgba[3] = kSurface[std::min<int>(b.material, 3)];
+            static const uint8_t kSurface[5] = {240, 224, 208, 0, 236};  // stone, wood, metal, plain, paving
+            statics.back().rgba[3] = kSurface[std::min<int>(b.material, 4)];
         }
         statics.back().slope[0] = float(b.slope);
         statics.back().slope[1] = b.lowZ;
@@ -2909,6 +2909,11 @@ int main(int argc, char** argv) {
     Renderer renderer;
     std::string err;
     if (!renderer.init(err)) return fatal(err, window, showErrors);
+    {  // surface textures from assets/ (without them the world keeps its procedural surfaces)
+        const char* basePath = SDL_GetBasePath();
+        const int layers = renderer.loadTextures(std::string(basePath ? basePath : "") + "assets/textures");
+        std::fprintf(stderr, "textures: %s\n", layers ? "loaded" : "not found, using procedural surfaces");
+    }
 
     const bool bench = opt.benchSeconds > 0;
     const bool automated = !opt.screenshotPath.empty() || bench;
@@ -2922,8 +2927,10 @@ int main(int argc, char** argv) {
     Game g;
     resetGame(g, opt);
     Audio audio;
-    if (!automated && SDL_InitSubSystem(SDL_INIT_AUDIO) && audio.init(std::clamp(cfg.volume, 0.0f, 1.0f)))
+    if (!automated && SDL_InitSubSystem(SDL_INIT_AUDIO) && audio.init(std::clamp(cfg.volume, 0.0f, 1.0f), std::string(base ? base : "") + "assets/sounds")) {
         g.audio = &audio;
+        std::fprintf(stderr, "sounds: %d replaced by recordings from assets, the rest synthesized\n", audio.loadedFromAssets());
+    }
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     applyConfig(g, cfg);
@@ -2999,11 +3006,13 @@ int main(int argc, char** argv) {
         const MenuItem& it = rows[size_t(row)];
         g.hudDirty = true;
         if (adjustMenu(cfg, it, dir, big)) {
+            sound(g, Sfx::UiClick, 0.35f, 0.0f, 1.15f);
             settingsChanged();
             saveConfig(cfgPath, cfg);
             return;
         }
         if (!press) return;
+        sound(g, Sfx::UiClick, 0.5f);
         switch (it.action) {
             case kActResume: setMenu(kMenuNone); break;
             case kActStart: startFromMenu(); break;

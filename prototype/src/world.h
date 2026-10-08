@@ -4,7 +4,8 @@
 #include <vector>
 #include "vecmath.h"
 
-enum Material : uint8_t { kMatStone = 0, kMatWood = 1, kMatMetal = 2, kMatPlain = 3 };  // plain: decor only, no pattern
+// plain: decor only, no surface; paving: stone floors on the sites (plays and shoots like stone, looks paved)
+enum Material : uint8_t { kMatStone = 0, kMatWood = 1, kMatMetal = 2, kMatPlain = 3, kMatPaving = 4 };
 
 // A box, or a ramp (wedge): the same footprint, but its top slopes from lowZ at one edge up to
 // maxs.z at the opposite edge.

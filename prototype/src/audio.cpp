@@ -2,7 +2,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
+#include <string>
+#define STB_VORBIS_HEADER_ONLY
+#include "stb_vorbis.c"  // Ogg Vorbis decoding (public domain), compiled in crisp_third_party
 
 namespace {
 
@@ -417,6 +421,54 @@ std::vector<float> whiz(Rng& r) {  // a bullet going past: a fast, breathy zip t
     return b;
 }
 
+std::vector<float> uiClick(Rng& r) {  // fallback menu click
+    auto b = buffer(0.03f);
+    addTone(b, 0, 0.6f, 2200 * r.jitter(0.05f), 1800, 0.004f);
+    fadeTail(b);
+    normalize(b, 0.4f);
+    return b;
+}
+
+// Every sound's file name (dumps, and recordings in assets/sounds: <name>_<n>.wav or .ogg).
+const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw", "footstep",
+                                 "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
+                                 "hit_marker", "footstep_wood", "footstep_metal", "flash_bang", "flash_ring",
+                                 "explosion", "fire", "bomb_beep", "defuse", "impact_stone", "impact_wood",
+                                 "impact_metal", "helmet_hit", "whiz", "ui_click"};
+static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
+
+// A recording -> 48 kHz mono float, or empty if it can't be read. WAV through SDL, Ogg through stb_vorbis.
+std::vector<float> loadRecording(const std::string& path) {
+    std::vector<float> out;
+    SDL_AudioSpec src{};
+    Uint8* data = nullptr;
+    int len = 0;
+    short* pcm = nullptr;
+    if (path.size() > 4 && path.compare(path.size() - 4, 4, ".ogg") == 0) {
+        int channels = 0, rate = 0;
+        const int frames = stb_vorbis_decode_filename(path.c_str(), &channels, &rate, &pcm);
+        if (frames <= 0 || !pcm) return out;
+        src = SDL_AudioSpec{SDL_AUDIO_S16, channels, rate};
+        data = reinterpret_cast<Uint8*>(pcm);
+        len = frames * channels * int(sizeof(short));
+    } else {
+        Uint32 wavLen = 0;
+        if (!SDL_LoadWAV(path.c_str(), &src, &data, &wavLen)) return out;
+        len = int(wavLen);
+    }
+    const SDL_AudioSpec dst{SDL_AUDIO_F32, 1, kRate};
+    Uint8* conv = nullptr;
+    int convLen = 0;
+    if (SDL_ConvertAudioSamples(&src, data, len, &dst, &conv, &convLen) && conv) {
+        const float* f = reinterpret_cast<const float*>(conv);
+        out.assign(f, f + convLen / int(sizeof(float)));
+        SDL_free(conv);
+    }
+    if (pcm) std::free(pcm);
+    else SDL_free(data);
+    return out;
+}
+
 struct SoundBank {
     std::vector<std::vector<float>> clips;
     std::vector<int> first, count;
@@ -437,7 +489,7 @@ SoundBank synthesize() {
         {Sfx::BombBeep, bombBeep, 1},            {Sfx::Defuse, defuseKit, 1},
         {Sfx::ImpactStone, impactStone, 4},      {Sfx::ImpactWood, impactWood, 3},
         {Sfx::ImpactMetal, impactMetal, 3},      {Sfx::HelmetHit, helmetHit, 2},
-        {Sfx::Whiz, whiz, 3},
+        {Sfx::Whiz, whiz, 3},                    {Sfx::UiClick, uiClick, 1},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -455,12 +507,7 @@ SoundBank synthesize() {
 }  // namespace
 
 bool Audio::dumpWavs(const std::string& dir) {
-    const char* names[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw", "footstep",
-                           "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
-                           "hit_marker", "footstep_wood", "footstep_metal", "flash_bang", "flash_ring",
-                           "explosion", "fire", "bomb_beep", "defuse", "impact_stone", "impact_wood",
-                           "impact_metal", "helmet_hit", "whiz"};
-    static_assert(sizeof(names) / sizeof(names[0]) == size_t(Sfx::Count), "name every sound");
+    const char* const* names = kSfxNames;
     SoundBank bank = synthesize();
     for (size_t s = 0; s < size_t(Sfx::Count); ++s)
         for (int v = 0; v < bank.count[s]; ++v) {
@@ -478,12 +525,39 @@ bool Audio::dumpWavs(const std::string& dir) {
     return true;
 }
 
-bool Audio::init(float masterVolume) {
+bool Audio::init(float masterVolume, const std::string& assetDir) {
     master_ = masterVolume;
     SoundBank bank = synthesize();
     sounds_ = std::move(bank.clips);
     first_ = std::move(bank.first);
     count_ = std::move(bank.count);
+    // Recordings in assetDir replace a sound's synthesized variants: <name>_1.wav / .ogg, _2, ... Each is
+    // levelled to the synthesized sound's peak, so the mix stays balanced however loud the file is.
+    loaded_ = 0;
+    for (size_t s = 0; !assetDir.empty() && s < size_t(Sfx::Count); ++s) {
+        std::vector<std::vector<float>> clips;
+        for (int k = 1; k <= 12; ++k) {
+            const std::string base = assetDir + "/" + kSfxNames[s] + "_" + std::to_string(k);
+            std::vector<float> c = loadRecording(base + ".wav");
+            if (c.empty()) c = loadRecording(base + ".ogg");
+            if (c.empty()) break;
+            clips.push_back(std::move(c));
+        }
+        if (clips.empty()) continue;
+        float synthPeak = 0;
+        for (int v = 0; v < count_[s]; ++v)
+            for (float x : sounds_[size_t(first_[s] + v)]) synthPeak = std::max(synthPeak, std::fabs(x));
+        first_[s] = int(sounds_.size());
+        count_[s] = int(clips.size());
+        for (std::vector<float>& c : clips) {
+            float peak = 0;
+            for (float x : c) peak = std::max(peak, std::fabs(x));
+            if (peak > 0)
+                for (float& x : c) x *= synthPeak / peak;
+            sounds_.push_back(std::move(c));
+        }
+        ++loaded_;
+    }
     last_.assign(first_.size(), -1);
     voices_.reserve(kMaxVoices);
     pending_.reserve(kMaxVoices);

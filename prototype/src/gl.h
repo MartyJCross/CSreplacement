@@ -60,6 +60,15 @@ typedef std::ptrdiff_t GLintptr;
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
 #define GL_R8 0x8229
+#define GL_RGB 0x1907
+#define GL_RGB8 0x8051
+#define GL_LINEAR 0x2601
+#define GL_LINEAR_MIPMAP_LINEAR 0x2703
+#define GL_REPEAT 0x2901
+#define GL_TEXTURE1 0x84C1
+#define GL_TEXTURE_2D_ARRAY 0x8C1A
+#define GL_TEXTURE_MAX_ANISOTROPY 0x84FE      // EXT_texture_filter_anisotropic (everywhere in practice)
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY 0x84FF
 
 #define GL_FUNCTIONS(X)                                                                              \
     X(const GLubyte*, GetString, (GLenum name))                                                      \
@@ -81,6 +90,11 @@ typedef std::ptrdiff_t GLintptr;
     X(void, TexImage2D, (GLenum target, GLint level, GLint ifmt, GLsizei w, GLsizei h, GLint border, \
                          GLenum fmt, GLenum type, const void* px))                                   \
     X(void, TexParameteri, (GLenum target, GLenum pname, GLint param))                               \
+    X(void, TexParameterf, (GLenum target, GLenum pname, GLfloat param))                             \
+    X(void, TexImage3D, (GLenum target, GLint level, GLint internal, GLsizei w, GLsizei h, GLsizei d, \
+                         GLint border, GLenum fmt, GLenum type, const void* px))                     \
+    X(void, GenerateMipmap, (GLenum target))                                                         \
+    X(void, GetFloatv, (GLenum pname, GLfloat * data))                                               \
     X(void, ActiveTexture, (GLenum tex))                                                             \
     X(void, DrawArrays, (GLenum mode, GLint first, GLsizei count))                                   \
     X(void, DrawArraysInstanced, (GLenum mode, GLint first, GLsizei count, GLsizei instances))       \

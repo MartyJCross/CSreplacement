@@ -1,4 +1,4 @@
-# Packages build\Release\crisp.exe + README.md as Crisp-v<version>.zip on the Desktop, taking the
+# Packages build\Release\crisp.exe + README.md + assets\ as Crisp-v<version>.zip on the Desktop, taking the
 # version from project(... VERSION x.y.z) in prototype/CMakeLists.txt. Build Release first.
 # Usage (from the repo root): powershell -File prototype\tools\make_zip.ps1
 $ErrorActionPreference = "Stop"
@@ -9,5 +9,5 @@ $version = $Matches[1]
 $exe = "$repo\build\Release\crisp.exe"
 if (-not (Test-Path $exe)) { throw "build Release first: $exe is missing" }
 $zip = Join-Path ([Environment]::GetFolderPath("Desktop")) "Crisp-v$version.zip"
-Compress-Archive -Path $exe, "$repo\prototype\README.md" -DestinationPath $zip -Force
+Compress-Archive -Path $exe, "$repo\prototype\README.md", "$repo\prototype\assets" -DestinationPath $zip -Force
 Write-Output $zip

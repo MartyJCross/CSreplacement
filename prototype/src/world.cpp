@@ -608,6 +608,7 @@ World buildDust() {
         if (m.area[c] >= 0 && !smooth[c]) key[c] = (zKey(m.floor[c]) << 24) | int64_t(kDustAreas[m.area[c]].color);
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
+        if (uint32_t(k & 0xFFFFFF) == kDSite) w.solids.back().material = kMatPaving;  // the sites are paved
     });
 
     // Walls: each 5x5-cell block is its own building with its own height (so the skyline isn't one flat

@@ -18,12 +18,15 @@ enum class Sfx {
     ImpactStone, ImpactWood, ImpactMetal,   // your bullet hitting the world, by material
     HelmetHit,                              // a headshot stopped by a helmet: a bright "tink"
     Whiz,                                   // a bot's bullet passing close to your head
+    UiClick,                                // menu clicks
     Count
 };
 
 class Audio {
 public:
-    bool init(float masterVolume);
+    // Synthesizes every sound, then swaps in recordings found in `assetDir` (see audio.cpp).
+    bool init(float masterVolume, const std::string& assetDir = "");
+    int loadedFromAssets() const { return loaded_; }
     void shutdown();
 
     // pan: -1 left .. +1 right. pitch: playback-rate multiplier. Every play picks one of the sound's
@@ -55,5 +58,6 @@ private:
     std::vector<float> mixBuf_;
     std::mutex mutex_;
     std::atomic<float> master_{0.6f};
+    int loaded_ = 0;  // sounds replaced by recordings from assets/
     uint32_t rng_ = 0x51ED270Bu;
 };

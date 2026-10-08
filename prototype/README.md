@@ -22,7 +22,7 @@ Everything is generated in code: there are no asset files, and the whole downloa
 ## Download and play (Windows)
 
 1. On GitHub, open **Actions → Crisp prototype**, click the latest green run, and download **Crisp-windows-x64** at the bottom of the page.
-2. Unzip it anywhere and run `crisp.exe`. No installer is needed.
+2. Unzip it anywhere and run `crisp.exe`. No installer is needed. Keep the `assets` folder next to it (real sounds and textures); without it the game still runs, with synthesized sounds and plain surfaces.
 3. On first launch a `config.cfg` is created next to the exe. Edit it to set your sensitivity, crosshair, resolution and so on, then restart.
 
 If Windows SmartScreen warns about an unknown app, click **More info → Run anyway**. The exe isn't code-signed.
@@ -74,6 +74,7 @@ Dust2 at **60% of real size** by default (`dust_scale`, Play screen DUST SIZE, 5
 
 - **Every route:** T spawn, outside long, long doors, long A with the blue container and the pit, the A ramp, A site with goose; top mid, mid, xbox (jump on it to reach catwalk), catwalk, short; mid doors, CT mid, CT spawn, the CT ramp, mid to B, B doors and **B window** (see and shoot through it, can't climb through); outside, upper and lower tunnels, the tunnel exit, B site with the back plat, car and boxes. **Arches** over top mid, short and CT mid.
 - **Real slopes:** the ramps (A ramp, CT ramp, short stairs, top mid, mid, the tunnel stairs...) are smooth slopes, not steps. You slide up and down them like in Source, and jumping onto one doesn't snag.
+- **Real surfaces** (CC0 textures from Poly Haven): sand underfoot, paving on the sites, sandstone and plaster walls, plank crates and doors, a painted ribbed container, metal barrels and cars. They're detail maps over the map's own colours, mipmapped and filtered so they don't shimmer.
 - **Proportions like the real map:** lanes are as narrow as Dust2's (mid, catwalk, the tunnels and long were far too wide before), so it plays tight rather than open.
 - **Scenery:** buildings of different heights with stone-block walls, a trim along their foot and top, windows with painted shutters, doors under cloth awnings and wooden beam ends; flagstone and sand floors, plank crates, a ribbed metal container and barrels. None of the scenery on walls blocks you or your bullets (it's all thin and flat against the wall or above head height).
 - **Cover everywhere:** crates, barrels and cars in every area (long, the pit, both sites, mid, the tunnels, both spawns), mostly against walls so the lanes keep their width.
@@ -176,6 +177,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 
 ## Sound
 
+- **Real recordings** (all CC0, see `assets/CREDITS.md`): rifle, pistol and sniper shots cut from *The Free Firearm Sound Library* (an AK-47, a 1911 / Walther, bolt-action rifles) with their natural echo; distant shots; footsteps on sand and wood; bullet impacts on stone, wood and metal; menu clicks. Each is levelled to the sound it replaces, so the mix stays as it was. Everything else (hits, explosions, flashbang, bomb, reloads) is still synthesized.
+
 - **Every sound has 2–6 variants.** Each play picks a different one, with a little random pitch and volume, so repeats never sound identical.
 - **Gunshots** have a mid "bark", a short boom (sub-bass is cut so they don't sound like the bass is turned up) and a slapback echo off the walls. Rifle, pistol and sniper each have their own sound.
 - **Bots shooting from more than ~1,400 units away** sound distant: muffled, no crack, mostly echo.
@@ -184,7 +187,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
 - **Volume** is `volume` in `config.cfg` (0..1).
-- **Sounds are synthesized at startup.** To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV.
+- **Synthesized sounds** are made at startup (and stand in for any recording that's missing). To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV.
 
 
 ## Bots, smokes, wallbangs, KZ

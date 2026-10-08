@@ -43,6 +43,9 @@ class Renderer {
 public:
     bool init(std::string& err);
     void setStaticBoxes(const std::vector<BoxInstance>& boxes);
+    // Surface textures (assets/textures/*.jpg, 512 px detail maps) for the stone, wood and metal surfaces.
+    // Returns how many loaded; 0 = none (missing files): the shader falls back to its procedural patterns.
+    int loadTextures(const std::string& dir);
 
     // Ring buffer of impact decals that persists between frames (updated only when it changes).
     void addDecal(const BoxInstance& b);
@@ -66,6 +69,8 @@ public:
 private:
     unsigned boxProgram_ = 0, hudProgram_ = 0, depthProgram_ = 0, skyProgram_ = 0, skyVao_ = 0;
     int uSkyFwd_ = -1, uSkyRight_ = -1, uSkyUp_ = -1;
+    unsigned texArray_ = 0;
+    int uTex_ = -1, uHasTex_ = -1;
     int uDepthViewProj_ = -1, uDepthModel_ = -1;
     bool depthPrepass_ = true;
     // World boxes kept on the CPU so each frame can drop the ones off screen and draw the rest
