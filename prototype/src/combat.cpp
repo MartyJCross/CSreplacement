@@ -319,6 +319,13 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
     return res;
 }
 
+bool takeShotTiming(WeaponState& ws, double now) {
+    if (now < ws.nextFireTime) return false;
+    if (now - ws.nextFireTime > double(kTickDt)) ws.nextFireTime = now;  // not a held, on-time shot: from now
+    ws.nextFireTime += double(ws.def->fireInterval);
+    return true;
+}
+
 Vec3 grenadeThrowVelocity(float viewPitch, float viewYaw, bool lob, const Vec3& throwerVelocity) {
     const float pitch = viewPitch < 0 ? -10.0f + viewPitch * (80.0f / 90.0f) : -10.0f + viewPitch * (100.0f / 90.0f);
     return anglesToForward(pitch, viewYaw) * (kNadeThrowSpeed * (lob ? 0.3f : 1.0f)) + throwerVelocity * 1.25f;

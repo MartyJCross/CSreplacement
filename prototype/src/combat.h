@@ -116,6 +116,12 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
                       bool onGround, bool ducked, const World& world, std::vector<Dummy>& dummies,
                       const std::vector<Vec3>& dummyRenderPos);
 
+// Fire timing for one tick: true (and the next shot scheduled) if the weapon may fire now. A held
+// trigger keeps an exact cadence (each shot lands on the first tick at or after its time, without
+// drift); after any pause the next shot is timed from now, so a quick tap is never followed by a
+// shot sooner than one interval.
+bool takeShotTiming(WeaponState& ws, double now);
+
 // Current spread radius in degrees for HUD/debugging.
 float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, bool ducked);
 

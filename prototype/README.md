@@ -164,8 +164,9 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 
 ## Spray feedback (all cosmetic: your bullets are unchanged)
 
+- **Every shot has weight:** the gun snaps back and up, a big muzzle flash, and a quick thump of the view (it widens ~1.4% for 45 ms, out from the crosshair). The shot sound has a sharp crack and a short low-mid thump (no extra sub-bass).
 - **The gun's kick builds through a spray:** it climbs, shakes and rolls harder the longer you hold Mouse 1.
-- **A slight camera roll on each shot** that grows through the spray. It turns around the crosshair, so where you aim doesn't move. Turn it off with `view_shake 0` (Settings → Mouse + view).
+- **A slight camera roll on each shot** that grows through the spray. It turns around the crosshair, so where you aim doesn't move. Turn the roll and the thump off with `view_shake 0` (Settings → Mouse + view).
 - **Shell casings** fly out to the right.
 - **Far impacts are drawn bigger** (dust puffs up to 4x, bullet marks up to 3x), so you can read where a spray lands at range.
 
@@ -230,9 +231,10 @@ For a CS-like comparison, set `spread_spray 1` (spread grows during a spray) and
 | Rifle / knife speed | 215 / 250 u/s |
 | Walk / crouch | 52% / 34% of max |
 | Jump | 57 units apex, ~675 ms airtime (gravity 1000: snappier than CS:GO) |
-| Friction / accelerate / air accelerate | 5.2 / 5.5 / 12 |
+| Friction / accelerate / air accelerate | 5.6 / 6.48 / 12 (95% of run speed from a standstill in ~320 ms) |
 | Rifle | 600 RPM, 30 rounds, 36 dmg (×4 head) |
 | Pistol | semi-auto, 400 RPM max, 12 rounds, 35 dmg (×4 head), strong climbing kick |
+| Fire rate | exact: a held spray keeps its cadence, and however you tap, two shots are never closer than one interval |
 | Spray reset | ~0.2 s after a tap, ~1.0 s after a full spray |
 
 These live in `src/movement.h` (`MoveParams`) and `src/combat.cpp` (`kRifle`, `kRiflePattern`).

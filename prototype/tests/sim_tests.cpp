@@ -54,6 +54,11 @@ void testMaxSpeed() {
     float sp = length2d(ps.velocity);
     std::printf("  rifle run speed after 1s: %.2f\n", sp);
     CHECK(sp > 214.5f && sp <= 215.01f, "speed %.2f", sp);
+    PlayerState a = spawnAt({-400, 0, 0});
+    int ticks = 0;
+    while (length2d(a.velocity) < 0.95f * 215 && ticks < kTickRate) { run(a, in, 0, 215, 1); ++ticks; }
+    std::printf("  standing start to 95%% of rifle speed: %.0f ms\n", double(ticks) * kTickDt * 1000.0);
+    CHECK(ticks * kTickDt > 0.30f && ticks * kTickDt < 0.35f, "ticks %d", ticks);  // ~290 ms at the old 7.2
 
     PlayerState w = spawnAt({-400, 0, 0});
     in.walk = true;
@@ -249,6 +254,38 @@ void testDeterminism() {
                 std::memcmp(&a.velocity, &b.velocity, sizeof(Vec3)) == 0;
     std::printf("  final origin %.4f %.4f %.4f\n", a.origin.x, a.origin.y, a.origin.z);
     CHECK(same, "identical inputs must give bit-identical results");
+}
+
+// Fire timing: a held trigger keeps the exact cadence; taps and clicks, however fast or badly timed,
+// never get two shots closer together than one fire interval.
+void testFireTiming() {
+    std::printf("fire timing\n");
+    for (const WeaponDef* def : {&rifleDef(), &pistolDef()}) {
+        WeaponState ws;
+        ws.def = def;
+        // Held for 30 shots.
+        std::vector<double> shots;
+        for (int t = 0; shots.size() < 30; ++t)
+            if (takeShotTiming(ws, double(t) * kTickDt)) shots.push_back(double(t) * kTickDt);
+        const double held = shots.back() - shots.front(), want = 29.0 * double(def->fireInterval);
+        // Taps: the trigger pressed for a few ticks, released, pressed again after gaps of 1.0-2.5 intervals.
+        ws = WeaponState{};
+        ws.def = def;
+        double t = 0, last = -1, closest = 1e9;
+        for (int k = 0; k < 400; ++k) {
+            const int hold = 1 + k % 7;  // ticks held each press
+            for (int h = 0; h < hold; ++h, t += kTickDt)
+                if (takeShotTiming(ws, t)) {
+                    if (last >= 0) closest = std::min(closest, t - last);
+                    last = t;
+                }
+            t += double(def->fireInterval) * (1.0 + 0.015 * double(k % 100));  // the gap before the next press
+        }
+        std::printf("  %s: 30 held shots in %.3f s (exact %.3f); tapping, closest two shots %.0f ms (interval %.0f ms)\n",
+                    def->name, held, want, closest * 1000.0, double(def->fireInterval) * 1000.0);
+        CHECK(std::fabs(held - want) <= double(kTickDt) && closest >= double(def->fireInterval) - 1e-9,
+              "%s held %.4f closest %.4f", def->name, held, closest);
+    }
 }
 
 void testWeapon() {
@@ -860,6 +897,7 @@ int main() {
     testBhop();
     testDeterminism();
     testWeapon();
+    testFireTiming();
     testWallbang();
     testRayVsBoxes();
     testMaterialWallbang();

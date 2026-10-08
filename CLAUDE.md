@@ -121,7 +121,7 @@ DISPLAY=:90 ./build/crisp --windowed 1280 720 --screenshot out.bmp --frames 300 
 
 See `prototype/README.md` for full details. Each item below lists where its code lives.
 - **Movement** (`MoveParams` in `movement.h`):
-  - gravity 1000, accelerate 7.2, friction 5.6, air accelerate 12
+  - gravity 1000, accelerate 6.48 (owner asked for 10% under 7.2), friction 5.6, air accelerate 12
   - 57-unit jump; crouch-jump reaches 64-unit crates
   - bhop on by default (`bhop` config)
   - real ramps: `Box::slope`/`lowZ` wedges, swept Quake-style against their planes (`world.cpp`)
@@ -129,6 +129,9 @@ See `prototype/README.md` for full details. Each item below lists where its code
   smoke/flash/HE/molotov), Q previous, F inspect, G quick-throw.
   - the owner doesn't want new guns or a "tagging" slowdown when shot
   - armor: `armoredDamage` (77.5% with kevlar/helmet); material wallbangs (`Box::material`: wood x0.5, metal x1.5)
+  - fire timing: `takeShotTiming` (combat.cpp; tested): exact held cadence, no early shot after a tap
+  - shot "oomph" (cosmetic): viewmodel kick (`ViewModel::onShot`), muzzle flash, `fovPunch` thump (under
+    `view_shake`), shot sounds with a low-mid thump. The owner likes the feel: change it only when asked.
 - **Cosmetics** (`fx.cpp`): knives (butterfly, karambit, M9, talon) and gun finishes (`knife`, `finish`);
   keyframed inspects (`kRifleInspect`...); spray feedback (kick builds, `view_shake` roll, casings, far
   impacts bigger); grenade models per type; particles can glow.

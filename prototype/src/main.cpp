@@ -260,6 +260,7 @@ struct Game {
     // Cosmetic: camera height offset that eases the view over stairs and stepped ramps.
     float stepSmooth = 0;
     float camRoll = 0;        // spray feedback: camera roll in degrees (around the crosshair)
+    float fovPunch = 0;       // shot thump: the view widens a touch for a moment (centre stays put)
     bool viewShake = true;
     const char* callout = "";  // Dust area name under the player (HUD)
 
@@ -1541,10 +1542,7 @@ void simTick(Game& g, const Options& opt) {
     g.recoilIndexPrev = ws.recoilIndex;
 
     bool fired = false;
-    if (wantFire && wd.canFire && ws.reloadEndTime < 0 && ws.ammo > 0 && g.simTime >= ws.nextFireTime) {
-        // Keep exact cadence: schedule from the previous shot unless we were idle.
-        if (g.simTime - ws.nextFireTime > wd.fireInterval) ws.nextFireTime = g.simTime;
-        ws.nextFireTime += wd.fireInterval;
+    if (wantFire && wd.canFire && ws.reloadEndTime < 0 && ws.ammo > 0 && takeShotTiming(ws, g.simTime)) {
 
         float hspeed = length2d(g.player.velocity);
         ShotResult r = fireBullet(ws, g.lastRenderEye, float(g.viewPitch), float(g.viewYaw), hspeed,
@@ -1560,13 +1558,15 @@ void simTick(Game& g, const Options& opt) {
             sound(g, Sfx::SniperShot, 1.0f);
             g.boltAt = g.simTime + 0.55;  // stays scoped through the bolt cycle
         } else {
-            sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 0.8f : 0.9f);
+            sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 0.9f : 1.0f);
         }
         g.vm.onShot(ws.shotCounter * 2654435761u);
         // Spray feedback (cosmetic): a camera roll that builds through the spray, and brass flying out.
         float wob = float((ws.shotCounter * 2246822519u) >> 16 & 0xFFFF) / 65535.0f - 0.5f;
-        if (g.viewShake && !sniperOut)
+        if (g.viewShake && !sniperOut) {
             g.camRoll = std::clamp(g.camRoll + wob * (0.5f + 0.06f * float(std::min(r.sprayIndex, 12))), -1.5f, 1.5f);
+            g.fovPunch = isPistol ? 0.7f : 1.0f;
+        }
         if (!sniperOut) {
             Vec3 fw = anglesToForward(float(g.viewPitch), float(g.viewYaw)), rt = yawToRight(float(g.viewYaw));
             g.fx.shell(g.lastRenderEye + fw * 20.0f + rt * 7.0f - Vec3{0, 0, 6},
@@ -3135,7 +3135,9 @@ int main(int argc, char** argv) {
         float camYaw = float(g.viewYaw) - punch.right * cfg.view_recoil_tracking;
 
         float aspect = pixH > 0 ? float(pixW) / float(pixH) : 1.0f;
-        float vfov = 2.0f * std::atan(std::tan(zoomFov(g.zoom, cfg.fov) * 0.5f * kDegToRad) * 0.75f);
+        if (!paused) g.fovPunch *= std::exp(-float(dt) / 0.045f);
+        const float thump = g.zoom == 0 ? 1.0f + 0.014f * g.fovPunch : 1.0f;  // shot thump: ~1.4% wider, 45 ms
+        float vfov = 2.0f * std::atan(std::tan(zoomFov(g.zoom, cfg.fov) * 0.5f * kDegToRad) * 0.75f * thump);
         if (!paused) g.camRoll *= std::exp(-float(dt) / 0.07f);
         const Mat4 roll = rotationZ(g.camRoll);  // about the view axis: the crosshair stays put
         Mat4 viewProj = perspective(vfov, aspect, 2.0f, 16384.0f) * roll * viewFromAngles(eye, camPitch, camYaw);

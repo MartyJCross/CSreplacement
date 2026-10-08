@@ -119,14 +119,15 @@ void fadeTail(std::vector<float>& b) {
 
 std::vector<float> rifleShot(Rng& r) {
     auto b = buffer(0.75f);
-    addNoise(b, 0, 0.75f * r.jitter(0.1f), 1800, 11000, 0.0045f, r, 0.0002f);         // crack
+    addNoise(b, 0, 0.95f * r.jitter(0.1f), 1800, 11000, 0.0045f, r, 0.0002f);         // crack
     addNoise(b, 0, 1.0f, 120, 1800 * r.jitter(0.08f), 0.035f * r.jitter(0.1f), r, 0.0003f);  // blast body
     addNoise(b, 0.001f, 0.9f, 400, 1600, 0.02f, r);                                    // mid bark
     addTone(b, 0, 0.4f, 112 * r.jitter(0.05f), 52, 0.05f * r.jitter(0.1f));            // boom
     addTone(b, 0, 0.1f, 70, 42, 0.06f);                                                // chest punch
+    addTone(b, 0, 0.22f, 190 * r.jitter(0.05f), 95, 0.022f);                           // thump (low-mid, short)
     addMetal(b, 0.028f * r.jitter(0.1f), 0.10f, 1900 * r.jitter(0.06f), 0.03f, r);    // bolt carrier
-    highpass(b, 55);
-    saturate(b, 1.8f);
+    highpass(b, 70);
+    saturate(b, 2.6f);  // denser: louder at the same peak
     addReflections(b, 55, 45, 5, 0.24f, 0.6f, 4000, r);
     fadeTail(b);
     normalize(b, 0.95f);
@@ -148,12 +149,13 @@ std::vector<float> rifleShotFar(Rng& r) {  // distant: no crack, dark, mostly ec
 
 std::vector<float> pistolShot(Rng& r) {  // snappier and lighter than the rifle
     auto b = buffer(0.55f);
-    addNoise(b, 0, 0.75f * r.jitter(0.1f), 2000, 10000, 0.003f, r, 0.0002f);
+    addNoise(b, 0, 0.9f * r.jitter(0.1f), 2000, 10000, 0.003f, r, 0.0002f);
     addNoise(b, 0, 1.0f, 250, 2600 * r.jitter(0.08f), 0.022f * r.jitter(0.1f), r, 0.0003f);
+    addTone(b, 0, 0.18f, 230 * r.jitter(0.05f), 120, 0.016f);  // thump
     addTone(b, 0, 0.22f, 150 * r.jitter(0.05f), 70, 0.03f);
     addMetal(b, 0.018f, 0.12f, 2600 * r.jitter(0.06f), 0.025f, r);  // slide
     highpass(b, 90);
-    saturate(b, 1.5f);
+    saturate(b, 2.2f);  // denser: louder at the same peak
     addReflections(b, 50, 40, 4, 0.18f, 0.6f, 5500, r);
     fadeTail(b);
     normalize(b, 0.9f);

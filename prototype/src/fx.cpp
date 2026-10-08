@@ -230,11 +230,11 @@ void ViewModel::onShot(uint32_t seed) {
     sinceShot_ = 0;
     float build = std::min(float(shotsInRow_), 10.0f) / 10.0f;
     float r1 = float(seed % 1000) / 1000.0f - 0.5f, r2 = float((seed / 1000) % 1000) / 1000.0f - 0.5f;
-    kickBack_ = std::min(kickBack_ + 1.2f + 0.5f * build, 3.4f);
-    kickPitch_ = std::min(kickPitch_ + 1.8f + 0.9f * build, 6.5f);
+    kickBack_ = std::min(kickBack_ + 2.0f + 0.6f * build, 4.4f);
+    kickPitch_ = std::min(kickPitch_ + 2.4f + 1.0f * build, 7.5f);
     kickYaw_ += r1 * (0.7f + 0.8f * build);
     kickRoll_ += r2 * (2.0f + 3.0f * build);
-    flashLeft_ = 0.035f;
+    flashLeft_ = 0.045f;
     flashSeed_ = seed;
     inspectT_ = -1;
 }
@@ -407,7 +407,7 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
                            sniper ? toBoxes(kSniperMag, f) : rifle ? toBoxes(kRifleMag, f) : toBoxes(kPistolMag, f)});
         if (flashLeft_ > 0) {
             float spin = float(flashSeed_ % 90);
-            float s = (0.8f + float((flashSeed_ / 90) % 50) / 100.0f) * (rifle ? 1.0f : 0.7f);
+            float s = (1.0f + float((flashSeed_ / 90) % 50) / 100.0f) * (rifle ? 1.0f : 0.75f);
             Vec3 muzzle = sniper ? Vec3{0, 0.2f, -33.3f} : rifle ? Vec3{0, 0.2f, -24.8f} : Vec3{0, 0.8f, -10.0f};
             ModelDraw flash{world * translation(muzzle) * rotationZ(spin), {}};
             flash.boxes.push_back(makeEmissive({-0.9f * s, -0.9f * s, -1.6f}, {0.9f * s, 0.9f * s, 1.0f}, 0xfff4c0));
