@@ -43,7 +43,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Q | Switch back to your previous weapon |
 | F | Inspect your weapon |
 | E | Plant (T, on a site) / defuse (CT, at the bomb). Hold it |
-| B | Buy menu, like CS: 1 pistols, 2 heavy, 3 SMGs, 4 rifles, 5 gear, 6 grenades, then the item's number (Esc goes back a step). Competitive: with money, in your spawn during buy time. Everywhere else: any gun, free, any time |
+| B | The **buy wheel**, like CS:GO's: the mouse is free while it's open; click a category, then an item (or press its number). Right click / Esc goes back. Underneath: **7 FULL BUY: RIFLE** and **8 FULL BUY: SNIPER**. Competitive: with money, in your spawn during buy time. Everywhere else: any gun, free, any time |
 | Mouse 2 | Sniper scope: 40 → 15 FOV → off. Stays scoped when you fire. With a grenade out: hold for an underhand lob, thrown on release |
 | Tab | Scoreboard (deathmatch, retakes, competitive) |
 | G | Quick-throw the current grenade without switching (deterministic bounces, so lineups repeat) |
@@ -113,16 +113,18 @@ They fly like CS:GO: thrown at 675 u/s (a lob is 30% of that) about 10° above w
 
 You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap after 12 rounds (with a fresh economy), and a new match starts after the result.
 
-- **Rounds:** 5 s freeze time (buy, can't move), 1:55 to play, 40 s bomb fuse.
+- **Rounds:** 15 s freeze time (buy and plan, can't move; `freeze_time`, Play: FREEZE TIME), 1:55 to play, 40 s bomb fuse.
 - **Win** by killing the other side, planting and letting it blow (T), defusing (CT) or running the clock out without a plant (CT).
 - **Money, like CS:** start with $800; win $3,250 ($3,500 for a bomb win); loss bonus $1,400 rising by $500 per loss in a row up to $3,400; Ts get $800 more for a plant; kill rewards below.
-- **Buy menu (B):** only in your spawn during the first 20 s of a round. Pick a category, then the item: **1 pistols** (pistol $200, Dual Berettas $300, Deagle $700) · **2 heavy** (Nova $1,050) · **3 SMGs** (MAC-10 $1,050) · **4 rifles** (rifle $2,700, sniper $4,750) · **5 gear** (kevlar $650, kevlar + helmet $1,000, defuse kit $400, CT) · **6 grenades** (smoke $300, flashbang $200, HE $300, molotov $400). Kevlar takes body and arm hits to 77.5%, a helmet does the same for the head. If you survive, you keep what you had.
+- **Buy menu (B):** a wheel, only in your spawn during freeze time and the first 20 s after it. **Full buys** in one click: **FULL BUY: RIFLE** (rifle, kevlar + helmet, a kit on CT, then smoke, flash, HE and molotov while the money lasts) or **FULL BUY: SNIPER**. Or pick a category, then the item: **1 pistols** (pistol $200, Dual Berettas $300, Deagle $700) · **2 heavy** (Nova $1,050) · **3 SMGs** (MAC-10 $1,050) · **4 rifles** (rifle $2,700, sniper $4,750) · **5 gear** (kevlar $650, kevlar + helmet $1,000, defuse kit $400, CT) · **6 grenades** (smoke $300, flashbang $200, HE $300, molotov $400). Kevlar takes body and arm hits to 77.5%, a helmet does the same for the head. If you survive, you keep what you had.
 - **Kill rewards, like CS:** $300 (sniper $100, MAC-10 $600, Nova $900).
 - **The bomb:** a random T carries it. Hold **E** on either site for 3.2 s to plant. If the carrier dies it drops; walk over it to pick it up (T bots go and fetch it). You can see it: a C4 brick with a keypad, wires and a light that blinks with the beeps once it's planted. CTs defuse with **E**: 5 s with a kit, 10 without. You can't move while planting or defusing.
 - **Spawns:** both teams spread over their spawn, you at the front, and nobody is in sight of the other team's spawn when the round starts (the long mid-doors sightline is kept clear; tested).
 - **Names:** the bots have ordinary first names (a different set every match), in the kill feed, scoreboard, radio and when you spectate them.
-- **The bots:** Ts gather at a staging point (long, short / catwalk or B tunnels), then execute together after 14 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant (it doesn't hide, chase or stop for anyone far away: it fights its way through and gets straight back on its way), the rest take the site's angles. With 45 s left and no plant, every T commits to the site. You choose the teams (Play: TEAMMATES 0-4, ENEMIES 1-5) and how good the bots are (TEAMMATE SKILL, ENEMY SKILL: easy, normal, hard, expert; hard is the default for enemies). Skill sets reaction time (0.45-0.85 s easy down to 0.12-0.27 s expert), aim error, fire rate, how far behind your movement they aim and how often they go for the head (never on normal, 40% on expert); the other modes use BOT SKILL. CTs play a default setup (one mid, one short, one long, two B; now and then one heavier on A or B), each from one of a few spots so it's never quite the same, mostly holding their angle and stepping back behind cover now and then; once Ts show up on a site, the far CTs rotate, and after a plant they all retake, in a hurry. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). Teammates trade: when one is in a fight, the others nearby look that way. A bot that's been holding an empty angle for a while reacts a little slower to the first enemy (up to 0.2 s), so a good peek is rewarded. They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
-- **When you die** you watch through a living teammate's eyes until the next round: **Mouse 1 / Mouse 2** next / previous teammate, **Space** to fly free (and back). If the one you watch dies, it moves on to the next. The dead can't shoot.
+- **Plays:** each round the Ts pick one and a teammate calls it on the radio: **EXECUTE** A or B (gather, then go together), **RUSH** (no waiting), **SPLIT A** (long and short at once) or **SPLIT B** (tunnels and through mid doors), a **FAKE** (two throw utility at one site, the team hits the other a few seconds later), or a **DEFAULT** (spread over long, mid, tunnels and short for map control, then a late execute). Now and then a CT **pushes** for an early pick (long, mid or B tunnels) and falls back to its spot after about 20 s or when the Ts go.
+- **The bots:** Ts gather at their play's staging points, then execute together after 14 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant (it doesn't hide, chase or stop for anyone far away: it fights its way through and gets straight back on its way), the rest take the site's angles. With 45 s left and no plant, every T commits to the site. You choose the teams (Play: TEAMMATES 0-4, ENEMIES 1-5) and how good the bots are (TEAMMATE SKILL, ENEMY SKILL: easy, normal, hard, expert; hard is the default for enemies). Skill sets reaction time (0.45-0.85 s easy down to 0.12-0.27 s expert), aim error, fire rate, how far behind your movement they aim and how often they go for the head (never on normal, 40% on expert); the other modes use BOT SKILL. CTs play a default setup (one mid, one short, one long, two B; now and then one heavier on A or B), each from one of a few spots so it's never quite the same, mostly holding their angle and stepping back behind cover now and then; once Ts show up on a site, the far CTs rotate, and after a plant they all retake, in a hurry. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). Teammates trade: when one is in a fight, the others nearby look that way. A bot that's been holding an empty angle for a while reacts a little slower to the first enemy (up to 0.2 s), so a good peek is rewarded. They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
+- **When you die** you watch through a living teammate's eyes until the next round, looking where they look (up and down too: players online, bots at whoever they fight): **Mouse 1 / Mouse 2** next / previous teammate, **Space** to fly free (and back). If the one you watch dies, it moves on to the next. The dead can't shoot. Your scope goes down when you die.
+- **Bots don't freeze:** a bot sent to a spot it can't reach (in a wall or a prop at some map sizes) goes to the nearest one it can; after a chase or a fight, a bot with a spot of its own walks back to it (tested: every competitive spot reached from both spawns).
 - **Teammate radio:** your side's bots call out in the top-right feed (green): ENEMY SPOTTED: LONG A, GOING B, THEY'RE ON A, ROTATING, PLANTING THE BOMB, DEFUSING.
 - **Tab** shows both teams with money for yours; the radar shows your teammates and anything they spot.
 
@@ -188,6 +190,7 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Bots turn to face you** when they fight. Their hitboxes turn with them. Head-on you see about 27 units of shoulders; side-on, about 21.
 - **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable.
 - **Competitive colours:** Ts in tan, CTs in blue; a green marker floats over your teammates.
+- **The models:** two legs that step as they walk, boots and knee pads, a belt with a buckle, a vest with pouches, shoulder pads and a small pack, sleeves and gloves on the gun. CTs wear a helmet with goggles; Ts a balaclava with an eye slit and a beanie. Every piece sits inside its hitbox, and a hit flashes the part you hit.
 - **Anti-aliasing** (`msaa 4`, Settings → Video + sound, applies on restart) smooths edges so far-away players stop shimmering.
 
 ## Hit feedback
@@ -205,7 +208,8 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 | Sniper | 1 | 115 | bolt, 1.46 s | 5 | scope (Mouse 2) |
 | Nova | 1 | 9 × 26 | pump, 0.88 s | 8 | pellets in a **fixed pattern** (the same every shot, no luck); loads shell by shell (firing stops the reload) |
 | MAC-10 | 1 | 29 | 800 RPM, auto | 30 | runs at 240 |
-| Pistol | 2 | 30 | semi | 12 | a headshot kills without a helmet up close, **not through one** (93) |
+| Pistol | 2 | 30 | semi | 12 | **suppressed** (quiet, barely a flash; bots hear it from 900 units, not 2,200). A headshot kills without a helmet up close, **not through one** (93) |
+
 | Dual Berettas | 2 | 32 | semi, fast | 30 | one in each hand, firing left and right in turn; no one-tap through a helmet |
 | Deagle | 2 | 63 | semi, 0.225 s | 7 | **a headshot kills through a helmet from anywhere** (still 106 at 6,000 units), big kick |
 
@@ -257,12 +261,12 @@ Tested in `sim_tests` (new guns): the pistol and Berettas can't one-tap a helmet
 
 ## Bunny hopping
 
-`bhop 1` is on by default:
+Off by default (`bhop 0`, like CS: one jump per press, and landing costs a little speed). With `bhop 1` (Settings → Gameplay → BUNNY HOP):
 - Hold Space (or spam the wheel) and you jump the instant you land, so ground friction never touches you.
 - There's no stamina slowdown.
 - Air-strafe to gain speed: hold A while turning left (or D while turning right), without W.
 
-Perfect hops keep 250 u/s, and good strafes build to 500+. Set `bhop 0` for CS-style anti-bhop: one jump per press, and landing slows you down.
+Perfect hops keep 250 u/s, and good strafes build to 500+.
 
 ## Sniper
 

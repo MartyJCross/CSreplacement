@@ -47,6 +47,8 @@ struct HudBatch {
     void clear() { verts.clear(); }
     void rect(float x, float y, float w, float h, uint32_t rgba);
     void line(float x0, float y0, float x1, float y1, float thickness, uint32_t rgba);
+    // Any four-cornered shape, corners in order (a wedge of the buy wheel).
+    void quad(float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, uint32_t rgba);
     void text(float x, float y, const std::string& s, uint32_t rgba, int scale = 0);  // scale 0 = fontScale
     float textWidth(const std::string& s, int scale = 0) const;
 };
@@ -107,4 +109,4 @@ private:
 };
 
 constexpr int kMaxDecals = 1024;
-constexpr int kMaxDynamicBoxes = 1024;
+constexpr int kMaxDynamicBoxes = 4096;  // per draw: players (~40 boxes each), particles, smoke, fire

@@ -26,7 +26,7 @@ struct Config {
     int show_viewmodel = 1;
     int spread_spray = 0;      // 1 = random spread grows during sprays (CS-like)
     int spread_movement = 0;   // 1 = random spread while moving/airborne (CS-like)
-    int bhop = 1;              // 1 = hold jump to auto-hop, no stamina penalty; 0 = CS-style anti-bhop
+    int bhop = 0;              // 1 = hold jump to auto-hop, no stamina penalty; 0 = CS-style (the default)
     int camera_extrapolate = 1;  // 1 = zero-lag camera (render your position at "now", not 1 tick behind)
     int view_shake = 1;          // 1 = slight camera roll per shot (around the crosshair: aim is unaffected)
     int case_kills = 25;         // kills (deathmatch, retakes, competitive, online) for each case
@@ -46,6 +46,7 @@ struct Config {
     int rt_bots = 4;           // retakes: bots holding the site (1..6)
     int comp_mates = 4;        // competitive: bots on your team (0..4)
     int comp_enemies = 5;      // competitive: bots on the other team (1..5)
+    int freeze_time = 15;      // competitive: seconds of freeze time (buying) before each round
     int mate_skill = 1;        // competitive teammates' skill: 0 easy, 1 normal, 2 hard, 3 expert
     int enemy_skill = 2;       // enemy bots' skill, every mode (owner: normal was too easy)
     int nade_preview = 1;      // grenade trajectory preview: 0 off, 1 everywhere but competitive, 2 always

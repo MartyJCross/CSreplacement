@@ -45,6 +45,9 @@ const Part kPistolBody[] = {
     {{-0.55f, 0.2f, -8.5f}, {0.55f, 1.5f, 1.0f}, kMetal},         // slide
     {{-0.5f, -0.6f, -7.5f}, {0.5f, 0.2f, 0.5f}, kPolymer},        // frame
     {{-0.25f, 0.5f, -9.0f}, {0.25f, 1.1f, -8.5f}, kMetalLight},   // barrel crown
+    {{-0.42f, 0.38f, -15.2f}, {0.42f, 1.22f, -9.0f}, kMetal},     // suppressor
+    {{-0.45f, 0.35f, -10.0f}, {0.45f, 1.25f, -9.6f}, kMetalLight}, // its rings
+    {{-0.45f, 0.35f, -14.8f}, {0.45f, 1.25f, -14.4f}, kMetalLight},
     {{-0.1f, 1.5f, -8.0f}, {0.1f, 1.8f, -7.6f}, kMetal},          // front sight
     {{-0.4f, 1.5f, 0.2f}, {0.4f, 1.8f, 0.8f}, kMetal},            // rear sight
     {{-0.55f, -4.2f, -1.0f}, {0.55f, -0.6f, 1.2f}, kPolymer},     // grip
@@ -415,7 +418,7 @@ bool ringKnife(int k) { return k == kKnifeKarambit || k == kKnifeTalon; }
 // The skin's z extent for each model (fades and flames run front to back over it).
 void paintSpan(ViewWeapon w, PaintParams& p) {
     switch (w) {
-        case ViewWeapon::Pistol: p.zMin = -9.0f; p.zMax = 1.2f; break;
+        case ViewWeapon::Pistol: p.zMin = -15.2f; p.zMax = 1.2f; break;
         case ViewWeapon::Berettas: p.zMin = -8.8f; p.zMax = 1.2f; break;
         case ViewWeapon::Deagle: p.zMin = -11.0f; p.zMax = 1.8f; break;
         case ViewWeapon::Sniper: p.zMin = -32.0f; p.zMax = 17.0f; break;
@@ -735,7 +738,8 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
                       : weapon_ == ViewWeapon::Deagle   ? Vec3{0, 0.9f, -11.8f}
                       : weapon_ == ViewWeapon::Mac10    ? Vec3{0, 0.3f, -9.9f}
                       : weapon_ == ViewWeapon::Berettas ? Vec3{(shotIndex_ & 1) ? kLeftGun : 0.0f, 0.6f, -9.5f}
-                                                        : Vec3{0, 0.8f, -10.0f};
+                                                        : Vec3{0, 0.8f, -15.6f};  // the suppressor's end
+        if (weapon_ == ViewWeapon::Pistol) s *= 0.3f;  // suppressed: barely a flash
         ModelDraw flash{world * translation(muzzle) * rotationZ(spin), {}, {}};
         flash.boxes.push_back(makeEmissive({-0.9f * s, -0.9f * s, -1.6f}, {0.9f * s, 0.9f * s, 1.0f}, 0xfff4c0));
         flash.boxes.push_back(makeEmissive({-2.8f * s, -0.22f, -0.6f}, {2.8f * s, 0.22f, 0.6f}, 0xffc24a));

@@ -43,8 +43,9 @@ show_viewmodel 1
 // Set to 1 for CS-like random spread during sprays / while moving.
 spread_spray 0
 spread_movement 0
-// 1 = bunny hopping: hold jump (or spam the wheel) to hop on landing, no landing slowdown.
-bhop 1
+// 1 = bunny hopping: hold jump (or spam the wheel) to hop on landing, no landing slowdown. 0 = like CS: time
+// each jump yourself, and landing costs a little speed.
+bhop 0
 // 1 = zero-lag camera: your view is drawn where you are *now*, not up to one tick behind.
 camera_extrapolate 1
 // 1 = the camera eases over stairs and steps instead of popping up (cosmetic; movement is unchanged).
@@ -86,6 +87,8 @@ net_game 0
 net_teams 0
 comp_mates 4
 comp_enemies 5
+// Competitive: freeze time at the start of each round in seconds (buy and plan; CS uses 15).
+freeze_time 15
 mate_skill 1
 enemy_skill 2
 // Prefire: the bots shoot back (1) or are just targets (0).
@@ -116,7 +119,8 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
-        << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nmate_skill " << c.mate_skill
+        << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nfreeze_time " << c.freeze_time
+        << "\nmate_skill " << c.mate_skill
         << "\nenemy_skill " << c.enemy_skill << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
         << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\n";
     return bool(out);
@@ -196,6 +200,8 @@ Config loadConfig(const std::string& path) {
         else if (key == "nade_preview") i(c.nade_preview);
         else if (key == "comp_mates") i(c.comp_mates);
         else if (key == "comp_enemies") i(c.comp_enemies);
+        else if (key == "freeze_time") i(c.freeze_time);
+
         else if (key == "mate_skill") i(c.mate_skill);
         else if (key == "enemy_skill") i(c.enemy_skill);
         else if (key == "net_port") i(c.net_port);

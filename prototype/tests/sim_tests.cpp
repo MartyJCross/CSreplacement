@@ -922,6 +922,71 @@ void testCrouchedHitboxes() {
           "crouchZ");
 }
 
+// Bots sent to every competitive spot (each retake hold and bomb spot, every CT role spot, the T staging
+// points) from both spawns get there, even where the spot itself sits in a blocked cell at this map size
+// (they go to the nearest cell they can reach instead of giving up and freezing where they are).
+void testBotGoals() {
+    std::printf("bot goals\n");
+    const NavGrid& nav = dustNav();
+    BotSenses sense;
+    sense.world = &dust();
+    sense.nav = &nav;
+    std::vector<Vec3> spots;
+    for (const RetakeSite& s : dustRetakeSites()) {
+        spots.push_back(dpt(s.bombX, s.bombY));
+        for (const RetakeSpot& h : s.holds) spots.push_back(dpt(h.x, h.y));
+    }
+    for (int r = 0; r < kCtRoles; ++r)
+        for (const RetakeSpot& h : dustCtSpots(r)) spots.push_back(dpt(h.x, h.y));
+    for (const Vec3& p : {dpt(1500, 1100), dpt(170, 1350), dpt(-2070, 1150)}) spots.push_back(p);
+    int reached = 0, blocked = 0, failed = 0;
+    for (int side = 0; side < 2; ++side)
+        for (const Vec3& spot : spots) {
+            std::vector<Vec3> probe;
+            blocked += !nav.findPath(dustTeamSpawns(side)[0], spot, probe);
+            uint32_t rng = 99u;
+            Dummy d;
+            BotBrain b;
+            spawnDeathmatchBot(d, b, dustTeamSpawns(side)[0], rng);
+            b.holdOnly = true;
+            b.goal = spot;
+            b.hasGoal = true;
+            for (int t = 0; t < kTickRate * 60 && b.hasGoal; ++t) {
+                sense.now = double(t) * kTickDt;
+                d.prevPos = d.pos;
+                updateDeathmatchBot(d, b, sense, rng);
+            }
+            if (length2d(d.pos - spot) < 130.0f) ++reached;
+            else {
+                ++failed;
+                std::printf("  from %s: stopped %.0f units short of (%.0f, %.0f)\n", side ? "CT" : "T",
+                            double(length2d(d.pos - spot)), double(spot.x), double(spot.y));
+            }
+        }
+    std::printf("  %d of %d trips reached their spot (%d spots in a blocked cell: reached the nearest open one)\n", reached,
+                reached + failed, blocked);
+    CHECK(failed == 0, "%d bots stopped short", failed);
+}
+
+// No holes: from standing eye height anywhere you can walk, every ray at or below the horizon hits the map
+// (a floor, a wall, a roof) - none slips out between boxes.
+void testMapGaps() {
+    std::printf("map has no holes\n");
+    const NavGrid& nav = dustNav();
+    int escapes = 0, total = 0;
+    const float pitches[5] = {0, 2, 5, 15, 45};  // degrees down
+    for (int s = 0; s < 800; ++s) {
+        const Vec3 eye = nav.roamPoint((float(s) + 0.5f) / 800.0f, false) + Vec3{0, 0, kStandEye};
+        for (int yi = 0; yi < 36; ++yi)
+            for (float pitch : pitches) {
+                ++total;
+                escapes += dust().traceRay(eye, eye + anglesToForward(pitch, float(yi) * 10.0f) * 12000.0f).fraction >= 1.0f;
+            }
+    }
+    std::printf("  %d rays from %d standing spots, %d got out of the map\n", total, 800, escapes);
+    CHECK(escapes == 0, "%d rays escaped", escapes);
+}
+
 // Walk the main routes with a simulated player at knife speed (250 u/s) and print the run times.
 void testDustRoutes() {
     std::printf("dust routes (knife, 250 u/s)\n");
@@ -1075,6 +1140,10 @@ int main() {
 
 
     testBotCover();
+    testBotGoals();
+    testMapGaps();
+
+
     testGrenades();
     testDustScales();
     if (g_failures) {

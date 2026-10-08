@@ -69,7 +69,25 @@ bool NavGrid::roamable(const Vec3& p) const {
     return grid_ && grid_->cellAt(p.x, p.y, i, j) && roam_[size_t(grid_->index(i, j))];
 }
 
+bool NavGrid::nearestRoamable(const Vec3& p, int rings, Vec3& out) const {
+    if (!grid_) return false;
+    const MapGrid& m = *grid_;
+    int ci, cj;
+    if (!m.cellAt(p.x, p.y, ci, cj)) return false;
+    float best = 1e30f;
+    for (int j = cj - rings; j <= cj + rings; ++j)
+        for (int i = ci - rings; i <= ci + rings; ++i) {
+            if (i < 0 || j < 0 || i >= m.w || j >= m.h || !roam_[size_t(m.index(i, j))]) continue;
+            const Vec3 c = m.center(i, j);
+            if (std::fabs(c.z - p.z) > 72.0f) continue;  // not up on a roof or down a level
+            const float d = length2d(c - p);
+            if (d < best) { best = d; out = c; }
+        }
+    return best < 1e30f;
+}
+
 Vec3 NavGrid::roamPoint(float r01, bool awayFromEdges) const {
+
     const std::vector<int>& cells = awayFromEdges && !openCells_.empty() ? openCells_ : roamCells_;
     if (cells.empty()) return {};
     size_t k = std::min(cells.size() - 1, size_t(std::max(0.0f, r01) * float(cells.size())));

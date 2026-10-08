@@ -133,15 +133,17 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Movement** (`MoveParams` in `movement.h`):
   - gravity 1000, accelerate 6.48 (owner asked for 10% under 7.2), friction 5.6, air accelerate 12
   - 57-unit jump; crouch-jump reaches 64-unit crates
-  - bhop on by default (`bhop` config)
+  - bhop off by default (owner, v0.12; `bhop` config: 1 = hold-to-hop, no stamina)
   - real ramps: `Box::slope`/`lowZ` wedges, swept Quake-style against their planes (`world.cpp`)
 - **Weapons** (`combat.cpp`), CS slots: 1 primary (rifle/sniper), 2 pistol, 3 knife, 4 grenade (4 again cycles
   smoke/flash/HE/molotov), Q previous, F inspect, G quick-throw.
   - the owner doesn't want a "tagging" slowdown when shot; guns only when they name them (they asked for the
     Berettas, Deagle, Nova and MAC-10). The starting pistol must not one-tap a helmet; the Deagle must from any
     range (tested in testNewGuns)
-  - B buy menu with CS categories (`buyEntries`, `compBuy`, `takeGun`): competitive in spawn during buy time
-    for money, everywhere else free; slot 1 `g.primary`, slot 2 `g.secondary`
+  - B buy wheel like CS:GO's radial (`drawBuyWheel`, `buySlotAt`, `buyPick`; the mouse is freed while it's open),
+    CS categories (`buyEntries`, `compBuy`, `takeGun`) and full buys (`fullBuy`: rifle or sniper + armor, kit,
+    nades): competitive in spawn during buy time for money, everywhere else free; slot 1 `g.primary`, slot 2
+    `g.secondary`. The starting pistol is suppressed (`Sfx::SuppressedShot`, quieter noise for bots)
   - armor: `armoredDamage` (77.5% with kevlar/helmet); material wallbangs (`Box::material`: wood x0.5, metal x1.5)
   - fire timing: `takeShotTiming` (combat.cpp; tested): exact held cadence, no early shot after a tap
   - shot "oomph" (cosmetic): viewmodel kick (`ViewModel::onShot`), muzzle flash, `fovPunch` thump (under
@@ -167,7 +169,12 @@ See `prototype/README.md` for full details. Each item below lists where its code
   timed), 0 practice (peek bots), 1 deathmatch (`bots.cpp` roaming, spawns
   anywhere), 2 retakes (bomb pre-planted, defuse with E; `dustRetakeSites()`), 3 competitive 5v5 (`Game::Comp`,
   `startCompRound`/`compTick`/`endCompRound`: MR12, CS economy, buy menu, bomb carry/drop/plant/defuse, bots fight
-  bots via `BotSenses::targets`, goals via `BotBrain::goal`). Ts stage (`Comp::stagePoint`) then execute (`executing`); CTs split or stack, far
+  bots via `BotSenses::targets`, goals via `BotBrain::goal`). Freeze time `freeze_time` (15 s, `Game::freezeTime`).
+  T plays (`CompPlay`, `Comp::play/stages/stageOf/faker/rush/goAt`): execute, rush, split A, split B, fake, default;
+  called on the radio (`teamRadio`). CT pushes (`Comp::pushers/pushBack/pushUntil`) for an early pick, then fall back.
+  Bots never freeze: unreachable goals snap to the nearest reachable cell (`pathTo`, `NavGrid::nearestRoamable`),
+  and holders walk back to `BotBrain::home` after a chase (`backHome`); tested in `testBotGoals`. Automated runs
+  log any bot that should be walking but stands still 8 s ("STUCK" in comp_log.txt). Ts stage then execute (`executing`); CTs split or stack, far
   CTs rotate when Ts reach the site (`rotated`). Execute utility: `Comp::throws` + `botThrow` (solves throws with
   `predictGrenade`). CT setup by role (`dustCtSpots`: mid, short, long, A, B; default mid/short/long/B/B, sometimes
   A- or B-heavy). Bot reaction time only restarts when they lose sight (not on a jiggle),
@@ -184,6 +191,10 @@ See `prototype/README.md` for full details. Each item below lists where its code
   game, the trajectory preview (`nade_preview`) and bot throws share them (tested: preview == real flight).
 - **Names:** bots `kBotNames` (offset per match: `g_botNameOffset`); online players `g_playerNames` (config
   `player_name`). Everything shown goes through `agentName(id)`.
+- **Player models** (main.cpp, the dummies loop): legs that step (`Dummy::stepDist`), vest, pouches, gloves;
+  CT helmet + goggles, T balaclava + beanie; every piece inside its hitbox (rule 3); hits flash per part.
+  Spectating looks where they look (`Dummy::pitch`; online in `NetState`/`NetBot`).
+- **Map holes:** `testMapGaps` casts rays at/below the horizon from every standing spot; none may leave the map.
 - **Combat record:** `recordDamage` feeds the kill feed, per-life damage report, assists, ADR/HS%/MVP scoreboard.
 - **HUD:** radar (`buildRadar`, spotting), subtle hitmarker + tick (`hitmarker`, `hitsound`), Tab scoreboard,
   damage-direction arcs (`hurtFrom`), competitive spectating (`spec`, `nextTeammate`) and teammate radio (`radio` in
@@ -198,7 +209,8 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
   short boom). Measure with `--dump-sounds` before changing tone.
 - **Screenshot helpers:** `--spawn X Y YAW` (world coords: Dust is scaled!), `--weapon`, `--inspect N`,
-  `--smoke --nade T [--throw-frame N]`, `--bots`, `--menu N [--menu-row R]` (a `MenuScreen`; 11 inventory, 12 a case
+  `--buy N` (the buy wheel open on category N), `--smoke --nade T [--throw-frame N]`, `--bots`, `--menu N [--menu-row R]` (a `MenuScreen`; 11 inventory, 12 a case
+
   opening with `--give-cases N`), `--bench S`, `--weapon 5` (grenade out; 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10),
   `--die N`, `--ct` (competitive starting on CT: test both sides), `--host`,
 

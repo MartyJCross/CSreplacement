@@ -166,6 +166,21 @@ std::vector<float> pistolShot(Rng& r) {  // snappier and lighter than the rifle
     return b;
 }
 
+// The suppressed pistol: no crack, a soft cough of gas, the slide cycling, a little room.
+std::vector<float> suppressedShot(Rng& r) {
+    auto b = buffer(0.3f);
+    addNoise(b, 0, 1.0f, 350 * r.jitter(0.1f), 2400 * r.jitter(0.08f), 0.012f * r.jitter(0.15f), r, 0.0004f);  // the cough
+    addTone(b, 0, 0.35f, 170 * r.jitter(0.06f), 95, 0.014f);                                                     // soft thump
+    addMetal(b, 0.004f, 0.35f, 3200 * r.jitter(0.06f), 0.02f, r);                                              // slide
+    addMetal(b, 0.045f, 0.2f, 2400 * r.jitter(0.06f), 0.015f, r);                                              // and back
+    lowpass(b, 7000);
+    highpass(b, 120);
+    addReflections(b, 30, 25, 3, 0.1f, 0.5f, 4000, r);
+    fadeTail(b);
+    normalize(b, 0.75f);
+    return b;
+}
+
 std::vector<float> sniperShot(Rng& r) {  // big: heavy boom, long rolling echo
     auto b = buffer(1.5f);
     addNoise(b, 0, 0.8f, 2200, 12000, 0.005f, r, 0.0002f);
@@ -434,7 +449,7 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
                                  "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
                                  "hit_marker", "footstep_wood", "footstep_metal", "flash_bang", "flash_ring",
                                  "explosion", "fire", "bomb_beep", "defuse", "impact_stone", "impact_wood",
-                                 "impact_metal", "helmet_hit", "whiz", "ui_click"};
+                                 "impact_metal", "helmet_hit", "whiz", "ui_click", "suppressed_shot"};
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
 // A recording -> 48 kHz mono float, or empty if it can't be read. WAV through SDL, Ogg through stb_vorbis.
@@ -490,6 +505,7 @@ SoundBank synthesize() {
         {Sfx::ImpactStone, impactStone, 4},      {Sfx::ImpactWood, impactWood, 3},
         {Sfx::ImpactMetal, impactMetal, 3},      {Sfx::HelmetHit, helmetHit, 2},
         {Sfx::Whiz, whiz, 3},                    {Sfx::UiClick, uiClick, 1},
+        {Sfx::SuppressedShot, suppressedShot, 4},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;

@@ -18,6 +18,10 @@ public:
     // True if a standing player fits in the cell under p.
     bool standable(const Vec3& p) const;
     bool roamable(const Vec3& p) const;
+    // The roamable cell centre nearest to p within `rings` cells (on about p's level), for goals that sit in a
+    // wall or a prop at some map sizes. False if there's none.
+    bool nearestRoamable(const Vec3& p, int rings, Vec3& out) const;
+
     float floorAt(const Vec3& p) const { return grid_ ? grid_->floorAt(p.x, p.y) : 0.0f; }
     // A roamable cell centre picked by r01 in [0, 1), uniformly over the whole map. With
     // `awayFromEdges`, only cells not touching a wall or ledge (good spawn spots).

@@ -90,6 +90,7 @@ struct Dummy {
     // Facing in degrees (0 = +X, like the player's yaw); hitboxes turn with it. 180 = facing -X, the
     // Lab default. shownYaw is the facing drawn on the last frame: shots test against that.
     float yaw = 180, prevYaw = 180, shownYaw = 180;
+    float pitch = 0, prevPitch = 0;  // where they look up / down (cosmetic: spectating through their eyes)
     // Competitive: kevlar (body/arms take 77.5%) and helmet (the same for the head); your teammates
     // are `friendly` - your bullets pass through them.
     float armor = 0;

@@ -371,6 +371,7 @@ void Net::handle(const uint8_t* data, size_t len, int fromPeer, std::vector<NetE
                 b.pos.y = r.q16();
                 b.pos.z = r.q16();
                 b.yaw = float(int16_t(r.u16())) / 100.0f;
+                b.pitch = float(int8_t(r.u8()));
                 b.flags = r.u8();
                 b.weapon = r.u8();
                 if (b.id < kNetMaxPlayers || b.id >= kNetSlots) r.ok = false;
@@ -534,6 +535,7 @@ void Net::sendBots(uint32_t tick, const NetBot* bots, int count) {
         if (yaw > 180.0f) yaw -= 360.0f;
         if (yaw < -180.0f) yaw += 360.0f;
         w.u16(uint16_t(int16_t(std::lround(yaw * 100.0f))));
+        w.u8(uint8_t(int8_t(std::lround(std::clamp(b.pitch, -89.0f, 89.0f)))));
         w.u8(b.flags);
         w.u8(b.weapon);
     }

@@ -40,6 +40,11 @@ struct BotBrain {
     // Competitive: walk here (then hold, if holdOnly) instead of roaming at random.
     Vec3 goal;
     bool hasGoal = false;
+    // Its spot (an anchor's angle, the execute's hold): after a chase or a fight it walks back here
+    // instead of standing wherever the chase ended.
+    Vec3 home;
+    bool hasHome = false;
+
 };
 
 // Someone a bot can fight: id -1 = you, i = bot i.

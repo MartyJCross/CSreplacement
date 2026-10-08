@@ -19,6 +19,7 @@ enum class Sfx {
     HelmetHit,                              // a headshot stopped by a helmet: a bright "tink"
     Whiz,                                   // a bot's bullet passing close to your head
     UiClick,                                // menu clicks
+    SuppressedShot,                         // the starting pistol's silencer: a muted "thwip" and the slide
     Count
 };
 

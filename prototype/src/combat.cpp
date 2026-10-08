@@ -243,6 +243,7 @@ void updateDummy(Dummy& d, float dt) {
     d.prevPos = d.pos;
     d.prevYaw = d.yaw;
     d.prevCrouch = d.crouch;
+    d.prevPitch = d.pitch;
     for (float& f : d.flash) f = std::max(0.0f, f - dt);
     if (!d.alive()) {
         d.respawnLeft -= dt;

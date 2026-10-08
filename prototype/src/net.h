@@ -19,7 +19,7 @@ constexpr int kNetMaxPlayers = 8;        // ids 0..7: the host is 0
 constexpr int kNetBots = 10;             // competitive: bot slots 8..17
 constexpr int kNetSlots = kNetMaxPlayers + kNetBots;
 constexpr uint16_t kNetDefaultPort = 27015;
-constexpr uint32_t kNetProtocol = 4;     // bump when messages change: other versions can't join
+constexpr uint32_t kNetProtocol = 5;     // bump when messages change: other versions can't join
 
 struct NetState {                        // one player, one tick
     uint8_t id = 0;
@@ -58,7 +58,7 @@ struct NetRound {
 };
 constexpr uint8_t kRoundHalf = 1, kRoundNewMatch = 2;
 
-struct NetBot { uint8_t id = 0; Vec3 pos; float yaw = 0; uint8_t flags = 0, weapon = 0; };
+struct NetBot { uint8_t id = 0; Vec3 pos; float yaw = 0, pitch = 0; uint8_t flags = 0, weapon = 0; };
 
 struct NetEvent {
     enum Type { Connected, Failed, Joined, Left, State, Fire, Hit, Death, Name, Nade, Bots, Match, Round, Plant, Defused } type;

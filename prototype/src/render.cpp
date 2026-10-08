@@ -444,6 +444,13 @@ void HudBatch::line(float x0, float y0, float x1, float y1, float thickness, uin
     verts.insert(verts.end(), {p0, p1, p2, p0, p2, p3});
 }
 
+void HudBatch::quad(float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, uint32_t rgba) {
+    uint8_t c[4] = {uint8_t(rgba >> 24), uint8_t(rgba >> 16), uint8_t(rgba >> 8), uint8_t(rgba)};
+    HudVert p0{x0, y0, -1, -1, {c[0], c[1], c[2], c[3]}}, p1{x1, y1, -1, -1, {c[0], c[1], c[2], c[3]}};
+    HudVert p2{x2, y2, -1, -1, {c[0], c[1], c[2], c[3]}}, p3{x3, y3, -1, -1, {c[0], c[1], c[2], c[3]}};
+    verts.insert(verts.end(), {p0, p1, p2, p0, p2, p3});
+}
+
 float HudBatch::textWidth(const std::string& s, int scale) const {
     int sc = scale > 0 ? scale : fontScale;
     return float(s.size() * kCellW * sc);

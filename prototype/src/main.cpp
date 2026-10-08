@@ -55,6 +55,7 @@ struct Options {
     int nadeType = 0;                            // --nade T: grenade type for --smoke (0 smoke .. 3 molotov)
     int dieFrame = -1;                           // --die N: you die on frame N (screenshots of death / spectating)
     int giveCases = 0;                           // --give-cases N: N cases to open (tests)
+    int buyCat = -1;                             // --buy N: the buy wheel open on category N (0 = the categories)
     bool startCT = false;                        // --ct: competitive starts with you on CT (testing)
     bool netHost = false;                        // --host: host an online game straight away
     std::string netJoin;                         // --join ADDR: join one
@@ -93,6 +94,8 @@ Options parseArgs(int argc, char** argv) {
             o.dieFrame = std::atoi(next());
         } else if (a == "--give-cases") {
             o.giveCases = std::atoi(next());
+        } else if (a == "--buy") {
+            o.buyCat = std::atoi(next());
 
         } else if (a == "--inspect") {
             o.inspectFrame = std::atoi(next());
@@ -130,6 +133,7 @@ struct Game {
     WeaponState* primary = &rifle;
     WeaponState* secondary = &pistol;
     int buyCategory = 0;          // buy menu: 0 the categories, else the one open (1 pistols .. 6 grenades)
+    float buyMouseX = 0, buyMouseY = 0;  // buy wheel: the mouse (pixels; it's free while the wheel is open)
     WeaponState* lastWeapon = &knife;
     bool buyMenu = false;
     float throwStrength = 1.0f;   // the next throw: 1 full, kNadeMedium, kNadeLob (see grenadeThrowVelocity)
@@ -228,6 +232,7 @@ struct Game {
     // Retakes (mode 2, Dust only): bots hold a random site, you clear it from a random entry.
     int rtBots = 4, rtSite = 0, rtWon = 0, rtLost = 0;
     int compMates = 4, compEnemies = 5, mateSkill = 1, enemySkill = 2;  // competitive teams, bot skill (config)
+    double freezeTime = 15;                 // competitive freeze time, seconds (config freeze_time)
     // Online: deathmatch (mode 5) or competitive (mode 3 with `online`). Players are dummies[id] (id = their
     // net id; yours stays hidden); in competitive the host's bots are dummies 8..17. Their states are played
     // back a few ticks behind the newest, interpolated, so they move smoothly through jitter.
@@ -274,7 +279,22 @@ struct Game {
         double executeAt = 0;
         const char* lastSpot = "";          // teammate radio: the last place an enemy was called out
         double lastSpotAt = -100;
-        int route = 0;                      // the T plan: 0 A long, 1 A through catwalk, 2 B tunnels
+        int route = 0;                      // the main group's way in: 0 A long, 1 A short (catwalk), 2 B tunnels, 3 mid to B
+        // The round's plays. Ts: a staging point per bot (stages, stageOf), then the execute. A rush goes as
+        // soon as anyone reaches their point; a fake has the fakers throw utility at the other site first and
+        // the team goes a few seconds later (goAt); a default spreads out for map control and executes late.
+        // CTs: now and then one pushes for an early pick (pushers) and falls back to its spot (pushBack) at
+        // pushUntil or when the Ts execute.
+        int play = 0;
+        std::vector<Vec3> stages;
+        std::vector<int> stageOf;
+        std::vector<char> faker;
+        bool rush = false, sent = false;
+        int fakeRoute = -1;
+        double goAt = 0;
+        std::vector<int> pushers;
+        std::vector<RetakeSpot> pushBack;
+        double pushUntil = -1;
         // The execute's utility: a T bot throws `type` at `target` once it has a throw that gets there.
         struct Throw { int bot; int type; Vec3 target; double from, until, nextTry; };
         std::vector<Throw> throws;
@@ -579,6 +599,7 @@ void applyConfig(Game& g, const Config& cfg) {
     g.dmMinutes = std::clamp(cfg.dm_minutes, 1, 60);
     g.rtBots = std::clamp(cfg.rt_bots, 1, 6);
     g.compMates = std::clamp(cfg.comp_mates, 0, 4);  // next match
+    g.freezeTime = std::clamp(cfg.freeze_time, 3, 30);  // next round
     g.compEnemies = std::clamp(cfg.comp_enemies, 1, 5);
     g.mateSkill = std::clamp(cfg.mate_skill, 0, 3);  // straight away
     g.enemySkill = std::clamp(cfg.enemy_skill, 0, 3);  // next round
@@ -770,7 +791,10 @@ void startRetakeRound(Game& g) {
         b.holdYaw = d.yaw;
         b.holdLook = dustPoint(h.lookX, h.lookY);
         b.hasHoldLook = true;
+        b.home = d.pos;
+        b.hasHome = true;
         g.bots[i] = b;
+
     }
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
     g.rtRoundEnd = g.simTime + kRetakeRoundTime;  // = the bomb's fuse
@@ -815,6 +839,9 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
     sound(g, Sfx::HitBody, 0.9f, 0.0f, 0.7f);
     g.hudDirty = true;
     if (!dies) return false;
+    g.zoom = g.resumeZoom = 0;  // dead: no scope left up (spectating, or the next life)
+    g.resumeZoomAt = g.boltAt = -1;
+    g.buyMenu = false;
     if (attacker < 0) {  // your own HE / molotov
         g.you.deaths++;
         g.feed.push_back({std::string("YOU  [") + weapon + "]", 0xFF6060u, g.simTime});
@@ -986,7 +1013,7 @@ void buildRadar(Game& g) {
 
 // ---- Competitive ----
 constexpr int kCompRoundsToWin = 13;
-constexpr double kCompFreeze = 5.0, kCompBuyTime = 20.0, kCompRoundTime = 115.0, kCompPlantTime = 3.2;
+constexpr double kCompBuyTime = 20.0, kCompRoundTime = 115.0, kCompPlantTime = 3.2;  // (freeze: Game::freezeTime)
 
 int teamOf(const Game& g, int id) { return id < 0 ? g.comp.youTeam : g.team[size_t(id)]; }
 bool youAlive(const Game& g) { return !g.comp.youDead; }
@@ -1050,6 +1077,16 @@ uint8_t roundWhyCode(const char* why) {
 }
 
 std::string g_compLog;  // automated runs: one line per competitive round (testing)
+
+// The T side's plays (Comp::play): a plain execute, a rush, a split of A or B, a fake, a default (map control,
+// then a late execute).
+enum CompPlay { kPlayExecute, kPlayRush, kPlaySplitA, kPlaySplitB, kPlayFake, kPlayDefault };
+
+// A line on the team radio (top right) from a bot on your side.
+void teamRadio(Game& g, int bot, const std::string& msg) {
+    if (bot >= 0 && size_t(bot) < g.team.size() && g.team[size_t(bot)] == g.comp.youTeam)
+        pushHitLog(g, agentName(bot) + ": " + msg, 0x90e0a0);
+}
 
 // A new round: everyone to their spawn, survivors keep their kit, bots buy and get their plan.
 void startCompRound(Game& g) {
@@ -1130,15 +1167,39 @@ void startCompRound(Game& g) {
         if (g.team[i] == 0 && g.dummies[i].alive()) ts.push_back(int(i));
     c.carrier = ts.empty() ? -3 : ts[size_t(rnd(g) * float(ts.size())) % ts.size()];
     if (c.carrier == -1) pushHitLog(g, "YOU HAVE THE BOMB", 0xffd060);
-    // Ts: gather at a staging point on the way (A long, A through catwalk, or B tunnels), then execute
-    // together (compTick). CTs: a setup for the round - split 2-2-1 (A, B, mid doors) or stack a site.
-    const float stages[3][2] = {{1500, 1100}, {170, 1350}, {-2070, 1150}};
+    // Ts: the round's play. Staging points on the way in: 0 A long, 1 A short (catwalk), 2 B tunnels, 3 mid
+    // by the doors (mid to B), 4 lower mid. Then the execute (compTick).
+    const float stages[5][2] = {{1500, 1100}, {170, 1350}, {-2070, 1150}, {-180, 1650}, {-150, 700}};
+    const float pr = rnd(g);
+    const int play = pr < 0.30f ? kPlayExecute : pr < 0.45f ? kPlayRush : pr < 0.58f ? kPlaySplitA
+                   : pr < 0.68f ? kPlaySplitB : pr < 0.84f ? kPlayFake : kPlayDefault;
+    if (play == kPlaySplitA) c.siteTarget = 0;
+    if (play == kPlaySplitB) c.siteTarget = 1;
     const int route = c.siteTarget == 1 ? 2 : (rnd(g) < 0.5f ? 0 : 1);
-    c.stagePoint = dustPoint(stages[route][0], stages[route][1]);
+    c.play = play;
     c.route = route;
+    c.rush = play == kPlayRush;
+    c.sent = false;
+    c.goAt = 0;
+    c.fakeRoute = play == kPlayFake ? (c.siteTarget == 1 ? (rnd(g) < 0.5f ? 0 : 1) : 2) : -1;
+    c.stages.clear();
+    auto addStage = [&](int r) { c.stages.push_back(dustPoint(stages[r][0], stages[r][1])); };
+    switch (play) {
+        case kPlaySplitA: addStage(0); addStage(1); break;          // long and short together
+        case kPlaySplitB: addStage(2); addStage(3); break;          // tunnels and through mid doors
+        case kPlayFake: addStage(route); addStage(c.fakeRoute); break;  // group 1: the fakers
+        case kPlayDefault: addStage(route); addStage(4); addStage(route == 2 ? 0 : 2); addStage(1); break;  // map control
+        default: addStage(route); break;                            // execute, rush: one group
+    }
+    c.stagePoint = c.stages[0];
+    c.stageOf.assign(g.dummies.size(), 0);
+    c.faker.assign(g.dummies.size(), 0);
     c.throws.clear();
     c.executing = c.rotated = false;
-    c.executeAt = g.simTime + kCompFreeze + 14.0;
+    c.executeAt = g.simTime + g.freezeTime + (play == kPlayRush ? 0.0 : play == kPlayDefault ? 32.0 : 14.0);
+    c.pushers.clear();
+    c.pushBack.clear();
+    c.pushUntil = -1;
     // CTs: the default setup (one mid, one short, one long, two B), now and then one heavier on a site;
     // each role picks one of its spots, so it's familiar but never quite the same.
     const float roll = rnd(g);
@@ -1153,26 +1214,78 @@ void startCompRound(Game& g) {
         for (size_t k = n; k > 1; --k) std::swap(spotOrder[r][k - 1], spotOrder[r][size_t(rnd(g) * float(k)) % k]);
     }
     int roleUsed[kCtRoles] = {};
-    int tCount = 0, ctCount = 0;
+    int tCount = 0, ctCount = 0, fakers = 0;
+    std::vector<int> inGroup(c.stages.size(), 0);
+    std::vector<int> ctRole(g.dummies.size(), -1);
+    std::vector<RetakeSpot> ctSpot(g.dummies.size(), RetakeSpot{0, 0, 0, 0});
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         BotBrain& b = g.bots[i];
         Dummy& d = g.dummies[i];
         if (!isBot(g, i) || !d.alive()) continue;
         if (g.team[i] == 0) {
-            Vec3 p = c.stagePoint + Vec3{float(tCount % 3 - 1) * 48.0f, float(tCount / 3) * 48.0f, 0};
+            // Its group: the carrier with the main one; the rest spread over the play's groups (a fake: two fakers).
+            int group = 0;
+            if (int(i) != c.carrier && c.stages.size() > 1) {
+                if (play == kPlayFake) group = fakers < 2 ? (++fakers, 1) : 0;
+                else group = (tCount + 1) % int(c.stages.size());
+            }
             ++tCount;
-            b.goal = g.nav.standable(p) ? p : c.stagePoint;
+            c.stageOf[i] = group;
+            c.faker[i] = play == kPlayFake && group == 1;
+            const int k = inGroup[size_t(group)]++;
+            const Vec3 base = c.stages[size_t(group)];
+            Vec3 p = base + Vec3{float(k % 3 - 1) * 48.0f, float(k / 3) * 48.0f, 0};
+            b.goal = g.nav.standable(p) ? p : base;
         } else {
             const int role = setup[ctCount++ % 5];
             const std::vector<RetakeSpot>& spots = dustCtSpots(role);
             const RetakeSpot& h = spots[size_t(spotOrder[role][size_t(roleUsed[role]++) % spots.size()])];
+            ctRole[i] = role;
+            ctSpot[i] = h;
             b.goal = dustPoint(h.x, h.y);
             b.holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
             b.holdLook = dustPoint(h.lookX, h.lookY);
             b.hasHoldLook = true;
         }
         b.hasGoal = true;
+        b.home = b.goal;  // (and back here after a chase)
+        b.hasHome = true;
         d.yaw = d.prevYaw = yawTo(d.pos, b.goal);  // face where they're heading, not each other
+    }
+    // CTs, now and then: one pushes for an early pick (long, mid or B tunnels) and falls back to its spot.
+    if (rnd(g) < 0.4f) {
+        struct Push { int role; RetakeSpot at; const char* call; };
+        const Push pushes[3] = {{kCtLong, {1150, 500, 720, 380}, "PUSHING LONG"},
+                                {kCtMid, {-120, 1100, -120, 100}, "PUSHING MID"},
+                                {kCtB, {-2070, 1750, -2070, 900}, "PUSHING B TUNNELS"}};
+        const Push& p = pushes[size_t(rnd(g) * 3.0f) % 3];
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            if (ctRole[i] != p.role) continue;
+            BotBrain& b = g.bots[i];
+            b.goal = b.home = dustPoint(p.at.x, p.at.y);
+            b.holdYaw = std::atan2(p.at.lookY - p.at.y, p.at.lookX - p.at.x) / kDegToRad;
+            b.holdLook = dustPoint(p.at.lookX, p.at.lookY);
+            c.pushers.push_back(int(i));
+            c.pushBack.push_back(ctSpot[i]);
+            c.pushUntil = g.simTime + g.freezeTime + 18.0 + 8.0 * double(rnd(g));
+            teamRadio(g, int(i), p.call);
+            break;
+        }
+    }
+    // Ts: call the play.
+    {
+        int caller = -1;
+        for (size_t i = 0; i < g.dummies.size() && caller < 0; ++i)
+            if (isBot(g, i) && g.dummies[i].alive() && g.team[i] == 0) caller = int(i);
+        const char* site = c.siteTarget == 0 ? "A" : "B";
+        std::string call = play == kPlayRush     ? std::string("RUSH ") + site
+                           : play == kPlaySplitA  ? "SPLIT A, LONG AND SHORT"
+                           : play == kPlaySplitB  ? "SPLIT B, TUNNELS AND MID"
+                           : play == kPlayFake    ? std::string("FAKE ") + (c.siteTarget == 0 ? "B" : "A") + ", GO " + site
+                           : play == kPlayDefault ? std::string("DEFAULT, THEN ") + site
+                                                  : std::string("EXECUTE ") + site;
+        if (caller >= 0) teamRadio(g, caller, call);
+        if (!g_compLog.empty()) std::ofstream(g_compLog, std::ios::app) << "  play: " << call << "\n";
     }
     c.planted = false;
     c.planter = c.defuser = -3;
@@ -1186,8 +1299,8 @@ void startCompRound(Game& g) {
     for (Game::Stats& st : g.botStats) st.roundKills = 0;
     g.you.roundKills = 0;
     c.phase = 0;
-    c.phaseEnd = g.simTime + kCompFreeze;
-    c.buyUntil = g.simTime + kCompFreeze + kCompBuyTime;
+    c.phaseEnd = g.simTime + g.freezeTime;
+    c.buyUntil = g.simTime + g.freezeTime + kCompBuyTime;
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
     g.hudDirty = true;
     if (netHost(g)) {  // tell everyone: who plays where, and go
@@ -1358,12 +1471,19 @@ const char* compBuy(Game& g, int category, int item) {
 
 // Sends a bot somewhere (unless it's already on its way there). `h`: a hold spot to take there, facing
 // its look-at point (it holds from beside cover).
+std::vector<int> g_sendCount;  // automated runs: goals given to each bot (stuck-bot log)
 void sendBot(Game& g, size_t i, const Vec3& to, bool hold, const RetakeSpot* h = nullptr) {
     BotBrain& b = g.bots[i];
     if (b.hasGoal && length2d(b.goal - to) < 1.0f) return;
+    if (g_sendCount.size() <= i) g_sendCount.resize(i + 1, 0);
+    g_sendCount[i]++;
     b.goal = to;
     b.hasGoal = true;
     b.holdOnly = hold;
+    if (hold) {  // its spot: it comes back here after a chase
+        b.home = to;
+        b.hasHome = true;
+    }
     b.hasHoldLook = h != nullptr;
     if (h) {
         b.holdLook = dustPoint(h->lookX, h->lookY);
@@ -1557,39 +1677,78 @@ void compTick(Game& g) {
     if (late && !c.executing) c.executeAt = now;
     for (size_t i = 0; i < g.dummies.size(); ++i)
         g.bots[i].urgent = g.team[i] == 0 ? (late || (c.executing && int(i) == c.carrier)) : c.planted;
-    // The T execute: once every T bot has gathered at the staging point (or after 14 s), they all push
-    // onto the site together - the carrier to the bomb spot, the rest to the site's holding spots.
-    if (!c.planted && !c.executing) {
-        bool gathered = true;
+    // Utility for a way in (`route`): a smoke to cut the defenders' view, then a flash over where they hold,
+    // thrown by the two T bots nearest that way's staging point (fakers only, or everyone but the fakers).
+    auto siteUtility = [&](int route, bool byFakers) {
+        static const float kUtil[3][2][3] = {
+            {{1450, 2300, 0}, {1400, 2650, 140}},    // A long: smoke the top of the ramp, flash the site
+            {{850, 2850, 0}, {450, 2520, 140}},      // short: smoke CT side of A, flash short
+            {{-1450, 2210, 0}, {-1800, 2450, 140}},  // B: smoke the doors, flash the site
+        };
+        const int r = route >= 2 ? 2 : route;
+        const float stagesXY[3][2] = {{1500, 1100}, {170, 1350}, {-2070, 1150}};
+        const Vec3 from0 = dustPoint(stagesXY[r][0], stagesXY[r][1]);
+        std::vector<std::pair<float, size_t>> near;
         for (size_t i = 0; i < g.dummies.size(); ++i)
-            if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && length2d(g.dummies[i].pos - c.stagePoint) > 200.0f)
-                gathered = false;
+            if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && int(i) != c.carrier &&
+                (i >= c.faker.size() || (c.faker[i] != 0) == byFakers))
+                near.push_back({length2d(g.dummies[i].pos - from0), i});
+        std::sort(near.begin(), near.end());
+        for (size_t q = 0; q < near.size() && q < 2; ++q) {
+            const float* u = kUtil[r][q];
+            const Vec3 target = dustPoint(u[0], u[1]) + Vec3{0, 0, u[2]};
+            const double from = now + 0.3 + 0.7 * double(q);
+            c.throws.push_back({int(near[q].second), q == 0 ? Game::kSmokeNade : Game::kFlashNade, target, from, from + 10.0, from});
+        }
+    };
+    // CT pushers fall back to their spots once their time's up or the Ts go.
+    if (c.pushUntil >= 0 && (now >= c.pushUntil || c.executing)) {
+        c.pushUntil = -1;
+        for (size_t k = 0; k < c.pushers.size(); ++k) {
+            const size_t i = size_t(c.pushers[k]);
+            if (!g.dummies[i].alive()) continue;
+            const RetakeSpot& h = c.pushBack[k];
+            sendBot(g, i, dustPoint(h.x, h.y), true, &h);
+            radio(int(i), "FALLING BACK");
+        }
+    }
+    // The T execute: once every T bot is at its staging point (a rush: once anyone is; or the timer), the
+    // fakers throw their utility at the other site and a few seconds later (or straight away) everyone
+    // pushes onto the site together - the carrier to the bomb spot, the rest to the site's holding spots.
+    if (!c.planted && !c.executing) {
+        bool gathered = true, anyThere = false;
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            if (!g.dummies[i].alive() || !isBot(g, i) || g.team[i] != 0) continue;
+            const size_t group = i < c.stageOf.size() && c.stageOf[i] < int(c.stages.size()) ? size_t(c.stageOf[i]) : 0;
+            const float dist = c.stages.empty() ? 0.0f : length2d(g.dummies[i].pos - c.stages[group]);
+            if (dist > 200.0f) gathered = false;
+            if (dist < 300.0f) anyThere = true;
+        }
+        if (c.rush) gathered = gathered || anyThere;
+        if (c.play == kPlayDefault) gathered = false;  // map control until the clock says go
         if (gathered || now >= c.executeAt) {
             c.executing = true;
-            radio(c.carrier >= 0 ? c.carrier : firstAlive(0), c.siteTarget == 0 ? "GOING A" : "GOING B");
             if (!g_compLog.empty())
                 std::ofstream(g_compLog, std::ios::app)
                     << "  execute " << (c.siteTarget == 0 ? "A" : "B") << (gathered ? " (gathered)" : " (timer)")
                     << " t=" << int(g.simTime) << "s\n";
-            // Utility for the site: a smoke to cut the defenders' view, a flash over where they hold.
-            {
-                static const float kUtil[3][2][3] = {
-                    {{1450, 2300, 0}, {1400, 2650, 140}},    // A long: smoke the top of the ramp, flash the site
-                    {{850, 2850, 0}, {450, 2520, 140}},      // catwalk: smoke CT side of A, flash short
-                    {{-1450, 2210, 0}, {-1800, 2450, 140}},  // B: smoke the doors, flash the site
-                };
-                std::vector<std::pair<float, size_t>> near;
+            c.goAt = now;
+            if (c.fakeRoute >= 0) {  // the fake: their utility goes in on the other site, the team goes after
+                siteUtility(c.fakeRoute, true);
                 for (size_t i = 0; i < g.dummies.size(); ++i)
-                    if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && int(i) != c.carrier)
-                        near.push_back({length2d(g.dummies[i].pos - c.stagePoint), i});
-                std::sort(near.begin(), near.end());
-                for (size_t q = 0; q < near.size() && q < 2; ++q) {
-                    const float* u = kUtil[c.route][q];
-                    const Vec3 target = dustPoint(u[0], u[1]) + Vec3{0, 0, u[2]};
-                    const double from = now + 0.3 + 0.7 * double(q);
-                    c.throws.push_back({int(near[q].second), q == 0 ? Game::kSmokeNade : Game::kFlashNade, target, from, from + 10.0, from});
-                }
+                    if (i < c.faker.size() && c.faker[i] && g.dummies[i].alive()) {
+                        radio(int(i), "FAKING");
+                        break;
+                    }
+                c.goAt = now + 4.5;
             }
+        }
+    }
+    if (c.executing && !c.sent && !c.planted && now >= c.goAt) {
+        c.sent = true;
+        radio(c.carrier >= 0 ? c.carrier : firstAlive(0), c.siteTarget == 0 ? "GOING A" : "GOING B");
+        siteUtility(c.route, false);
+        {
             const RetakeSite& s = sites[size_t(c.siteTarget)];
             int k = 0;
             for (size_t i = 0; i < g.dummies.size(); ++i) {
@@ -1726,6 +1885,44 @@ void compTick(Game& g) {
             return;
         }
     }
+    // Automated runs: a bot that hasn't moved for 8 s while it has somewhere to be (or is chasing a lead) is
+    // logged once a round, with what its brain is doing (tracking down bots that freeze).
+    if (!g_compLog.empty() && c.phase == 1) {
+        static std::vector<Vec3> lastPos;
+        static std::vector<double> stillSince;
+        static std::vector<int> loggedRound;
+        lastPos.resize(g.dummies.size());
+        stillSince.resize(g.dummies.size(), now);
+        loggedRound.resize(g.dummies.size(), -1);
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            const Dummy& d = g.dummies[i];
+            const BotBrain& b = g.bots[i];
+            // (walking somewhere or chasing a lead; holding an angle or fighting doesn't count)
+            const bool shouldMove = (b.state == 0 && b.hasGoal) || b.state == 3 || (b.state == 0 && !b.holdOnly);
+            if (!d.alive() || !shouldMove || length2d(d.pos - lastPos[i]) > 24.0f) {
+                lastPos[i] = d.pos;
+                stillSince[i] = now;
+                continue;
+            }
+            if (now - stillSince[i] > 8.0 && loggedRound[i] != c.round && int(i) != c.planter && int(i) != c.defuser) {
+                loggedRound[i] = c.round;
+                std::vector<Vec3> probe;
+                const bool pathOk = g.nav.findPath(d.pos, b.hasGoal ? b.goal : b.lastSeen, probe);
+                char info[320];
+                std::snprintf(info, sizeof(info),
+                              "  STUCK bot %zu %s at %s (%.0f, %.0f, %.0f) state %d goal %d (%.0f, %.0f) %.0f away, goal standable %d, "
+                              "path %zu/%zu hold %d urgent %d sees %d standable %d path-from-here %d sends %d carrier %d dropped %d "
+                              "planted %d lastSaw %.1fs ago coverFor %d cover %d/%d t=%.0fs\n",
+                              i, g.team[i] == 0 ? "T" : "CT", dustCallout(d.pos), double(d.pos.x), double(d.pos.y), double(d.pos.z),
+                              b.state, int(b.hasGoal), double(b.goal.x), double(b.goal.y), double(length2d(b.goal - d.pos)),
+                              int(g.nav.standable(b.goal)), b.next, b.path.size(), int(b.holdOnly), int(b.urgent), int(b.sees),
+                              int(g.nav.standable(d.pos)), int(pathOk), i < g_sendCount.size() ? g_sendCount[i] : 0, c.carrier,
+                              int(c.carrier == -2), int(c.planted), now - b.lastSawAt, b.coverFor, int(b.hasCover), int(b.inCover), now);
+
+                std::ofstream(g_compLog, std::ios::app) << info;
+            }
+        }
+    }
     // Eliminations and the clock.
     int alive[2] = {0, 0};
     for (size_t i = 0; i < g.dummies.size(); ++i) alive[g.team[i]] += g.dummies[i].alive();
@@ -1793,8 +1990,8 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     c.carrier = c.planter = c.defuser = -3;
     c.plantStart = -1;
     c.phase = 0;
-    c.phaseEnd = g.simTime + kCompFreeze;
-    c.buyUntil = g.simTime + kCompFreeze + kCompBuyTime;
+    c.phaseEnd = g.simTime + g.freezeTime;  // (the host's match messages set the real clock)
+    c.buyUntil = g.simTime + g.freezeTime + kCompBuyTime;
     g.plantSent = g.defuseSent = false;
     g.bombActive = false;
     g.defuseStart = -1;
@@ -2356,7 +2553,7 @@ void simTick(Game& g, const Options& opt) {
         g.shots++;
         const uint8_t code = uint8_t(wd.id);
         if (g.online && g.net.ready()) g.net.sendFire(g.lastRenderEye, pellets[0].end, code);
-        makeNoise(g, g.player.origin, 2200.0f);
+        makeNoise(g, g.player.origin, wd.id == kWPistol ? 900.0f : 2200.0f);  // (the suppressor: heard less far)
 
         // Cosmetics, once per shot: the sound, the weapon kick, brass.
         const bool isPistol = !wd.primary;
@@ -2372,6 +2569,8 @@ void simTick(Game& g, const Options& opt) {
             sound(g, Sfx::RifleShot, 1.6f, 0.0f, 1.22f);   // light and fast
         } else if (wd.id == kWBerettas) {
             sound(g, Sfx::PistolShot, 1.45f, (g.shots & 1) ? -0.15f : 0.15f, 1.1f);  // left, right
+        } else if (wd.id == kWPistol) {
+            sound(g, Sfx::SuppressedShot, 1.3f);
         } else {
             sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 1.5f : 1.8f);
         }
@@ -2567,12 +2766,13 @@ void simTick(Game& g, const Options& opt) {
             if (!a) a = b;
             if (!a) continue;
             Vec3 pos = a->pos;
-            float yaw = a->yaw, crouch = float(a->duck) / 255.0f;
+            float yaw = a->yaw, crouch = float(a->duck) / 255.0f, pitch = a->pitch;
             if (b && b != a && b->tick > a->tick) {
                 const float k = std::clamp(float((rm.play - double(a->tick)) / double(b->tick - a->tick)), 0.0f, 1.0f);
                 pos = lerp(a->pos, b->pos, k);
                 yaw = wrapDeg(a->yaw + wrapDeg(b->yaw - a->yaw) * k);
                 crouch += (float(b->duck) / 255.0f - crouch) * k;
+                pitch += (b->pitch - pitch) * k;
             }
             const bool aliveNow = (a->flags & kNetAlive) != 0;
             if (!comp && aliveNow && !d.alive()) {  // (re)spawned: no smear from where they died
@@ -2588,6 +2788,7 @@ void simTick(Game& g, const Options& opt) {
             d.pos = pos;
             d.yaw = yaw;
             d.crouch = crouch;
+            d.pitch = pitch;
             d.weapon = a->weapon;
             d.hp = 1e6f;
             if (id >= kNetMaxPlayers) {  // a bot's kit (its gun is weapon)
@@ -2619,6 +2820,7 @@ void simTick(Game& g, const Options& opt) {
                 b.pos = d.pos;
                 b.yaw = d.yaw;
                 b.flags = uint8_t((d.alive() ? kNetAlive : 0) | (d.armor > 0 ? kNetArmor : 0) | (d.helmet ? kNetHelmet : 0));
+                b.pitch = d.pitch;
                 b.weapon = d.weapon;
             }
             g.net.sendBots(g.netTick, list, n);
@@ -2925,6 +3127,18 @@ void simTick(Game& g, const Options& opt) {
                 sense.noiseFresh = sense.noiseFresh && g.team[i] != g.noiseSide;  // only enemies react to a noise
             }
             updateDeathmatchBot(d, b, sense, g.rng);
+            {  // where it looks up or down (seen when you spectate it): at whoever it's fighting, else level
+                float want = 0;
+                if (b.sees && b.target >= -1) {
+                    const Vec3 eye = d.pos + Vec3{0, 0, 64};
+                    const Vec3 at = b.target == -1 ? sense.playerEye
+                                    : size_t(b.target) < g.dummies.size()
+                                        ? g.dummies[size_t(b.target)].pos + Vec3{0, 0, crouchZ(58.0f, g.dummies[size_t(b.target)].crouch)}
+                                        : eye;
+                    want = -std::atan2(at.z - eye.z, std::max(1.0f, length2d(at - eye))) / kDegToRad;
+                }
+                d.pitch += std::clamp(want - d.pitch, -360.0f * kTickDt, 360.0f * kTickDt);
+            }
             if (g.mode == 3) sense.noiseFresh = g.simTime - g.noiseAt < 1.5 * kTickDt;
         }
     }
@@ -3001,8 +3215,11 @@ void simTick(Game& g, const Options& opt) {
                 bool hitIt = rayHitsDummy(v.pos, v.yaw, v.crouch, head, dir, maxT, t, grp) && !smokeBlocks(g, head, head + dir * t);
                 if (g.audio) {
                     bool far = length(d.pos - simEye) > 1400.0f;
-                    g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
-                                    far ? 6500.0f : 4000.0f, far ? 1.15f : 0.95f, rifle ? 1.0f : 1.3f);
+                    if (!rifle)  // the starting pistol, suppressed
+                        g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.0f);
+                    else
+                        g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
+                                        far ? 6500.0f : 4000.0f, far ? 1.15f : 0.95f);
                 }
                 g.fx.tracer(head + dir * 20.0f, head + dir * (hitIt ? t : maxT));
                 nearMiss(head, dir, hitIt ? t : maxT);
@@ -3044,8 +3261,11 @@ void simTick(Game& g, const Options& opt) {
             }
             if (g.audio) {  // far away a gunshot is mostly echo: muffled, no crack
                 bool far = length(d.pos - simEye) > 1400.0f;
-                g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
-                                far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f);
+                if (!rifle)
+                    g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.1f);
+                else
+                    g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
+                                    far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f);
             }
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
             if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * bestT, rifle ? 0 : 1, int(i));
@@ -3221,6 +3441,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     r.push_back({"ENEMIES (PLAYERS + BOTS)", nullptr, &c.comp_enemies, 1, 1, 5});
                     r.push_back({"YOUR TEAM'S BOTS", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
                     r.push_back({"OTHER TEAM'S BOTS", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                    r.push_back({"FREEZE TIME (BUY), SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
                 }
                 r.push_back(button("HOST A GAME", kActHost));
                 MenuItem addr{"JOIN ADDRESS"};
@@ -3251,6 +3472,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({"ENEMIES", nullptr, &c.comp_enemies, 1, 1, 5});
                 r.push_back({"TEAMMATE SKILL", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
                 r.push_back({"ENEMY SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"FREEZE TIME (BUY), SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
             } else if (m.mode != 0 || m.bots) {
                 r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
             }
@@ -3424,6 +3646,159 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
                        : setting ? "LEFT/RIGHT, CLICK OR WHEEL CHANGES   (SAVED)"
                                : screen == kMenuMain ? "ENTER OR CLICK TO SELECT" : "ENTER OR CLICK TO SELECT   ESC BACK";
     hud.text(L.x, L.rowsY + (float(rows.size()) + 0.5f) * L.rowH, hint, 0x909090FF);
+}
+
+// ---- The buy wheel (B), like CS:GO's: a ring of categories, then a ring of that category's items. The
+// mouse is free while it's open (hover and click); number keys work too. Two full-buy buttons underneath. ----
+constexpr int kBuyFullRifle = 100, kBuyFullSniper = 101, kBuyCentre = -1, kBuyNothing = -2;
+
+struct BuyWheel { float cx, cy, r0, r1; };
+BuyWheel buyWheel(int w, int h, int s) { return {float(w) * 0.5f, float(h) * 0.47f, 54.0f * float(s), 150.0f * float(s)}; }
+
+int buySlotCount(const Game& g) {
+    const bool comp = g.mode == 3 && g.mapId == 1;
+    return g.buyCategory == 0 ? (comp ? 6 : 4) : int(buyEntries(g.buyCategory).size());
+}
+
+// The full-buy buttons under the wheel: x, y, width, height of button k (0 rifle, 1 sniper).
+void fullBuyButton(const BuyWheel& wh, int s, int k, float& x, float& y, float& bw, float& bh) {
+    bw = 150.0f * float(s);
+    bh = 22.0f * float(s);
+    x = wh.cx + (k == 0 ? -bw - 6.0f * float(s) : 6.0f * float(s));
+    y = wh.cy + wh.r1 + 18.0f * float(s);
+}
+
+// What's under (mx, my): a wedge (0..n-1), the centre, a full-buy button, or nothing.
+int buySlotAt(const Game& g, int w, int h, int s, float mx, float my) {
+    const BuyWheel wh = buyWheel(w, h, s);
+    if (g.buyCategory == 0)
+        for (int k = 0; k < 2; ++k) {
+            float x, y, bw, bh;
+            fullBuyButton(wh, s, k, x, y, bw, bh);
+            if (mx >= x && mx <= x + bw && my >= y && my <= y + bh) return k == 0 ? kBuyFullRifle : kBuyFullSniper;
+        }
+    const float dx = mx - wh.cx, dy = my - wh.cy, r = std::sqrt(dx * dx + dy * dy);
+    if (r < wh.r0) return kBuyCentre;
+    if (r > wh.r1 + 30.0f * float(s)) return kBuyNothing;
+    const int n = buySlotCount(g);
+    if (n <= 0) return kBuyNothing;
+    const float span = 2.0f * kPi / float(n);
+    float a = std::atan2(dx, -dy);  // from straight up, clockwise
+    if (a < 0) a += 2.0f * kPi;
+    return int((a + span * 0.5f) / span) % n;
+}
+
+// Buys everything a full round needs: the gun (rifle or sniper), kevlar and helmet, a kit on CT, then
+// smoke, flash, HE and molotov while the money lasts. Outside competitive: just the gun.
+const char* fullBuy(Game& g, bool sniper) {
+    g.buyCategory = 0;
+    g.buyMenu = false;
+    if (!(g.mode == 3 && g.mapId == 1)) {
+        takeGun(g, sniper ? kWSniper : kWRifle);
+        return sniper ? "SNIPER" : "RIFLE";
+    }
+    const int before = g.comp.money;
+    compBuy(g, 4, sniper ? 1 : 0);
+    compBuy(g, 5, 1);
+    if (g.comp.youTeam == 1) compBuy(g, 5, 2);
+    for (int k = 0; k < 4; ++k) compBuy(g, 6, k);
+    return g.comp.money < before ? (sniper ? "FULL BUY: SNIPER" : "FULL BUY: RIFLE") : "NOT ENOUGH MONEY";
+}
+
+// Picks slot `slot` of the wheel (a wedge, the centre, a full buy). Returns a message for the hit log.
+const char* buyPick(Game& g, int slot) {
+    const bool comp = g.mode == 3 && g.mapId == 1;
+    if (slot == kBuyFullRifle || slot == kBuyFullSniper) return fullBuy(g, slot == kBuyFullSniper);
+    if (slot == kBuyCentre) {  // back to the categories (or shut it from there)
+        if (g.buyCategory > 0) g.buyCategory = 0;
+        else g.buyMenu = false;
+        return "";
+    }
+    if (slot < 0 || slot >= buySlotCount(g)) return "";
+    if (g.buyCategory == 0) {
+        g.buyCategory = slot + 1;
+        return "";
+    }
+    if (comp) return compBuy(g, g.buyCategory, slot);
+    const std::vector<BuyEntry> entries = buyEntries(g.buyCategory);
+    if (entries[size_t(slot)].weapon < 0) return "";
+    takeGun(g, entries[size_t(slot)].weapon);
+    g.buyMenu = false;
+    g.buyCategory = 0;
+    return entries[size_t(slot)].name;
+}
+
+void drawBuyWheel(HudBatch& hud, const Game& g, int w, int h, int s) {
+    const bool comp = g.mode == 3 && g.mapId == 1;
+    const Game::Comp& c = g.comp;
+    const BuyWheel wh = buyWheel(w, h, s);
+    const float fs = float(s);
+    const int n = buySlotCount(g), hover = buySlotAt(g, w, h, s, g.buyMouseX, g.buyMouseY);
+    const std::vector<BuyEntry> entries = buyEntries(g.buyCategory);
+    hud.rect(0, 0, float(w), float(h), 0x00000060);  // dim the game a little
+    const float span = 2.0f * kPi / float(std::max(n, 1)), gap = 0.012f;
+    auto at = [&](float a, float r) { return std::pair<float, float>{wh.cx + std::sin(a) * r, wh.cy - std::cos(a) * r}; };
+    for (int k = 0; k < n; ++k) {
+        bool have = false, broke = false;
+        if (g.buyCategory > 0) {
+            const BuyEntry& e = entries[size_t(k)];
+            have = comp ? buyOwned(g, e) : e.weapon >= 0 && (weaponDef(e.weapon).primary ? g.primary : g.secondary)->def->id == e.weapon;
+            broke = comp && !have && c.money < buyPrice(g, e);
+        }
+        const uint32_t fill = k == hover ? 0x3A5F9AF0 : have ? 0x1E2A22E8 : broke ? 0x2A1A1AE8 : 0x15181CE8;
+        const float a0 = float(k) * span - span * 0.5f + gap, a1 = float(k) * span + span * 0.5f - gap;
+        const int segs = std::max(4, int(24.0f / float(std::max(n, 1))) + 2);
+        for (int q = 0; q < segs; ++q) {  // the wedge, as a strip of quads
+            const float t0 = a0 + (a1 - a0) * float(q) / float(segs), t1 = a0 + (a1 - a0) * float(q + 1) / float(segs);
+            auto [ix0, iy0] = at(t0, wh.r0);
+            auto [ox0, oy0] = at(t0, wh.r1);
+            auto [ox1, oy1] = at(t1, wh.r1);
+            auto [ix1, iy1] = at(t1, wh.r0);
+            hud.quad(ix0, iy0, ox0, oy0, ox1, oy1, ix1, iy1, fill);
+            if (k == hover) {  // a bright rim on the one under the mouse
+                auto [rx0, ry0] = at(t0, wh.r1 + 3.0f * fs);
+                auto [rx1, ry1] = at(t1, wh.r1 + 3.0f * fs);
+                hud.quad(ox0, oy0, rx0, ry0, rx1, ry1, ox1, oy1, 0xFFD060FF);
+            }
+        }
+        // Its label at the middle of the wedge: the key, the name, and (competitive) the price.
+        auto [lx, ly] = at(float(k) * span, (wh.r0 + wh.r1) * 0.5f);
+        std::string name = g.buyCategory == 0 ? kBuyCategories[k] : entries[size_t(k)].name;
+        const std::string key = std::to_string(k + 1);
+        hud.text(lx - hud.textWidth(key) * 0.5f, ly - 16.0f * fs, key, 0xA0A0A0FF);
+        hud.text(lx - hud.textWidth(name) * 0.5f, ly - 4.0f * fs, name, have ? 0x80C080FF : broke ? 0xFF7070FF : 0xFFFFFFFF);
+        if (g.buyCategory > 0 && comp) {
+            const std::string price = have ? std::string("OWNED") : "$" + std::to_string(buyPrice(g, entries[size_t(k)]));
+            hud.text(lx - hud.textWidth(price) * 0.5f, ly + 8.0f * fs, price, have ? 0x80C080FF : 0xFFD060FF);
+        }
+    }
+    // The centre: your money; it takes you back (or shuts the wheel).
+    for (int q = 0; q < 32; ++q) {
+        const float t0 = float(q) / 32.0f * 2.0f * kPi, t1 = float(q + 1) / 32.0f * 2.0f * kPi;
+        auto [x0, y0] = at(t0, wh.r0 - 4.0f * fs);
+        auto [x1, y1] = at(t1, wh.r0 - 4.0f * fs);
+        hud.quad(wh.cx, wh.cy, x0, y0, x1, y1, wh.cx, wh.cy, hover == kBuyCentre ? 0x2A3442F0 : 0x0E1014F0);
+    }
+    const std::string money = comp ? "$" + std::to_string(c.money) : std::string("FREE");
+    hud.text(wh.cx - hud.textWidth(money, s * 2) * 0.5f, wh.cy - 14.0f * fs, money, 0xFFD060FF, s * 2);
+    const char* back = g.buyCategory > 0 ? "BACK" : "CLOSE";
+    hud.text(wh.cx - hud.textWidth(back) * 0.5f, wh.cy + 6.0f * fs, back, 0xA0A0A0FF);
+    if (g.buyCategory > 0) {
+        const char* cat = kBuyCategories[g.buyCategory - 1];
+        hud.text(wh.cx - hud.textWidth(cat) * 0.5f, wh.cy + 16.0f * fs, cat, 0xFFFFFFFF);
+    } else {  // full buys
+        for (int k = 0; k < 2; ++k) {
+            float x, y, bw, bh;
+            fullBuyButton(wh, s, k, x, y, bw, bh);
+            const bool on = hover == (k == 0 ? kBuyFullRifle : kBuyFullSniper);
+            hud.rect(x, y, bw, bh, on ? 0x3A5F9AF0 : 0x15181CE8);
+            hud.rect(x, y + bh - 2.0f * fs, bw, 2.0f * fs, 0xFFD060FF);
+            const char* t = k == 0 ? "7  FULL BUY: RIFLE" : "8  FULL BUY: SNIPER";
+            hud.text(x + (bw - hud.textWidth(t)) * 0.5f, y + 7.0f * fs, t, 0xFFFFFFFF);
+        }
+    }
+    const char* hint = "CLICK OR 1-9   RIGHT CLICK / ESC BACK   B CLOSE";
+    hud.text(wh.cx - hud.textWidth(hint) * 0.5f, wh.cy + wh.r1 + 50.0f * fs, hint, 0x909090FF);
 }
 
 // The inventory and case screens: where the turning weapon is shown (pixels), and what goes there.
@@ -3887,35 +4262,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
                       c.kit ? "   KIT" : "", c.carrier == -1 ? "   C4" : "");
         hud.text(16.0f * s, float(h) - 36.0f * s, kit, 0x80FF80FF);
     }
-    if (g.buyMenu) {  // the buy menu: categories, then the items in one (competitive: for money)
-        const bool comp = g.mode == 3 && g.mapId == 1;
-        const Game::Comp& c = g.comp;
-        const int cat = g.buyCategory;
-        const std::vector<BuyEntry> entries = buyEntries(cat);
-        const int rows = cat == 0 ? (comp ? 6 : 4) : int(entries.size());
-        float rowH = 11.0f * s, px = cx - 110.0f * s, py = cy + 30.0f * s;
-        hud.rect(px - 10 * s, py - 10 * s, 240.0f * s, rowH * float(rows + 4) + 20 * s, 0x15181CE0);
-        std::string title = comp ? "BUY MENU   $" + std::to_string(c.money) : std::string("BUY MENU   FREE HERE");
-        if (cat > 0) title += std::string("   ") + kBuyCategories[cat - 1];
-        hud.text(px, py, title, 0xFFD060FF);
-        for (int k = 0; k < rows; ++k) {
-            char line[80];
-            uint32_t col = 0xFFFFFFFF;
-            if (cat == 0) {
-                std::snprintf(line, sizeof(line), "%d  %s", k + 1, kBuyCategories[k]);
-            } else {
-                const BuyEntry& e = entries[size_t(k)];
-                const bool have = comp ? buyOwned(g, e)
-                                       : e.weapon >= 0 && (weaponDef(e.weapon).primary ? g.primary : g.secondary)->def->id == e.weapon;
-                const int price = buyPrice(g, e);
-                if (comp) std::snprintf(line, sizeof(line), "%d  %-16s $%d%s", k + 1, e.name, price, have ? "  OWNED" : "");
-                else std::snprintf(line, sizeof(line), "%d  %-16s%s", k + 1, e.name, have ? "  <" : "");
-                col = have && comp ? 0x808080FF : !comp || c.money >= price ? 0xFFFFFFFF : 0xFF6060FF;
-            }
-            hud.text(px, py + rowH * (1.5f + float(k)), line, col);
-        }
-        hud.text(px, py + rowH * (float(rows) + 2.5f), cat > 0 ? "ESC BACK   B CLOSE" : "B OR ESC TO CLOSE", 0xA0A0A0FF);
-    }
+    if (g.buyMenu) drawBuyWheel(hud, g, w, h, s);
     if (g.kzState == 2 || g.kzLast >= 0) {
         if (g.kzState == 2) std::snprintf(buf, sizeof(buf), "KZ %.2f", g.simTime - g.kzStart);
         else std::snprintf(buf, sizeof(buf), "KZ LAST %.3f   BEST %.3f", g.kzLast, g.kzBest);
@@ -4401,6 +4748,7 @@ int main(int argc, char** argv) {
                         st.tick = ev.tick;
                         st.pos = b.pos;
                         st.yaw = b.yaw;
+                        st.pitch = b.pitch;
                         st.flags = b.flags;
                         st.weapon = b.weapon;
                         rm.latest = std::max(rm.latest, ev.tick);
@@ -4434,8 +4782,11 @@ int main(int argc, char** argv) {
                         // By gun: the pistols and the Deagle, the Nova's boom, the sniper, the MAC-10 and rifle.
                         const int w = ev.weapon;
                         const bool pistolSound = w == kWPistol || w == kWBerettas || w == kWDeagle;
-                        const Sfx s = far ? Sfx::RifleShotFar : pistolSound ? Sfx::PistolShot
-                                                          : w == kWSniper || w == kWNova ? Sfx::SniperShot : Sfx::RifleShot;
+                        const Sfx s = w == kWPistol ? Sfx::SuppressedShot
+                                      : far        ? Sfx::RifleShotFar
+                                      : pistolSound ? Sfx::PistolShot
+                                      : w == kWSniper || w == kWNova ? Sfx::SniperShot : Sfx::RifleShot;
+
                         const float pitch = w == kWDeagle ? 0.72f : w == kWNova ? 0.82f : w == kWMac10 ? 1.22f
                                           : w == kWBerettas ? 1.1f : w == kWPistol && ev.from >= kNetMaxPlayers ? 1.3f : 1.0f;
                         g.audio->play3D(s, ev.a, g.lastRenderEye, float(g.viewYaw), far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f, pitch);
@@ -4583,7 +4934,12 @@ int main(int argc, char** argv) {
                     g.hudDirty = true;
                     break;
                 case SDL_EVENT_MOUSE_MOTION:
-                    if (!paused) {
+                    if (!paused && g.buyMenu) {
+                        const float density = SDL_GetWindowPixelDensity(window);
+                        g.buyMouseX = e.motion.x * density;
+                        g.buyMouseY = e.motion.y * density;
+                        g.hudDirty = true;
+                    } else if (!paused) {
                         double sens = cfg.sensitivity * zoomSensScale(g, cfg);
                         double dyaw = -double(e.motion.xrel) * sens * cfg.m_yaw;
                         double dpitch = double(e.motion.yrel) * sens * cfg.m_pitch;
@@ -4607,6 +4963,17 @@ int main(int argc, char** argv) {
                             g_menu.sel = r;
                             menuUse(r, left ? 1 : -1, false, left);
                         }
+                        break;
+                    }
+                    if (g.buyMenu) {  // the buy wheel: left click picks, right click goes back
+                        const float density = SDL_GetWindowPixelDensity(window);
+                        const int slot = e.button.button == SDL_BUTTON_RIGHT
+                                             ? kBuyCentre
+                                             : buySlotAt(g, pixW, pixH, hudScale(cfg, pixH), e.button.x * density, e.button.y * density);
+                        const char* msg = buyPick(g, slot);
+                        if (msg[0]) pushHitLog(g, msg, 0xffd060);
+                        sound(g, Sfx::UiClick, 0.4f);
+                        g.hudDirty = true;
                         break;
                     }
                     if (g.mode == 3 && g.mapId == 1 && g.comp.youDead) {  // spectating: next / previous teammate
@@ -4673,22 +5040,12 @@ int main(int argc, char** argv) {
                             g.hudDirty = true;
                         } else if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
-                        else if (g.buyMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) {
-                            const bool comp = g.mode == 3 && g.mapId == 1;
+                        else if (g.buyMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) {  // the buy wheel
                             const int k = int(sc - SDL_SCANCODE_1) + 1;
-                            if (g.buyCategory == 0) {  // open a category (outside competitive: the guns only)
-                                if (k <= (comp ? 6 : 4)) g.buyCategory = k;
-                            } else if (comp) {  // competitive: pay for it
-                                const char* msg = compBuy(g, g.buyCategory, k - 1);
-                                if (msg[0]) pushHitLog(g, msg, 0xffd060);
-                            } else {  // free: take it, holding it straight away like buying in CS
-                                const std::vector<BuyEntry> entries = buyEntries(g.buyCategory);
-                                if (k - 1 < int(entries.size()) && entries[size_t(k - 1)].weapon >= 0) {
-                                    takeGun(g, entries[size_t(k - 1)].weapon);
-                                    g.buyMenu = false;
-                                    g.buyCategory = 0;
-                                }
-                            }
+                            const int slot = g.buyCategory == 0 && k == 7 ? kBuyFullRifle
+                                             : g.buyCategory == 0 && k == 8 ? kBuyFullSniper : k - 1;
+                            const char* msg = buyPick(g, slot);
+                            if (msg[0]) pushHitLog(g, msg, 0xffd060);
                             g.hudDirty = true;
                         }
                         else if (sc == SDL_SCANCODE_1) g.switchTo = 1;
@@ -4704,6 +5061,16 @@ int main(int argc, char** argv) {
                             if (canBuy) {
                                 g.buyMenu = !g.buyMenu;
                                 g.buyCategory = 0;
+                                if (g.buyMenu) {  // the cursor starts in the middle of the wheel
+                                    const BuyWheel wh = buyWheel(pixW, pixH, hudScale(cfg, pixH));
+                                    g.buyMouseX = wh.cx;
+                                    g.buyMouseY = wh.cy;
+                                    const float density = SDL_GetWindowPixelDensity(window);
+                                    if (!automated) {
+                                        SDL_SetWindowRelativeMouseMode(window, false);
+                                        SDL_WarpMouseInWindow(window, wh.cx / density, wh.cy / density);
+                                    }
+                                }
                             }
 
                             else pushHitLog(g, "YOU CAN ONLY BUY IN YOUR SPAWN DURING BUY TIME", 0xffd060);
@@ -4724,6 +5091,10 @@ int main(int argc, char** argv) {
             bool tab = !paused && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_TAB];
             if (tab != g.showScores) { g.showScores = tab; g.hudDirty = true; }
         }
+        if (!automated) {  // the mouse aims while you play; it's a cursor in the menus and the buy wheel
+            const bool capture = !paused && !g.buyMenu;
+            if (SDL_GetWindowRelativeMouseMode(window) != capture) SDL_SetWindowRelativeMouseMode(window, capture);
+        }
         pumpNet();
         g.inputBlocked = paused;
         if (!paused || g.online) {  // online never pauses
@@ -4742,6 +5113,14 @@ int main(int argc, char** argv) {
             g.throwLatch = true;
         }
         if (automated && frame == opt.inspectFrame) g.vm.inspect();
+        if (automated && opt.buyCat >= 0 && frame == 60) {  // (screenshots: the wheel, the mouse on its first wedge)
+            g.buyMenu = true;
+            g.buyCategory = opt.buyCat;
+            const BuyWheel wh = buyWheel(pixW, pixH, hudScale(cfg, pixH));
+            g.buyMouseX = wh.cx;
+            g.buyMouseY = wh.cy - (wh.r0 + wh.r1) * 0.5f;
+            g.hudDirty = true;
+        }
         if (automated && frame == opt.dieFrame) {
             g.spawnProtectUntil = 0;
             hurtPlayer(g, -2, 1000.0f, false, "TEST");
@@ -4807,7 +5186,7 @@ int main(int argc, char** argv) {
             const Dummy& d = g.dummies[size_t(g.spec)];
             eye = lerp(d.prevPos, d.pos, alpha) + Vec3{0, 0, kStandEye};
             camYaw = wrapDeg(d.prevYaw + wrapDeg(d.yaw - d.prevYaw) * alpha);
-            camPitch = 0;
+            camPitch = d.prevPitch + (d.pitch - d.prevPitch) * alpha;
         }
 
         float aspect = pixH > 0 ? float(pixW) / float(pixH) : 1.0f;
@@ -4837,35 +5216,72 @@ int main(int argc, char** argv) {
                 if (t > 0.6f) continue;
                 squash = std::max(0.06f, 1.0f - t / 0.22f);
             }
-            for (const Hitbox& hb : dummyHitboxes()) {
-                // Competitive: Ts in tan and brown, CTs in blue (everyone else is blue too).
-                const bool isT = g.mode == 3 && i < g.team.size() && g.team[i] == 0;
-                uint32_t tint = hb.group == kHead      ? 0xe8b98c
-                                : hb.group == kChest   ? (isT ? 0x9a7a48 : 0x2f4f8a)
-                                : hb.group == kStomach ? (isT ? 0x6e5430 : 0x24365e)
-                                                       : (isT ? 0x3a3024 : 0x22252b);
-                uint32_t col = lerpColor(tint, 0xffffff, std::min(1.0f, d.flash[hb.group] / 0.15f));
-                Vec3 mn = hb.mins, mx = hb.maxs;
-                mn.z = crouchZ(mn.z, crouch) * squash;
-                mx.z = crouchZ(mx.z, crouch) * squash;
-                dynamicBoxes.push_back(makeBox(p + mn, p + mx, col, false));
-                yawBox(dynamicBoxes.back(), p, turn);
-            }
             auto part = [&](Vec3 mn, Vec3 mx, uint32_t c) {
                 mn.z = crouchZ(mn.z, crouch) * squash;
                 mx.z = crouchZ(mx.z, crouch) * squash;
                 dynamicBoxes.push_back(makeBox(p + mn, p + mx, c, false));
                 yawBox(dynamicBoxes.back(), p, turn);
             };
-            part({-4.8f, -4.8f, 65.5f}, {4.8f, 4.8f, 69.6f}, 0x3d4a2c);   // helmet
-            part({-5.0f, -3.5f, 63.0f}, {-4.0f, 3.5f, 65.0f}, 0x1a1c20);   // visor band (faces -X)
-            part({-6.9f, -7.5f, 47.0f}, {-5.6f, 7.5f, 57.0f}, 0x3a4530);   // vest plate
-            part({-6.2f, -9.2f, 44.0f}, {6.2f, 9.2f, 46.0f}, 0x2b2117);    // belt
-            part({-5.4f, -8.3f, 0.0f}, {5.4f, 8.3f, 6.0f}, 0x1d1a17);      // boots
+            // The figure, every piece inside its hitbox (what you see is what you hit; only the gun sticks
+            // out, like CS). Competitive: Ts in tan and brown with a balaclava, CTs in navy with a helmet and
+            // goggles (everyone else dresses CT). A hit flashes the part that was hit.
+            {
+                const bool isT = g.mode == 3 && i < g.team.size() && g.team[i] == 0;
+                const uint32_t shirt = isT ? 0x9a7a48 : 0x2f4f8a, pants = isT ? 0x6e5430 : 0x24365e;
+                const uint32_t vest = isT ? 0x5c4a2e : 0x3a4530, gear = isT ? 0x3a3024 : 0x22262c;
+                const uint32_t skin = 0xd9a87e, glove = 0x1c1d20, boot = 0x1d1a17;
+                auto hit = [&](uint32_t c, HitGroup grp) { return lerpColor(c, 0xffffff, std::min(1.0f, d.flash[grp] / 0.15f)); };
+                // Legs: two of them, stepping while they walk.
+                const float speed = length2d(d.pos - d.prevPos) / kTickDt;
+                const float swing = speed > 60.0f && d.alive() ? std::sin(d.stepDist / 76.0f * kPi) * 1.0f : 0.0f;
+                for (int side = -1; side <= 1; side += 2) {
+                    const float y0 = side < 0 ? -7.4f : 1.0f, y1 = side < 0 ? -1.0f : 7.4f, dx = swing * float(side);
+                    part({-3.6f + dx, y0, 6.0f}, {3.6f + dx, y1, 34.0f}, hit(pants, kLegs));
+                    part({-3.6f + dx, y0 - 0.2f, 0.0f}, {3.6f + dx, y1 + 0.2f, 6.0f}, hit(boot, kLegs));
+                    part({-4.0f + dx, y0 + 1.0f, 16.0f}, {-3.4f + dx, y1 - 1.0f, 21.0f}, hit(gear, kLegs));  // knee pad
+                }
+                // Hips and belt, then the shirt.
+                part({-5.6f, -8.6f, 34.0f}, {5.6f, 8.6f, 38.5f}, hit(pants, kStomach));
+                part({-5.9f, -8.8f, 38.5f}, {5.9f, 8.8f, 40.5f}, hit(0x2b2117, kStomach));
+                part({-6.0f, -1.3f, 38.7f}, {-5.8f, 1.3f, 40.3f}, hit(0x9a9a8a, kStomach));  // buckle
+                part({-5.6f, -8.4f, 40.5f}, {5.6f, 8.4f, 46.0f}, hit(shirt, kStomach));
+                // Chest: the shirt, a vest with pouches, shoulder pads and a small pack on the back.
+                part({-5.8f, -9.6f, 46.0f}, {5.8f, 9.6f, 57.0f}, hit(shirt, kChest));
+                part({-6.4f, -8.6f, 46.5f}, {6.2f, 8.6f, 56.0f}, hit(vest, kChest));
+                for (int k = -1; k <= 1; ++k)
+                    part({-6.5f, float(k) * 4.2f - 1.6f, 47.0f}, {-6.2f, float(k) * 4.2f + 1.6f, 51.0f}, hit(gear, kChest));
+                part({-3.4f, -10.0f, 54.0f}, {3.4f, -7.8f, 58.0f}, hit(vest, kChest));
+                part({-3.4f, 7.8f, 54.0f}, {3.4f, 10.0f, 58.0f}, hit(vest, kChest));
+                part({-2.6f, -3.6f, 56.0f}, {2.6f, 3.6f, 58.0f}, hit(shirt, kChest));  // collar
+                part({5.8f, -6.0f, 47.0f}, {6.5f, 6.0f, 56.0f}, hit(gear, kChest));    // pack
+                // Arms: sleeves to the elbow, forearms, gloves on the gun (right at the grip, left on the handguard).
+                part({-6.0f, -12.8f, 50.0f}, {1.0f, -10.2f, 56.5f}, hit(shirt, kChest));
+                part({-12.0f, -13.2f, 45.5f}, {-6.0f, -10.4f, 50.5f}, hit(shirt, kChest));
+                part({-13.0f, -13.4f, 45.5f}, {-10.0f, -10.2f, 49.5f}, hit(glove, kChest));
+                part({-6.0f, 10.2f, 50.0f}, {1.0f, 12.8f, 56.5f}, hit(shirt, kChest));
+                part({-14.0f, 10.4f, 45.5f}, {-6.0f, 13.2f, 50.5f}, hit(shirt, kChest));
+                part({-15.0f, 10.2f, 45.5f}, {-12.0f, 13.4f, 49.5f}, hit(glove, kChest));
+                // The head: CTs a face under a helmet with goggles; Ts a balaclava with an eye slit and a beanie.
+                if (isT) {
+                    part({-4.3f, -4.2f, 59.2f}, {4.3f, 4.2f, 67.0f}, hit(0x2a2622, kHead));
+                    part({-4.45f, -3.2f, 62.8f}, {-4.25f, 3.2f, 64.8f}, hit(skin, kHead));       // eye slit
+                    part({-4.5f, -2.4f, 63.4f}, {-4.45f, -1.2f, 64.2f}, hit(0x18120c, kHead));   // eyes
+                    part({-4.5f, 1.2f, 63.4f}, {-4.45f, 2.4f, 64.2f}, hit(0x18120c, kHead));
+                    part({-4.4f, -4.4f, 66.0f}, {4.4f, 4.4f, 69.0f}, hit(0x4a3a28, kHead));      // beanie
+                } else {
+                    part({-4.2f, -4.0f, 59.2f}, {4.2f, 4.0f, 66.0f}, hit(skin, kHead));
+                    part({-4.3f, -1.6f, 60.2f}, {-4.15f, 1.6f, 60.8f}, hit(0x7a4a3a, kHead));    // mouth
+                    part({-4.5f, -4.5f, 65.0f}, {4.5f, 4.5f, 69.0f}, hit(0x2c3a24, kHead));      // helmet
+                    part({-4.5f, -3.4f, 62.6f}, {-4.25f, 3.4f, 64.8f}, hit(0x14181e, kHead));    // goggles
+                    part({-4.3f, -4.5f, 63.0f}, {4.3f, -4.25f, 64.4f}, hit(0x1a1a1a, kHead));    // the strap
+                    part({-4.3f, 4.25f, 63.0f}, {4.3f, 4.5f, 64.4f}, hit(0x1a1a1a, kHead));
+                }
+            }
             // What they hold (weapons are the one thing allowed outside the hitboxes, like CS).
             switch (d.weapon) {
-                case kWPistol:  // pistol: a short slide between the hands
+                case kWPistol:  // pistol: a short slide between the hands, the suppressor out front
                     part({-17.5f, -1.0f, 47.0f}, {-11.0f, 1.0f, 49.6f}, 0x1e2024);
+                    part({-23.5f, -0.7f, 47.4f}, {-17.5f, 0.7f, 49.2f}, 0x15171a);
                     part({-13.0f, -0.8f, 44.5f}, {-11.2f, 0.8f, 47.0f}, 0x26282c);
                     break;
                 case kWDeagle:  // a bigger, chunkier pistol
@@ -4893,8 +5309,8 @@ int main(int argc, char** argv) {
                     part({-15.5f, -1.8f, 46.0f}, {-12.0f, 1.8f, 50.0f}, 0x3b4a2f);
                     break;
                 case kWSniper:  // sniper: long barrel, scope on top
-
                     part({-17.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x2c3326);
+
                     part({-36.0f, -0.6f, 47.2f}, {-17.0f, 0.6f, 48.4f}, 0x111214);
                     part({-15.0f, -1.0f, 49.5f}, {-8.0f, 1.0f, 51.5f}, 0x0e0f10);
                     break;
@@ -4903,8 +5319,6 @@ int main(int argc, char** argv) {
                     part({-27.0f, -0.6f, 47.2f}, {-16.0f, 0.6f, 48.4f}, 0x111214);
                     break;
             }
-            part({-13.3f, -13.2f, 46.0f}, {-10.0f, -10.3f, 49.5f}, 0xe8b98c);  // right hand
-            part({-15.3f, 10.3f, 46.0f}, {-12.0f, 13.2f, 49.5f}, 0xe8b98c);    // left hand
             if (d.friendly && d.alive())  // teammate marker floating over their head (cosmetic, not hittable)
                 dynamicBoxes.push_back(makeEmissive(p + Vec3{-2.5f, -2.5f, crouchZ(80, crouch)},
                                                     p + Vec3{2.5f, 2.5f, crouchZ(85, crouch)}, 0x60ff90));

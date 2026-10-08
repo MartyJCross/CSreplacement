@@ -49,6 +49,29 @@ bool stepToward(Dummy& d, const BotSenses& s, const Vec3& to, float step) {
     return len <= step;
 }
 
+// A route to `to`; if `to` itself can't be reached (in a wall or a prop at this map size, or on a ledge),
+// to the nearest cell that can, which `to` is then moved to.
+bool pathTo(const BotSenses& s, const Vec3& from, Vec3& to, std::vector<Vec3>& path) {
+    if (s.nav->findPath(from, to, path)) return true;
+    Vec3 alt;
+    if (!s.nav->nearestRoamable(to, 6, alt) || !s.nav->findPath(from, alt, path)) return false;
+    to = alt;
+    return true;
+}
+
+// Done chasing or fighting: a bot with a spot of its own walks back to it (else holds or looks around).
+void backHome(Dummy& d, BotBrain& b, int otherwise) {
+    if (b.hasHome && length2d(b.home - d.pos) > 160.0f) {
+        b.goal = b.home;
+        b.hasGoal = true;
+        b.holdCoverChecked = false;
+        b.state = 0;
+    } else {
+        b.state = otherwise;
+    }
+    b.path.clear();
+}
+
 }  // namespace
 
 bool findCover(const BotSenses& s, const Vec3& around, const Vec3& threatEye, float radius, Vec3& cover, Vec3& peek) {
@@ -206,10 +229,11 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                         Vec3 p = s.nav->roamPoint(botRand(rng), false);
                         if (length2d(p - s.playerOrigin) < 900.0f) { dest = p; break; }
                     }
-                if (!s.nav->findPath(d.pos, dest, b.path)) {
+                if (!pathTo(s, d.pos, dest, b.path)) {
                     if (b.hasGoal) { b.hasGoal = false; b.state = 1; b.timer = 0.5f; }  // unreachable: give up
                     break;
                 }
+                if (b.hasGoal) b.goal = dest;
                 b.next = 1;
             }
             if (followPath(d.pos, b.path, b.next, step)) {
@@ -251,12 +275,15 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                 }
                 const Vec3 to = b.inCover ? b.cover : b.firstShots ? d.pos : b.peek;
                 b.strafing = !stepToward(d, s, to, 200.0f * kTickDt);
-                if (s.now - b.lastSawAt > 2.5) {  // peeked and peeked, nobody there: go and look / hold
+                if (s.now - b.lastSawAt > 2.5) {  // peeked and peeked, nobody there: go and look / back to its spot
                     b.hasCover = b.strafing = false;
                     b.coverFor = -3;
-                    b.state = b.holdOnly ? 1 : 3;
                     b.timer = 1.0f;
-                    b.path.clear();
+                    if (b.holdOnly) backHome(d, b, 1);
+                    else {
+                        b.state = 3;
+                        b.path.clear();
+                    }
                 }
                 break;
             }
@@ -286,17 +313,24 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                 }
             }
             break;
-        case 3:  // investigate where you were last seen or heard
+        case 3:  // investigate where you were last seen or heard, then (an anchor) back to its spot
             if (b.path.empty()) {
-                if (!s.nav->findPath(d.pos, b.lastSeen, b.path)) { b.state = 0; break; }
+                if (!pathTo(s, d.pos, b.lastSeen, b.path)) {
+                    backHome(d, b, 0);
+                    break;
+                }
                 b.next = 1;
             }
             if (followPath(d.pos, b.path, b.next, step)) {
-                b.path.clear();
-                b.state = 1;
                 b.timer = 0.8f + botRand(rng);
+                if (b.holdOnly) backHome(d, b, 1);
+                else {
+                    b.path.clear();
+                    b.state = 1;
+                }
             }
             break;
+
         default:
             break;
     }
