@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "combat.h"
+#include "items.h"
+
 #include "bots.h"
 #include "movement.h"
 #include "nav.h"
@@ -278,7 +280,7 @@ void testBotSkills() {
 // never get two shots closer together than one fire interval.
 void testFireTiming() {
     std::printf("fire timing\n");
-    for (const WeaponDef* def : {&rifleDef(), &pistolDef()}) {
+    for (const WeaponDef* def : {&rifleDef(), &pistolDef(), &berettasDef(), &deagleDef(), &novaDef(), &mac10Def()}) {
         WeaponState ws;
         ws.def = def;
         // Held for 30 shots.
@@ -794,6 +796,103 @@ void testTurnedHitboxes() {
     CHECK(facing > 24.0f && side < 23.0f && diag > side, "facing %.1f side %.1f", double(facing), double(side));
 }
 
+// The added guns: the starting pistol and the Berettas can't one-tap a helmet, the Deagle can from across the
+// map; the Nova's pellets go in the same fixed pattern every time and kill up close but not far away.
+void testNewGuns() {
+    std::printf("new guns\n");
+    World empty;
+    // One shot at the head (z 64) of a dummy `dist` units away, with or without a helmet.
+    auto headshot = [&](const WeaponDef& def, float dist, bool helmet, float& dmg) {
+        std::vector<Dummy> dd(1);
+        dd[0].pos = dd[0].prevPos = {dist, 0, 0};
+        dd[0].armor = helmet ? 100.0f : 0.0f;
+        dd[0].helmet = helmet;
+        std::vector<Vec3> pos{dd[0].pos};
+        WeaponState ws;
+        ws.def = &def;
+        ShotResult r = fireBullet(ws, {0, 0, 64}, 0, 0, 0, true, false, empty, dd, pos);
+        dmg = r.dummyIndex == 0 && r.group == kHead ? r.damage : 0.0f;
+        return r.kill;
+    };
+    float d = 0;
+    const bool pistolClose = headshot(pistolDef(), 64, true, d);
+    std::printf("  pistol, helmet, 64 units: %.0f damage%s\n", double(d), pistolClose ? " KILL" : "");
+    CHECK(!pistolClose && d > 80.0f, "pistol must not one-tap a helmet (%.0f)", double(d));
+    CHECK(headshot(pistolDef(), 64, false, d), "pistol one-taps a bare head up close (%.0f)", double(d));
+    const bool dualies = headshot(berettasDef(), 32, true, d);
+    std::printf("  berettas, helmet, 32 units: %.0f damage%s\n", double(d), dualies ? " KILL" : "");
+    CHECK(!dualies, "berettas must not one-tap a helmet (%.0f)", double(d));
+    for (float dist : {64.0f, 2000.0f, 4000.0f, 6000.0f}) {
+        const bool kill = headshot(deagleDef(), dist, true, d);
+        std::printf("  deagle, helmet, %4.0f units: %.0f damage%s\n", double(dist), double(d), kill ? " KILL" : "");
+        CHECK(kill, "deagle must one-tap a helmet at %.0f (%.0f)", double(dist), double(d));
+    }
+    // Nova into a chest (z 50): count pellets and damage up close and far, twice to show it's fixed.
+    auto novaShot = [&](float dist, int& hits, float& total) {
+        std::vector<Dummy> dd(1);
+        dd[0].pos = dd[0].prevPos = {dist, 0, 0};
+        dd[0].hp = 1e9f;
+        std::vector<Vec3> pos{dd[0].pos};
+        WeaponState ws;
+        ws.def = &novaDef();
+        ShotResult out[kMaxPellets];
+        const int n = firePellets(ws, {0, 0, 50}, 0, 0, 0, true, false, empty, dd, pos, out);
+        hits = 0;
+        total = 0;
+        for (int k = 0; k < n; ++k)
+            if (out[k].dummyIndex == 0) { ++hits; total += out[k].damage; }
+        return n;
+    };
+    int hitsNear = 0, hitsNear2 = 0, hitsFar = 0;
+    float near = 0, near2 = 0, far = 0;
+    const int pellets = novaShot(160, hitsNear, near);
+    novaShot(160, hitsNear2, near2);
+    novaShot(1500, hitsFar, far);
+    std::printf("  nova: %d pellets; 160 units %d hit for %.0f, 1500 units %d hit for %.0f\n", pellets, hitsNear,
+                double(near), hitsFar, double(far));
+    CHECK(pellets == 9 && near >= 100.0f && far < 60.0f && hitsNear == hitsNear2 && near == near2,
+          "nova pellets %d near %.0f far %.0f", pellets, double(near), double(far));
+}
+
+// Cases: 100,000 openings land on the CS odds, every rarity has skins, a case comes every N kills, and the
+// inventory file round-trips.
+void testCases() {
+    std::printf("cases\n");
+    const std::vector<SkinDef>& skins = allSkins();
+    int perRarity[kRarities] = {}, knives = 0;
+    for (const SkinDef& s : skins) {
+        perRarity[s.rarity]++;
+        knives += s.weapon == kWKnife;
+    }
+    uint32_t rng = 12345;
+    const int n = 100000;
+    int got[kRarities] = {};
+    for (int k = 0; k < n; ++k) got[skins[size_t(rollCase(rng).skin)].rarity]++;
+    std::printf("  %zu skins (%d knife skins); 100k cases:", skins.size(), knives);
+    bool ok = true;
+    for (int r = 0; r < kRarities; ++r) {
+        const double want = double(rarityOdds(r)) / 10000.0, have = double(got[r]) / double(n);
+        std::printf(" %s %.2f%%", rarityName(r), have * 100.0);
+        ok = ok && perRarity[r] > 0 && std::fabs(have - want) < want * 0.15 + 0.0005;
+    }
+    std::printf("\n");
+    CHECK(ok, "case odds");
+    Inventory inv;
+    int earned = 0;
+    for (int k = 0; k < 75; ++k) earned += inv.addKill(25);
+    CHECK(earned == 3 && inv.cases == 3 && inv.progress == 0, "a case every 25 kills (%d)", earned);
+    const int got1 = inv.open(rng);
+    inv.equip[kWDeagle] = {findSkin("DEAGLE_BLAZE"), 0.031f};
+    const std::string path = "sim_tests_inventory.txt";
+    CHECK(inv.save(path), "save");
+    Inventory back;
+    CHECK(back.load(path) && back.cases == 2 && back.items.size() == 1 && back.items[0].skin == inv.items[size_t(got1)].skin &&
+              back.equip[kWDeagle].skin == findSkin("DEAGLE_BLAZE") && std::fabs(back.equip[kWDeagle].wear - 0.031f) < 1e-5f,
+          "inventory round trip");
+    std::remove(path.c_str());
+    CHECK(std::string(wearName(0.01f)) == "FACTORY NEW" && std::string(wearName(0.5f)) == "BATTLE-SCARRED", "wear names");
+}
+
 // Online players crouch: the head drops with the eye (64 -> 46), so a shot at standing head height goes
 // over a crouched player, one at crouched head height hits the head, and the bots' check agrees.
 void testCrouchedHitboxes() {
@@ -971,6 +1070,9 @@ int main() {
     testDustDeathmatch();
     testTurnedHitboxes();
     testCrouchedHitboxes();
+    testNewGuns();
+    testCases();
+
 
     testBotCover();
     testGrenades();

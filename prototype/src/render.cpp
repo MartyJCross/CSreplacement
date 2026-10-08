@@ -18,6 +18,8 @@ layout(location = 6) in vec2 iSlope;  // ramps: rise direction (1 +x, 2 -x, 3 +y
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 out vec3 vWorld;
+out vec3 vLocal;            // the model's own space (skins are painted in it, so they stick to the gun)
+flat out vec3 vLocalN;
 flat out vec3 vNormal;
 flat out vec3 vLit;  // colour after lighting (constant per face, so worked out per vertex)
 flat out vec3 vMin;  // the box's corners (world surfaces: frames round crate faces)
@@ -43,6 +45,8 @@ void main() {
         p.xy = iRot.xy + vec2(c * d.x - s * d.y, s * d.x + c * d.y);
         n.xy = vec2(c * n.x - s * n.y, s * n.x + c * n.y);
     }
+    vLocal = p;
+    vLocalN = n;
     p = (uModel * vec4(p, 1.0)).xyz;
     vWorld = p;
     vec3 wn = normalize(mat3(uModel) * n);
@@ -64,6 +68,8 @@ void main() {
 // (a few ALU ops that fade out with distance).
 const char* kBoxFS = R"(#version 330 core
 in vec3 vWorld;
+in vec3 vLocal;
+flat in vec3 vLocalN;
 flat in vec3 vNormal;
 flat in vec3 vLit;
 flat in vec3 vMin;
@@ -72,6 +78,11 @@ in vec4 vColor;
 uniform vec3 uEye;
 uniform sampler2DArray uTex;  // layers: 0 sandstone, 1 plaster, 2 sand, 3 paving, 4 planks, 5 shutter, 6 plate
 uniform int uHasTex;
+// Skins (weapon models): the pattern (items.h Pattern, -1 none), its colours, wear/gloss/seed, z extent.
+uniform int uPaint;
+uniform vec3 uPA, uPB, uPC;
+uniform vec3 uPaintMisc;  // wear, gloss, seed
+uniform vec2 uPaintZ;     // the model's z range (back..front runs along it)
 out vec4 oColor;
 float grid(vec2 p, float spacing) {
     vec2 g = abs(fract(p / spacing - 0.5) - 0.5) * spacing;
@@ -94,8 +105,93 @@ float joint(float p, float size, float width) {
     float q = abs(fract(p / size - 0.5) - 0.5) * size;
     return 1.0 - smoothstep(width, width + fwidth(p), q);
 }
+// A hard-ish edge between two colours at `edge`, anti-aliased.
+float cut(float v, float edge) { float w = fwidth(v) * 0.75 + 1e-4; return smoothstep(edge - w, edge + w, v); }
+// The skin's colour at this point (model units: inches; z runs muzzle (-) to stock (+)). `glow` > 0: unlit.
+vec3 skin(out float glow) {
+    glow = 0.0;
+    vec3 n = vLocalN;
+    vec2 uv = abs(n.x) > 0.5 ? vLocal.zy : (abs(n.y) > 0.5 ? vLocal.zx : vLocal.xy);
+    float seed = uPaintMisc.z;
+    uv += vec2(seed * 7.13, seed * 3.71);
+    float t = clamp((vLocal.z - uPaintZ.x) / max(uPaintZ.y - uPaintZ.x, 1.0), 0.0, 1.0);  // 0 front .. 1 back
+    if (uPaint == 1) {  // fade: front colour into the middle into the back
+        return t < 0.5 ? mix(uPA, uPB, smoothstep(0.0, 0.5, t)) : mix(uPB, uPC, smoothstep(0.5, 1.0, t));
+    } else if (uPaint == 2) {  // camo: three-colour blotches
+        float a = noise(uv * 0.32) * 0.7 + noise(uv * 0.9) * 0.3;
+        float b = noise(uv * 0.45 + 11.0) * 0.7 + noise(uv * 1.3 + 5.0) * 0.3;
+        vec3 c = mix(uPA, uPB, cut(a, 0.52));
+        return mix(c, uPC, cut(b, 0.62));
+    } else if (uPaint == 3) {  // tiger: wavy stripes across the gun
+        float w = vLocal.z * 0.85 + noise(uv * 0.35) * 5.0 + noise(uv * 1.1) * 1.2;
+        return mix(uPA, uPB, cut(sin(w), 0.45));
+    } else if (uPaint == 4) {  // marble: swirled liquid colour with bright veins
+        float m = noise(uv * 0.22) * 0.65 + noise(uv * 0.55) * 0.35;
+        float s = sin(m * 11.0 + vLocal.z * 0.25);
+        vec3 c = mix(uPB, uPA, smoothstep(-0.55, 0.55, s));
+        return mix(c, uPC, smoothstep(0.82, 0.97, s));
+    } else if (uPaint == 5) {  // case hardened: blue, gold and bare patina in patches
+        float h = noise(uv * 0.28) * 0.6 + noise(uv * 0.8) * 0.4;
+        vec3 c = mix(uPA, uPC, smoothstep(0.38, 0.5, h));
+        return mix(c, uPB, smoothstep(0.58, 0.7, h));
+    } else if (uPaint == 6) {  // web: a dark lattice over a deep colour
+        float l = max(max(joint(uv.x + uv.y * 0.55, 3.2, 0.12), joint(uv.y - uv.x * 0.35, 2.7, 0.12)), joint(length(uv - vec2(2.0, 0.5)), 2.2, 0.1));
+        return mix(mix(uPA, uPC, noise(uv * 0.5) * 0.5), uPB, l);
+    } else if (uPaint == 7) {  // hazard: bold blocks of colour down the gun, a stripe of the accent
+        float band = fract(vLocal.z / 11.0 + seed * 0.37);
+        vec3 c = band < 0.58 ? uPA : (band < 0.8 ? uPB : uPC);
+        float diag = fract((vLocal.z + vLocal.y * 1.5) / 3.0);
+        if (band >= 0.58 && band < 0.8 && diag < 0.18) c = uPC;
+        return c;
+    } else if (uPaint == 8) {  // flames: licking back from the muzzle over a dark body
+        float f = 1.0 - t + noise(vec2(uv.x * 0.6, vLocal.z * 0.12)) * 0.6 - 0.25 + noise(uv * 1.4) * 0.15;
+        vec3 c = mix(uPC, uPB, smoothstep(0.42, 0.55, f));
+        return mix(c, uPA, smoothstep(0.7, 0.85, f));
+    } else if (uPaint == 9) {  // carbon: a fine weave, one accent stripe along the side
+        float ch = mod(floor(uv.x * 2.2) + floor(uv.y * 2.2), 2.0);
+        vec3 c = mix(uPA, uPB, ch);
+        if (abs(n.x) > 0.5 && abs(vLocal.y - 0.15) < 0.22) c = uPC;
+        return c;
+    } else if (uPaint == 10) {  // neon: a dark body with glowing circuit lines
+        float l = max(joint(uv.x, 2.6, 0.07), joint(uv.y + floor(uv.x / 2.6) * 0.9, 1.9, 0.07));
+        float on = l * step(0.45, noise(floor(uv / 2.6) + 3.0));
+        glow = on;
+        return mix(uPA, uPB, on);
+    } else if (uPaint == 11) {  // two-tone: top and bottom halves, a seam of the accent
+        float y = vLocal.y + noise(uv * 0.6) * 0.15;
+        vec3 c = mix(uPB, uPA, cut(y, 0.1));
+        if (abs(y - 0.1) < 0.12) c = uPC;
+        return c;
+    }
+    return mix(uPA, uPB, noise(uv * 0.4) * 0.18);  // solid, with a faint mottle
+}
 void main() {
     if (vColor.a > 0.4 && vColor.a < 0.6) { oColor = vec4(vColor.rgb, 1.0); return; }  // emissive
+    if (vColor.a > 0.2 && vColor.a < 0.3 && uPaint >= 0) {  // a skin-painted weapon part
+        float glow;
+        vec3 p = skin(glow);
+        vec3 n = vLocalN;
+        vec2 uv = abs(n.x) > 0.5 ? vLocal.zy : (abs(n.y) > 0.5 ? vLocal.zx : vLocal.xy);
+        float wear = uPaintMisc.x, gloss = uPaintMisc.y;
+        // Wear: scratches and chips down to bare steel, more of them the higher the float; edges first.
+        float scratch = noise(uv * vec2(4.0, 0.7) + uPaintMisc.z * 5.0) * noise(uv * 0.5 + 9.0);
+        float chips = noise(uv * 1.6 + 4.0);
+        float bare = max(step(scratch, wear * 0.32), step(chips, wear * 0.45 - 0.08));
+        p = mix(p, vec3(0.50, 0.52, 0.55), bare * (1.0 - glow));
+        p *= 1.0 - 0.22 * wear;
+        vec3 c = p * vLit;
+        if (glow > 0.0) c = mix(c, p * 1.25, glow);
+        // Polish: a sky reflection and a sun glint that slide over the faces as the gun turns.
+        vec3 V = normalize(uEye - vWorld), N = normalize(vNormal), L = normalize(vec3(0.35, 0.25, 0.9));
+        vec3 R = reflect(-V, N);
+        vec3 env = mix(vec3(0.42, 0.38, 0.34), vec3(0.85, 0.92, 1.0), clamp(R.z * 0.5 + 0.5, 0.0, 1.0));
+        float g = gloss * (1.0 - bare * 0.7) * (1.0 - wear * 0.5);
+        c = mix(c, c * env * 1.7, g * 0.35);
+        c += vec3(pow(max(dot(N, normalize(L + V)), 0.0), 48.0)) * g * 0.6;
+        c += env * pow(1.0 - max(dot(N, V), 0.0), 4.0) * g * 0.25;
+        oColor = vec4(c, 1.0);
+        return;
+    }
     vec3 n = vNormal;
     vec3 c = vLit;
     float a = vColor.a;
@@ -319,6 +415,12 @@ BoxInstance makeEmissive(const Vec3& mins, const Vec3& maxs, uint32_t rgb) {
     return b;
 }
 
+BoxInstance makePainted(const Vec3& mins, const Vec3& maxs, uint8_t shade) {
+    BoxInstance b = makeBox(mins, maxs, (uint32_t(shade) << 16) | (uint32_t(shade) << 8) | shade, false);
+    b.rgba[3] = 64;
+    return b;
+}
+
 BoxInstance makeBox(const Vec3& mins, const Vec3& maxs, uint32_t rgb, bool grid) {
     BoxInstance b;
     b.mins[0] = mins.x; b.mins[1] = mins.y; b.mins[2] = mins.z;
@@ -387,6 +489,12 @@ bool Renderer::init(std::string& err) {
     uSkyRight_ = glGetUniformLocation(skyProgram_, "uRight");
     uSkyUp_ = glGetUniformLocation(skyProgram_, "uUp");
     glGenVertexArrays(1, &skyVao_);  // no vertex data: the triangle comes from gl_VertexID
+    uPaint_ = glGetUniformLocation(boxProgram_, "uPaint");
+    uPA_ = glGetUniformLocation(boxProgram_, "uPA");
+    uPB_ = glGetUniformLocation(boxProgram_, "uPB");
+    uPC_ = glGetUniformLocation(boxProgram_, "uPC");
+    uPaintMisc_ = glGetUniformLocation(boxProgram_, "uPaintMisc");
+    uPaintZ_ = glGetUniformLocation(boxProgram_, "uPaintZ");
     uViewProj_ = glGetUniformLocation(boxProgram_, "uViewProj");
     uModel_ = glGetUniformLocation(boxProgram_, "uModel");
     uEye_ = glGetUniformLocation(boxProgram_, "uEye");
@@ -544,6 +652,7 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE, viewProj.m);
     glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
     glUniform3f(uEye_, eye.x, eye.y, eye.z);
+    setPaint(nullptr);
     drawAll();
     glDepthMask(GL_TRUE);
 }
@@ -600,7 +709,18 @@ void Renderer::uploadDynamic(const std::vector<BoxInstance>& boxes, int n) {
     glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(n * sizeof(BoxInstance)), boxes.data());
 }
 
-void Renderer::drawModel(const Mat4& viewProj, const Mat4& model, const std::vector<BoxInstance>& boxes) {
+void Renderer::setPaint(const PaintParams* p) {
+    glUniform1i(uPaint_, p ? p->pattern : -1);
+    if (!p || p->pattern < 0) return;
+    glUniform3f(uPA_, p->a[0], p->a[1], p->a[2]);
+    glUniform3f(uPB_, p->b[0], p->b[1], p->b[2]);
+    glUniform3f(uPC_, p->c[0], p->c[1], p->c[2]);
+    glUniform3f(uPaintMisc_, p->wear, p->gloss, p->seed);
+    glUniform2f(uPaintZ_, p->zMin, p->zMax);
+}
+
+void Renderer::drawModel(const Mat4& viewProj, const Mat4& model, const std::vector<BoxInstance>& boxes,
+                         const PaintParams* paint) {
     int n = std::min(int(boxes.size()), kMaxDynamicBoxes);
     if (n == 0) return;
     glEnable(GL_DEPTH_TEST);
@@ -609,6 +729,8 @@ void Renderer::drawModel(const Mat4& viewProj, const Mat4& model, const std::vec
     glUseProgram(boxProgram_);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE, viewProj.m);
     glUniformMatrix4fv(uModel_, 1, GL_FALSE, model.m);
+    setPaint(paint);
+
     uploadDynamic(boxes, n);
     glBindVertexArray(dynVao_);
     glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);

@@ -19,7 +19,7 @@ constexpr int kNetMaxPlayers = 8;        // ids 0..7: the host is 0
 constexpr int kNetBots = 10;             // competitive: bot slots 8..17
 constexpr int kNetSlots = kNetMaxPlayers + kNetBots;
 constexpr uint16_t kNetDefaultPort = 27015;
-constexpr uint32_t kNetProtocol = 3;     // bump when messages change: other versions can't join
+constexpr uint32_t kNetProtocol = 4;     // bump when messages change: other versions can't join
 
 struct NetState {                        // one player, one tick
     uint8_t id = 0;

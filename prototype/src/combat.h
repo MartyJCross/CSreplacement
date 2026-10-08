@@ -10,6 +10,9 @@ const char* hitGroupName(HitGroup g);
 
 struct RecoilStep { float up, right; };  // degrees per shot
 
+// Every weapon has an id (also its byte online): the first five are the original ones.
+enum WeaponId : uint8_t { kWRifle, kWPistol, kWKnife, kWGrenade, kWSniper, kWBerettas, kWDeagle, kWNova, kWMac10, kWeaponCount };
+
 struct WeaponDef {
     const char* name;
     bool canFire;
@@ -27,6 +30,13 @@ struct WeaponDef {
     int patternLen;
     bool automatic;          // false = one shot per click
     float penetration = 0;   // units of wall a bullet can pass through (0 = none)
+    int id = kWRifle;
+    int pellets = 1;         // shotgun: bullets per shot, in a fixed pattern (firePellets)
+    float pelletSpread = 0;  // degrees: the pattern's outer ring
+    bool shellReload = false;  // reloads one shell per reloadTime; firing stops it
+    bool primary = true;     // slot 1 (else the pistol slot)
+    int price = 0;           // competitive buy menu
+    int killReward = 300;    // competitive money per kill
 };
 
 const WeaponDef& rifleDef();
@@ -34,6 +44,11 @@ const WeaponDef& pistolDef();
 const WeaponDef& sniperDef();
 const WeaponDef& knifeDef();
 const WeaponDef& grenadeDef();  // smoke grenade slot: thrown, never fires bullets
+const WeaponDef& berettasDef();
+const WeaponDef& deagleDef();
+const WeaponDef& novaDef();
+const WeaponDef& mac10Def();
+const WeaponDef& weaponDef(int id);  // by WeaponId
 
 struct WeaponState {
     const WeaponDef* def = nullptr;
@@ -124,6 +139,16 @@ struct ShotResult {
 ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed,
                       bool onGround, bool ducked, const World& world, std::vector<Dummy>& dummies,
                       const std::vector<Vec3>& dummyRenderPos);
+// A shotgun shot: def.pellets bullets in a fixed pattern round the aim (no randomness: the same every
+// time), each traced and applied like fireBullet. Recoil and the shot counter advance once. `out` gets one
+// result per pellet.
+constexpr int kMaxPellets = 9;
+int firePellets(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed, bool onGround,
+                bool ducked, const World& world, std::vector<Dummy>& dummies, const std::vector<Vec3>& dummyRenderPos,
+                ShotResult (&out)[kMaxPellets]);
+// The pattern: pellet k's offset from the aim in degrees (up, right).
+RecoilStep pelletOffset(const WeaponDef& w, int k);
+
 
 // Fire timing for one tick: true (and the next shot scheduled) if the weapon may fire now. A held
 // trigger keeps an exact cadence (each shot lands on the first tick at or after its time, without

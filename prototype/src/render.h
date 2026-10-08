@@ -16,6 +16,18 @@ struct BoxInstance {
 
 BoxInstance makeBox(const Vec3& mins, const Vec3& maxs, uint32_t rgb, bool grid);
 BoxInstance makeEmissive(const Vec3& mins, const Vec3& maxs, uint32_t rgb);
+// A skin-painted part (alpha 64): drawn with the model's PaintParams pattern; `shade` (grey) darkens it a
+// little for grips and furniture so the parts still read apart.
+BoxInstance makePainted(const Vec3& mins, const Vec3& maxs, uint8_t shade = 255);
+
+// A skin for one drawModel call: the pattern (items.h Pattern), its colours, wear, polish and the model's
+// length along z (fades and flames run along it).
+struct PaintParams {
+    int pattern = -1;  // -1 = no paint (painted parts then just use their shade)
+    float a[3] = {1, 1, 1}, b[3] = {1, 1, 1}, c[3] = {1, 1, 1};
+    float wear = 0, gloss = 0, seed = 0;
+    float zMin = -24, zMax = 16;
+};
 // Turns a box around the vertical axis through `pivot` (player models facing a direction).
 inline void yawBox(BoxInstance& b, const Vec3& pivot, float yawRad) {
     b.rot[0] = pivot.x;
@@ -53,8 +65,9 @@ public:
 
     void beginFrame(int width, int height);
     void drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vector<BoxInstance>& dynamicBoxes);
-    // Boxes in a local space transformed by `model` (weapon models, tracers).
-    void drawModel(const Mat4& viewProj, const Mat4& model, const std::vector<BoxInstance>& boxes);
+    // Boxes in a local space transformed by `model` (weapon models, tracers); `paint` skins the painted parts.
+    void drawModel(const Mat4& viewProj, const Mat4& model, const std::vector<BoxInstance>& boxes,
+                   const PaintParams* paint = nullptr);
     // The sky, behind everything already drawn: camera forward, and right/up scaled by tan(half fov).
     void drawSky(const Vec3& fwd, const Vec3& right, const Vec3& up);
     // Starts the first-person weapon pass: fresh depth so the weapon never clips into walls.
@@ -81,6 +94,9 @@ private:
     void cullStatic(const Mat4& viewProj, const Vec3& eye);
     void uploadDynamic(const std::vector<BoxInstance>& boxes, int n);
     int uViewProj_ = -1, uModel_ = -1, uEye_ = -1, uScreen_ = -1, uFont_ = -1;
+    int uPaint_ = -1, uPA_ = -1, uPB_ = -1, uPC_ = -1, uPaintMisc_ = -1, uPaintZ_ = -1;
+    void setPaint(const PaintParams* p);
+
     unsigned cubeVbo_ = 0;
     unsigned staticVao_ = 0, staticInst_ = 0;
     unsigned dynVao_ = 0, dynInst_ = 0;

@@ -36,9 +36,12 @@ prototype/
                           (Dust2 from the kDustAreas table on a 32u grid, decor, props), bot/retake/prefire/spawn
                           spots, KZ course
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
-    combat.*              weapons (rifle/pistol/sniper/knife/grenade slot), recoil patterns, wallbangs, armor,
-                          dummies + hitboxes (dummies have a yaw; shots test in the dummy's model space using
-                          shownYaw), grenade throw/flight/prediction
+    combat.*              weapons (WeaponId: rifle, pistol, knife, grenade, sniper, Berettas, Deagle, Nova, MAC-10;
+                          weaponDef), recoil patterns, Nova pellets (firePellets, fixed pattern), wallbangs, armor,
+                          dummies + hitboxes (dummies have a yaw and a crouch; shots test in the dummy's model space
+                          using shownYaw/shownCrouch), grenade throw/flight/prediction
+    items.*               skins (allSkins: 29 gun skins + 6 knives x 9 finishes), rarities and CS odds, rollCase,
+                          Inventory (cases, kill progress, items, equipped; inventory.txt)
     nav.*                 NavGrid on the Dust grid: walkable/roamable cells, Dijkstra routes, followPath
     bots.*                bot brains (spawn anywhere, roam or walk to a goal, hold, view cone, pick a target,
                           hearing, chase, cover); main.cpp only feeds them BotSenses, so tests run bots headless
@@ -46,7 +49,8 @@ prototype/
                           competitive, prefire), grenades, bot shooting, KZ, HUD, menus, map loading
     render.*, gl.*        OpenGL 3.3: everything is an instanced box (optionally yaw-rotated: yawBox); HUD is one
                           batch; tiny GL loader
-    fx.*                  cosmetic only: first-person weapon models/animation, tracers, particles
+    fx.*                  cosmetic only: first-person weapon + knife models/animation (weaponDraws), the inventory
+                          showcase (buildShowcase), tracers, particles
     net.*                 online play: ENet host/join, relay through the host, state/fire/hit/death/name/grenade
                           messages; competitive: the host's bots, match state, round start/end, plant/defuse
     upnp.*                hosting: miniupnpc opens the router's port in a background thread, finds the addresses
@@ -133,14 +137,25 @@ See `prototype/README.md` for full details. Each item below lists where its code
   - real ramps: `Box::slope`/`lowZ` wedges, swept Quake-style against their planes (`world.cpp`)
 - **Weapons** (`combat.cpp`), CS slots: 1 primary (rifle/sniper), 2 pistol, 3 knife, 4 grenade (4 again cycles
   smoke/flash/HE/molotov), Q previous, F inspect, G quick-throw.
-  - the owner doesn't want new guns or a "tagging" slowdown when shot
+  - the owner doesn't want a "tagging" slowdown when shot; guns only when they name them (they asked for the
+    Berettas, Deagle, Nova and MAC-10). The starting pistol must not one-tap a helmet; the Deagle must from any
+    range (tested in testNewGuns)
+  - B buy menu with CS categories (`buyEntries`, `compBuy`, `takeGun`): competitive in spawn during buy time
+    for money, everywhere else free; slot 1 `g.primary`, slot 2 `g.secondary`
   - armor: `armoredDamage` (77.5% with kevlar/helmet); material wallbangs (`Box::material`: wood x0.5, metal x1.5)
   - fire timing: `takeShotTiming` (combat.cpp; tested): exact held cadence, no early shot after a tap
   - shot "oomph" (cosmetic): viewmodel kick (`ViewModel::onShot`), muzzle flash, `fovPunch` thump (under
     `view_shake`), shot sounds with a low-mid thump. The owner likes the feel: change it only when asked.
-- **Cosmetics** (`fx.cpp`): knives (butterfly, karambit, M9, talon) and gun finishes (`knife`, `finish`);
-  keyframed inspects (`kRifleInspect`...); spray feedback (kick builds, `view_shake` roll, casings, far
-  impacts bigger); grenade models per type; particles can glow.
+- **Cosmetics** (`fx.cpp`): knives (default, butterfly, karambit, M9, talon, bowie, kukri; blades `kBlade`/
+  `kBladeEdge`/`kBladeFuller`); keyframed inspects (`kRifleInspect`...); spray feedback (kick builds, `view_shake`
+  roll, casings, far impacts bigger); grenade models per type; particles can glow.
+- **Skins and cases** (`items.*`, main.cpp inventory block): skins are painted per pixel by the box shader
+  (`makePainted` parts, alpha 64; `PaintParams`/`Renderer::setPaint`; patterns in model space, wear scratches,
+  gloss). A case per `case_kills` (25) kills in modes 1/2/3/5 (`countCaseKill` from `recordDamage`); Esc ->
+  INVENTORY (`kMenuInventory`: `g_choices`, `refreshChoices`, `choicesChanged`; stage `showcaseStage`, drawn
+  after the HUD) and the case reel (`kMenuCase`, `startCase`, `caseTick`, `drawCaseHud`). `all_skins` unlocks
+  everything for testing. Everything comes from cases, like CS (owner's choice), with that switch.
+- **Font** (`tools/gen_font.py` -> `font.h`): ASCII 32..127 now, with `$` and `|`.
 - **Maps** (Play screen MAP):
   - The Lab (greybox test map): range, spray wall, crates, stairs, peek wall, KZ bhop course
   - Dust2 (`kDustAreas` on a 32u grid, `dust_scale` 60% default, 50..100): lanes at real proportions, smooth ramps,
@@ -183,7 +198,10 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
   short boom). Measure with `--dump-sounds` before changing tone.
 - **Screenshot helpers:** `--spawn X Y YAW` (world coords: Dust is scaled!), `--weapon`, `--inspect N`,
-  `--smoke --nade T [--throw-frame N]`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`, `--weapon 5` (grenade out), `--die N`, `--ct` (competitive starting on CT: test both sides), `--host`,
+  `--smoke --nade T [--throw-frame N]`, `--bots`, `--menu N [--menu-row R]` (a `MenuScreen`; 11 inventory, 12 a case
+  opening with `--give-cases N`), `--bench S`, `--weapon 5` (grenade out; 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10),
+  `--die N`, `--ct` (competitive starting on CT: test both sides), `--host`,
+
   `--join ADDR`. Automated competitive runs never give the bomb to the (idle) test player; set `comp_enemies 4`
   for a fair 4v4 bot test.
 

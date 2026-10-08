@@ -51,10 +51,10 @@ camera_extrapolate 1
 view_smooth_steps 1
 // 1 = a slight camera roll on each shot for spray feedback. It turns around the crosshair, so aim is unaffected.
 view_shake 1
-// Knife: 0 butterfly, 1 karambit, 2 M9 bayonet, 3 talon. Gun finish: 0 factory, 1 crimson, 2 arctic,
-// 3 jungle, 4 gold.
-knife 0
-finish 0
+// Cases: one for every case_kills kills (deathmatch, retakes, competitive, online). Your skins and knife are
+// in inventory.txt (Esc -> INVENTORY). all_skins 1 lets you pick any skin without opening cases (testing).
+case_kills 25
+all_skins 0
 // Radar top-left on Dust: the map, you, spotted enemies, the bomb.
 radar 1
 // Hit feedback: an X on the crosshair (red = head, bigger = kill) and a tick sound when you hit.
@@ -112,7 +112,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
         << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
-        << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\nknife " << c.knife << "\nfinish " << c.finish << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
+        << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\ncase_kills " << c.case_kills << "\nall_skins " << c.all_skins << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
         << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
@@ -180,8 +180,9 @@ Config loadConfig(const std::string& path) {
         else if (key == "view_shake") i(c.view_shake);
         else if (key == "hitmarker") i(c.hitmarker);
         else if (key == "radar") i(c.radar);
-        else if (key == "knife") i(c.knife);
-        else if (key == "finish") i(c.finish);
+        else if (key == "case_kills") i(c.case_kills);
+        else if (key == "all_skins") i(c.all_skins);
+
         else if (key == "hitsound") i(c.hitsound);
         else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
         else if (key == "map") i(c.map);

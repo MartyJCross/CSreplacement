@@ -25,7 +25,7 @@ const RecoilStep kRiflePattern[30] = {
 
 const WeaponDef kRifle = {
     "RIFLE", true, 215.0f, 36.0f, 0.98f, 0.1f, 30, 2.4f,
-    0.34f, 5.0f, 8.0f, 0.12f, kRiflePattern, 30, true, 24.0f,
+    0.34f, 5.0f, 8.0f, 0.12f, kRiflePattern, 30, true, 24.0f, kWRifle, 1, 0.0f, false, true, 2700, 300,
 };
 
 // Semi-auto pistol: strong per-shot kick that climbs fast and recovers fast. Tap, don't spam.
@@ -34,9 +34,10 @@ const RecoilStep kPistolPattern[12] = {
     {1.10f, -0.20f}, {1.00f, 0.20f}, {0.90f, -0.20f}, {0.80f, 0.15f}, {0.70f, -0.15f}, {0.60f, 0.10f},
 };
 
+// 30 damage: a headshot kills without a helmet up close (120) but not through one (93), like CS's starting pistols.
 const WeaponDef kPistol = {
-    "PISTOL", true, 240.0f, 35.0f, 0.91f, 0.15f, 12, 2.2f,
-    0.34f, 3.5f, 6.0f, 0.25f, kPistolPattern, 12, false, 0.0f,
+    "PISTOL", true, 240.0f, 30.0f, 0.91f, 0.15f, 12, 2.2f,
+    0.34f, 3.5f, 6.0f, 0.25f, kPistolPattern, 12, false, 0.0f, kWPistol, 1, 0.0f, false, false, 200, 300,
 };
 
 // Bolt-action sniper: one-shot body kill, big single kick, slow cycle. Semi-auto.
@@ -44,11 +45,53 @@ const RecoilStep kSniperPattern[2] = {{0.0f, 0.0f}, {2.2f, 0.0f}};
 
 const WeaponDef kSniper = {
     "SNIPER", true, 200.0f, 115.0f, 0.99f, 1.46f, 5, 3.6f,
-    0.34f, 8.0f, 12.0f, 0.0f, kSniperPattern, 2, false, 40.0f,
+    0.34f, 8.0f, 12.0f, 0.0f, kSniperPattern, 2, false, 40.0f, kWSniper, 1, 0.0f, false, true, 4750, 100,
 };
 
 const WeaponDef kKnife = {
-    "KNIFE", false, 250.0f, 0, 1, 1, 0, 0, 0.34f, 0, 0, 0, nullptr, 0, false,
+    "KNIFE", false, 250.0f, 0, 1, 1, 0, 0, 0.34f, 0, 0, 0, nullptr, 0, false, 0.0f, kWKnife, 1, 0.0f, false, false, 0, 1500,
+};
+
+// Dual Berettas: two pistols, 30 rounds, fast taps with a small kick each, alternating hands. 32 damage: no
+// one-tap through a helmet (99 at point blank), and it falls off quickly with range.
+const RecoilStep kBerettasPattern[15] = {
+    {0.00f, 0.00f}, {0.60f, 0.12f}, {0.55f, -0.18f}, {0.55f, 0.20f}, {0.50f, -0.20f}, {0.50f, 0.18f},
+    {0.45f, -0.18f}, {0.45f, 0.16f}, {0.40f, -0.16f}, {0.40f, 0.14f}, {0.35f, -0.14f}, {0.35f, 0.12f},
+    {0.30f, -0.12f}, {0.30f, 0.10f}, {0.25f, -0.10f},
+};
+const WeaponDef kBerettas = {
+    "DUAL BERETTAS", true, 240.0f, 32.0f, 0.79f, 0.12f, 30, 3.8f,
+    0.34f, 3.5f, 6.0f, 0.20f, kBerettasPattern, 15, false, 6.0f, kWBerettas, 1, 0.0f, false, false, 300, 300,
+};
+
+// Deagle: 63 damage, a headshot through a helmet kills from anywhere on the map (195 up close, still over
+// 100 at 6,500 units), slow to fire and a big kick: hit the first one.
+const RecoilStep kDeaglePattern[7] = {
+    {0.00f, 0.00f}, {3.20f, 0.30f}, {3.00f, -0.35f}, {2.80f, 0.40f}, {2.60f, -0.40f}, {2.40f, 0.30f}, {2.20f, -0.30f},
+};
+const WeaponDef kDeagle = {
+    "DEAGLE", true, 230.0f, 63.0f, 0.95f, 0.225f, 7, 2.2f,
+    0.34f, 6.0f, 9.0f, 0.60f, kDeaglePattern, 7, false, 20.0f, kWDeagle, 1, 0.0f, false, false, 700, 300,
+};
+
+// Nova: pump shotgun, 9 pellets of 26 in a fixed pattern, deadly close and weak far; loads shell by shell.
+const RecoilStep kNovaPattern[2] = {{0.0f, 0.0f}, {3.0f, 0.2f}};
+const WeaponDef kNova = {
+    "NOVA", true, 220.0f, 26.0f, 0.70f, 0.88f, 8, 0.5f,
+    0.34f, 6.0f, 9.0f, 0.0f, kNovaPattern, 2, false, 0.0f, kWNova, 9, 3.2f, true, true, 1050, 900,
+};
+
+// MAC-10: fast-firing SMG (800 rounds a minute), modest damage, the spray climbs then wanders.
+const RecoilStep kMac10Pattern[30] = {
+    {0.00f, 0.00f}, {0.55f, 0.05f}, {0.65f, 0.10f}, {0.70f, 0.10f}, {0.70f, 0.15f}, {0.65f, 0.20f},
+    {0.55f, 0.25f}, {0.45f, 0.25f}, {0.35f, 0.30f}, {0.25f, -0.40f}, {0.20f, -0.55f}, {0.15f, -0.60f},
+    {0.15f, -0.55f}, {0.10f, -0.45f}, {0.10f, 0.35f}, {0.10f, 0.55f}, {0.05f, 0.60f}, {0.05f, 0.55f},
+    {0.05f, 0.45f}, {0.05f, -0.30f}, {0.00f, -0.45f}, {0.05f, -0.45f}, {0.00f, 0.30f}, {0.05f, 0.40f},
+    {0.00f, 0.35f}, {0.05f, -0.30f}, {0.00f, -0.35f}, {0.05f, 0.25f}, {0.00f, 0.30f}, {0.05f, -0.20f},
+};
+const WeaponDef kMac10 = {
+    "MAC-10", true, 240.0f, 29.0f, 0.80f, 0.075f, 30, 2.6f,
+    0.34f, 5.0f, 8.0f, 0.15f, kMac10Pattern, 30, true, 10.0f, kWMac10, 1, 0.0f, false, true, 1050, 600,
 };
 
 uint32_t hash32(uint32_t x) {
@@ -71,11 +114,29 @@ float hitGroupMultiplier(HitGroup g) {
 const WeaponDef& rifleDef() { return kRifle; }
 const WeaponDef& knifeDef() { return kKnife; }
 const WeaponDef& grenadeDef() {
-    static const WeaponDef kGrenade = {"SMOKE", false, 245.0f, 0, 1, 1, 0, 0, 0.34f, 0, 0, 0, nullptr, 0, false};
+    static const WeaponDef kGrenade = {"SMOKE", false, 245.0f, 0, 1, 1, 0, 0, 0.34f, 0, 0, 0, nullptr, 0, false,
+                                       0.0f, kWGrenade, 1, 0.0f, false, false, 0, 300};
     return kGrenade;
 }
 const WeaponDef& pistolDef() { return kPistol; }
 const WeaponDef& sniperDef() { return kSniper; }
+const WeaponDef& berettasDef() { return kBerettas; }
+const WeaponDef& deagleDef() { return kDeagle; }
+const WeaponDef& novaDef() { return kNova; }
+const WeaponDef& mac10Def() { return kMac10; }
+const WeaponDef& weaponDef(int id) {
+    switch (id) {
+        case kWPistol: return kPistol;
+        case kWKnife: return kKnife;
+        case kWGrenade: return grenadeDef();
+        case kWSniper: return kSniper;
+        case kWBerettas: return kBerettas;
+        case kWDeagle: return kDeagle;
+        case kWNova: return kNova;
+        case kWMac10: return kMac10;
+        default: return kRifle;
+    }
+}
 
 RecoilStep recoilAt(const WeaponDef& w, float index) {
     RecoilStep sum{0, 0};
@@ -231,23 +292,12 @@ void updateDummy(Dummy& d, float dt) {
     }
 }
 
-ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed,
-                      bool onGround, bool ducked, const World& world, std::vector<Dummy>& dummies,
-                      const std::vector<Vec3>& dummyRenderPos) {
-    const WeaponDef& w = *ws.def;
+namespace {
+
+// One bullet along `dir`: walls (and wallbangs), the first dummy it meets, and its damage on that dummy.
+ShotResult traceShot(const WeaponDef& w, const Vec3& eye, const Vec3& dir, const World& world,
+                     std::vector<Dummy>& dummies, const std::vector<Vec3>& dummyRenderPos) {
     ShotResult res;
-    res.sprayIndex = int(ws.recoilIndex);
-
-    // Bullet direction = view + full aim punch + deterministic spread.
-    RecoilStep punch = recoilAt(w, ws.recoilIndex);
-    float inacc = currentInaccuracy(ws, horizSpeed, onGround, ducked);
-    uint32_t seed = ws.shotCounter * 2654435761u;
-    float theta = rand01(seed) * 2.0f * kPi;
-    float radius = rand01(seed ^ 0x9e3779b9u) * inacc;
-    float pitch = viewPitch - punch.up + std::sin(theta) * radius;
-    float yaw = viewYaw - punch.right + std::cos(theta) * radius;
-    Vec3 dir = anglesToForward(pitch, yaw);
-
     // Trace in segments: hit a wall -> if it is thin enough for this weapon, pass through
     // (losing damage) and keep going. Up to two walls.
     const float kRange = 8192.0f;
@@ -326,10 +376,66 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
         }
     }
 
-    ws.shotCounter++;
-    ws.recoilIndex = std::min(ws.recoilIndex + 1.0f, float(w.patternLen - 1));
     return res;
 }
+
+// The aim (view + recoil + deterministic spread) for the shot about to be fired.
+void shotAim(const WeaponState& ws, float viewPitch, float viewYaw, float horizSpeed, bool onGround, bool ducked,
+             float& pitch, float& yaw) {
+    const WeaponDef& w = *ws.def;
+    RecoilStep punch = recoilAt(w, ws.recoilIndex);
+    float inacc = currentInaccuracy(ws, horizSpeed, onGround, ducked);
+    uint32_t seed = ws.shotCounter * 2654435761u;
+    float theta = rand01(seed) * 2.0f * kPi;
+    float radius = rand01(seed ^ 0x9e3779b9u) * inacc;
+    pitch = viewPitch - punch.up + std::sin(theta) * radius;
+    yaw = viewYaw - punch.right + std::cos(theta) * radius;
+}
+
+void afterShot(WeaponState& ws) {
+    ws.shotCounter++;
+    ws.recoilIndex = std::min(ws.recoilIndex + 1.0f, float(ws.def->patternLen - 1));
+}
+
+}  // namespace
+
+ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed,
+                      bool onGround, bool ducked, const World& world, std::vector<Dummy>& dummies,
+                      const std::vector<Vec3>& dummyRenderPos) {
+    float pitch = 0, yaw = 0;
+    shotAim(ws, viewPitch, viewYaw, horizSpeed, onGround, ducked, pitch, yaw);
+    ShotResult res = traceShot(*ws.def, eye, anglesToForward(pitch, yaw), world, dummies, dummyRenderPos);
+    res.sprayIndex = int(ws.recoilIndex);
+    afterShot(ws);
+    return res;
+}
+
+RecoilStep pelletOffset(const WeaponDef& w, int k) {
+    if (k <= 0 || w.pellets <= 1) return {0, 0};
+    // The centre pellet, then an inner ring (turned 45 degrees) and an outer ring: half the rest each.
+    const int rest = w.pellets - 1, inner = rest / 2;
+    const bool in = k - 1 < inner;
+    const int idx = in ? k - 1 : k - 1 - inner, count = in ? inner : rest - inner;
+    const float ang = (float(idx) / float(std::max(count, 1)) + (in ? 0.125f : 0.0f)) * 2.0f * kPi;
+    const float r = w.pelletSpread * (in ? 0.45f : 1.0f);
+    return {std::sin(ang) * r, std::cos(ang) * r};
+}
+
+int firePellets(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed, bool onGround,
+                bool ducked, const World& world, std::vector<Dummy>& dummies, const std::vector<Vec3>& dummyRenderPos,
+                ShotResult (&out)[kMaxPellets]) {
+    float pitch = 0, yaw = 0;
+    shotAim(ws, viewPitch, viewYaw, horizSpeed, onGround, ducked, pitch, yaw);
+    const int n = std::clamp(ws.def->pellets, 1, kMaxPellets);
+    for (int k = 0; k < n; ++k) {
+        const RecoilStep o = pelletOffset(*ws.def, k);
+        out[k] = traceShot(*ws.def, eye, anglesToForward(pitch - o.up, yaw + o.right), world, dummies, dummyRenderPos);
+        out[k].sprayIndex = int(ws.recoilIndex);
+    }
+    afterShot(ws);
+    return n;
+}
+
 
 bool takeShotTiming(WeaponState& ws, double now) {
     if (now < ws.nextFireTime) return false;

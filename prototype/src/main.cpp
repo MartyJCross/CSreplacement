@@ -19,6 +19,7 @@
 #include "config.h"
 #include "fx.h"
 #include "gl.h"
+#include "items.h"
 #include "movement.h"
 #include "net.h"
 #include "upnp.h"
@@ -43,15 +44,17 @@ struct Options {
     float spawnX = 0, spawnY = 0, spawnYaw = 0;
     float autofireStart = -1, autofireEnd = -1;  // --autofire start end (sim seconds)
     int windowW = 0, windowH = 0;                // --windowed W H
-    int startWeapon = 0;                         // --weapon 1|2|3|4|5 (4 = sniper as primary, 5 = grenade)
+    int startWeapon = 0;                         // --weapon 1..9 (4 sniper, 5 grenade, 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10)
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
     int menuScreen = 0;                          // --menu N: open menu screen N (screenshots)
+    int menuRow = 0;                             // --menu-row N: with the row N highlighted
     bool throwSmoke = false, bots = false;       // --smoke [frame N: --throw-frame N], --bots (for screenshots)
     int throwFrame = 30;
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
     int inspectFrame = -1;                       // --inspect N: start an inspect on frame N (screenshots)
     int nadeType = 0;                            // --nade T: grenade type for --smoke (0 smoke .. 3 molotov)
     int dieFrame = -1;                           // --die N: you die on frame N (screenshots of death / spectating)
+    int giveCases = 0;                           // --give-cases N: N cases to open (tests)
     bool startCT = false;                        // --ct: competitive starts with you on CT (testing)
     bool netHost = false;                        // --host: host an online game straight away
     std::string netJoin;                         // --join ADDR: join one
@@ -88,12 +91,17 @@ Options parseArgs(int argc, char** argv) {
             o.startCT = true;
         } else if (a == "--die") {
             o.dieFrame = std::atoi(next());
+        } else if (a == "--give-cases") {
+            o.giveCases = std::atoi(next());
+
         } else if (a == "--inspect") {
             o.inspectFrame = std::atoi(next());
         } else if (a == "--bench") {
             o.benchSeconds = float(std::atof(next()));
         } else if (a == "--menu") {
             o.menuScreen = std::atoi(next());
+        } else if (a == "--menu-row") {
+            o.menuRow = std::atoi(next());
         } else if (a == "--zoom") {
             o.startZoom = std::atoi(next());
         } else if (a == "--weapon") {
@@ -116,10 +124,12 @@ struct Game {
     World world;
     MoveParams moveParams;
     PlayerState player, prevPlayer;
-    WeaponState rifle, pistol, sniper, knife, grenade;
-    // CS-style slots: 1 = primary (rifle or sniper, picked in the buy menu), 2 pistol, 3 knife,
-    // 4 smoke. Q = previous weapon.
+    WeaponState rifle, pistol, sniper, knife, grenade, berettas, deagle, nova, mac10;
+    // CS-style slots: 1 = primary (rifle, sniper, Nova or MAC-10, picked in the buy menu), 2 pistol (pistol,
+    // Berettas or Deagle), 3 knife, 4 grenades. Q = previous weapon.
     WeaponState* primary = &rifle;
+    WeaponState* secondary = &pistol;
+    int buyCategory = 0;          // buy menu: 0 the categories, else the one open (1 pistols .. 6 grenades)
     WeaponState* lastWeapon = &knife;
     bool buyMenu = false;
     float throwStrength = 1.0f;   // the next throw: 1 full, kNadeMedium, kNadeLob (see grenadeThrowVelocity)
@@ -254,7 +264,9 @@ struct Game {
         std::vector<char> botRifle;         // that bot has a rifle (else a pistol)
         int lossStreak[2] = {0, 0};
         float armor = 0;
-        bool helmet = false, kit = false, ownRifle = false, ownSniper = false, youDead = false;
+        bool helmet = false, kit = false, youDead = false;
+        int ownPrimary = -1;                // the primary you bought (WeaponId), -1 none; the pistol slot is
+                                            // g.secondary (the starting pistol unless you bought another)
         int nades[4] = {0, 0, 0, 0};
         int siteTarget = 0;                 // the site the Ts go for this round
         Vec3 stagePoint;                    // where the T bots gather before they execute
@@ -369,12 +381,34 @@ bool isBot(const Game& g, size_t i) { return !g.online || i >= size_t(kNetMaxPla
 int netToLocal(const Game& g, int id) { return id == g.net.myId() ? -1 : id; }
 uint8_t localToNet(const Game& g, int id) { return uint8_t(id < 0 ? g.net.myId() : id); }
 
-ViewWeapon viewWeaponOf(const Game& g) {
-    return g.weapon == &g.rifle     ? ViewWeapon::Rifle
-           : g.weapon == &g.pistol  ? ViewWeapon::Pistol
-           : g.weapon == &g.sniper  ? ViewWeapon::Sniper
-           : g.weapon == &g.grenade ? ViewWeapon::Grenade
-                                    : ViewWeapon::Knife;
+// The view model for a weapon id (and back).
+ViewWeapon viewWeaponFor(int id) {
+    switch (id) {
+        case kWPistol: return ViewWeapon::Pistol;
+        case kWSniper: return ViewWeapon::Sniper;
+        case kWGrenade: return ViewWeapon::Grenade;
+        case kWKnife: return ViewWeapon::Knife;
+        case kWBerettas: return ViewWeapon::Berettas;
+        case kWDeagle: return ViewWeapon::Deagle;
+        case kWNova: return ViewWeapon::Nova;
+        case kWMac10: return ViewWeapon::Mac10;
+        default: return ViewWeapon::Rifle;
+    }
+}
+ViewWeapon viewWeaponOf(const Game& g) { return viewWeaponFor(g.weapon->def->id); }
+
+WeaponState& weaponState(Game& g, int id) {
+    switch (id) {
+        case kWPistol: return g.pistol;
+        case kWSniper: return g.sniper;
+        case kWKnife: return g.knife;
+        case kWGrenade: return g.grenade;
+        case kWBerettas: return g.berettas;
+        case kWDeagle: return g.deagle;
+        case kWNova: return g.nova;
+        case kWMac10: return g.mac10;
+        default: return g.rifle;
+    }
 }
 
 float wrapDeg(float a) {
@@ -408,6 +442,7 @@ void makeNoise(Game& g, const Vec3& pos, float radius, int side = -1) {
 
 // ---- Combat record ----
 void addMoney(Game& g, int id, int amount);
+void countCaseKill(Game& g);
 int nextTeammate(const Game& g, int from, int dir);
 
 bool g_onlineNames = false;  // online: dummies are players, not bots
@@ -431,14 +466,15 @@ std::string agentName(int id) {
     return kBotNames[(id + g_botNameOffset) % kBotNameCount];
 }
 
-// Online: weapons as a byte on the wire.
+// Online: weapons as a byte on the wire (the WeaponId; grenade damage is "GRENADE").
 uint8_t netWeaponCode(const char* name) {
     const std::string n = name ? name : "";
-    return n == "PISTOL" ? 1 : n == "KNIFE" ? 2 : n == "SNIPER" ? 4 : n == "RIFLE" ? 0 : 3;
+    for (int id = 0; id < kWeaponCount; ++id)
+        if (id != kWGrenade && n == weaponDef(id).name) return uint8_t(id);
+    return kWGrenade;
 }
 const char* netWeaponName(uint8_t code) {
-    static const char* const kNames[] = {"RIFLE", "PISTOL", "KNIFE", "GRENADE", "SNIPER"};
-    return kNames[code < 5 ? code : 3];
+    return code == kWGrenade || code >= kWeaponCount ? "GRENADE" : weaponDef(code).name;
 }
 
 Game::Stats& statsOf(Game& g, int id) { return id < 0 ? g.you : g.botStats[size_t(id)]; }
@@ -478,9 +514,13 @@ void recordDamage(Game& g, int attacker, int victim, float amount, bool head, co
     for (size_t a = 0; a < n; ++a)
         if (int(a) - 1 != attacker && row[a] >= 41.0f) statsOf(g, int(a) - 1).assists++;
     std::fill(row, row + n, 0.0f);
+    if (attacker == -1 && victim >= 0) countCaseKill(g);  // towards your next case
     if (netHost(g) && victim >= kNetMaxPlayers)  // the host's bots: everyone hears how they died
         g.net.sendDeath(uint8_t(victim), localToNet(g, attacker), head, netWeaponCode(weapon));
-    if (g.mode == 3) addMoney(g, attacker, std::string(weapon) == "SNIPER" ? 100 : 300);  // kill reward
+    if (g.mode == 3) {  // kill reward by weapon (CS: sniper 100, SMG 600, shotgun 900, the rest 300)
+        const uint8_t code = netWeaponCode(weapon);
+        addMoney(g, attacker, code == kWGrenade ? 300 : weaponDef(code).killReward);
+    }
     std::string t = agentName(attacker) + "  [" + weapon + "]  " + agentName(victim);
     if (head) t += "  HS";
     if (wallbang) t += "  WALLBANG";
@@ -515,7 +555,7 @@ void buildDamageReport(Game& g) {
 
 // Respawn: full magazines, no reload in progress, recoil reset, unscoped.
 void refillAmmo(Game& g) {
-    for (WeaponState* w : {&g.rifle, &g.pistol, &g.sniper}) {
+    for (WeaponState* w : {&g.rifle, &g.pistol, &g.sniper, &g.berettas, &g.deagle, &g.nova, &g.mac10}) {
         w->ammo = w->def->magSize;
         w->reloadEndTime = -1;
         w->recoilIndex = 0;
@@ -543,8 +583,7 @@ void applyConfig(Game& g, const Config& cfg) {
     g.mateSkill = std::clamp(cfg.mate_skill, 0, 3);  // straight away
     g.enemySkill = std::clamp(cfg.enemy_skill, 0, 3);  // next round
     g.viewShake = cfg.view_shake != 0;
-    g.vm.setKnife(std::clamp(cfg.knife, 0, 3));
-    g.vm.setFinish(std::clamp(cfg.finish, 0, 4));
+    // (knife and skins: the inventory, applySkins)
     g.hitSound = cfg.hitsound != 0;
     g.showRadar = cfg.radar != 0;
     g.showHitMarker = cfg.hitmarker != 0;
@@ -554,7 +593,7 @@ void applyConfig(Game& g, const Config& cfg) {
         g.moveParams.staminaJumpCost = 0;
         g.moveParams.staminaLandCost = 0;
     }
-    for (WeaponState* w : {&g.rifle, &g.pistol, &g.sniper}) {
+    for (WeaponState* w : {&g.rifle, &g.pistol, &g.sniper, &g.berettas, &g.deagle, &g.nova, &g.mac10}) {
         w->spraySpread = cfg.spread_spray != 0;
         w->moveSpread = cfg.spread_movement != 0;
     }
@@ -1028,9 +1067,11 @@ void startCompRound(Game& g) {
     }
     if (c.youDead) {  // you died last round: start over with a pistol
         c.armor = 0;
-        c.helmet = c.kit = c.ownRifle = c.ownSniper = false;
+        c.helmet = c.kit = false;
+        c.ownPrimary = -1;
         for (int& n : c.nades) n = 0;
         g.primary = &g.rifle;
+        g.secondary = &g.pistol;
     }
     c.youDead = false;
     g.noclip = false;
@@ -1043,7 +1084,7 @@ void startCompRound(Game& g) {
     g.deadUntil = -1;
     refillAmmo(g);
     resetPosition(g);
-    g.switchTo = (c.ownRifle || c.ownSniper) ? 1 : 2;
+    g.switchTo = c.ownPrimary >= 0 ? 1 : 2;
     int slot[2] = {1, 0};  // next free spawn spot per side (you took your side's first one)
     if (youSide == 1) { slot[0] = 0; slot[1] = 1; }
     for (size_t i = 0; i < g.dummies.size(); ++i) {
@@ -1240,31 +1281,79 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
     g.hudDirty = true;
 }
 
-// The buy menu (B, during buy time near your spawn). Returns a message for the hit log.
-const char* compBuy(Game& g, int item) {
+// The buy menu, like CS: 1 pistols, 2 heavy, 3 SMGs, 4 rifles, 5 gear, 6 grenades; then the item's number.
+// Competitive: during buy time in your spawn, for money. Everywhere else: guns for free, any time.
+struct BuyEntry { const char* name; int weapon; int gear; int price; };  // a gun (WeaponId) or gear (0..7)
+std::vector<BuyEntry> buyEntries(int category) {
+    auto gun = [](int id) { return BuyEntry{weaponDef(id).name, id, -1, weaponDef(id).price}; };
+    switch (category) {
+        case 1: return {gun(kWPistol), gun(kWBerettas), gun(kWDeagle)};
+        case 2: return {gun(kWNova)};
+        case 3: return {gun(kWMac10)};
+        case 4: return {gun(kWRifle), gun(kWSniper)};
+        case 5: return {{"KEVLAR", -1, 0, 650}, {"KEVLAR + HELMET", -1, 1, 1000}, {"DEFUSE KIT (CT)", -1, 2, 400}};
+        case 6: return {{"SMOKE", -1, 3, 300}, {"FLASHBANG", -1, 4, 200}, {"HE GRENADE", -1, 5, 300}, {"MOLOTOV", -1, 6, 400}};
+        default: return {};
+    }
+}
+const char* const kBuyCategories[] = {"PISTOLS", "HEAVY", "SMGS", "RIFLES", "GEAR", "GRENADES"};
+
+// Takes gun `id` into its slot (and out), full magazine.
+void takeGun(Game& g, int id) {
+    WeaponState& w = weaponState(g, id);
+    w.ammo = w.def->magSize;
+    w.reloadEndTime = -1;
+    w.recoilIndex = 0;
+    if (w.def->primary) {
+        g.primary = &w;
+        g.switchTo = 1;
+    } else {
+        g.secondary = &w;
+        g.switchTo = 2;
+    }
+}
+
+// Is entry `e` already yours (can't carry more)?
+bool buyOwned(const Game& g, const BuyEntry& e) {
+    const Game::Comp& c = g.comp;
+    if (e.weapon >= 0) return weaponDef(e.weapon).primary ? c.ownPrimary == e.weapon : g.secondary->def->id == e.weapon;
+    switch (e.gear) {
+        case 0: return c.armor > 0;
+        case 1: return c.armor > 0 && c.helmet;
+        case 2: return c.kit || c.youTeam != 1;
+        case 3: return c.nades[0] >= 1;
+        case 4: return c.nades[1] >= 2;
+        case 5: return c.nades[2] >= 1;
+        default: return c.nades[3] >= 1;
+    }
+}
+
+int buyPrice(const Game& g, const BuyEntry& e) {
+    return e.gear == 1 && g.comp.armor > 0 && !g.comp.helmet ? 350 : e.price;  // just the helmet
+}
+
+// Buys entry `item` (0-based) of the open category. Returns a message for the hit log.
+const char* compBuy(Game& g, int category, int item) {
     Game::Comp& c = g.comp;
-    struct Item { const char* name; int price; };
-    const Item items[] = {{"RIFLE", 2700}, {"SNIPER", 4750}, {"KEVLAR", 650}, {"KEVLAR + HELMET", 1000}, {"SMOKE", 300},
-                          {"FLASHBANG", 200}, {"HE GRENADE", 300}, {"MOLOTOV", 400}, {"DEFUSE KIT", 400}};
-    if (item < 0 || item >= 9) return "";
-    int price = items[item].price;
-    if (item == 3 && c.armor > 0 && !c.helmet) price = 350;  // just the helmet
-    const bool owned = (item == 0 && c.ownRifle) || (item == 1 && c.ownSniper) || (item == 2 && c.armor > 0) ||
-                       (item == 3 && c.armor > 0 && c.helmet) || (item == 4 && c.nades[0] >= 1) ||
-                       (item == 5 && c.nades[1] >= 2) || (item == 6 && c.nades[2] >= 1) ||
-                       (item == 7 && c.nades[3] >= 1) || (item == 8 && (c.kit || c.youTeam != 1));
-    if (owned) return "CAN'T CARRY MORE";
+    const std::vector<BuyEntry> entries = buyEntries(category);
+    if (item < 0 || item >= int(entries.size())) return "";
+    const BuyEntry& e = entries[size_t(item)];
+    if (buyOwned(g, e)) return "CAN'T CARRY MORE";
+    const int price = buyPrice(g, e);
     if (c.money < price) return "NOT ENOUGH MONEY";
     c.money -= price;
-    switch (item) {
-        case 0: c.ownRifle = true; c.ownSniper = false; g.primary = &g.rifle; g.rifle.ammo = rifleDef().magSize; g.switchTo = 1; break;
-        case 1: c.ownSniper = true; c.ownRifle = false; g.primary = &g.sniper; g.sniper.ammo = sniperDef().magSize; g.switchTo = 1; break;
-        case 2: c.armor = 100; break;
-        case 3: c.armor = 100; c.helmet = true; break;
-        case 8: c.kit = true; break;
-        default: c.nades[item - 4]++; break;
+    if (e.weapon >= 0) {
+        if (weaponDef(e.weapon).primary) c.ownPrimary = e.weapon;
+        takeGun(g, e.weapon);
+        return e.name;
     }
-    return items[item].name;
+    switch (e.gear) {
+        case 0: c.armor = 100; break;
+        case 1: c.armor = 100; c.helmet = true; break;
+        case 2: c.kit = true; break;
+        default: c.nades[e.gear - 3]++; break;
+    }
+    return e.name;
 }
 
 // Sends a bot somewhere (unless it's already on its way there). `h`: a hold spot to take there, facing
@@ -1693,9 +1782,11 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     const bool playing = g.netTeam[me] >= 0;
     if (c.youDead || !playing) {
         c.armor = 0;
-        c.helmet = c.kit = c.ownRifle = c.ownSniper = false;
+        c.helmet = c.kit = false;
+        c.ownPrimary = -1;
         for (int& n : c.nades) n = 0;
         g.primary = &g.rifle;
+        g.secondary = &g.pistol;
     }
     c.youDead = !playing;
     c.planted = false;
@@ -1723,7 +1814,7 @@ void netCompRoundStart(Game& g, const NetRound& r) {
         g.deadUntil = -1;
         refillAmmo(g);
         resetPosition(g);
-        g.switchTo = (c.ownRifle || c.ownSniper) ? 1 : 2;
+        g.switchTo = c.ownPrimary >= 0 ? 1 : 2;
     } else {  // joined mid-match: watch until the next round
         g.hp = 0;
         g.deadUntil = 1e18;
@@ -1898,6 +1989,10 @@ void resetGame(Game& g, const Options& opt) {
     g.pistol.ammo = pistolDef().magSize;
     g.sniper.def = &sniperDef();
     g.sniper.ammo = sniperDef().magSize;
+    for (WeaponState* w : {&g.berettas, &g.deagle, &g.nova, &g.mac10}) {
+        w->def = w == &g.berettas ? &berettasDef() : w == &g.deagle ? &deagleDef() : w == &g.nova ? &novaDef() : &mac10Def();
+        w->ammo = w->def->magSize;
+    }
     g.grenade.def = &grenadeDef();
     g.spawn = g.player.origin;
     g.spawnYaw = float(g.viewYaw);
@@ -1906,6 +2001,13 @@ void resetGame(Game& g, const Options& opt) {
     g.botCooldown.assign(g.dummies.size(), 0.0f);
     if (opt.startWeapon == 4) g.primary = &g.sniper;
     g.switchTo = opt.startWeapon == 4 ? 1 : opt.startWeapon == 5 ? 4 : opt.startWeapon;
+    if (opt.startWeapon >= 6 && opt.startWeapon <= 9) {  // 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10
+        const int ids[4] = {kWBerettas, kWDeagle, kWNova, kWMac10};
+        WeaponState& w = weaponState(g, ids[opt.startWeapon - 6]);
+        if (w.def->primary) g.primary = &w;
+        else g.secondary = &w;
+        g.switchTo = w.def->primary ? 1 : 2;
+    }
     g.weapon = &g.rifle;
     g.lastRenderEye = g.player.origin + Vec3{0, 0, kStandEye};
     g.lastDummyRenderPos.clear();
@@ -1925,6 +2027,178 @@ void pushHitLog(Game& g, const std::string& text, uint32_t color) {
     while (g.hitLog.size() > 5) g.hitLog.pop_back();
 }
 
+// ---- Inventory: skins, knives and cases (items.h). Saved in inventory.txt next to the game. ----
+Inventory g_inv;
+std::string g_invPath;    // empty: nothing is saved
+int g_caseKills = 25;     // config case_kills
+bool g_allSkins = false;  // config all_skins: every skin to pick from (testing)
+double g_uiTime = 0;      // real seconds (menus animate while the game is paused)
+
+void saveInventory() {
+    if (!g_invPath.empty()) g_inv.save(g_invPath);
+}
+
+// The paint for an equipped skin (pattern -1 = plain). The pattern's offset comes from the wear, so two of
+// the same skin rarely look exactly alike.
+PaintParams paintFor(const Equipped& e) {
+    PaintParams p;
+    if (e.skin < 0 || size_t(e.skin) >= allSkins().size()) return p;
+    const SkinDef& s = allSkins()[size_t(e.skin)];
+    auto rgb = [](uint32_t c, float (&out)[3]) {
+        out[0] = float((c >> 16) & 0xFF) / 255.0f;
+        out[1] = float((c >> 8) & 0xFF) / 255.0f;
+        out[2] = float(c & 0xFF) / 255.0f;
+    };
+    p.pattern = s.pattern;
+    rgb(s.a, p.a);
+    rgb(s.b, p.b);
+    rgb(s.c, p.c);
+    p.wear = e.wear;
+    p.gloss = s.gloss;
+    p.seed = std::fmod(e.wear * 977.0f, 10.0f);
+    return p;
+}
+
+// Puts what you have equipped on your weapons (and your knife in your hand).
+void applySkins(Game& g) {
+    for (int id = 0; id < kWeaponCount; ++id)
+        if (id != kWGrenade) g.vm.setSkin(viewWeaponFor(id), paintFor(g_inv.equip[id]));
+    const Equipped& k = g_inv.equip[kWKnife];
+    g.vm.setKnife(k.skin >= 0 && size_t(k.skin) < allSkins().size() ? allSkins()[size_t(k.skin)].knife : kKnifeDefault);
+}
+
+bool ownsSkin(int skin) {
+    if (g_allSkins) return true;
+    for (const Item& it : g_inv.items)
+        if (it.skin == skin) return true;
+    return false;
+}
+
+// With every skin unlocked switched off, take off anything you don't own.
+void validateEquips(Game& g) {
+    for (Equipped& e : g_inv.equip)
+        if (e.skin >= 0 && !ownsSkin(e.skin)) e = Equipped{};
+    applySkins(g);
+}
+
+// A kill of yours in a mode that counts (deathmatch, retakes, competitive, online; not the range, the aim
+// drill or prefire): towards the next case.
+void countCaseKill(Game& g) {
+    if (g.mapId != 1 || !(g.mode == 1 || g.mode == 2 || g.mode == 3 || g.mode == 5)) return;
+    if (g_inv.addKill(g_caseKills)) {
+        pushHitLog(g, "+1 CASE   ESC, INVENTORY TO OPEN IT", 0xe4ae39);
+        sound(g, Sfx::UiClick, 0.8f, 0.0f, 0.7f);
+    }
+    saveInventory();
+}
+
+// The inventory screen: a row per weapon, cycling through the skins you can put on it.
+const int kInvWeapons[] = {kWRifle, kWSniper, kWNova, kWMac10, kWPistol, kWBerettas, kWDeagle, kWKnife};
+const char* const kInvRowNames[] = {"RIFLE", "SNIPER", "NOVA", "MAC-10", "PISTOL", "DUAL BERETTAS", "DEAGLE", "KNIFE"};
+constexpr int kInvRows = 8;
+struct SkinChoice {
+    std::vector<Equipped> opts;
+    std::vector<std::string> names;
+    std::vector<const char*> labels;
+    int sel = 0;
+};
+SkinChoice g_choices[kInvRows];
+
+// "WILDFIRE (FT)", or for knives "KARAMBIT | FADE (FN)".
+std::string choiceName(const Equipped& e) {
+    if (e.skin < 0) return "DEFAULT";
+    const SkinDef& s = allSkins()[size_t(e.skin)];
+    std::string n = s.name;
+    if (s.weapon != kWKnife) n = n.substr(n.find("| ") + 2);
+    return n + " (" + wearShort(e.wear) + ")";
+}
+
+// Rebuilds every row's choices from what you own (or every skin, unlocked), selecting what's equipped.
+void refreshChoices() {
+    const std::vector<SkinDef>& skins = allSkins();
+    for (int r = 0; r < kInvRows; ++r) {
+        SkinChoice& ch = g_choices[r];
+        const int w = kInvWeapons[r];
+        ch.opts.assign(1, Equipped{});
+        if (g_allSkins) {
+            for (size_t k = 0; k < skins.size(); ++k)
+                if (skins[k].weapon == w) ch.opts.push_back({int(k), 0.02f});
+        } else {
+            for (const Item& it : g_inv.items)
+                if (it.skin >= 0 && skins[size_t(it.skin)].weapon == w) ch.opts.push_back({it.skin, it.wear});
+        }
+        const Equipped& on = g_inv.equip[w];
+        ch.sel = 0;
+        for (size_t k = 0; k < ch.opts.size(); ++k)
+            if (ch.opts[k].skin == on.skin && (g_allSkins || ch.opts[k].wear == on.wear)) ch.sel = int(k);
+        if (g_allSkins && on.skin >= 0 && ch.sel > 0) ch.opts[size_t(ch.sel)].wear = on.wear;
+        ch.names.clear();
+        for (const Equipped& e : ch.opts) ch.names.push_back(choiceName(e));
+        ch.labels.clear();
+        for (const std::string& n : ch.names) ch.labels.push_back(n.c_str());
+    }
+}
+
+// A row changed: equip its choice, show it, save.
+void choicesChanged(Game& g) {
+    for (int r = 0; r < kInvRows; ++r) {
+        const SkinChoice& ch = g_choices[r];
+        if (ch.sel >= 0 && ch.sel < int(ch.opts.size())) g_inv.equip[kInvWeapons[r]] = ch.opts[size_t(ch.sel)];
+    }
+    applySkins(g);
+    saveInventory();
+}
+
+// Opening a case: a reel of items spins under a marker and slows to a stop on what you got (rolled up front,
+// and saved straight away).
+struct CaseOpening {
+    bool active = false, revealed = false;
+    double start = 0;
+    std::vector<Item> reel;
+    int win = 38, item = -1, lastCard = -1;
+    float landing = 0.5f;  // where in the winning card the marker stops
+};
+CaseOpening g_case;
+uint32_t g_caseRng = 0x2545F491u;
+constexpr double kCaseSpin = 6.0;
+
+bool startCase() {
+    const int idx = g_inv.open(g_caseRng);
+    if (idx < 0) return false;
+    saveInventory();
+    g_case = CaseOpening{};
+    g_case.active = true;
+    g_case.item = idx;
+    g_case.start = g_uiTime;
+    for (int k = 0; k < 45; ++k) g_case.reel.push_back(rollCase(g_caseRng));
+    g_case.reel[size_t(g_case.win)] = g_inv.items[size_t(idx)];
+    g_case.landing = 0.15f + 0.7f * rollUnit(g_caseRng);
+    return true;
+}
+
+// The reel's position in cards (the marker is over card int(pos)): fast, then a long slow-down.
+float caseReelPos(double now) {
+    const double t = std::clamp((now - g_case.start) / kCaseSpin, 0.0, 1.0);
+    return float(1.0 - std::pow(1.0 - t, 4.0)) * (float(g_case.win) + g_case.landing);
+}
+
+// Every frame on the case screen: a tick per card going past, the reveal at the end.
+void caseTick(Game& g) {
+    if (!g_case.active || g_case.revealed) return;
+    const int card = int(caseReelPos(g_uiTime));
+    if (card != g_case.lastCard) {
+        g_case.lastCard = card;
+        sound(g, Sfx::UiClick, 0.3f, 0.0f, 1.5f);
+    }
+    if (g_uiTime - g_case.start >= kCaseSpin) {
+        g_case.revealed = true;
+        const int rarity = allSkins()[size_t(g_inv.items[size_t(g_case.item)].skin)].rarity;
+        sound(g, Sfx::UiClick, 0.9f, 0.0f, 0.6f);
+        sound(g, Sfx::HitHead, rarity >= kClassified ? 0.9f : 0.5f, 0.0f, rarity >= kCovert ? 0.7f : 1.0f);
+    }
+    g.hudDirty = true;
+}
+
 void simTick(Game& g, const Options& opt) {
     const bool* keys = SDL_GetKeyboardState(nullptr);
     MoveInput in;
@@ -1941,7 +2215,7 @@ void simTick(Game& g, const Options& opt) {
     if (compLive && !g.comp.youDead && (g.comp.phase == 0 || g.comp.planter == -1)) in = MoveInput{};  // freeze time, planting
 
     // Competitive: you only have what you bought (primary, grenades).
-    if (compLive && g.switchTo == 1 && !g.comp.ownRifle && !g.comp.ownSniper) g.switchTo = 0;
+    if (compLive && g.switchTo == 1 && g.comp.ownPrimary < 0) g.switchTo = 0;
     if (compLive && g.switchTo == 4) {
         int owned = 0;
         for (int n : g.comp.nades) owned += n > 0;
@@ -1961,7 +2235,7 @@ void simTick(Game& g, const Options& opt) {
     // Weapon switching / reload.
     if (g.switchTo) {
         WeaponState* target = g.switchTo == 1   ? g.primary
-                              : g.switchTo == 2 ? &g.pistol
+                              : g.switchTo == 2 ? g.secondary
                               : g.switchTo == 4 ? &g.grenade
                               : g.switchTo == 5 ? g.lastWeapon  // Q
                                                 : &g.knife;
@@ -2017,7 +2291,7 @@ void simTick(Game& g, const Options& opt) {
         sound(g, Sfx::Bolt, 0.8f, 0.0f, 0.9f);
         g.boltAt = -1;
     }
-    if (ws.reloadEndTime >= 0) {
+    if (ws.reloadEndTime >= 0 && !wd.shellReload) {
         // Reload sounds keyed to the animation: mag out, mag in, bolt.
         double progress = g.simTime - (ws.reloadEndTime - wd.reloadTime);
         const double cues[3] = {0.3, 1.4, 2.0};
@@ -2025,8 +2299,14 @@ void simTick(Game& g, const Options& opt) {
         while (g.reloadStage < 3 && progress >= cues[g.reloadStage]) sound(g, sfx[g.reloadStage++], 0.8f);
     }
     if (ws.reloadEndTime >= 0 && g.simTime >= ws.reloadEndTime) {
-        ws.ammo = wd.magSize;
-        ws.reloadEndTime = -1;
+        if (wd.shellReload) {  // one more shell, and on to the next until it's full
+            ws.ammo = std::min(ws.ammo + 1, wd.magSize);
+            sound(g, Sfx::MagIn, 0.7f, 0.0f, 1.35f);
+            ws.reloadEndTime = ws.ammo < wd.magSize ? g.simTime + wd.reloadTime : -1;
+        } else {
+            ws.ammo = wd.magSize;
+            ws.reloadEndTime = -1;
+        }
         g.hudDirty = true;
     }
 
@@ -2059,28 +2339,39 @@ void simTick(Game& g, const Options& opt) {
     g.recoilIndexPrev = ws.recoilIndex;
 
     bool fired = false;
+    // The Nova loads shell by shell: firing with shells in it stops the reload.
+    if (wantFire && wd.shellReload && ws.reloadEndTime >= 0 && ws.ammo > 0) ws.reloadEndTime = -1;
     if (wantFire && wd.canFire && ws.reloadEndTime < 0 && ws.ammo > 0 && takeShotTiming(ws, g.simTime)) {
-
         float hspeed = length2d(g.player.velocity);
-        ShotResult r = fireBullet(ws, g.lastRenderEye, float(g.viewPitch), float(g.viewYaw), hspeed,
-                                  g.player.onGround, g.player.ducked, g.world, g.dummies, g.lastDummyRenderPos);
+        ShotResult pellets[kMaxPellets];
+        int shotCount = 1;
+        if (wd.pellets > 1)
+            shotCount = firePellets(ws, g.lastRenderEye, float(g.viewPitch), float(g.viewYaw), hspeed, g.player.onGround,
+                                    g.player.ducked, g.world, g.dummies, g.lastDummyRenderPos, pellets);
+        else
+            pellets[0] = fireBullet(ws, g.lastRenderEye, float(g.viewPitch), float(g.viewYaw), hspeed, g.player.onGround,
+                                    g.player.ducked, g.world, g.dummies, g.lastDummyRenderPos);
         fired = true;
         ws.ammo--;
         g.shots++;
-        if (g.online && g.net.ready()) {
-            const uint8_t code = g.weapon == &g.pistol ? 1 : g.weapon == &g.sniper ? 4 : 0;
-            g.net.sendFire(g.lastRenderEye, r.end, code);
-            // A player (their game applies it), or a bot when you joined (the host's): tell them.
-            if (r.dummyIndex >= 0 && !(netHost(g) && isBot(g, size_t(r.dummyIndex))))
-                g.net.sendHit(uint8_t(r.dummyIndex), r.damage, uint8_t(r.group), code);
-        }
+        const uint8_t code = uint8_t(wd.id);
+        if (g.online && g.net.ready()) g.net.sendFire(g.lastRenderEye, pellets[0].end, code);
         makeNoise(g, g.player.origin, 2200.0f);
 
-        // Cosmetics: shot sound, weapon kick, tracer, impacts.
-        bool isPistol = &ws == &g.pistol;
+        // Cosmetics, once per shot: the sound, the weapon kick, brass.
+        const bool isPistol = !wd.primary;
         if (sniperOut) {
             sound(g, Sfx::SniperShot, 1.9f);  // your own gun: loud (the mixer soft-limits)
             g.boltAt = g.simTime + 0.55;  // stays scoped through the bolt cycle
+        } else if (wd.id == kWNova) {
+            sound(g, Sfx::SniperShot, 1.9f, 0.0f, 0.82f);  // a deep boom
+            g.boltAt = g.simTime + 0.3;                    // the pump
+        } else if (wd.id == kWDeagle) {
+            sound(g, Sfx::PistolShot, 1.9f, 0.0f, 0.72f);  // heavy
+        } else if (wd.id == kWMac10) {
+            sound(g, Sfx::RifleShot, 1.6f, 0.0f, 1.22f);   // light and fast
+        } else if (wd.id == kWBerettas) {
+            sound(g, Sfx::PistolShot, 1.45f, (g.shots & 1) ? -0.15f : 0.15f, 1.1f);  // left, right
         } else {
             sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 1.5f : 1.8f);
         }
@@ -2088,97 +2379,123 @@ void simTick(Game& g, const Options& opt) {
         // Spray feedback (cosmetic): a camera roll that builds through the spray, and brass flying out.
         float wob = float((ws.shotCounter * 2246822519u) >> 16 & 0xFFFF) / 65535.0f - 0.5f;
         if (g.viewShake && !sniperOut) {
-            g.camRoll = std::clamp(g.camRoll + wob * (0.5f + 0.06f * float(std::min(r.sprayIndex, 12))), -1.5f, 1.5f);
-            g.fovPunch = isPistol ? 0.7f : 1.0f;
+            g.camRoll = std::clamp(g.camRoll + wob * (0.5f + 0.06f * float(std::min(pellets[0].sprayIndex, 12))), -1.5f, 1.5f);
+            g.fovPunch = wd.id == kWNova || wd.id == kWDeagle ? 1.4f : isPistol ? 0.7f : 1.0f;
         }
-        if (!sniperOut) {
+        if (!sniperOut && wd.id != kWNova) {
             Vec3 fw = anglesToForward(float(g.viewPitch), float(g.viewYaw)), rt = yawToRight(float(g.viewYaw));
             g.fx.shell(g.lastRenderEye + fw * 20.0f + rt * 7.0f - Vec3{0, 0, 6},
                        rt * (110.0f + 50.0f * wob) + Vec3{0, 0, 120.0f} - fw * 25.0f + g.player.velocity);
         }
-        g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
-        Vec3 shotDir = normalize(r.end - r.start);
-        if (r.dummyIndex >= 0 && r.group == kHead && !r.kill && g.dummies[size_t(r.dummyIndex)].helmet) {
-            sound(g, Sfx::HelmetHit, 0.8f);  // a headshot the helmet stopped
-            g.fx.blood(r.end, normalize(r.end - r.start));
-        } else if (r.dummyIndex >= 0) {
-            sound(g, r.group == kHead ? Sfx::HitHead : Sfx::HitBody, r.group == kHead ? 0.9f : 0.75f);
-            g.fx.blood(r.end, shotDir);
-        } else if (r.hitWorld) {
-            if (g.audio && r.worldBox >= 0) {  // the impact, by what it hit
-                const uint8_t m = g.world.solids[size_t(r.worldBox)].material;
-                g.audio->play3D(m == kMatWood ? Sfx::ImpactWood : m == kMatMetal ? Sfx::ImpactMetal : Sfx::ImpactStone, r.end,
-                                g.lastRenderEye, float(g.viewYaw), 1800.0f, 0.55f);
-            }
-            // Far impacts are drawn bigger so you can see where a spray lands at range.
-            g.fx.impact(r.end, r.normal, 0x5c6168, std::clamp(r.distance / 450.0f, 1.0f, 4.0f));
-        }
-        for (int k = 0; k < r.penCount; ++k) {  // wallbang: debris on both sides of each wall
-            g.fx.impact(r.penEntry[k], r.penNormal[k], 0x5c6168);
-            g.fx.impact(r.penExit[k], -r.penNormal[k], 0x5c6168);
-        }
 
-        if (r.dummyIndex >= 0) {
-            g.hits++;
-            if (r.group == kHead) g.headshots++;
-            char buf[96];
-            std::snprintf(buf, sizeof(buf), "%s %d%s%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
-                          r.kill ? "  KILL" : "", r.penCount ? "  WALLBANG" : "", r.distance * 0.0254f);
-            pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
-            if (r.kill) botDied(g, size_t(r.dummyIndex));
-            if (!r.kill && g.mode >= 2) {  // a retake / competitive bot you hit turns on you
-                BotBrain& b = g.bots[size_t(r.dummyIndex)];
-                b.alertUntil = g.simTime + 2.0;
-                b.lastSeen = g.player.origin;
+        // Each bullet (the Nova: each pellet): tracer, impacts, hits.
+        int hitCount = 0, hitHeads = 0;
+        float hitDamage = 0;
+        bool anyKill = false;
+        for (int k = 0; k < shotCount; ++k) {
+            const ShotResult& r = pellets[k];
+            if (k == 0 || k % 3 == 0) g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
+            if (g.online && g.net.ready() && k > 0 && k % 3 == 0) g.net.sendFire(g.lastRenderEye, r.end, code);
+            // A player (their game applies it), or a bot when you joined (the host's): tell them.
+            if (g.online && g.net.ready() && r.dummyIndex >= 0 && !(netHost(g) && isBot(g, size_t(r.dummyIndex))))
+                g.net.sendHit(uint8_t(r.dummyIndex), r.damage, uint8_t(r.group), code);
+            Vec3 shotDir = normalize(r.end - r.start);
+            if (r.dummyIndex >= 0 && r.group == kHead && !r.kill && g.dummies[size_t(r.dummyIndex)].helmet) {
+                if (k == 0 || shotCount == 1) sound(g, Sfx::HelmetHit, 0.8f);  // a headshot the helmet stopped
+                g.fx.blood(r.end, shotDir);
+            } else if (r.dummyIndex >= 0) {
+                if (hitCount == 0) sound(g, r.group == kHead ? Sfx::HitHead : Sfx::HitBody, r.group == kHead ? 0.9f : 0.75f);
+                g.fx.blood(r.end, shotDir);
+            } else if (r.hitWorld) {
+                if (g.audio && r.worldBox >= 0 && (k == 0 || k % 4 == 0)) {  // the impact, by what it hit
+                    const uint8_t m = g.world.solids[size_t(r.worldBox)].material;
+                    g.audio->play3D(m == kMatWood ? Sfx::ImpactWood : m == kMatMetal ? Sfx::ImpactMetal : Sfx::ImpactStone, r.end,
+                                    g.lastRenderEye, float(g.viewYaw), 1800.0f, 0.55f);
+                }
+                // Far impacts are drawn bigger so you can see where a spray lands at range.
+                g.fx.impact(r.end, r.normal, 0x5c6168, std::clamp(r.distance / 450.0f, 1.0f, 4.0f));
             }
-            if (r.kill && g.mode == 1 && g.mapId == 1 && ws.ammo < wd.magSize) {  // deathmatch: a kill gives 10 rounds
-                ws.ammo = std::min(ws.ammo + 10, wd.magSize);
-                pushHitLog(g, "+10 ROUNDS", 0x60c0ff);
+            for (int p = 0; p < r.penCount; ++p) {  // wallbang: debris on both sides of each wall
+                g.fx.impact(r.penEntry[p], r.penNormal[p], 0x5c6168);
+                g.fx.impact(r.penExit[p], -r.penNormal[p], 0x5c6168);
             }
-            if (r.kill && g.botsFire && g.deadUntil < 0 && g.hp < 100.0f && g.mode != 3 && g.mode != 4) {  // a kill heals you
-                g.hp = std::min(100.0f, g.hp + 40.0f);
-                pushHitLog(g, "+40 HP", 0x60ff60);
-            }
-            {
-                const Dummy& hitDummy = g.dummies[size_t(r.dummyIndex)];
-                float hpBefore = hitDummy.hp + r.damage;  // fireBullet already took it off
-                recordDamage(g, -1, r.dummyIndex, std::min(r.damage, std::max(0.0f, hpBefore)), r.group == kHead,
-                             wd.name, r.penCount > 0, r.kill);
-            }
-            if (g.mode == 1) {
-                BotBrain& b = g.bots[size_t(r.dummyIndex)];
-                if (!r.kill) {  // hit but alive: they turn on you
+
+            if (r.dummyIndex >= 0) {
+                ++hitCount;
+                hitHeads += r.group == kHead;
+                hitDamage += r.damage;
+                anyKill = anyKill || r.kill;
+                if (wd.pellets <= 1) {
+                    char buf[96];
+                    std::snprintf(buf, sizeof(buf), "%s %d%s%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
+                                  r.kill ? "  KILL" : "", r.penCount ? "  WALLBANG" : "", r.distance * 0.0254f);
+                    pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
+                }
+                if (r.kill) botDied(g, size_t(r.dummyIndex));
+                if (!r.kill && g.mode >= 2) {  // a retake / competitive bot you hit turns on you
+                    BotBrain& b = g.bots[size_t(r.dummyIndex)];
                     b.alertUntil = g.simTime + 2.0;
                     b.lastSeen = g.player.origin;
-                    if (b.state != 2) { b.state = 3; b.path.clear(); }
                 }
+                if (r.kill && g.mode == 1 && g.mapId == 1 && ws.ammo < wd.magSize) {  // deathmatch: a kill gives 10 rounds
+                    ws.ammo = std::min(ws.ammo + 10, wd.magSize);
+                    pushHitLog(g, "+10 ROUNDS", 0x60c0ff);
+                }
+                if (r.kill && g.botsFire && g.deadUntil < 0 && g.hp < 100.0f && g.mode != 3 && g.mode != 4) {  // a kill heals you
+                    g.hp = std::min(100.0f, g.hp + 40.0f);
+                    pushHitLog(g, "+40 HP", 0x60ff60);
+                }
+                {
+                    const Dummy& hitDummy = g.dummies[size_t(r.dummyIndex)];
+                    float hpBefore = hitDummy.hp + r.damage;  // fireBullet already took it off
+                    recordDamage(g, -1, r.dummyIndex, std::min(r.damage, std::max(0.0f, hpBefore)), r.group == kHead,
+                                 wd.name, r.penCount > 0, r.kill);
+                }
+                if (g.mode == 1) {
+                    BotBrain& b = g.bots[size_t(r.dummyIndex)];
+                    if (!r.kill) {  // hit but alive: they turn on you
+                        b.alertUntil = g.simTime + 2.0;
+                        b.lastSeen = g.player.origin;
+                        if (b.state != 2) { b.state = 3; b.path.clear(); }
+                    }
+                }
+                if (r.kill && g.drill && g.dummies[size_t(r.dummyIndex)].respawns > 0) {
+                    g.lastTtk = g.simTime - g.aliveSince[size_t(r.dummyIndex)];
+                    g.drillTtkSum += g.lastTtk;
+                    g.drillKills++;
+                }
+            } else if (r.hitWorld) {
+                // Decal color follows the spray index (yellow first shot -> red late spray).
+                float t = float(r.sprayIndex) / float(std::max(1, wd.patternLen - 1));
+                uint32_t col = lerpColor(0xffe650, 0xe02828, t);
+                float hs = 1.4f * std::clamp(r.distance / 700.0f, 1.0f, 3.0f);  // readable far away too
+                Vec3 c = r.end + r.normal * 0.6f, h{hs, hs, hs};
+                g.pendingDecals.push_back(makeBox(c - h, c + h, col, false));
             }
-            if (r.kill && g.drill && g.dummies[size_t(r.dummyIndex)].respawns > 0) {
-                g.lastTtk = g.simTime - g.aliveSince[size_t(r.dummyIndex)];
-                g.drillTtkSum += g.lastTtk;
-                g.drillKills++;
+            for (int p = 0; p < r.penCount; ++p) {
+                Vec3 h{1.4f, 1.4f, 1.4f}, c = r.penEntry[p] + r.penNormal[p] * 0.6f;
+                g.pendingDecals.push_back(makeBox(c - h, c + h, 0xffe650, false));
             }
+        }
+        if (wd.pellets > 1 && hitCount > 0) {  // the shotgun: one line for the whole shot
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "%d/%d PELLETS %d%s%s", hitCount, shotCount, int(hitDamage + 0.5f),
+                          hitHeads ? "  HEAD" : "", anyKill ? "  KILL" : "");
+            pushHitLog(g, buf, hitHeads ? 0xff6060 : 0xffffff);
+        }
+        if (hitCount > 0) {
+            g.hits++;
+            if (hitHeads) g.headshots++;
             // Hit feedback: a tick you can hear over the gunfire and an X that pops on the crosshair
             // (red for the head, bigger and longer on a kill).
             g.hitMarkerStart = g.simTime;
-            g.hitMarkerUntil = g.simTime + (r.kill ? 0.22 : 0.14);
-            g.hitMarkerHead = r.group == kHead;
-            g.hitMarkerKill = r.kill;
-            if (g.hitSound) sound(g, Sfx::HitMarker, r.kill ? 0.5f : 0.35f, 0.0f, r.kill ? 0.85f : 1.0f);
-        } else if (r.hitWorld) {
-            // Decal color follows the spray index (yellow first shot -> red late spray).
-            float t = float(r.sprayIndex) / float(std::max(1, wd.patternLen - 1));
-            uint32_t col = lerpColor(0xffe650, 0xe02828, t);
-            float hs = 1.4f * std::clamp(r.distance / 700.0f, 1.0f, 3.0f);  // readable far away too
-            Vec3 c = r.end + r.normal * 0.6f, h{hs, hs, hs};
-            g.pendingDecals.push_back(makeBox(c - h, c + h, col, false));
-        }
-        for (int k = 0; k < r.penCount; ++k) {
-            Vec3 h{1.4f, 1.4f, 1.4f}, c = r.penEntry[k] + r.penNormal[k] * 0.6f;
-            g.pendingDecals.push_back(makeBox(c - h, c + h, 0xffe650, false));
+            g.hitMarkerUntil = g.simTime + (anyKill ? 0.22 : 0.14);
+            g.hitMarkerHead = hitHeads > 0;
+            g.hitMarkerKill = anyKill;
+            if (g.hitSound) sound(g, Sfx::HitMarker, anyKill ? 0.5f : 0.35f, 0.0f, anyKill ? 0.85f : 1.0f);
         }
         if (ws.ammo == 0) {
-            ws.reloadEndTime = g.simTime + wd.reloadTime;
+            ws.reloadEndTime = g.simTime + wd.reloadTime + (wd.shellReload ? 0.3 : 0.0);
             g.reloadStage = 0;
             g.zoom = 0;
             g.resumeZoomAt = -1;
@@ -2286,7 +2603,7 @@ void simTick(Game& g, const Options& opt) {
             me.yaw = float(g.viewYaw);
             me.pitch = float(g.viewPitch);
             me.flags = uint8_t(g.deadUntil < 0 ? kNetAlive : 0);
-            me.weapon = g.weapon == &g.pistol ? 1 : g.weapon == &g.knife ? 2 : g.weapon == &g.grenade ? 3 : g.weapon == &g.sniper ? 4 : 0;
+            me.weapon = uint8_t(g.weapon->def->id);
             me.duck = uint8_t(std::lround(std::clamp(g.player.duckAmount, 0.0f, 1.0f) * 255.0f));
             g.net.sendState(me);
         }
@@ -2817,9 +3134,10 @@ struct MenuItem {
 enum MenuScreen {
     kMenuNone, kMenuMain, kMenuPause, kMenuPlay, kMenuSettings, kMenuControls,
     kMenuMouse, kMenuCrosshair, kMenuWeapon, kMenuVideo, kMenuGameplay,  // settings pages, in order
+    kMenuInventory, kMenuCase,
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
-                  kActGoto = 100 };
+                  kActOpenCase, kActSkipCase, kActEquipNew, kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
 
 // Which screen is up (kMenuNone = playing), the highlighted row, and where Back ends up:
@@ -2839,8 +3157,6 @@ const char* const kMapNames[] = {"THE LAB", "DUST2"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE", "ONLINE"};
 const char* const kRouteNames[] = {"A LONG", "B TUNNELS", "MID", "A SHORT"};
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
-const char* const kKnifeNames[] = {"BUTTERFLY", "KARAMBIT", "M9 BAYONET", "TALON"};
-const char* const kFinishNames[] = {"FACTORY", "CRIMSON", "ARCTIC", "JUNGLE", "GOLD"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
 const char* const kNetGameNames[] = {"DEATHMATCH", "COMPETITIVE"};
 const char* const kNetTeamNames[] = {"SPLIT BETWEEN THE SIDES", "ALL ON ONE SIDE VS BOTS"};
@@ -2865,6 +3181,8 @@ const char* menuTitle(int screen) {
         case kMenuWeapon: return "WEAPONS + SKINS";
         case kMenuVideo: return "VIDEO + SOUND";
         case kMenuGameplay: return "GAMEPLAY";
+        case kMenuInventory: return "INVENTORY";
+        case kMenuCase: return "CASE";
         default: return "";
     }
 }
@@ -2878,14 +3196,15 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
     const MenuItem back = button("BACK", kActBack);
     switch (screen) {
         case kMenuMain:
-            return {button("PLAY", goTo(kMenuPlay)), button("SETTINGS", goTo(kMenuSettings)),
-                    button("CONTROLS", goTo(kMenuControls)), button("QUIT", kActQuit)};
+            return {button("PLAY", goTo(kMenuPlay)), button("INVENTORY", goTo(kMenuInventory)),
+                    button("SETTINGS", goTo(kMenuSettings)), button("CONTROLS", goTo(kMenuControls)), button("QUIT", kActQuit)};
         case kMenuPause: {
             std::vector<MenuItem> r = {button("RESUME", kActResume), button("CHANGE MODE OR MAP", goTo(kMenuPlay))};
             if (mode == 0) r.push_back(button("RESET POSITION", kActReset));
             if (mode == 4) r.push_back(button("RESTART ROUTE", kActReset));
-            r.insert(r.end(), {button("SETTINGS", goTo(kMenuSettings)), button("CONTROLS", goTo(kMenuControls)),
-                               button("MAIN MENU", kActMainMenu), button("QUIT", kActQuit)});
+            r.insert(r.end(), {button("INVENTORY", goTo(kMenuInventory)), button("SETTINGS", goTo(kMenuSettings)),
+                               button("CONTROLS", goTo(kMenuControls)), button("MAIN MENU", kActMainMenu),
+                               button("QUIT", kActQuit)});
             return r;
         }
         case kMenuPlay: {
@@ -2964,8 +3283,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"RADAR", nullptr, &c.radar, 1, 0, 1, kOnOff},
                     back};
         case kMenuWeapon:
-            return {{"KNIFE", nullptr, &c.knife, 1, 0, 3, kKnifeNames},
-                    {"GUN FINISH", nullptr, &c.finish, 1, 0, 4, kFinishNames},
+            return {button("SKINS, KNIVES AND CASES", goTo(kMenuInventory)),
                     {"VIEWMODEL FOV", &c.viewmodel_fov, nullptr, 1.0f, 50.0f, 90.0f},
                     {"VIEWMODEL BOB", &c.viewmodel_bob, nullptr, 0.1f, 0.0f, 2.0f},
                     {"SHOW VIEWMODEL", nullptr, &c.show_viewmodel, 1, 0, 1, kOnOff},
@@ -2982,6 +3300,26 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
                     {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
                     back};
+        case kMenuInventory: {  // a row per weapon: the skins you own for it (left / right to change)
+            static std::string caseLabel;
+            caseLabel = g_inv.cases > 0 ? "OPEN A CASE (" + std::to_string(g_inv.cases) + ")" : std::string("OPEN A CASE (NONE YET)");
+            std::vector<MenuItem> r = {button(caseLabel.c_str(), kActOpenCase)};
+            for (int k = 0; k < kInvRows; ++k) {
+                SkinChoice& ch = g_choices[k];
+                r.push_back({kInvRowNames[k], nullptr, &ch.sel, 1, 0, float(std::max(0, int(ch.labels.size()) - 1)),
+                             ch.labels.data()});
+            }
+            r.push_back({"ALL SKINS UNLOCKED (TESTING)", nullptr, &c.all_skins, 1, 0, 1, kOnOff});
+            r.push_back(back);
+            return r;
+        }
+        case kMenuCase: {
+            if (!g_case.revealed) return {button("SKIP", kActSkipCase)};
+            static std::string again;
+            again = "OPEN ANOTHER (" + std::to_string(g_inv.cases) + " LEFT)";
+            return {button("EQUIP IT", kActEquipNew), button(again.c_str(), kActOpenCase),
+                    button("BACK TO INVENTORY", goTo(kMenuInventory))};
+        }
         default: return {};
     }
 }
@@ -3020,6 +3358,10 @@ MenuLayout menuLayout(int screen, size_t rows, int w, int h, int s) {
     const float panelH = L.rowH * (3.0f + float(rows) + 1.5f) + extra;
     L.x = float(w / 2) - L.w / 2;
     L.top = std::max(float(h) / 2 - panelH / 2, 16.0f * float(s));
+    if (screen == kMenuInventory || screen == kMenuCase) {  // on the left: the weapon's shown on the right
+        L.x = 24.0f * float(s);
+        if (screen == kMenuCase) L.top = std::max(float(h) * 0.5f, float(h) - panelH - 24.0f * float(s));
+    }
     L.rowsY = L.top + L.rowH * 3.0f + extra;
     L.bottom = L.top + panelH;
     return L;
@@ -3084,12 +3426,124 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
     hud.text(L.x, L.rowsY + (float(rows.size()) + 0.5f) * L.rowH, hint, 0x909090FF);
 }
 
+// The inventory and case screens: where the turning weapon is shown (pixels), and what goes there.
+struct Stage {
+    float x = 0, y = 0, w = 0, h = 0;
+    bool show = false;
+    int weapon = kWRifle;  // WeaponId
+    Equipped item;
+};
+Stage showcaseStage(const Config& cfg, int w, int h) {
+    Stage st;
+    const int s = hudScale(cfg, h);
+    const float fs = float(s);
+    const float left = 24.0f * fs + 300.0f * fs + 30.0f * fs;  // right of the menu panel
+    if (g_menu.screen == kMenuInventory) {
+        st.x = left;
+        st.y = 40.0f * fs;
+        st.w = float(w) - st.x - 24.0f * fs;
+        st.h = float(h) - st.y - 70.0f * fs;
+        const int row = g_menu.sel - 1;  // row 0 opens a case; then one per weapon
+        if (row >= 0 && row < kInvRows) {
+            const SkinChoice& ch = g_choices[row];
+            st.show = true;
+            st.weapon = kInvWeapons[row];
+            if (ch.sel >= 0 && ch.sel < int(ch.opts.size())) st.item = ch.opts[size_t(ch.sel)];
+        }
+    } else if (g_menu.screen == kMenuCase && g_case.revealed && g_case.item >= 0) {
+        st.x = left;
+        st.y = float(h) * 0.24f + 60.0f * fs;
+        st.w = float(w) - st.x - 24.0f * fs;
+        st.h = float(h) - st.y - 40.0f * fs;
+        const Item& it = g_inv.items[size_t(g_case.item)];
+        st.show = true;
+        st.weapon = allSkins()[size_t(it.skin)].weapon;
+        st.item = {it.skin, it.wear};
+    }
+    return st;
+}
+
+// The stage's backdrop and the item's name, rarity and wear (the weapon itself is 3D, drawn after the HUD).
+void drawStageHud(HudBatch& hud, const Stage& st, int s) {
+    const float fs = float(s);
+    hud.rect(st.x, st.y, st.w, st.h, 0x0C0E12F0);
+    hud.rect(st.x, st.y, st.w, 2.0f * fs, 0x2A2F38FF);
+    if (!st.show) return;
+    std::string name = st.item.skin >= 0 ? allSkins()[size_t(st.item.skin)].name
+                       : st.weapon == kWKnife  ? std::string("KNIFE (DEFAULT)")
+                                               : std::string(weaponDef(st.weapon).name) + " (DEFAULT)";
+    const uint32_t col = st.item.skin >= 0 ? (rarityColor(allSkins()[size_t(st.item.skin)].rarity) << 8) | 0xFF : 0xC8C8C8FF;
+    const float ty = st.y + st.h - 40.0f * fs;
+    hud.rect(st.x, ty - 6.0f * fs, st.w, 46.0f * fs, 0x08090CF0);
+    hud.rect(st.x, ty - 6.0f * fs, st.w, 3.0f * fs, col);
+    hud.text(st.x + 12.0f * fs, ty, name, col, s * 2);
+    if (st.item.skin >= 0) {
+        char line[96];
+        std::snprintf(line, sizeof(line), "%s   %s   FLOAT %.4f", rarityName(allSkins()[size_t(st.item.skin)].rarity),
+                      wearName(st.item.wear), double(st.item.wear));
+        hud.text(st.x + 12.0f * fs, ty + 20.0f * fs, line, 0xB0B0B0FF);
+    }
+}
+
+// The case screen: the reel of cards sliding under the marker, then what you got.
+void drawCaseHud(HudBatch& hud, int w, int h, int s) {
+    const float fs = float(s), cy = float(h) * 0.24f, cardW = 104.0f * fs, cardH = 64.0f * fs, gap = 6.0f * fs;
+    hud.rect(0, cy - cardH * 0.5f - 12.0f * fs, float(w), cardH + 24.0f * fs, 0x0A0C10F0);
+    const float pos = g_case.revealed ? float(g_case.win) + g_case.landing : caseReelPos(g_uiTime);
+    const std::vector<SkinDef>& skins = allSkins();
+    for (size_t k = 0; k < g_case.reel.size(); ++k) {
+        const float x = float(w) * 0.5f + (float(k) - pos) * (cardW + gap);
+        if (x + cardW < 0 || x > float(w)) continue;
+        const SkinDef& sk = skins[size_t(g_case.reel[k].skin)];
+        const uint32_t rc = (rarityColor(sk.rarity) << 8) | 0xFF;
+        const bool won = g_case.revealed && int(k) == g_case.win;
+        hud.rect(x, cy - cardH * 0.5f, cardW, cardH, won ? 0x262B34FF : 0x181B21FF);
+        hud.rect(x, cy + cardH * 0.5f - 6.0f * fs, cardW, 6.0f * fs, rc);
+        hud.rect(x, cy - cardH * 0.5f, cardW, cardH * 0.55f, (rc & 0xFFFFFF00u) | 0x30);  // a wash of its colour
+        if (sk.rarity == kRareSpecial && !won) {  // the gold: which knife stays a secret until it lands
+            hud.text(x + 8.0f * fs, cy - 18.0f * fs, "RARE", rc);
+            hud.text(x + 8.0f * fs, cy - 6.0f * fs, "SPECIAL ITEM", rc);
+        } else {
+            const std::string& n = sk.name;
+            const size_t bar = n.find(" | ");
+            const std::string top = bar == std::string::npos ? n : n.substr(0, bar);
+            const std::string bottom = bar == std::string::npos ? "" : n.substr(bar + 3);
+            hud.text(x + 8.0f * fs, cy - 18.0f * fs, top, 0xB8B8B8FF);
+            hud.text(x + 8.0f * fs, cy - 6.0f * fs, bottom, 0xFFFFFFFF);
+        }
+    }
+    hud.rect(float(w) * 0.5f - 1.0f * fs, cy - cardH * 0.5f - 10.0f * fs, 2.0f * fs, cardH + 20.0f * fs, 0xFFD060FF);  // marker
+    if (!g_case.revealed) {
+        const char* t = "OPENING...";
+        hud.text(float(w) * 0.5f - hud.textWidth(t, s * 2) * 0.5f, cy + cardH * 0.5f + 20.0f * fs, t, 0xFFD060FF, s * 2);
+    }
+}
+
+// Over the menu on the inventory and case screens: the reel, the stage and your case count.
+void drawMenuExtras(HudBatch& hud, const Config& cfg, int w, int h, int s) {
+    if (g_menu.screen != kMenuInventory && g_menu.screen != kMenuCase) return;
+    if (g_menu.screen == kMenuCase) drawCaseHud(hud, w, h, s);
+    const Stage st = showcaseStage(cfg, w, h);
+    if (g_menu.screen == kMenuInventory || st.show) drawStageHud(hud, st, s);
+    if (g_menu.screen == kMenuInventory) {
+        char line[120];
+        std::snprintf(line, sizeof(line), "CASES %d   NEXT CASE IN %d KILLS (DEATHMATCH, RETAKES, COMPETITIVE, ONLINE)",
+                      g_inv.cases, std::max(1, g_caseKills) - g_inv.progress);
+        hud.text(st.x + 12.0f * float(s), st.y + 10.0f * float(s), line, 0xFFD060FF);
+        if (!st.show) {
+            const char* t = "PICK A WEAPON ON THE LEFT, LEFT / RIGHT FOR ITS SKINS";
+            hud.text(st.x + st.w * 0.5f - hud.textWidth(t) * 0.5f, st.y + st.h * 0.5f, t, 0x808080FF);
+        }
+    }
+}
+
 void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats& st, int w, int h) {
     hud.clear();
     int s = hudScale(cfg, h);
     hud.fontScale = s;
     if (g_menu.screen != kMenuNone && g_menu.root == kMenuMain) {  // main menu: no game HUD behind it
         drawMenu(hud, cfg, g.mode, w, h, s);
+        drawMenuExtras(hud, cfg, w, h, s);
         return;
     }
     const float lh = 10.0f * s;
@@ -3433,32 +3887,34 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
                       c.kit ? "   KIT" : "", c.carrier == -1 ? "   C4" : "");
         hud.text(16.0f * s, float(h) - 36.0f * s, kit, 0x80FF80FF);
     }
-    if (g.buyMenu && g.mode == 3 && g.mapId == 1) {
+    if (g.buyMenu) {  // the buy menu: categories, then the items in one (competitive: for money)
+        const bool comp = g.mode == 3 && g.mapId == 1;
         const Game::Comp& c = g.comp;
-        struct Row { const char* name; int price; bool have; };
-        const Row rows[] = {{"RIFLE", 2700, c.ownRifle}, {"SNIPER", 4750, c.ownSniper}, {"KEVLAR", 650, c.armor > 0},
-                            {"KEVLAR + HELMET", c.armor > 0 && !c.helmet ? 350 : 1000, c.helmet},
-                            {"SMOKE", 300, c.nades[0] >= 1}, {"FLASHBANG", 200, c.nades[1] >= 2},
-                            {"HE GRENADE", 300, c.nades[2] >= 1}, {"MOLOTOV", 400, c.nades[3] >= 1},
-                            {"DEFUSE KIT (CT)", 400, c.kit || c.youTeam != 1}};
+        const int cat = g.buyCategory;
+        const std::vector<BuyEntry> entries = buyEntries(cat);
+        const int rows = cat == 0 ? (comp ? 6 : 4) : int(entries.size());
         float rowH = 11.0f * s, px = cx - 110.0f * s, py = cy + 30.0f * s;
-        hud.rect(px - 10 * s, py - 10 * s, 240.0f * s, rowH * 12 + 20 * s, 0x15181CE0);
-        std::snprintf(buf, sizeof(buf), "BUY MENU   $%d", c.money);
-        hud.text(px, py, buf, 0xFFD060FF);
-        for (int k = 0; k < 9; ++k) {
-            char line[64];
-            std::snprintf(line, sizeof(line), "%d  %-16s $%d%s", k + 1, rows[k].name, rows[k].price, rows[k].have ? "  OWNED" : "");
-            uint32_t col = rows[k].have ? 0x808080FF : c.money >= rows[k].price ? 0xFFFFFFFF : 0xFF6060FF;
+        hud.rect(px - 10 * s, py - 10 * s, 240.0f * s, rowH * float(rows + 4) + 20 * s, 0x15181CE0);
+        std::string title = comp ? "BUY MENU   $" + std::to_string(c.money) : std::string("BUY MENU   FREE HERE");
+        if (cat > 0) title += std::string("   ") + kBuyCategories[cat - 1];
+        hud.text(px, py, title, 0xFFD060FF);
+        for (int k = 0; k < rows; ++k) {
+            char line[80];
+            uint32_t col = 0xFFFFFFFF;
+            if (cat == 0) {
+                std::snprintf(line, sizeof(line), "%d  %s", k + 1, kBuyCategories[k]);
+            } else {
+                const BuyEntry& e = entries[size_t(k)];
+                const bool have = comp ? buyOwned(g, e)
+                                       : e.weapon >= 0 && (weaponDef(e.weapon).primary ? g.primary : g.secondary)->def->id == e.weapon;
+                const int price = buyPrice(g, e);
+                if (comp) std::snprintf(line, sizeof(line), "%d  %-16s $%d%s", k + 1, e.name, price, have ? "  OWNED" : "");
+                else std::snprintf(line, sizeof(line), "%d  %-16s%s", k + 1, e.name, have ? "  <" : "");
+                col = have && comp ? 0x808080FF : !comp || c.money >= price ? 0xFFFFFFFF : 0xFF6060FF;
+            }
             hud.text(px, py + rowH * (1.5f + float(k)), line, col);
         }
-        hud.text(px, py + rowH * 11.0f, "B OR ESC TO CLOSE", 0xA0A0A0FF);
-    } else if (g.buyMenu) {
-        float rowH = 11.0f * s, px = cx - 90.0f * s, py = cy + 40.0f * s;
-        hud.rect(px - 10 * s, py - 10 * s, 200.0f * s, rowH * 5 + 20 * s, 0x15181CE0);
-        hud.text(px, py, "BUY: PRIMARY WEAPON", 0xFFD060FF);
-        hud.text(px, py + rowH * 1.5f, g.primary == &g.rifle ? "1  RIFLE  <" : "1  RIFLE", 0xFFFFFFFF);
-        hud.text(px, py + rowH * 2.5f, g.primary == &g.sniper ? "2  SNIPER  <" : "2  SNIPER", 0xFFFFFFFF);
-        hud.text(px, py + rowH * 4.0f, "B OR ESC TO CLOSE", 0xA0A0A0FF);
+        hud.text(px, py + rowH * (float(rows) + 2.5f), cat > 0 ? "ESC BACK   B CLOSE" : "B OR ESC TO CLOSE", 0xA0A0A0FF);
     }
     if (g.kzState == 2 || g.kzLast >= 0) {
         if (g.kzState == 2) std::snprintf(buf, sizeof(buf), "KZ %.2f", g.simTime - g.kzStart);
@@ -3508,6 +3964,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
 
     if (g_menu.screen != kMenuNone) drawMenu(hud, cfg, g.mode, w, h, s);
+    drawMenuExtras(hud, cfg, w, h, s);
     if (g_menu.screen != kMenuNone && g.mapId == 1 && g.online && g.net.isHost()) {
         // Hosting, with the menu open: the address to give friends, once the router has (or hasn't) opened the
         // port. Over the menu, at the top (never during play).
@@ -3626,6 +4083,14 @@ int main(int argc, char** argv) {
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     applyConfig(g, cfg);
+    // Your skins and cases (inventory.txt next to the game).
+    g_invPath = std::string(base ? base : "") + "inventory.txt";
+    g_inv.load(g_invPath);
+    g_caseKills = std::clamp(cfg.case_kills, 1, 1000);
+    g_allSkins = cfg.all_skins != 0;
+    g_caseRng ^= uint32_t(SDL_GetPerformanceCounter()) | 1u;
+    for (int k = 0; k < opt.giveCases; ++k) g_inv.addKill(1);  // (tests: --give-cases N)
+    validateEquips(g);
     g.mode = cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     setDustScale(float(cfg.dust_scale) / 100.0f);
@@ -3633,6 +4098,8 @@ int main(int argc, char** argv) {
     // Settings changed (menu, config reload): a new Dust size rebuilds the map right away.
     auto settingsChanged = [&]() {
         applyConfig(g, cfg);
+        g_caseKills = std::clamp(cfg.case_kills, 1, 1000);
+        g_allSkins = cfg.all_skins != 0;
         if (setDustScale(float(cfg.dust_scale) / 100.0f) && g.mapId == 1) loadMap(g, renderer, 1);
     };
     if (opt.spawnOverride) {
@@ -3651,11 +4118,11 @@ int main(int argc, char** argv) {
         if (screen == kMenuPlay) {  // the play screen starts from what's running now
             g_gameMenu.map = g.mapId;
             g_gameMenu.mode = g.online ? 5 : g.mode;
-
             g_gameMenu.bots = g.botsFire;
             g_gameMenu.drill = g.drill;
             g_gameMenu.route = g.pf.route;
         }
+        if (screen == kMenuInventory) refreshChoices();
         g_menu.screen = screen;
         g_menu.sel = 0;
         paused = screen != kMenuNone;
@@ -3702,7 +4169,9 @@ int main(int argc, char** argv) {
     };
     auto menuBack = [&]() {
         const int from = g_menu.screen;
-        if (from >= kMenuMouse) {
+        if (from == kMenuCase) {
+            setMenu(kMenuInventory);
+        } else if (from >= kMenuMouse && from <= kMenuGameplay) {
             setMenu(kMenuSettings);
             g_menu.sel = from - kMenuMouse;  // back on the page you came from
         } else if (from == kMenuPause) {
@@ -3740,6 +4209,14 @@ int main(int argc, char** argv) {
             sound(g, Sfx::UiClick, 0.35f, 0.0f, 1.15f);
             settingsChanged();
             saveConfig(cfgPath, cfg);
+            if (g_menu.screen == kMenuInventory) {  // a skin picked (or every skin unlocked / locked again)
+                if (it.i == &cfg.all_skins) {
+                    validateEquips(g);
+                    refreshChoices();
+                } else {
+                    choicesChanged(g);
+                }
+            }
             return;
         }
         if (!press) return;
@@ -3758,6 +4235,27 @@ int main(int argc, char** argv) {
                 pushHitLog(g, "CONFIG RELOADED", 0x80ff80);
                 break;
             case kActQuit: running = false; break;
+            case kActOpenCase:
+                if (startCase()) {
+                    setMenu(kMenuCase);
+                } else {
+                    char msg[80];
+                    std::snprintf(msg, sizeof(msg), "NO CASES YET: %d MORE KILLS FOR THE NEXT ONE", g_caseKills - g_inv.progress);
+                    pushHitLog(g, msg, 0xffd060);
+                }
+                break;
+            case kActSkipCase: g_case.start = g_uiTime - kCaseSpin; break;
+            case kActEquipNew:
+                if (g_case.item >= 0 && size_t(g_case.item) < g_inv.items.size()) {
+                    const Item& it2 = g_inv.items[size_t(g_case.item)];
+                    g_inv.equip[allSkins()[size_t(it2.skin)].weapon] = {it2.skin, it2.wear};
+                    applySkins(g);
+                    saveInventory();
+                    refreshChoices();
+                    pushHitLog(g, "EQUIPPED " + allSkins()[size_t(it2.skin)].name, rarityColor(allSkins()[size_t(it2.skin)].rarity));
+                }
+                break;
+
             case kActBack: menuBack(); break;
             case kActMainMenu:
                 if (g.online) {  // leaving an online game: back to an offline map behind the menu
@@ -3933,9 +4431,14 @@ int main(int argc, char** argv) {
                     if (!inGame) break;
                     if (g.audio) {
                         const bool far = length(ev.a - g.lastRenderEye) > 1400.0f;
-                        const Sfx s = far ? Sfx::RifleShotFar : ev.weapon == 1 ? Sfx::PistolShot : ev.weapon == 4 ? Sfx::SniperShot : Sfx::RifleShot;
-                        g.audio->play3D(s, ev.a, g.lastRenderEye, float(g.viewYaw), far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f,
-                                        ev.weapon == 1 && ev.from >= kNetMaxPlayers ? 1.3f : 1.0f);
+                        // By gun: the pistols and the Deagle, the Nova's boom, the sniper, the MAC-10 and rifle.
+                        const int w = ev.weapon;
+                        const bool pistolSound = w == kWPistol || w == kWBerettas || w == kWDeagle;
+                        const Sfx s = far ? Sfx::RifleShotFar : pistolSound ? Sfx::PistolShot
+                                                          : w == kWSniper || w == kWNova ? Sfx::SniperShot : Sfx::RifleShot;
+                        const float pitch = w == kWDeagle ? 0.72f : w == kWNova ? 0.82f : w == kWMac10 ? 1.22f
+                                          : w == kWBerettas ? 1.1f : w == kWPistol && ev.from >= kNetMaxPlayers ? 1.3f : 1.0f;
+                        g.audio->play3D(s, ev.a, g.lastRenderEye, float(g.viewYaw), far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f, pitch);
                         // Close past your head: you hear it go by.
                         const Vec3 eye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)}, dir = normalize(ev.b - ev.a);
                         const float t = dot(eye - ev.a, dir);
@@ -4057,6 +4560,8 @@ int main(int argc, char** argv) {
         double dt = double(frameStart - last) / freq;
         last = frameStart;
         if (automated && !bench) dt = 1.0 / 240.0;  // deterministic steps for screenshots/tests
+        g_uiTime += dt;
+        if (g_menu.screen == kMenuCase) caseTick(g);
         if (bench) {  // a slow turn with the rifle firing on and off, like play
             g.viewYaw = wrapDeg(float(g.viewYaw) + float(dt) * 720.0f / opt.benchSeconds);
             g.fireHeld = std::fmod(benchStats.elapsed, 3.0) < 1.2;
@@ -4133,7 +4638,11 @@ int main(int argc, char** argv) {
                         if (e.key.repeat && !(paused && arrow)) break;  // held arrows repeat in the menu
                     }
                     SDL_Scancode sc = e.key.scancode;
-                    if (sc == SDL_SCANCODE_ESCAPE && g.buyMenu && !paused) { g.buyMenu = false; g.hudDirty = true; }
+                    if (sc == SDL_SCANCODE_ESCAPE && g.buyMenu && !paused) {  // back to the categories, then shut
+                        if (g.buyCategory > 0) g.buyCategory = 0;
+                        else g.buyMenu = false;
+                        g.hudDirty = true;
+                    }
                     else if (sc == SDL_SCANCODE_ESCAPE) {
                         if (paused) menuBack();
                         else setMenu(kMenuPause);
@@ -4164,15 +4673,22 @@ int main(int argc, char** argv) {
                             g.hudDirty = true;
                         } else if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
-                        else if (g.buyMenu && g.mode == 3 && g.mapId == 1 && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) {
-                            const char* msg = compBuy(g, int(sc - SDL_SCANCODE_1));  // competitive: pay for it
-                            if (msg[0]) pushHitLog(g, msg, 0xffd060);
-                            g.hudDirty = true;
-                        }
-                        else if (g.buyMenu && (sc == SDL_SCANCODE_1 || sc == SDL_SCANCODE_2)) {
-                            g.primary = sc == SDL_SCANCODE_1 ? &g.rifle : &g.sniper;
-                            g.switchTo = 1;  // like buying in CS: you're holding it straight away
-                            g.buyMenu = false;
+                        else if (g.buyMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) {
+                            const bool comp = g.mode == 3 && g.mapId == 1;
+                            const int k = int(sc - SDL_SCANCODE_1) + 1;
+                            if (g.buyCategory == 0) {  // open a category (outside competitive: the guns only)
+                                if (k <= (comp ? 6 : 4)) g.buyCategory = k;
+                            } else if (comp) {  // competitive: pay for it
+                                const char* msg = compBuy(g, g.buyCategory, k - 1);
+                                if (msg[0]) pushHitLog(g, msg, 0xffd060);
+                            } else {  // free: take it, holding it straight away like buying in CS
+                                const std::vector<BuyEntry> entries = buyEntries(g.buyCategory);
+                                if (k - 1 < int(entries.size()) && entries[size_t(k - 1)].weapon >= 0) {
+                                    takeGun(g, entries[size_t(k - 1)].weapon);
+                                    g.buyMenu = false;
+                                    g.buyCategory = 0;
+                                }
+                            }
                             g.hudDirty = true;
                         }
                         else if (sc == SDL_SCANCODE_1) g.switchTo = 1;
@@ -4185,7 +4701,11 @@ int main(int argc, char** argv) {
                             const bool comp = g.mode == 3 && g.mapId == 1;
                             const bool canBuy = !comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
                                                           length2d(g.player.origin - g.spawn) < 700.0f);
-                            if (canBuy) g.buyMenu = !g.buyMenu;
+                            if (canBuy) {
+                                g.buyMenu = !g.buyMenu;
+                                g.buyCategory = 0;
+                            }
+
                             else pushHitLog(g, "YOU CAN ONLY BUY IN YOUR SPAWN DURING BUY TIME", 0xffd060);
                             g.hudDirty = true;
                         }
@@ -4229,7 +4749,9 @@ int main(int argc, char** argv) {
         if (automated && opt.bots && frame == 1) g.botsFire = true;
         if (automated && opt.menuScreen > 0 && frame == 60) {
             g_menu.root = opt.menuScreen == kMenuMain ? kMenuMain : kMenuPause;
+            if (opt.menuScreen == kMenuCase) startCase();  // (needs --give-cases)
             setMenu(opt.menuScreen);
+            g_menu.sel = opt.menuRow;
         }
 
         for (const BoxInstance& d : g.pendingDecals) renderer.addDecal(d);
@@ -4342,18 +4864,36 @@ int main(int argc, char** argv) {
             part({-5.4f, -8.3f, 0.0f}, {5.4f, 8.3f, 6.0f}, 0x1d1a17);      // boots
             // What they hold (weapons are the one thing allowed outside the hitboxes, like CS).
             switch (d.weapon) {
-                case 1:  // pistol: a short slide between the hands
+                case kWPistol:  // pistol: a short slide between the hands
                     part({-17.5f, -1.0f, 47.0f}, {-11.0f, 1.0f, 49.6f}, 0x1e2024);
                     part({-13.0f, -0.8f, 44.5f}, {-11.2f, 0.8f, 47.0f}, 0x26282c);
                     break;
-                case 2:  // knife
+                case kWDeagle:  // a bigger, chunkier pistol
+                    part({-19.0f, -1.3f, 47.0f}, {-10.8f, 1.3f, 50.4f}, 0x3a3d42);
+                    part({-13.2f, -1.0f, 44.0f}, {-11.0f, 1.0f, 47.0f}, 0x26282c);
+                    break;
+                case kWBerettas:  // a pistol in each hand
+                    part({-17.5f, -12.6f, 47.0f}, {-11.5f, -10.8f, 49.4f}, 0x8a9098);
+                    part({-19.5f, 10.8f, 47.0f}, {-13.5f, 12.6f, 49.4f}, 0x8a9098);
+                    break;
+                case kWNova:  // a long pump shotgun
+                    part({-17.0f, -1.5f, 45.5f}, {-6.6f, 1.5f, 49.5f}, 0x1e2024);
+                    part({-33.0f, -0.7f, 47.0f}, {-17.0f, 0.7f, 48.6f}, 0x111214);
+                    part({-24.0f, -1.2f, 45.2f}, {-17.0f, 1.2f, 47.2f}, 0x2a2c30);
+                    break;
+                case kWMac10:  // a stubby box with a long mag
+                    part({-17.0f, -1.6f, 46.0f}, {-9.0f, 1.6f, 50.0f}, 0x26282c);
+                    part({-14.0f, -0.8f, 41.0f}, {-12.0f, 0.8f, 46.0f}, 0x1a1b1e);
+                    break;
+                case kWKnife:  // knife
                     part({-14.0f, -0.6f, 46.5f}, {-11.0f, 0.6f, 48.5f}, 0x2a2420);
                     part({-21.0f, -0.25f, 46.8f}, {-14.0f, 0.25f, 48.2f}, 0xb8bcc2);
                     break;
-                case 3:  // grenade in the hand
+                case kWGrenade:  // grenade in the hand
                     part({-15.5f, -1.8f, 46.0f}, {-12.0f, 1.8f, 50.0f}, 0x3b4a2f);
                     break;
-                case 4:  // sniper: long barrel, scope on top
+                case kWSniper:  // sniper: long barrel, scope on top
+
                     part({-17.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x2c3326);
                     part({-36.0f, -0.6f, 47.2f}, {-17.0f, 0.6f, 48.4f}, 0x111214);
                     part({-15.0f, -1.0f, 49.5f}, {-8.0f, 1.0f, 51.5f}, 0x0e0f10);
@@ -4480,7 +5020,7 @@ int main(int argc, char** argv) {
             g.vm.build(eye, camPitch, camYaw, cfg.viewmodel_offset_x, cfg.viewmodel_offset_y, cfg.viewmodel_offset_z,
                        cfg.viewmodel_bob, modelDraws);
             renderer.clearDepth();
-            for (const ModelDraw& md : modelDraws) renderer.drawModel(vmViewProj, md.model, md.boxes);
+            for (const ModelDraw& md : modelDraws) renderer.drawModel(vmViewProj, md.model, md.boxes, &md.paint);
         }
 
         const uint64_t tDraw = SDL_GetPerformanceCounter();
@@ -4495,6 +5035,29 @@ int main(int argc, char** argv) {
             hitMarkerShownUntil = g.simTime < g.hitMarkerUntil ? g.hitMarkerUntil : 0;
         }
         renderer.drawHud(hud, rebuild);
+        // The inventory / case stage: the weapon turning in front of its backdrop, over the HUD.
+        if (g_menu.screen == kMenuInventory || g_menu.screen == kMenuCase) {
+            const Stage st = showcaseStage(cfg, pixW, pixH);
+            if (st.show && pixW > 0 && pixH > 0) {
+                const float sv = std::tan(20.0f * kDegToRad), sh = sv * aspect, dist = 60.0f;
+                // The stage's middle (a little above, clear of the name) in camera space.
+                const float px = st.x + st.w * 0.5f, py = st.y + st.h * 0.44f;
+                const Vec3 centre{(px / float(pixW) * 2.0f - 1.0f) * sh * dist, (1.0f - py / float(pixH) * 2.0f) * sv * dist, -dist};
+                // Long guns fill most of the stage; the MAC-10, knives and pistols are shown smaller, like CS.
+                const float room = std::min(st.w / float(pixW) * 2.0f * sh, st.h / float(pixH) * 2.0f * sv * 1.6f) * dist;
+                const int sw = st.weapon;
+                const float size = room * (sw == kWRifle || sw == kWSniper || sw == kWNova ? 0.85f
+                                           : sw == kWMac10 ? 0.5f : sw == kWKnife ? 0.55f : 0.42f);
+                const Equipped& it = st.item;
+                const int knife = st.weapon == kWKnife && it.skin >= 0 ? allSkins()[size_t(it.skin)].knife : kKnifeDefault;
+                modelDraws.clear();
+                ViewModel::buildShowcase(viewWeaponFor(st.weapon), knife, paintFor(it), eye, camPitch, camYaw,
+                                         float(std::fmod(g_uiTime * 25.0, 360.0)), centre, size, modelDraws);
+                const Mat4 stageProj = perspective(40.0f * kDegToRad, aspect, 1.0f, 512.0f) * viewFromAngles(eye, camPitch, camYaw);
+                renderer.clearDepth();
+                for (const ModelDraw& md : modelDraws) renderer.drawModel(stageProj, md.model, md.boxes, &md.paint);
+            }
+        }
 
         const uint64_t tHud = SDL_GetPerformanceCounter();
         if (bench) glFinish();  // so GPU time shows up as GPU, not inside the next frame

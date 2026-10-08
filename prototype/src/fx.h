@@ -6,7 +6,8 @@
 #include "render.h"
 #include "vecmath.h"
 
-enum class ViewWeapon { Rifle, Pistol, Sniper, Knife, Grenade };
+enum class ViewWeapon { Rifle, Pistol, Sniper, Knife, Grenade, Berettas, Deagle, Nova, Mac10 };
+constexpr int kViewWeapons = 9;
 
 struct ViewModelInput {
     float dt;                  // frame time
@@ -21,6 +22,7 @@ struct ViewModelInput {
 struct ModelDraw {
     Mat4 model;
     std::vector<BoxInstance> boxes;
+    PaintParams paint;  // the skin on its painted parts (pattern -1: none)
 };
 
 class ViewModel {
@@ -30,9 +32,14 @@ public:
     void onDraw(ViewWeapon w);
     // Inspect (F): show the weapon off. Cancelled by firing, reloading or switching.
     void inspect();
-    // Cosmetics: 0 butterfly, 1 karambit, 2 M9 bayonet, 3 talon; gun finish 0 factory .. 4.
+    // Cosmetics: the knife (items.h KnifeType) and the skin on each weapon (pattern -1 = plain).
     void setKnife(int k) { knife_ = k; }
-    void setFinish(int f) { finish_ = f; }
+    void setSkin(ViewWeapon w, const PaintParams& p) { skins_[int(w)] = p; }
+    const PaintParams& skin(ViewWeapon w) const { return skins_[int(w)]; }
+    // A weapon on its own, turning slowly in front of the camera (the inventory and case screens), centred
+    // at `centre` in camera space (x right, y up, -z ahead), `size` = its length on screen in those units.
+    static void buildShowcase(ViewWeapon w, int knife, const PaintParams& paint, const Vec3& eye, float pitchDeg,
+                              float yawDeg, float spinDeg, const Vec3& centre, float size, std::vector<ModelDraw>& out);
     void setGrenade(int type) { grenade_ = type; }  // 0 smoke, 1 flash, 2 HE, 3 molotov
     // Grenade pin pulled, waiting for the release: 0 no, 1 overhand (Mouse 1), 2 underhand lob (Mouse 2), 3 both.
     void setPrimed(int how) { primed_ = how; if (how) primedPose_ = how; }
@@ -54,12 +61,15 @@ private:
     float sinceShot_ = 1;      // seconds since the last shot
     int shotsInRow_ = 0;       // consecutive shots in this spray (kick builds up)
     float inspectT_ = -1;      // seconds into the inspect animation, < 0 when not inspecting
-    int knife_ = 0, finish_ = 0, grenade_ = 0;
+    int knife_ = 0, grenade_ = 0;
+    PaintParams skins_[kViewWeapons];
+
     int primed_ = 0, primedPose_ = 1;
     float primeT_ = 0;         // 0..1 ease into the wind-up pose
     float inspectLength() const;
     float flashLeft_ = 0;
     uint32_t flashSeed_ = 0;
+    uint32_t shotIndex_ = 0;  // the Berettas fire left and right in turn
     float reloadT_ = -1, reloadTime_ = 1;
 };
 
