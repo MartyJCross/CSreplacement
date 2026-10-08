@@ -3265,30 +3265,6 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             std::snprintf(buf, sizeof(buf), "ONLINE DEATHMATCH   KILLS %d   DEATHS %d", g.you.kills, g.you.deaths);
             hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
         }
-        if (g.net.isHost() && (g.mode == 5 || g.showScores || g.comp.phase == 0)) {
-            // The address to give friends, once the router has (or hasn't) opened the port (competitive: in buy
-            // time and on the scoreboard).
-            const PortStatus ps = g.ports.status();
-            const std::string port = g.netPort == kNetDefaultPort ? "" : ":" + std::to_string(g.netPort);
-            std::string a, b;
-            if (ps.state == PortStatus::Working) {
-                a = "OPENING PORT " + std::to_string(g.netPort) + " ON YOUR ROUTER...";
-            } else if (ps.state == PortStatus::Opened && ps.note.empty()) {
-                a = "FRIENDS JOIN: " + ps.publicIp + port + "     SAME HOUSE: " + ps.localIp + port;
-            } else {
-                a = "SAME HOUSE: " + (ps.localIp.empty() ? std::string("YOUR PC'S IP") : ps.localIp) + port +
-                    "     OVER THE INTERNET: ZEROTIER, OR FORWARD UDP " + std::to_string(g.netPort);
-                b = ps.note;
-            }
-            auto line = [&](const std::string& t, float y, uint32_t col) {  // on a dark strip: readable on the sky
-                const float tw = hud.textWidth(t);
-                hud.rect(cx - tw / 2 - 6.0f * s, y - 2.0f * s, tw + 12.0f * s, 12.0f * s, 0x101216B0);
-                hud.text(cx - tw / 2, y, t, col);
-            };
-            const float y0 = g.mode == 5 ? 44.0f : 70.0f;  // (competitive: under the clock and the round text)
-            line(a, y0 * s, 0xFFD060FF);
-            if (!b.empty()) line(b, (y0 + 13.0f) * s, 0xFFA070FF);
-        }
     }
     if (g.mapId == 1 && g.mode == 1) {
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
@@ -3532,7 +3508,31 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
 
     if (g_menu.screen != kMenuNone) drawMenu(hud, cfg, g.mode, w, h, s);
+    if (g_menu.screen != kMenuNone && g.mapId == 1 && g.online && g.net.isHost()) {
+        // Hosting, with the menu open: the address to give friends, once the router has (or hasn't) opened the
+        // port. Over the menu, at the top (never during play).
+        const PortStatus ps = g.ports.status();
+        const std::string port = g.netPort == kNetDefaultPort ? "" : ":" + std::to_string(g.netPort);
+        std::string a, b;
+        if (ps.state == PortStatus::Working) {
+            a = "OPENING PORT " + std::to_string(g.netPort) + " ON YOUR ROUTER...";
+        } else if (ps.state == PortStatus::Opened && ps.note.empty()) {
+            a = "FRIENDS JOIN: " + ps.publicIp + port + "     SAME HOUSE: " + ps.localIp + port;
+        } else {
+            a = "SAME HOUSE: " + (ps.localIp.empty() ? std::string("YOUR PC'S IP") : ps.localIp) + port +
+                "     OVER THE INTERNET: ZEROTIER, OR FORWARD UDP " + std::to_string(g.netPort);
+            b = ps.note;
+        }
+        auto line = [&](const std::string& t, float y, uint32_t col) {
+            const float tw = hud.textWidth(t);
+            hud.rect(cx - tw / 2 - 6.0f * s, y - 2.0f * s, tw + 12.0f * s, 12.0f * s, 0x101216E0);
+            hud.text(cx - tw / 2, y, t, col);
+        };
+        line(a, 8.0f * s, 0xFFD060FF);
+        if (!b.empty()) line(b, 21.0f * s, 0xFFA070FF);
+    }
 }
+
 
 int fatal(const std::string& msg, SDL_Window* window, bool showBox) {
     std::fprintf(stderr, "error: %s\n", msg.c_str());

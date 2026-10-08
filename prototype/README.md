@@ -142,7 +142,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 Deathmatch or competitive on Dust with friends, up to 8 players. One of you hosts from the game; the others join.
 
 1. **Your name:** Play -> MODE: ONLINE -> **YOUR NAME** (select it and type). It shows in the kill feed and on the scoreboard.
-2. **Host:** pick the **GAME** (`net_game`): DEATHMATCH (players only) or COMPETITIVE (below), then **HOST A GAME**. The first time, Windows asks whether Crisp may use the network: allow it. The game then asks your router to open the port by itself (UPnP) and shows, at the top of the screen, **the address to give your friends** ("FRIENDS JOIN: ..."), or what's in the way if it can't:
+2. **Host:** pick the **GAME** (`net_game`): DEATHMATCH (players only) or COMPETITIVE (below), then **HOST A GAME**. The first time, Windows asks whether Crisp may use the network: allow it. The game then asks your router to open the port by itself (UPnP) and shows, at the top of the screen while the Esc menu is open, **the address to give your friends** ("FRIENDS JOIN: ..."), or what's in the way if it can't:
    - *"your router sits behind another one"*: your ISP's box is a router too. Forward UDP 27015 on that one to your router's address (shown), or put it in bridge mode, or use ZeroTier;
    - *"carrier-grade NAT"*: your provider shares one address between customers; nobody can reach you directly: use ZeroTier;
    - *"no router answered"*: UPnP is off on your router: turn it on, forward UDP 27015 by hand, or use ZeroTier.
