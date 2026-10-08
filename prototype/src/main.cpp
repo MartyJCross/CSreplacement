@@ -221,6 +221,8 @@ struct Game {
         Vec3 stagePoint;                    // where the T bots gather before they execute
         bool executing = false, rotated = false;  // rotated: the CTs heard the site get hit
         double executeAt = 0;
+        const char* lastSpot = "";          // teammate radio: the last place an enemy was called out
+        double lastSpotAt = -100;
         int route = 0;                      // the T plan: 0 A long, 1 A through catwalk, 2 B tunnels
         // The execute's utility: a T bot throws `type` at `target` once it has a throw that gets there.
         struct Throw { int bot; int type; Vec3 target; double from, until, nextTry; };
@@ -1111,6 +1113,29 @@ bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
 void compTick(Game& g) {
     Game::Comp& c = g.comp;
     const double now = g.simTime;
+    // Teammate radio: what the bots on your side see and do, as short lines in the top-right feed.
+    auto radio = [&](int bot, const std::string& msg) {
+        if (bot >= 0 && size_t(bot) < g.team.size() && g.team[size_t(bot)] == c.youTeam)
+            pushHitLog(g, "BOT " + std::to_string(bot + 1) + ": " + msg, 0x90e0a0);
+    };
+    auto firstAlive = [&](int side) {
+        for (size_t i = 0; i < g.dummies.size(); ++i)
+            if (g.dummies[i].alive() && g.team[i] == side) return int(i);
+        return -1;
+    };
+    if (c.phase == 1)  // enemy spotted: once per place, and not more than every few seconds
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            const BotBrain& b = g.bots[i];
+            if (!g.dummies[i].alive() || g.team[i] != c.youTeam || !b.sees || b.target < 0) continue;
+            const char* where = dustCallout(g.dummies[size_t(b.target)].pos);
+            const bool fresh = std::strcmp(where, c.lastSpot) != 0 ? now - c.lastSpotAt > 2.0 : now - c.lastSpotAt > 8.0;
+            if (where[0] && fresh) {
+                radio(int(i), std::string("ENEMY SPOTTED: ") + where);
+                c.lastSpot = where;
+                c.lastSpotAt = now;
+            }
+            break;
+        }
     if (c.phase == 0) {
         if (now >= c.phaseEnd) { c.phase = 1; c.phaseEnd = now + kCompRoundTime; g.hudDirty = true; }
         return;
@@ -1138,6 +1163,7 @@ void compTick(Game& g) {
             if (g.dummies[i].alive() && g.team[i] == 0 && length2d(g.dummies[i].pos - c.stagePoint) > 200.0f) gathered = false;
         if (gathered || now >= c.executeAt) {
             c.executing = true;
+            radio(c.carrier >= 0 ? c.carrier : firstAlive(0), c.siteTarget == 0 ? "GOING A" : "GOING B");
             if (!g_compLog.empty())
                 std::ofstream(g_compLog, std::ios::app)
                     << "  execute " << (c.siteTarget == 0 ? "A" : "B") << (gathered ? " (gathered)" : " (timer)")
@@ -1197,6 +1223,7 @@ void compTick(Game& g) {
             hit |= g.dummies[i].alive() && g.team[i] == 0 && length2d(g.dummies[i].pos - bombSpot) < onSite;
         if (hit) {
             c.rotated = true;
+            radio(firstAlive(1), c.siteTarget == 0 ? "THEY'RE ON A, ROTATING" : "THEY'RE ON B, ROTATING");
             const RetakeSite& s = sites[size_t(c.siteTarget)];
             int k = 0;
             for (size_t i = 0; i < g.dummies.size(); ++i) {
@@ -1226,7 +1253,11 @@ void compTick(Game& g) {
         if (c.carrier >= 0) {  // a bot carrier walks to the bomb spot and plants there
             const Dummy& d = g.dummies[size_t(c.carrier)];
             if (length2d(d.pos - bombSpot) < 40.0f) {
-                if (c.planter != c.carrier) { c.planter = c.carrier; c.plantStart = now; }
+                if (c.planter != c.carrier) {
+                    c.planter = c.carrier;
+                    c.plantStart = now;
+                    radio(c.carrier, "PLANTING THE BOMB");
+                }
             } else if (c.executing && g.bots[size_t(c.carrier)].state != 2) {
                 sendBot(g, size_t(c.carrier), bombSpot, true);
             }
@@ -1311,6 +1342,7 @@ void compTick(Game& g) {
             }
             if (nearest >= 0 && best < 40.0f) {
                 c.defuser = nearest;
+                radio(nearest, "DEFUSING");
                 c.botDefuseStart = now;
                 if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.9f);
             } else if (nearest >= 0) {
