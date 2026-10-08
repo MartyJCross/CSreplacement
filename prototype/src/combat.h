@@ -103,6 +103,7 @@ struct ShotResult {
     float damage = 0;
     bool kill = false;
     bool hitWorld = false;
+    int worldBox = -1;       // the World::solids box it ended in (material for the impact sound)
     float distance = 0;
     int sprayIndex = 0;
     // Wallbangs: walls the bullet passed through (entry/exit points for decals).

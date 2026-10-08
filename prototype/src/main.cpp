@@ -164,6 +164,10 @@ struct Game {
     float hp = 100;
     int deaths = 0;
     double hurtUntil = 0, deadUntil = -1;
+    // Where your last few hits came from (the red arcs round the crosshair).
+    Vec3 hurtFrom[4];
+    double hurtAt[4] = {-1, -1, -1, -1};
+    int hurtNext = 0;
     std::vector<float> botSeen, botCooldown;
     Vec3 eyeHistory[64];
     int histHead = 0;
@@ -651,6 +655,11 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
     if (attacker >= 0) recordDamage(g, attacker, -1, std::min(dmg, std::max(0.0f, g.hp)), head, weapon, false, dies);
     g.hp -= dmg;
     g.hurtUntil = g.simTime + 0.25;
+    if (attacker >= 0 && size_t(attacker) < g.dummies.size()) {  // damage direction: an arc pointing at the shooter
+        g.hurtFrom[g.hurtNext] = g.dummies[size_t(attacker)].pos;
+        g.hurtAt[g.hurtNext] = g.simTime;
+        g.hurtNext = (g.hurtNext + 1) % 4;
+    }
     sound(g, Sfx::HitBody, 0.9f, 0.0f, 0.7f);
     g.hudDirty = true;
     if (!dies) return false;
@@ -1580,10 +1589,18 @@ void simTick(Game& g, const Options& opt) {
         }
         g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
         Vec3 shotDir = normalize(r.end - r.start);
-        if (r.dummyIndex >= 0) {
+        if (r.dummyIndex >= 0 && r.group == kHead && !r.kill && g.dummies[size_t(r.dummyIndex)].helmet) {
+            sound(g, Sfx::HelmetHit, 0.8f);  // a headshot the helmet stopped
+            g.fx.blood(r.end, normalize(r.end - r.start));
+        } else if (r.dummyIndex >= 0) {
             sound(g, r.group == kHead ? Sfx::HitHead : Sfx::HitBody, r.group == kHead ? 0.9f : 0.75f);
             g.fx.blood(r.end, shotDir);
         } else if (r.hitWorld) {
+            if (g.audio && r.worldBox >= 0) {  // the impact, by what it hit
+                const uint8_t m = g.world.solids[size_t(r.worldBox)].material;
+                g.audio->play3D(m == kMatWood ? Sfx::ImpactWood : m == kMatMetal ? Sfx::ImpactMetal : Sfx::ImpactStone, r.end,
+                                g.lastRenderEye, float(g.viewYaw), 1800.0f, 0.55f);
+            }
             // Far impacts are drawn bigger so you can see where a spray lands at range.
             g.fx.impact(r.end, r.normal, 0x5c6168, std::clamp(r.distance / 450.0f, 1.0f, 4.0f));
         }
@@ -1993,6 +2010,14 @@ void simTick(Game& g, const Options& opt) {
     g.histHead = (g.histHead + 1) & 63;
     if (g.deadUntil >= 0 && g.simTime >= g.deadUntil) g.deadUntil = -1;
     const bool comp = g.mode == 3 && g.mapId == 1;
+    // A bot's bullet from `from` along `dir` (to distance `len`) that missed you but passed close: you hear it go by.
+    auto nearMiss = [&](const Vec3& from, const Vec3& dir, float len) {
+        if (!g.audio || g.deadUntil >= 0 || g.noclip) return;
+        const float t = dot(simEye - from, dir);
+        if (t < 60.0f || t > len) return;
+        const Vec3 p = from + dir * t;
+        if (length(p - simEye) < 56.0f) g.audio->play3D(Sfx::Whiz, p, simEye, float(g.viewYaw), 300.0f, 0.8f);
+    };
     if (g.botsFire && (comp || (g.deadUntil < 0 && !g.noclip))) {
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             const Dummy& d = g.dummies[i];
@@ -2027,6 +2052,7 @@ void simTick(Game& g, const Options& opt) {
                                     far ? 6500.0f : 4000.0f, far ? 0.8f : 0.6f, rifle ? 1.0f : 1.3f);
                 }
                 g.fx.tracer(head + dir * 20.0f, head + dir * (hitIt ? t : maxT));
+                nearMiss(head, dir, hitIt ? t : maxT);
                 if (hitIt) {
                     Dummy& vm = g.dummies[size_t(tgt)];
                     float base = (rifle ? 36.0f : 25.0f) * hitGroupDamageScale(grp);
@@ -2063,6 +2089,7 @@ void simTick(Game& g, const Options& opt) {
                                 far ? 6500.0f : 4000.0f, far ? 1.0f : 0.75f);
             }
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
+            if (!hit) nearMiss(head, dir, bestT);
             if (i < g.spottedUntil.size()) g.spottedUntil[i] = g.simTime + 1.0;  // shooting gives you away
             float dmg = hit == 2 ? 100.0f : 26.0f;
             if (comp && hit) {  // competitive: real weapon damage, and your armor counts
@@ -2514,6 +2541,18 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         std::snprintf(buf, sizeof(buf), "HP %.0f", double(std::max(0.0f, g.hp)));
         hud.text(16.0f * s, float(h) - 24.0f * s, buf, g.hp > 30 ? 0xFFFFFFFF : 0xFF5050FF, s * 2);
         if (g.simTime < g.hurtUntil) hud.rect(0, 0, float(w), float(h), 0xC0000040);
+        // Damage direction (like CS): a red arc round the crosshair towards whoever shot you, fading over 1.2 s.
+        for (int k = 0; k < 4; ++k) {
+            const double age = g.simTime - g.hurtAt[k];
+            if (g.hurtAt[k] < 0 || age > 1.2) continue;
+            const float rel = (yawTo(g.player.origin, g.hurtFrom[k]) - float(g.viewYaw)) * kDegToRad;
+            const uint32_t a = uint32_t(200.0f * (1.0f - float(age) / 1.2f));
+            for (int q = -4; q <= 4; ++q) {  // the arc: dots 3 degrees apart, thicker in the middle
+                const float ang = rel + float(q) * 3.0f * kDegToRad, r = 78.0f * float(s);
+                const float sz = (std::abs(q) <= 1 ? 4.0f : std::abs(q) <= 3 ? 3.0f : 2.0f) * float(s);
+                hud.rect(cx - std::sin(ang) * r - sz / 2, cy - std::cos(ang) * r - sz / 2, sz, sz, 0xE0202000u | a);
+            }
+        }
         if (g.deadUntil >= 0 && g.mode != 3) {
             const char* dead = "YOU DIED";
             hud.text(cx - hud.textWidth(dead, s * 3) / 2, cy - 60.0f * s, dead, 0xFF4040FF, s * 3);

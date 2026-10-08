@@ -15,6 +15,9 @@ enum class Sfx {
     FootstepWood, FootstepMetal,  // steps on crates/doors and on the container/car
     FlashBang, FlashRing, Explosion, Fire,  // grenades: flash pop, your ears ringing, HE, molotov crackle
     BombBeep, Defuse,                       // the planted bomb's beep; the defuse kit clicking on
+    ImpactStone, ImpactWood, ImpactMetal,   // your bullet hitting the world, by material
+    HelmetHit,                              // a headshot stopped by a helmet: a bright "tink"
+    Whiz,                                   // a bot's bullet passing close to your head
     Count
 };
 

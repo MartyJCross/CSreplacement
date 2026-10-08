@@ -272,6 +272,7 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
         if (hitDummy) { res.hitWorld = false; break; }
         res.normal = wt.normal;
         res.hitWorld = wt.fraction < 1.0f;
+        res.worldBox = res.hitWorld ? wt.box : -1;
         if (!res.hitWorld || wt.box < 0 || res.penCount >= 2) break;
 
         // Thickness of the box along the ray.
