@@ -48,6 +48,7 @@ struct Options {
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
     int inspectFrame = -1;                       // --inspect N: start an inspect on frame N (screenshots)
     int nadeType = 0;                            // --nade T: grenade type for --smoke (0 smoke .. 3 molotov)
+    int dieFrame = -1;                           // --die N: you die on frame N (screenshots of death / spectating)
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -71,6 +72,8 @@ Options parseArgs(int argc, char** argv) {
             o.bots = true;
         } else if (a == "--nade") {
             o.nadeType = std::atoi(next());
+        } else if (a == "--die") {
+            o.dieFrame = std::atoi(next());
         } else if (a == "--inspect") {
             o.inspectFrame = std::atoi(next());
         } else if (a == "--bench") {
@@ -164,6 +167,7 @@ struct Game {
     float hp = 100;
     int deaths = 0;
     double hurtUntil = 0, deadUntil = -1;
+    int spec = -1;  // competitive, dead: the teammate (bot index) you're watching, -1 = flying free
     // Where your last few hits came from (the red arcs round the crosshair).
     Vec3 hurtFrom[4];
     double hurtAt[4] = {-1, -1, -1, -1};
@@ -352,6 +356,7 @@ void makeNoise(Game& g, const Vec3& pos, float radius) {
 
 // ---- Combat record ----
 void addMoney(Game& g, int id, int amount);
+int nextTeammate(const Game& g, int from, int dir);
 
 std::string agentName(int id) {
     if (id < 0) return "YOU";
@@ -673,6 +678,7 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
         g.comp.youDead = true;
         g.deadUntil = 1e18;
         g.noclip = true;
+        g.spec = nextTeammate(g, -1, 1);
         g.defuseStart = -1;
         g.flashFull = g.flashEnd = 0;
         buildDamageReport(g);
@@ -834,6 +840,16 @@ constexpr double kCompFreeze = 5.0, kCompBuyTime = 20.0, kCompRoundTime = 115.0,
 int teamOf(const Game& g, int id) { return id < 0 ? g.comp.youTeam : g.team[size_t(id)]; }
 bool youAlive(const Game& g) { return !g.comp.youDead; }
 
+// Dead in competitive: the next living teammate after `from` going `dir` (+1 / -1), or -1 if none.
+int nextTeammate(const Game& g, int from, int dir) {
+    const int n = int(g.dummies.size());
+    for (int k = 1; k <= n; ++k) {
+        const int i = ((from < 0 ? (dir > 0 ? -1 : 0) : from) + dir * k + n * 2) % n;
+        if (g.dummies[size_t(i)].alive() && g.dummies[size_t(i)].friendly) return i;
+    }
+    return -1;
+}
+
 int& moneyOf(Game& g, int id) { return id < 0 ? g.comp.money : g.comp.botMoney[size_t(id)]; }
 void addMoney(Game& g, int id, int amount) { moneyOf(g, id) = std::clamp(moneyOf(g, id) + amount, 0, 16000); }
 
@@ -870,6 +886,7 @@ void startCompRound(Game& g) {
     }
     c.youDead = false;
     g.noclip = false;
+    g.spec = -1;
     const int youSide = c.youTeam;
     g.spawn = dustTeamSpawns(youSide)[0];
     g.spawnYaw = youSide == 0 ? 90.0f : -90.0f;
@@ -1551,7 +1568,7 @@ void simTick(Game& g, const Options& opt) {
 
     bool autofire = opt.autofireStart >= 0 && g.simTime >= opt.autofireStart && g.simTime < opt.autofireEnd;
     // Semi-auto weapons fire once per click; automatic ones keep firing while held.
-    bool wantFire = (wd.automatic && g.fireHeld) || g.fireLatch || autofire;
+    bool wantFire = ((wd.automatic && g.fireHeld) || g.fireLatch || autofire) && g.deadUntil < 0;  // not while dead
     if (g.fireLatch && wd.canFire && (ws.ammo == 0 || ws.reloadEndTime >= 0)) sound(g, Sfx::DryFire, 0.6f);
     g.fireLatch = false;
     g.recoilIndexPrev = ws.recoilIndex;
@@ -2701,9 +2718,17 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         if (c.carrier == -1 && c.planter != -1 && c.phase == 1)
             hud.text(cx - hud.textWidth("YOU HAVE THE BOMB - HOLD E ON A SITE TO PLANT") / 2, cy + 64.0f * s,
                      "YOU HAVE THE BOMB - HOLD E ON A SITE TO PLANT", 0xFFD060C0);
-        if (c.youDead && c.phase == 1)
-            hud.text(cx - hud.textWidth("DEAD - SPECTATING UNTIL THE NEXT ROUND") / 2, cy + 64.0f * s,
-                     "DEAD - SPECTATING UNTIL THE NEXT ROUND", 0xC0C0C0FF);
+        if (c.youDead && c.phase == 1) {
+            char spec[96];
+            if (g.spec >= 0 && size_t(g.spec) < g.dummies.size())
+                std::snprintf(spec, sizeof(spec), "SPECTATING BOT %d  -  %d HP      MOUSE 1/2: NEXT   SPACE: FLY FREE", g.spec + 1,
+                              int(std::max(0.0f, g.dummies[size_t(g.spec)].hp)));
+            else
+                std::snprintf(spec, sizeof(spec), "DEAD - FLYING FREE UNTIL THE NEXT ROUND      SPACE: WATCH A TEAMMATE");
+            const float tw = hud.textWidth(spec);
+            hud.rect(cx - tw / 2 - 8.0f * s, float(h) - 68.0f * s, tw + 16.0f * s, 16.0f * s, 0x101216C0);
+            hud.text(cx - tw / 2, float(h) - 64.0f * s, spec, 0xFFFFFFFF);
+        }
         char kit[96];
         std::snprintf(kit, sizeof(kit), "ARMOR %d%s   $%d%s%s", int(c.armor), c.helmet ? "+H" : "", c.money,
                       c.kit ? "   KIT" : "", c.carrier == -1 ? "   C4" : "");
@@ -3042,6 +3067,13 @@ int main(int argc, char** argv) {
                         }
                         break;
                     }
+                    if (g.mode == 3 && g.mapId == 1 && g.comp.youDead) {  // spectating: next / previous teammate
+                        const int dir = e.button.button == SDL_BUTTON_RIGHT ? -1 : 1;
+                        const int nx = nextTeammate(g, g.spec, dir);
+                        if (nx >= 0) g.spec = nx;
+                        g.hudDirty = true;
+                        break;
+                    }
                     if (e.button.button == SDL_BUTTON_LEFT) { g.fireHeld = true; g.fireLatch = true; }
                     if (e.button.button == SDL_BUTTON_RIGHT) g.zoomLatch = true;
                     break;
@@ -3079,7 +3111,10 @@ int main(int argc, char** argv) {
                     } else if (paused && (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE)) {
                         menuUse(g_menu.sel, 1, false, true);
                     } else if (!paused) {
-                        if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
+                        if (sc == SDL_SCANCODE_SPACE && g.mode == 3 && g.mapId == 1 && g.comp.youDead) {
+                            g.spec = g.spec >= 0 ? -1 : nextTeammate(g, -1, 1);  // spectating <-> flying free
+                            g.hudDirty = true;
+                        } else if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
                         else if (g.buyMenu && g.mode == 3 && g.mapId == 1 && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) {
                             const char* msg = compBuy(g, int(sc - SDL_SCANCODE_1));  // competitive: pay for it
@@ -3136,6 +3171,10 @@ int main(int argc, char** argv) {
             g.throwLatch = true;
         }
         if (automated && frame == opt.inspectFrame) g.vm.inspect();
+        if (automated && frame == opt.dieFrame) {
+            g.spawnProtectUntil = 0;
+            hurtPlayer(g, -2, 1000.0f, false, "TEST");
+        }
         if (automated && opt.bots && frame == 1) g.botsFire = true;
         if (automated && opt.menuScreen > 0 && frame == 60) {
             g_menu.root = opt.menuScreen == kMenuMain ? kMenuMain : kMenuPause;
@@ -3183,6 +3222,20 @@ int main(int argc, char** argv) {
         RecoilStep punch = g.weapon->def->canFire ? recoilAt(*g.weapon->def, recoilIdx) : RecoilStep{0, 0};
         float camPitch = float(g.viewPitch) - punch.up * cfg.view_recoil_tracking;
         float camYaw = float(g.viewYaw) - punch.right * cfg.view_recoil_tracking;
+        // Competitive, dead: through a teammate's eyes (the next one, if they die too).
+        if (g.mode == 3 && g.mapId == 1 && g.comp.youDead) {
+            if (g.spec >= 0 && (size_t(g.spec) >= g.dummies.size() || !g.dummies[size_t(g.spec)].alive()))
+                g.spec = nextTeammate(g, g.spec, 1);
+        } else {
+            g.spec = -1;
+        }
+        const bool spectating = g.spec >= 0;
+        if (spectating) {
+            const Dummy& d = g.dummies[size_t(g.spec)];
+            eye = lerp(d.prevPos, d.pos, alpha) + Vec3{0, 0, kStandEye};
+            camYaw = wrapDeg(d.prevYaw + wrapDeg(d.yaw - d.prevYaw) * alpha);
+            camPitch = 0;
+        }
 
         float aspect = pixH > 0 ? float(pixW) / float(pixH) : 1.0f;
         if (!paused) g.fovPunch *= std::exp(-float(dt) / 0.045f);
@@ -3200,6 +3253,7 @@ int main(int argc, char** argv) {
             g.lastDummyRenderPos[i] = p;
             const float shownYaw = wrapDeg(d.prevYaw + wrapDeg(d.yaw - d.prevYaw) * alpha);
             g.dummies[i].shownYaw = shownYaw;  // shots test against exactly this facing
+            if (int(i) == g.spec) continue;          // you're looking out of their eyes
             const float turn = (shownYaw - 180.0f) * kDegToRad;
             // Dead dummies collapse to the floor (cosmetic; they are no longer hittable).
             float squash = 1.0f;
@@ -3341,7 +3395,7 @@ int main(int argc, char** argv) {
         for (const ModelDraw& md : modelDraws) renderer.drawModel(viewProj, md.model, md.boxes);
 
         // First-person weapon: own FOV and fresh depth so it never clips into walls.
-        if (cfg.show_viewmodel && g.zoom == 0) {
+        if (cfg.show_viewmodel && g.zoom == 0 && !spectating) {
             float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
             Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
             modelDraws.clear();
