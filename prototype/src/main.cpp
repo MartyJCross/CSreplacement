@@ -49,6 +49,7 @@ struct Options {
     int inspectFrame = -1;                       // --inspect N: start an inspect on frame N (screenshots)
     int nadeType = 0;                            // --nade T: grenade type for --smoke (0 smoke .. 3 molotov)
     int dieFrame = -1;                           // --die N: you die on frame N (screenshots of death / spectating)
+    bool startCT = false;                        // --ct: competitive starts with you on CT (testing)
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -72,6 +73,8 @@ Options parseArgs(int argc, char** argv) {
             o.bots = true;
         } else if (a == "--nade") {
             o.nadeType = std::atoi(next());
+        } else if (a == "--ct") {
+            o.startCT = true;
         } else if (a == "--die") {
             o.dieFrame = std::atoi(next());
         } else if (a == "--inspect") {
@@ -108,7 +111,9 @@ struct Game {
     WeaponState* primary = &rifle;
     WeaponState* lastWeapon = &knife;
     bool buyMenu = false;
-    bool throwLob = false;        // right click with the smoke out: short underhand throw
+    float throwStrength = 1.0f;   // the next throw: 1 full, kNadeMedium, kNadeLob (see grenadeThrowVelocity)
+    int nadeHold = 0;             // grenade out, pin pulled: buttons held so far (1 Mouse 1, 2 Mouse 2)
+    bool zoomHeld = false;        // Mouse 2 is down
     double grenadeReturnAt = -1;  // after a throw, switch back to the previous weapon
     // Sniper scope: 0 = unscoped, 1 = 40 FOV, 2 = 15 FOV. Unscopes on shot, re-scopes after the bolt.
     int zoom = 0, resumeZoom = 0;
@@ -919,7 +924,6 @@ void startCompRound(Game& g) {
     }
     compBotsBuy(g);
     // The plan: Ts take one site (the carrier heads for the bomb spot), CTs split between the sites.
-    const std::vector<RetakeSite>& sites = dustRetakeSites();
     c.siteTarget = rnd(g) < 0.5f ? 0 : 1;
     // Like CS, a random T gets the bomb (you, if you're T and it's your turn).
     std::vector<int> ts;
@@ -937,7 +941,20 @@ void startCompRound(Game& g) {
     c.throws.clear();
     c.executing = c.rotated = false;
     c.executeAt = g.simTime + kCompFreeze + 14.0;
-    const int setup = int(rnd(g) * 3.0f) % 3;  // 0 split, 1 stack A, 2 stack B
+    // CTs: the default setup (one mid, one short, one long, two B), now and then one heavier on a site;
+    // each role picks one of its spots, so it's familiar but never quite the same.
+    const float roll = rnd(g);
+    const int roles[3][5] = {{kCtMid, kCtShort, kCtLong, kCtB, kCtB},   // default
+                             {kCtMid, kCtShort, kCtLong, kCtA, kCtB},   // A-heavy
+                             {kCtMid, kCtLong, kCtB, kCtB, kCtB}};      // B-heavy
+    const int* setup = roles[roll < 0.7f ? 0 : roll < 0.85f ? 1 : 2];
+    std::vector<int> spotOrder[kCtRoles];
+    for (int r = 0; r < kCtRoles; ++r) {  // a shuffled spot list per role
+        const size_t n = dustCtSpots(r).size();
+        for (size_t k = 0; k < n; ++k) spotOrder[r].push_back(int(k));
+        for (size_t k = n; k > 1; --k) std::swap(spotOrder[r][k - 1], spotOrder[r][size_t(rnd(g) * float(k)) % k]);
+    }
+    int roleUsed[kCtRoles] = {};
     int tCount = 0, ctCount = 0;
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         BotBrain& b = g.bots[i];
@@ -947,19 +964,12 @@ void startCompRound(Game& g) {
             ++tCount;
             b.goal = g.nav.standable(p) ? p : c.stagePoint;
         } else {
-            const int k = ctCount++;
-            int site = setup == 0 ? k % 2 : setup == 1 ? (k == 3 ? 1 : 0) : (k == 3 ? 0 : 1);
-            if (setup == 0 && k == 4) {  // the fifth CT watches mid doors
-                b.goal = dustPoint(-180, 1990);
-                b.holdYaw = -90.0f;
-                b.holdLook = dustPoint(-180, 1500);
-            } else {
-                const RetakeSite& s = sites[size_t(site)];
-                const RetakeSpot& h = s.holds[size_t(setup == 0 ? k / 2 : k) % s.holds.size()];
-                b.goal = dustPoint(h.x, h.y);
-                b.holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
-                b.holdLook = dustPoint(h.lookX, h.lookY);
-            }
+            const int role = setup[ctCount++ % 5];
+            const std::vector<RetakeSpot>& spots = dustCtSpots(role);
+            const RetakeSpot& h = spots[size_t(spotOrder[role][size_t(roleUsed[role]++) % spots.size()])];
+            b.goal = dustPoint(h.x, h.y);
+            b.holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
+            b.holdLook = dustPoint(h.lookX, h.lookY);
             b.hasHoldLook = true;
         }
         b.hasGoal = true;
@@ -983,10 +993,12 @@ void startCompRound(Game& g) {
     g.hudDirty = true;
 }
 
+int g_compStartSide = 0;  // --ct (testing): which side you start a competitive match on
+
 void startCompMatch(Game& g) {
     Game::Comp& c = g.comp;
     c = Game::Comp{};
-    c.youTeam = 0;
+    c.youTeam = g_compStartSide;
     g.team.assign(g.dummies.size(), 0);
     for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = int(i) < kCompTeamBots ? c.youTeam : 1 - c.youTeam;
     c.botMoney.assign(g.dummies.size(), 800);
@@ -1011,6 +1023,15 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
                       c.round + 1, winner == 0 ? "T " : "CT", why, int(c.planted), g.simTime, c.youTeam == 0 ? "T" : "CT",
                       alive[0], alive[1], c.carrier == -1 ? "you" : c.carrier == -2 ? "dropped" : c.carrier >= 0 ? "bot" : "-");
         std::ofstream(g_compLog, std::ios::app) << line;
+        if (c.carrier >= 0 && !c.planted) {  // a bot had the bomb and didn't plant: where, doing what
+            const Dummy& d = g.dummies[size_t(c.carrier)];
+            const BotBrain& b = g.bots[size_t(c.carrier)];
+            char info[160];
+            std::snprintf(info, sizeof(info), "  carrier at %s (%.0f, %.0f) state %d sees %d goal %d path %zu urgent %d\n",
+                          dustCallout(d.pos), double(d.pos.x), double(d.pos.y), b.state, int(b.sees), int(b.hasGoal),
+                          b.path.size(), int(b.urgent));
+            std::ofstream(g_compLog, std::ios::app) << info;
+        }
     }
     const int loser = 1 - winner;
     c.lossStreak[winner] = 0;
@@ -1095,7 +1116,7 @@ bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
         for (int yi = -1; yi <= 1; ++yi)
             for (int pi = 0; pi < 8; ++pi) {
                 const float pitch = -72.0f + float(pi) * 10.0f, yaw = yaw0 + float(yi) * 2.5f;
-                const Vec3 v = grenadeThrowVelocity(pitch, yaw, lob == 1, Vec3{});
+                const Vec3 v = grenadeThrowVelocity(pitch, yaw, lob == 1 ? kNadeLob : 1.0f, Vec3{});
                 const Vec3 start = eye + normalize(v) * 16.0f;
                 const Vec3 end = predictGrenade(g.world, start, v, type);
                 const float err = length2d(end - target) + std::fabs(end.z - target.z) * 0.5f;
@@ -1123,6 +1144,18 @@ void compTick(Game& g) {
             if (g.dummies[i].alive() && g.team[i] == side) return int(i);
         return -1;
     };
+    if (c.phase == 1)  // trading: a bot in a fight makes its teammates nearby look that way too
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            const BotBrain& b = g.bots[i];
+            if (!g.dummies[i].alive() || !b.sees || b.target < 0) continue;
+            for (size_t j = 0; j < g.dummies.size(); ++j) {
+                BotBrain& mate = g.bots[j];
+                if (j == i || g.team[j] != g.team[i] || !g.dummies[j].alive() || mate.state == 2) continue;
+                if (length2d(g.dummies[j].pos - g.dummies[i].pos) > 600.0f) continue;
+                mate.alertUntil = std::max(mate.alertUntil, now + 1.0);
+                mate.lastSeen = g.dummies[size_t(b.target)].pos;
+            }
+        }
     if (c.phase == 1)  // enemy spotted: once per place, and not more than every few seconds
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             const BotBrain& b = g.bots[i];
@@ -1247,7 +1280,19 @@ void compTick(Game& g) {
                     if (dd < 48.0f) { c.carrier = int(i); break; }
                     if (dd < best) { best = dd; nearest = int(i); }
                 }
-                if (c.carrier == -2 && nearest >= 0) sendBot(g, size_t(nearest), c.dropped, true);
+                if (c.carrier == -2 && nearest >= 0) {
+                    // Go for the nearest standing room beside it (it can lie where nobody stands: by a crate,
+                    // off a ledge); pickup reaches 48 units.
+                    Vec3 to = c.dropped;
+                    float bestD = 1e30f;
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            Vec3 p = c.dropped + Vec3{float(dx) * 32.0f, float(dy) * 32.0f, 0};
+                            const float dd = length2d(p - c.dropped);
+                            if (dd < bestD && g.nav.standable(p)) { bestD = dd; to = p; to.z = g.nav.floorAt(p); }
+                        }
+                    sendBot(g, size_t(nearest), to, true);
+                }
             }
         }
         if (c.carrier >= 0) {  // a bot carrier walks to the bomb spot and plants there
@@ -1586,12 +1631,21 @@ void simTick(Game& g, const Options& opt) {
         g.hudDirty = true;
     }
 
-    // Smoke (slot 4): left click throws, right click lobs, then it's back to the previous weapon.
-    if (&ws == &g.grenade && (g.fireLatch || lobLatch) && g.simTime >= ws.nextFireTime && g.grenadeReturnAt < 0) {
-        g.throwLatch = true;
-        g.throwLob = !g.fireLatch;
-        g.grenadeReturnAt = g.simTime + 0.4;
+    // Grenade (slot 4), like CS: pressing Mouse 1 / Mouse 2 pulls the pin; it leaves your hand when you let go
+    // of everything you pressed: Mouse 1 a full throw, Mouse 2 an underhand lob, both a medium throw. Then
+    // it's back to the previous weapon. (A click shorter than a tick still counts: the latches.)
+    if (&ws == &g.grenade && g.simTime >= ws.nextFireTime && g.grenadeReturnAt < 0 && g.deadUntil < 0) {
+        const int held = (g.fireHeld ? 1 : 0) | (g.zoomHeld ? 2 : 0);
+        g.nadeHold |= held | (g.fireLatch ? 1 : 0) | (lobLatch ? 2 : 0);
+        if (g.nadeHold && !held) {
+            g.throwLatch = true;
+            g.throwStrength = g.nadeHold == 1 ? 1.0f : g.nadeHold == 2 ? kNadeLob : kNadeMedium;
+            g.grenadeReturnAt = g.simTime + 0.4;
+            g.nadeHold = 0;
+        }
         g.fireLatch = false;
+    } else if (&ws != &g.grenade) {
+        g.nadeHold = 0;
     }
     if (g.grenadeReturnAt >= 0 && g.simTime >= g.grenadeReturnAt) {
         g.grenadeReturnAt = -1;
@@ -1619,10 +1673,10 @@ void simTick(Game& g, const Options& opt) {
         // Cosmetics: shot sound, weapon kick, tracer, impacts.
         bool isPistol = &ws == &g.pistol;
         if (sniperOut) {
-            sound(g, Sfx::SniperShot, 1.0f);
+            sound(g, Sfx::SniperShot, 1.9f);  // your own gun: loud (the mixer soft-limits)
             g.boltAt = g.simTime + 0.55;  // stays scoped through the bolt cycle
         } else {
-            sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 0.9f : 1.0f);
+            sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 1.5f : 1.8f);
         }
         g.vm.onShot(ws.shotCounter * 2654435761u);
         // Spray feedback (cosmetic): a camera roll that builds through the spray, and brass flying out.
@@ -1832,10 +1886,10 @@ void simTick(Game& g, const Options& opt) {
     }
     if (g.throwLatch) {
         // CS:GO's throw (combat.cpp): lifted aim, 675 u/s (x0.3 for the lob), plus 1.25x your velocity.
-        const Vec3 v = grenadeThrowVelocity(float(g.viewPitch), float(g.viewYaw), g.throwLob, g.player.velocity);
+        const Vec3 v = grenadeThrowVelocity(float(g.viewPitch), float(g.viewYaw), g.throwStrength, g.player.velocity);
         const Vec3 f = normalize(v - g.player.velocity * 1.25f);
         g.nades.push_back({g.lastRenderEye + f * 16.0f, v, g.nadeType});
-        g.throwLob = false;
+        g.throwStrength = 1.0f;  // G quick-throws a full one
         sound(g, Sfx::Draw, 0.6f, 0.0f, 1.3f);
         g.throwLatch = false;
     }
@@ -2078,8 +2132,12 @@ void simTick(Game& g, const Options& opt) {
                                  g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
             const int tgt = comp ? g.bots[i].target : -1;  // competitive: whoever it's fighting
             if (comp && (tgt < -1 || (tgt == -1 && !youAlive(g)) || g.comp.phase != 1)) los = false;
-            if (!los) { g.botSeen[i] = 0; continue; }
-            if (g.botSeen[i] == 0) g.botReact[i] = 0.25f + rnd(g) * 0.3f;  // human-ish reaction time
+            if (!los) {  // reaction time only starts over once it loses sight (a jiggle doesn't reset it)
+                if (!(g.mode != 0 && g.mapId == 1 && g.bots[i].sees && d.alive())) g.botSeen[i] = 0;
+                continue;
+            }
+            if (g.botSeen[i] == 0)  // human-ish reaction time, a bit slower after a quiet spell (see BotBrain::surprise)
+                g.botReact[i] = 0.25f + rnd(g) * 0.3f + (g.mapId == 1 ? 0.2f * g.bots[i].surprise : 0.0f);
             g.botSeen[i] += kTickDt;
             g.botCooldown[i] -= kTickDt;
             if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
@@ -2098,7 +2156,7 @@ void simTick(Game& g, const Options& opt) {
                 if (g.audio) {
                     bool far = length(d.pos - simEye) > 1400.0f;
                     g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
-                                    far ? 6500.0f : 4000.0f, far ? 0.8f : 0.6f, rifle ? 1.0f : 1.3f);
+                                    far ? 6500.0f : 4000.0f, far ? 1.15f : 0.95f, rifle ? 1.0f : 1.3f);
                 }
                 g.fx.tracer(head + dir * 20.0f, head + dir * (hitIt ? t : maxT));
                 nearMiss(head, dir, hitIt ? t : maxT);
@@ -2135,7 +2193,7 @@ void simTick(Game& g, const Options& opt) {
             if (g.audio) {  // far away a gunshot is mostly echo: muffled, no crack
                 bool far = length(d.pos - simEye) > 1400.0f;
                 g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
-                                far ? 6500.0f : 4000.0f, far ? 1.0f : 0.75f);
+                                far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f);
             }
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
             if (!hit) nearMiss(head, dir, bestT);
@@ -2853,6 +2911,7 @@ int fatal(const std::string& msg, SDL_Window* window, bool showBox) {
 
 int main(int argc, char** argv) {
     Options opt = parseArgs(argc, argv);
+    g_compStartSide = opt.startCT ? 1 : 0;
     for (int i = 1; i + 1 < argc; ++i)
         if (std::string(argv[i]) == "--dump-sounds") return Audio::dumpWavs(argv[i + 1]) ? 0 : 1;
     const bool showErrors = opt.screenshotPath.empty();
@@ -2967,7 +3026,8 @@ int main(int argc, char** argv) {
         g_menu.sel = 0;
         paused = screen != kMenuNone;
         if (!automated) SDL_SetWindowRelativeMouseMode(window, !paused);
-        g.fireHeld = false;
+        g.fireHeld = g.zoomHeld = false;
+        g.nadeHold = 0;  // a grenade you were holding stays in your hand
         g.hudDirty = true;
     };
     auto menuBack = [&]() {
@@ -3116,10 +3176,11 @@ int main(int argc, char** argv) {
                         break;
                     }
                     if (e.button.button == SDL_BUTTON_LEFT) { g.fireHeld = true; g.fireLatch = true; }
-                    if (e.button.button == SDL_BUTTON_RIGHT) g.zoomLatch = true;
+                    if (e.button.button == SDL_BUTTON_RIGHT) { g.zoomLatch = true; g.zoomHeld = true; }
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_UP:
                     if (e.button.button == SDL_BUTTON_LEFT) g.fireHeld = false;
+                    if (e.button.button == SDL_BUTTON_RIGHT) g.zoomHeld = false;
                     break;
                 case SDL_EVENT_MOUSE_WHEEL:
                     if (!paused) {
@@ -3351,7 +3412,8 @@ int main(int argc, char** argv) {
         const bool compMatch = g.mode == 3 && g.mapId == 1;
         if (g.weapon == &g.grenade && !paused && g.deadUntil < 0 && (cfg.nade_preview == 2 || (cfg.nade_preview == 1 && !compMatch)) &&
             !(compMatch && (g.comp.youDead || g.comp.nades[g.nadeType] <= 0))) {
-            const Vec3 v = grenadeThrowVelocity(float(g.viewPitch), float(g.viewYaw), false, g.player.velocity);
+            const float strength = g.nadeHold == 2 ? kNadeLob : g.nadeHold == 3 ? kNadeMedium : 1.0f;  // what you're holding
+            const Vec3 v = grenadeThrowVelocity(float(g.viewPitch), float(g.viewYaw), strength, g.player.velocity);
             const Vec3 f = normalize(v - g.player.velocity * 1.25f);
             nadePath.clear();
             const Vec3 end = predictGrenade(g.world, g.lastRenderEye + f * 16.0f, v, g.nadeType, &nadePath);
@@ -3419,6 +3481,7 @@ int main(int argc, char** argv) {
             const WeaponState& ws = *g.weapon;
             double reloadProgress =
                 ws.reloadEndTime >= 0 ? g.simTime + tickAcc - (ws.reloadEndTime - ws.def->reloadTime) : -1.0;
+            g.vm.setPrimed(g.weapon == &g.grenade ? g.nadeHold : 0);  // wind-up pose while you hold a grenade
             g.vm.update({paused ? 0.0f : fdt, frameYawDelta, framePitchDelta, length2d(g.player.velocity),
                          g.player.onGround, float(reloadProgress), ws.def->reloadTime});
         }

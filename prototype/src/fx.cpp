@@ -287,6 +287,7 @@ void ViewModel::update(const ViewModelInput& in) {
     if (inspectT_ >= 0) inspectT_ += dt;
     if (inspectT_ > inspectLength() || in.reloadProgress >= 0) inspectT_ = -1;
     flashLeft_ -= dt;
+    primeT_ = std::clamp(primeT_ + (primed_ ? dt / 0.12f : -dt / 0.06f), 0.0f, 1.0f);  // wind up, snap out
     reloadT_ = in.reloadProgress;
     reloadTime_ = in.reloadTime;
 }
@@ -306,6 +307,18 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     pos.x += std::cos(bobPhase_) * 0.32f * bobAmount_ * bobScale;
     pos.y += std::sin(2.0f * bobPhase_) * 0.16f * bobAmount_ * bobScale + landDip_ * 0.08f;
 
+    // Grenade wind-up while the pin's out: back and up for a throw, down low for an underhand lob.
+    if (weapon_ == ViewWeapon::Grenade && primeT_ > 0) {
+        const float k = smooth01(primeT_);
+        if (primedPose_ == 2) {
+            pos.y -= 3.5f * k;
+            pitch += 18.0f * k;
+        } else {
+            pos.z += (primedPose_ == 3 ? 2.5f : 4.0f) * k;
+            pos.y += 2.5f * k;
+            pitch -= 14.0f * k;
+        }
+    }
     // Recoil kick.
     pos.z += kickBack_;
     pitch += kickPitch_;

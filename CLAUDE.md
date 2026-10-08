@@ -151,7 +151,10 @@ See `prototype/README.md` for full details. Each item below lists where its code
   `startCompRound`/`compTick`/`endCompRound`: MR12, CS economy, buy menu, bomb carry/drop/plant/defuse, bots fight
   bots via `BotSenses::targets`, goals via `BotBrain::goal`). Ts stage (`Comp::stagePoint`) then execute (`executing`); CTs split or stack, far
   CTs rotate when Ts reach the site (`rotated`). Execute utility: `Comp::throws` + `botThrow` (solves throws with
-  `predictGrenade`). Urgency (`BotBrain::urgent`: no cover, back on the way after a fight): the carrier on the
+  `predictGrenade`). CT setup by role (`dustCtSpots`: mid, short, long, A, B; default mid/short/long/B/B, sometimes
+  A- or B-heavy). Bot reaction time only restarts when they lose sight (not on a jiggle),
+  and is up to 0.2 s slower after a quiet spell (`BotBrain::surprise`); trading: a bot in a fight alerts teammates
+  within 600 units. A dropped bomb is fetched from the nearest standing room. Urgency (`BotBrain::urgent`: no cover, back on the way after a fight): the carrier on the
   execute, every T with 45 s left, CTs after a plant. The C4 is drawn planted/dropped (`drawBomb`). Team spawns
   never see each other (tested). Automated runs log rounds, executes, throws and
   alive counts to `comp_log.txt` (an idle test player can't die, so its side rarely wins by elimination).
@@ -175,7 +178,7 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
   short boom). Measure with `--dump-sounds` before changing tone.
 - **Screenshot helpers:** `--spawn X Y YAW` (world coords: Dust is scaled!), `--weapon`, `--inspect N`,
-  `--smoke --nade T`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`, `--weapon 5` (grenade out), `--die N`.
+  `--smoke --nade T`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`, `--weapon 5` (grenade out), `--die N`, `--ct` (competitive starting on CT: test both sides).
 
 ## 8. Roadmap (owner priorities first)
 

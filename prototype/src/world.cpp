@@ -472,6 +472,40 @@ const std::vector<RetakeSite>& dustRetakeSites() {
     return sites;
 }
 
+const std::vector<RetakeSpot>& dustCtSpots(int role) {
+    static const std::vector<RetakeSpot> spots[kCtRoles] = {
+        {   // mid: behind mid doors, or further back in CT mid on an angle
+            {-180, 1990, -180, 1500},
+            {-380, 2220, -200, 1880},
+            {-560, 2280, -180, 1900},
+        },
+        {   // short: on short looking down the catwalk, or back on the site
+            {550, 2550, 170, 1700},
+            {650, 2560, 250, 2400},
+            {880, 2850, 400, 2500},
+        },
+        {   // long: the top of the ramp, the top of long, or the box by the ramp
+            {1700, 2420, 1550, 1600},
+            {1550, 1950, 1550, 1200},
+            {1690, 2650, 1500, 2100},
+        },
+        {   // an extra on A site
+            {1250, 2850, 1550, 2300},
+            {1580, 3080, 1450, 2400},
+            {880, 2850, 1400, 2500},
+        },
+        {   // B site
+            {-2050, 2800, -2080, 2000},
+            {-1880, 2690, -2080, 1950},
+            {-1625, 2800, -2080, 1950},
+            {-1600, 2450, -2080, 2000},
+            {-2250, 2380, -1450, 2200},
+            {-1900, 3080, -2080, 2000},
+        },
+    };
+    return spots[std::clamp(role, 0, kCtRoles - 1)];
+}
+
 const std::vector<PrefireRoute>& dustPrefireRoutes() {
     static const std::vector<PrefireRoute> routes = {
         {"A LONG", {540, -400, 540, 300},

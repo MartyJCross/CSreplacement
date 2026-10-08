@@ -132,10 +132,12 @@ void decayRecoil(WeaponState& ws, float dt);
 // ---- Grenades: CS:GO's throw and flight. Pure and deterministic: the game, the trajectory preview and
 // the bots' throws all use these, so a preview shows exactly where the grenade will go. ----
 constexpr float kNadeGravity = 320.0f;     // 0.4 x 800, like CS
-constexpr float kNadeThrowSpeed = 675.0f;  // a full throw; the underhand lob is 0.3 x
+constexpr float kNadeThrowSpeed = 675.0f;  // a full throw (see grenadeThrowVelocity for the others)
 // Velocity of a throw from view angles (pitch + = down): CS lifts the aim (10 degrees at the horizon,
-// none straight up or down) and adds 1.25x the thrower's own velocity.
-Vec3 grenadeThrowVelocity(float viewPitch, float viewYaw, bool lob, const Vec3& throwerVelocity);
+// none straight up or down) and adds 1.25x the thrower's own velocity. `strength`: 1 full throw (Mouse 1),
+// kNadeLob underhand (Mouse 2), kNadeMedium both buttons.
+constexpr float kNadeLob = 0.3f, kNadeMedium = 0.6f;
+Vec3 grenadeThrowVelocity(float viewPitch, float viewYaw, float strength, const Vec3& throwerVelocity);
 // One tick of flight: gravity, bounces off walls (45% speed kept), coming to rest on floors.
 struct NadeStep { bool bounced = false, landed = false; float impactSpeed = 0; };
 NadeStep stepGrenade(const World& world, Vec3& pos, Vec3& vel);

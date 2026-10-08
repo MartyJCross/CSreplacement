@@ -27,6 +27,7 @@ struct BotBrain {
     Vec3 cover, peek;
     float coverTimer = 0;
     double lastSawAt = 0;     // when it last saw its target (gives up the fight a while after)
+    float surprise = 0;       // 0..1: nobody seen for a while before this fight (reacts a little slower)
     // Retakes / competitive: an anchor that holds its angle (holdYaw, looking towards holdLook) instead
     // of roaming. It holds from beside cover and steps back into it now and then. It still turns on you,
     // checks noises and fights, then holds wherever it ends up.

@@ -34,6 +34,8 @@ public:
     void setKnife(int k) { knife_ = k; }
     void setFinish(int f) { finish_ = f; }
     void setGrenade(int type) { grenade_ = type; }  // 0 smoke, 1 flash, 2 HE, 3 molotov
+    // Grenade pin pulled, waiting for the release: 0 no, 1 overhand (Mouse 1), 2 underhand lob (Mouse 2), 3 both.
+    void setPrimed(int how) { primed_ = how; if (how) primedPose_ = how; }
     void update(const ViewModelInput& in);
     // Builds the weapon in world space for the given camera basis.
     void build(const Vec3& eye, float pitchDeg, float yawDeg, float offX, float offY, float offZ, float bobScale,
@@ -53,6 +55,8 @@ private:
     int shotsInRow_ = 0;       // consecutive shots in this spray (kick builds up)
     float inspectT_ = -1;      // seconds into the inspect animation, < 0 when not inspecting
     int knife_ = 0, finish_ = 0, grenade_ = 0;
+    int primed_ = 0, primedPose_ = 1;
+    float primeT_ = 0;         // 0..1 ease into the wind-up pose
     float inspectLength() const;
     float flashLeft_ = 0;
     uint32_t flashSeed_ = 0;

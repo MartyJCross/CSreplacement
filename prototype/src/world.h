@@ -108,6 +108,11 @@ struct RetakeSite {
 };
 const std::vector<RetakeSite>& dustRetakeSites();
 
+// Competitive CT positions by role, each with a few spots (and the way to look) to pick from, so the
+// setup is familiar but never quite the same. Real-Dust2 coordinates.
+enum CtRole { kCtMid, kCtShort, kCtLong, kCtA, kCtB, kCtRoles };
+const std::vector<RetakeSpot>& dustCtSpots(int role);
+
 // Prefire practice: where you start (looking the way to go) and the spots bots hold along the route,
 // each looking back at where you come from, in the order you meet them. Real-Dust2 coordinates.
 struct PrefireRoute {

@@ -327,9 +327,9 @@ bool takeShotTiming(WeaponState& ws, double now) {
     return true;
 }
 
-Vec3 grenadeThrowVelocity(float viewPitch, float viewYaw, bool lob, const Vec3& throwerVelocity) {
+Vec3 grenadeThrowVelocity(float viewPitch, float viewYaw, float strength, const Vec3& throwerVelocity) {
     const float pitch = viewPitch < 0 ? -10.0f + viewPitch * (80.0f / 90.0f) : -10.0f + viewPitch * (100.0f / 90.0f);
-    return anglesToForward(pitch, viewYaw) * (kNadeThrowSpeed * (lob ? 0.3f : 1.0f)) + throwerVelocity * 1.25f;
+    return anglesToForward(pitch, viewYaw) * (kNadeThrowSpeed * strength) + throwerVelocity * 1.25f;
 }
 
 NadeStep stepGrenade(const World& world, Vec3& pos, Vec3& vel) {

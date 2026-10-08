@@ -160,10 +160,14 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     } else if (s.playerUp) {
         consider(you);
     }
+    // In a hurry (the bomb carrier, the clock running out): don't stop for someone far away, keep going.
+    if (chosen && b.urgent && length2d(chosen->origin - d.pos) > 1000.0f) chosen = nullptr;
     b.sees = chosen != nullptr;
     b.target = chosen ? chosen->id : -2;
     const float toYaw = chosen ? yawTo(d.pos, chosen->origin) : yawTo(d.pos, b.lastSeen);
     if (b.sees) {
+        // Holding an empty angle for a while dulls you: the first contact after a quiet spell is slower.
+        if (b.state != 2) b.surprise = std::clamp(float(s.now - b.lastSawAt - 4.0) / 8.0f, 0.0f, 1.0f);
         b.lastSeen = chosen->origin;
         if (b.frozen) {
             b.state = 2;
@@ -224,12 +228,12 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                 b.hasCover = findCover(s, d.pos, b.holdLook + Vec3{0, 0, 64}, 160.0f, b.cover, b.peek);
                 b.peek = d.pos;
                 b.inCover = false;
-                b.coverTimer = 2.0f + botRand(rng) * 3.0f;
+                b.coverTimer = 5.0f + botRand(rng) * 5.0f;
             }
             if (b.holdOnly && b.hasCover) {
                 if ((b.coverTimer -= kTickDt) <= 0) {
                     b.inCover = !b.inCover;
-                    b.coverTimer = b.inCover ? 0.8f + botRand(rng) * 1.4f : 2.5f + botRand(rng) * 3.5f;
+                    b.coverTimer = b.inCover ? 1.5f + botRand(rng) * 2.0f : 7.0f + botRand(rng) * 7.0f;
                 }
                 stepToward(d, s, b.inCover ? b.cover : b.peek, 130.0f * kTickDt);
                 break;

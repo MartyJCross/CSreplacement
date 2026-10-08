@@ -724,7 +724,7 @@ void testGrenades() {
     flat.solids.push_back({{-5000, -5000, -64}, {5000, 5000, 0}, 0x808080});
     const Vec3 eye{0, 0, kStandEye};
     auto firstBounce = [&](float pitch, bool lob) {
-        Vec3 v = grenadeThrowVelocity(pitch, 0, lob, Vec3{}), p = eye + normalize(v) * 16.0f;
+        Vec3 v = grenadeThrowVelocity(pitch, 0, lob ? kNadeLob : 1.0f, Vec3{}), p = eye + normalize(v) * 16.0f;
         for (int t = 0; t < kTickRate * 10; ++t)
             if (stepGrenade(flat, p, v).bounced) break;
         return p.x;
@@ -738,7 +738,7 @@ void testGrenades() {
     flat.solids.push_back({{600, -5000, 0}, {700, 5000, 300}, 0x808080});
     int mismatches = 0;
     for (int type = 0; type < 4; ++type) {
-        Vec3 v = grenadeThrowVelocity(-20, 15, false, Vec3{60, 0, 0}), p = eye + normalize(v) * 16.0f;
+        Vec3 v = grenadeThrowVelocity(-20, 15, 1.0f, Vec3{60, 0, 0}), p = eye + normalize(v) * 16.0f;
         const Vec3 predicted = predictGrenade(flat, p, v, type);
         const int fuse = int(grenadeFuse(type) * kTickRate + 0.5);
         for (int t = 1; t < kTickRate * 10; ++t) {
@@ -837,6 +837,18 @@ void testDustScales() {
                                 double(ct.x / sc), double(ct.y / sc));
                     ++badSpots;
                 }
+        // Competitive: every CT role spot is standing room the CTs can walk to from their spawn.
+        for (int role = 0; role < kCtRoles; ++role)
+            for (const RetakeSpot& h : dustCtSpots(role)) {
+                const Vec3 p = dustPoint(h.x, h.y);
+                if (!nav.standable(p)) {
+                    std::printf("    CT spot (%.0f, %.0f) is not standing room\n", double(h.x), double(h.y));
+                    ++badSpots;
+                } else if (!nav.findPath(dustTeamSpawns(1)[0], p, path)) {
+                    std::printf("    CT spot (%.0f, %.0f) can't be reached from CT spawn\n", double(h.x), double(h.y));
+                    ++missing;
+                }
+            }
         // Prefire: every route's start and bot spots are standing room, and you can walk from the start to each.
         for (const PrefireRoute& r : dustPrefireRoutes()) {
             const Vec3 start = dustPoint(r.start.x, r.start.y);
