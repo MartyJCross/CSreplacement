@@ -79,6 +79,11 @@ nade_preview 1
 net_address 127.0.0.1
 net_port 27015
 player_name PLAYER
+// Online, hosting: the game (0 deathmatch, 1 competitive) and, in competitive, the teams (0 players split
+// between the two sides, 1 every player on one side against the bots). comp_mates / comp_enemies set the
+// team sizes there: bots fill the places players don't take.
+net_game 0
+net_teams 0
 comp_mates 4
 comp_enemies 5
 mate_skill 1
@@ -113,7 +118,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nmate_skill " << c.mate_skill
         << "\nenemy_skill " << c.enemy_skill << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
-        << "\nplayer_name " << c.player_name << "\n";
+        << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\n";
     return bool(out);
 }
 
@@ -193,6 +198,8 @@ Config loadConfig(const std::string& path) {
         else if (key == "mate_skill") i(c.mate_skill);
         else if (key == "enemy_skill") i(c.enemy_skill);
         else if (key == "net_port") i(c.net_port);
+        else if (key == "net_game") i(c.net_game);
+        else if (key == "net_teams") i(c.net_teams);
         else if (key == "prefire_bots_shoot") i(c.prefire_bots_shoot);
     }
     return c;

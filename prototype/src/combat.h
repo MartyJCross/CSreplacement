@@ -79,14 +79,22 @@ struct Dummy {
     // are `friendly` - your bullets pass through them.
     float armor = 0;
     bool helmet = false, friendly = false;
+    // Crouch: 0 standing .. 1 fully crouched (online players; the model and its hitboxes squat together).
+    // shownCrouch is what was drawn on the last frame, like shownYaw.
+    float crouch = 0, prevCrouch = 0, shownCrouch = 0;
+    uint8_t weapon = 0;  // what they hold (cosmetic): 0 rifle, 1 pistol, 2 knife, 3 grenade, 4 sniper
     bool alive() const { return respawnLeft <= 0; }
 };
 
 const std::vector<Hitbox>& dummyHitboxes();
+// A height on the standing model, crouched by `crouch`: the legs fold (0..34 shrinks to 0..16) and
+// everything above drops 18 units, like the player's eye (64 -> 46).
+float crouchZ(float z, float crouch);
 
-// A ray against a dummy standing at `pos` facing `yaw`: true with the distance and hit group of the
+// A ray against a dummy standing at `pos` facing `yaw` (crouched by `crouch`): true with the distance and hit group of the
 // first hitbox it meets within maxT.
-bool rayHitsDummy(const Vec3& pos, float yaw, const Vec3& start, const Vec3& dir, float maxT, float& t, HitGroup& group);
+bool rayHitsDummy(const Vec3& pos, float yaw, float crouch, const Vec3& start, const Vec3& dir, float maxT, float& t,
+                  HitGroup& group);
 
 // Damage multiplier for where a bullet lands (head x4, stomach x1.25, legs x0.75).
 float hitGroupDamageScale(HitGroup g);

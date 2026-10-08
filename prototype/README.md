@@ -139,10 +139,10 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 
 ## Online (Play: MODE -> ONLINE)
 
-Deathmatch on Dust with friends, 2 to 8 players, no bots. One of you hosts from the game; the others join.
+Deathmatch or competitive on Dust with friends, up to 8 players. One of you hosts from the game; the others join.
 
 1. **Your name:** Play -> MODE: ONLINE -> **YOUR NAME** (select it and type). It shows in the kill feed and on the scoreboard.
-2. **Host:** **HOST A GAME**. The first time, Windows asks whether Crisp may use the network: allow it. The game then asks your router to open the port by itself (UPnP) and shows, at the top of the screen, **the address to give your friends** ("FRIENDS JOIN: ..."), or what's in the way if it can't:
+2. **Host:** pick the **GAME** (`net_game`): DEATHMATCH (players only) or COMPETITIVE (below), then **HOST A GAME**. The first time, Windows asks whether Crisp may use the network: allow it. The game then asks your router to open the port by itself (UPnP) and shows, at the top of the screen, **the address to give your friends** ("FRIENDS JOIN: ..."), or what's in the way if it can't:
    - *"your router sits behind another one"*: your ISP's box is a router too. Forward UDP 27015 on that one to your router's address (shown), or put it in bridge mode, or use ZeroTier;
    - *"carrier-grade NAT"*: your provider shares one address between customers; nobody can reach you directly: use ZeroTier;
    - *"no router answered"*: UPnP is off on your router: turn it on, forward UDP 27015 by hand, or use ZeroTier.
@@ -150,9 +150,24 @@ Deathmatch on Dust with friends, 2 to 8 players, no bots. One of you hosts from 
 3. **Join:** type the address in **JOIN ADDRESS** (an IP or a name, `address:port` if it isn't 27015), then **JOIN**. The host's Dust size is used.
 4. **Same house:** use the "SAME HOUSE" address the host sees. **ZeroTier / Tailscale** (everyone on the same virtual network) always works, whatever the routers do.
 
-How it works: everyone's own movement and shooting run on their own PC exactly like offline (128 ticks, zero lag for you), and each PC sends a ~30-byte update every tick (about 8 KB/s each way per player). Other players are shown about 47 ms behind their newest update, smoothly. **Your game decides your hits** against what it showed you, and the victim's game applies them: what you see is what you hit, at any ping. That trusts everyone's PC, so it's for friends (no anti-cheat). Kills give +40 HP and 10 rounds, like offline deathmatch; Tab shows the scores; the menu doesn't pause an online game (you just stand still).
+How it works: everyone's own movement and shooting run on their own PC exactly like offline (128 ticks, zero lag for you), and each PC sends a ~30-byte update every tick (about 8 KB/s each way per player). Other players are shown about 47 ms behind their newest update, smoothly. **Your game decides your hits** against what it showed you, and the victim's game applies them: what you see is what you hit, at any ping. That trusts everyone's PC, so it's for friends (no anti-cheat). Kills give +40 HP and 10 rounds, like offline deathmatch; Tab shows the scores; the menu doesn't pause an online game (you just stand still). Everyone has to run the same version of Crisp (a different one is told so when it tries to join).
 
-Not online yet: competitive, grenades thrown by others, crouching shown on other players (their hitbox stays standing).
+- **Crouching** shows on other players, and their hitboxes crouch with them (the head drops to the crouched eye height).
+- **What they hold** shows: rifle, pistol, sniper, knife or a grenade.
+- **Grenades:** a throw is sent to everyone and every game flies it the same way (the flight is exact), so smokes, flashes, HEs and molotovs land in the same place for all. Each game works out what it does to its own player: your flash blinds you if you looked at it, an HE or a fire hurts you and counts for whoever threw it.
+
+### Online competitive
+
+The offline competitive match (MR12, economy, buy menu, the bomb) with friends in it. The host's game runs the match and the bots; everyone else's game shows them and runs only its own player.
+
+- **PLAYERS** (`net_teams`): **SPLIT** puts players on both sides, evenly (you can play against each other), **ALL ON ONE SIDE VS BOTS** puts everyone on the host's side.
+- **Team sizes:** TEAMMATES (the host's side, not counting the host) and ENEMIES, like offline (`comp_mates`, `comp_enemies`). Players take places first; **bots fill the rest**. Bots on the host's side use YOUR TEAM'S BOTS skill, the others OTHER TEAM'S BOTS.
+- **Joining mid-match:** you watch until the next round, then you're in (split: on the side with fewer players).
+- **Money** is yours: kill rewards, the round's pay and the loss bonus come to your own game, like CS. The scoreboard shows only your own money.
+- **The bomb:** anyone on T can carry it (the host's game hands it out, like CS); you plant or defuse with E as offline, and your game tells the host. Bots plant, defuse and fetch a dropped bomb as offline.
+- **Bots hear you:** your footsteps and shots reach the host's bots like the host's own.
+- Leaving the match: Esc -> MAIN MENU. If the host leaves, everyone goes back to the menu's Lab.
+
 
 ## Prefire (Play: MODE)
 

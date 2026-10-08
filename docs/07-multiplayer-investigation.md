@@ -58,3 +58,21 @@ Roughly **10–12 sessions** to a solid 5v5 over the internet, with a playable 1
 - **Cheating:** a server-authoritative design stops speed and teleport hacks. Wallhacks and aimbots need later work (server-side visibility culling, which `docs/04` describes).
 - **The Dust2 copy is Valve's map layout.** It's fine for you and a friend, but anything public (a server list, a Steam page) needs original maps first.
 - **Tick rate:** 128 Hz is the target; 64 Hz halves the bandwidth and CPU if hosting gets expensive.
+
+## What was built (v0.8 to v0.10)
+
+The owner asked for the easiest, most performant way first, so the shipped design is lighter than the plan above:
+a **listen host that relays**, and every game simulates its own player (no prediction or reconciliation needed;
+zero lag for yourself). The shooter's game decides hits against what it showed; the victim's game applies them.
+That trusts every PC, which is fine between friends; the server-authoritative steps above are still the way to
+go if Crisp ever goes public.
+
+- **Stage 1 (v0.9):** UPnP port opening, the address to share on the HUD, player names, bot names.
+- **Stage 2 (v0.10):** grenades (the throw is sent; every game flies it identically and hurts only its own
+  player), crouching (hitboxes squat with the model), the weapon each player holds, a protocol version check.
+- **Stage 3 (v0.10):** online competitive: the host runs the match and the bots, joined games run their own
+  player, money and armor; players split between the sides or all against bots; bots fill the places.
+
+Bandwidth per player: about 9 KB/s up with packet headers (128 states a second, 29 bytes each), the same down
+per other player, plus in competitive about 8 KB/s down for the bots (64 Hz, 11 bytes a bot) and a small match
+message 8 times a second.

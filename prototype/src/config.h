@@ -48,10 +48,12 @@ struct Config {
     int comp_enemies = 5;      // competitive: bots on the other team (1..5)
     int mate_skill = 1;        // competitive teammates' skill: 0 easy, 1 normal, 2 hard, 3 expert
     int enemy_skill = 2;       // enemy bots' skill, every mode (owner: normal was too easy)
-    int nade_preview = 1;
+    int nade_preview = 1;      // grenade trajectory preview: 0 off, 1 everywhere but competitive, 2 always
     std::string net_address = "127.0.0.1";  // online: the host to join (IP or name, optionally :port)
     std::string player_name = "PLAYER";      // online: your name
-    int net_port = 27015;                    // online: UDP port (host: open/forward this one)      // grenade trajectory preview: 0 off, 1 everywhere but competitive, 2 always
+    int net_port = 27015;      // online: UDP port (host: open/forward this one)
+    int net_game = 0;          // online, hosting: 0 deathmatch, 1 competitive
+    int net_teams = 0;         // online competitive: 0 players split between the teams, 1 all on one team vs bots
     int prefire_bots_shoot = 1;  // prefire: the bots shoot back
 };
 

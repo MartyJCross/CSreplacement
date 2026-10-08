@@ -794,6 +794,35 @@ void testTurnedHitboxes() {
     CHECK(facing > 24.0f && side < 23.0f && diag > side, "facing %.1f side %.1f", double(facing), double(side));
 }
 
+// Online players crouch: the head drops with the eye (64 -> 46), so a shot at standing head height goes
+// over a crouched player, one at crouched head height hits the head, and the bots' check agrees.
+void testCrouchedHitboxes() {
+    std::printf("crouched hitboxes\n");
+    World empty;
+    auto shotAt = [&](float z, float crouch) {
+        std::vector<Dummy> dd(1);
+        dd[0].shownCrouch = dd[0].crouch = crouch;
+        dd[0].hp = 1e9f;
+        std::vector<Vec3> pos{Vec3{}};
+        WeaponState ws;
+        ws.def = &pistolDef();
+        ShotResult r = fireBullet(ws, {-300, 0, z}, 0, 0, 0, true, false, empty, dd, pos);
+        return r.dummyIndex == 0 ? int(r.group) : -1;
+    };
+    const int standHead = shotAt(kStandEye, 0), crouchOver = shotAt(kStandEye, 1), crouchHead = shotAt(kDuckEye, 1);
+    std::printf("  shot at %.0f: standing %s, crouched %s; at %.0f crouched: %s\n", double(kStandEye),
+                standHead == kHead ? "head" : "-", crouchOver < 0 ? "over" : "hit", double(kDuckEye),
+                crouchHead == kHead ? "head" : "-");
+    CHECK(standHead == kHead && crouchOver < 0 && crouchHead == kHead, "stand %d over %d crouch %d", standHead, crouchOver,
+          crouchHead);
+    float t = 0;
+    HitGroup grp = kChest;
+    const bool botHit = rayHitsDummy({}, 180, 1, {-300, 0, kDuckEye}, {1, 0, 0}, 1000, t, grp);
+    CHECK(botHit && grp == kHead, "bot ray vs crouched");
+    CHECK(std::fabs(crouchZ(34, 1) - 16) < 0.01f && std::fabs(crouchZ(69, 1) - 51) < 0.01f && crouchZ(10, 0) == 10,
+          "crouchZ");
+}
+
 // Walk the main routes with a simulated player at knife speed (250 u/s) and print the run times.
 void testDustRoutes() {
     std::printf("dust routes (knife, 250 u/s)\n");
@@ -941,6 +970,8 @@ int main() {
     testDustRoutes();
     testDustDeathmatch();
     testTurnedHitboxes();
+    testCrouchedHitboxes();
+
     testBotCover();
     testGrenades();
     testDustScales();

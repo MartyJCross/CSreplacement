@@ -47,7 +47,8 @@ prototype/
     render.*, gl.*        OpenGL 3.3: everything is an instanced box (optionally yaw-rotated: yawBox); HUD is one
                           batch; tiny GL loader
     fx.*                  cosmetic only: first-person weapon models/animation, tracers, particles
-    net.*                 online play: ENet host/join, relay through the host, state/fire/hit/death/name messages
+    net.*                 online play: ENet host/join, relay through the host, state/fire/hit/death/name/grenade
+                          messages; competitive: the host's bots, match state, round start/end, plant/defuse
     upnp.*                hosting: miniupnpc opens the router's port in a background thread, finds the addresses
     audio.*               SDL3 audio mixer + procedurally synthesized sounds, several variants each (no asset files)
     config.*              config.cfg load/save (the in-game menus write it)
@@ -182,20 +183,30 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
   short boom). Measure with `--dump-sounds` before changing tone.
 - **Screenshot helpers:** `--spawn X Y YAW` (world coords: Dust is scaled!), `--weapon`, `--inspect N`,
-  `--smoke --nade T`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`, `--weapon 5` (grenade out), `--die N`, `--ct` (competitive starting on CT: test both sides), `--host`,
+  `--smoke --nade T [--throw-frame N]`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`, `--weapon 5` (grenade out), `--die N`, `--ct` (competitive starting on CT: test both sides), `--host`,
   `--join ADDR`. Automated competitive runs never give the bomb to the (idle) test player; set `comp_enemies 4`
   for a fair 4v4 bot test.
 
 ## 8. Roadmap (owner priorities first)
 
-1. **Multiplayer:** v1 is in (mode 5 ONLINE, `net.*`): listen host relays, every client simulates itself and
-   sends its state each tick (`NetState`), remote players are `dummies[netId]` played back 6 ticks behind
-   (`Game::Remote`), the shooter decides hits and the victim applies them (trusting clients: friends only). Next:
-   stage 2 (grenades, crouch, weapons over the wire), stage 3 (competitive online, the host running the round
-   and the bots); UPnP + names are in (stage 1). The owner's network is double-NATed (router behind the ISP's
-   router), so UPnP alone doesn't reach them from outside: the HUD says so; later a
-   server-authoritative model with lag compensation (`docs/04`) if it ever goes public. Test locally with two
-   copies: `crisp --host --spawn ...` and `crisp --join 127.0.0.1 --spawn ... --autofire A B` (stderr logs net events).
+1. **Multiplayer** (stages 1-3 done): online deathmatch (mode 5) and online competitive (mode 3 with
+   `Game::online`; `net_game`, `net_teams`). Listen host relays; every client simulates itself and sends its state
+   each tick (`NetState`, crouch as `duck`); remote players are `dummies[netId]` played back 6 ticks behind
+   (`Game::Remote`); the shooter decides hits and the victim applies them (trusting clients: friends only). Online
+   ids: players 0..7 (the host 0), the host's bots 8..17 (`isBot`, `netHost`, `netClient`, `netToLocal`).
+   Grenades: the throw is sent (`sendNade`), every game flies it, each hurts only its own player (and the host its
+   bots); `Nade::owner`. Crouch: `Dummy::crouch`/`shownCrouch`, `crouchZ` squats hitboxes and model together.
+   Competitive: the host runs `compTick`, bots and `netRoster` (teams, bots fill), sends `NetRound` (start/end/
+   roster), `NetMatch` (8 Hz) and `NetBot` (64 Hz); joined games run `compClientTick` (their plant/defuse, beeps),
+   keep their own money and armor (hits arrive unarmored: the victim applies its armor). Aliveness in
+   competitive comes from round starts and death messages, not the state stream. `kNetProtocol` must match to join.
+   The owner's network is double-NATed (router behind the ISP's router), so UPnP alone doesn't reach them from
+   outside: the HUD says so. Later: a server-authoritative model with lag compensation (`docs/04`) if it ever goes
+   public. Test locally with two copies in separate folders (own config.cfg): `crisp --host` (`net_game 1` for
+   competitive, `--ct`) and `crisp --join 127.0.0.1`, with `--spawn`, `--autofire A B`, `--smoke --nade 2
+   --throw-frame N`; stderr logs net events and the host writes `comp_log.txt`. Frames run at 240 fps sim but
+   real speed varies, so the throw frame must come after the join.
+
 2. Competitive polish: executes, CT setups, rotations, cover and execute utility are in; next could be CT utility
    (molotovs on executes) and smarter post-plant positions.
 3. Not chosen yet by the owner (offered): prefire practice routes, grenade lineup save/teleport + trajectory

@@ -147,14 +147,21 @@ std::vector<Dummy> buildDummies() {
     return out;
 }
 
-bool rayHitsDummy(const Vec3& pos, float yaw, const Vec3& start, const Vec3& dir, float maxT, float& t, HitGroup& group) {
+float crouchZ(float z, float crouch) {
+    constexpr float kHip = 34.0f, kDrop = 18.0f;
+    return z <= kHip ? z * (1.0f - kDrop / kHip * crouch) : z - kDrop * crouch;
+}
+
+bool rayHitsDummy(const Vec3& pos, float yaw, float crouch, const Vec3& start, const Vec3& dir, float maxT, float& t,
+                  HitGroup& group) {
     const float a = -(yaw - 180.0f) * kDegToRad, c = std::cos(a), s = std::sin(a);
     auto toModel = [&](const Vec3& v) { return Vec3{c * v.x - s * v.y, s * v.x + c * v.y, v.z}; };
     const Vec3 localStart = toModel(start - pos), localDir = toModel(dir);
     bool hit = false;
     for (const Hitbox& hb : dummyHitboxes()) {
         float th;
-        if (rayHitsBox(localStart, localDir, maxT, hb.mins, hb.maxs, th, nullptr) && th >= 0 && th < maxT) {
+        const Vec3 mn{hb.mins.x, hb.mins.y, crouchZ(hb.mins.z, crouch)}, mx{hb.maxs.x, hb.maxs.y, crouchZ(hb.maxs.z, crouch)};
+        if (rayHitsBox(localStart, localDir, maxT, mn, mx, th, nullptr) && th >= 0 && th < maxT) {
             maxT = th;
             t = th;
             group = hb.group;
@@ -174,6 +181,7 @@ float armoredDamage(float damage, HitGroup group, float armor, bool helmet) {
 void updateDummy(Dummy& d, float dt) {
     d.prevPos = d.pos;
     d.prevYaw = d.yaw;
+    d.prevCrouch = d.crouch;
     for (float& f : d.flash) f = std::max(0.0f, f - dt);
     if (!d.alive()) {
         d.respawnLeft -= dt;
@@ -256,10 +264,13 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
             const float a = -(dummies[i].shownYaw - 180.0f) * kDegToRad, c = std::cos(a), s = std::sin(a);
             auto toModel = [&](const Vec3& v) { return Vec3{c * v.x - s * v.y, s * v.x + c * v.y, v.z}; };
             const Vec3 localStart = toModel(segStart - dummyRenderPos[i]), localDir = toModel(dir);
+            const float crouch = dummies[i].shownCrouch;
             for (const Hitbox& hb : dummyHitboxes()) {
                 float t;
                 Vec3 n;
-                if (rayHitsBox(localStart, localDir, segT, hb.mins, hb.maxs, t, &n) && t >= 0 && t < segT) {
+                const Vec3 mn{hb.mins.x, hb.mins.y, crouchZ(hb.mins.z, crouch)};
+                const Vec3 mx{hb.maxs.x, hb.maxs.y, crouchZ(hb.maxs.z, crouch)};
+                if (rayHitsBox(localStart, localDir, segT, mn, mx, t, &n) && t >= 0 && t < segT) {
                     segT = t;
                     res.dummyIndex = int(i);
                     res.group = hb.group;
