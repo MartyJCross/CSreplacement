@@ -486,7 +486,7 @@ const std::vector<PrefireRoute>& dustPrefireRoutes() {
              {880, 2850, 1400, 2500},   // CT side of the site
              {500, 2560, 1200, 2600},   // short
          }},
-        {"B TUNNELS", {-1990, -200, -1990, 700},
+        {"B TUNNELS", {-1100, -730, -1990, -730},
          {
              {-2080, 1450, -2080, 800},   // end of upper tunnels
              {-1300, 1150, -2000, 1150},  // lower tunnels
@@ -497,7 +497,7 @@ const std::vector<PrefireRoute>& dustPrefireRoutes() {
              {-1600, 2450, -2080, 2000},  // inside B doors
              {-1900, 3080, -2080, 2000},  // back of the site
          }},
-        {"MID", {-200, -300, -200, 600},
+        {"MID", {-700, -650, -200, -450},
          {
              {-200, 950, -150, 0},       // mid, by the xbox
              {-900, 1150, -100, 1150},   // lower tunnels, into mid
@@ -506,7 +506,7 @@ const std::vector<PrefireRoute>& dustPrefireRoutes() {
              {-180, 2050, -180, 1500},   // CT mid, through the doors
              {-600, 2200, -200, 1950},   // CT mid, the far side
          }},
-        {"A SHORT", {-60, 900, 150, 1400},
+        {"A SHORT", {-950, 1150, -300, 1150},
          {
              {170, 1900, 170, 1100},   // top of catwalk
              {250, 2450, 170, 1900},   // top of the short stairs

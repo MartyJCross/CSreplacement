@@ -908,7 +908,7 @@ void startCompRound(Game& g) {
     c.route = route;
     c.throws.clear();
     c.executing = c.rotated = false;
-    c.executeAt = g.simTime + kCompFreeze + 20.0;
+    c.executeAt = g.simTime + kCompFreeze + 14.0;
     const int setup = int(rnd(g) * 3.0f) % 3;  // 0 split, 1 stack A, 2 stack B
     int tCount = 0, ctCount = 0;
     for (size_t i = 0; i < g.dummies.size(); ++i) {
@@ -1098,7 +1098,13 @@ void compTick(Game& g) {
     // The carrier dies: the bomb drops where they fell.
     if (c.carrier >= 0 && !g.dummies[size_t(c.carrier)].alive()) { c.dropped = g.dummies[size_t(c.carrier)].pos; c.carrier = -2; }
     if (c.carrier == -1 && c.youDead) { c.dropped = g.player.origin; c.carrier = -2; }
-    // The T execute: once every T bot has gathered at the staging point (or after 20 s), they all push
+    // Urgency: with 45 s left and no plant every T commits (no hiding, straight back on the way after a
+    // fight); the carrier always does once they go; after a plant the CTs retake the same way.
+    const bool late = !c.planted && c.phaseEnd - now < 45.0;
+    if (late && !c.executing) c.executeAt = now;
+    for (size_t i = 0; i < g.dummies.size(); ++i)
+        g.bots[i].urgent = g.team[i] == 0 ? (late || (c.executing && int(i) == c.carrier)) : c.planted;
+    // The T execute: once every T bot has gathered at the staging point (or after 14 s), they all push
     // onto the site together - the carrier to the bomb spot, the rest to the site's holding spots.
     if (!c.planted && !c.executing) {
         bool gathered = true;
@@ -1599,6 +1605,10 @@ void simTick(Game& g, const Options& opt) {
                 b.alertUntil = g.simTime + 2.0;
                 b.lastSeen = g.player.origin;
             }
+            if (r.kill && g.mode == 1 && g.mapId == 1 && ws.ammo < wd.magSize) {  // deathmatch: a kill gives 10 rounds
+                ws.ammo = std::min(ws.ammo + 10, wd.magSize);
+                pushHitLog(g, "+10 ROUNDS", 0x60c0ff);
+            }
             if (r.kill && g.botsFire && g.deadUntil < 0 && g.hp < 100.0f && g.mode != 3 && g.mode != 4) {  // a kill heals you
                 g.hp = std::min(100.0f, g.hp + 40.0f);
                 pushHitLog(g, "+40 HP", 0x60ff60);
@@ -1918,7 +1928,8 @@ void simTick(Game& g, const Options& opt) {
         sense.playerEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
         const bool resultScreen = (g.mode == 1 && g.dmOverUntil >= 0) || (g.mode == 2 && g.rtResultUntil >= 0) ||
                                   (g.mode == 4 && g.pf.resultUntil >= 0);
-        sense.playerUp = g.deadUntil < 0 && !g.noclip && !resultScreen;
+        const bool prefireWaiting = g.mode == 4 && g.pf.start < 0;  // prefire: nobody fights until your clock runs
+        sense.playerUp = g.deadUntil < 0 && !g.noclip && !resultScreen && !prefireWaiting;
         sense.noiseFresh = g.simTime - g.noiseAt < 1.5 * kTickDt;
         sense.noisePos = g.noisePos;
         sense.noiseRadius = g.noiseRadius;
@@ -3218,13 +3229,29 @@ int main(int argc, char** argv) {
             dynamicBoxes.push_back(makeEmissive(end + Vec3{-12, -1, 0.5f}, end + Vec3{12, 1, 1.5f}, mark[g.nadeType]));
             dynamicBoxes.push_back(makeEmissive(end + Vec3{-1, -12, 0.5f}, end + Vec3{1, 12, 1.5f}, mark[g.nadeType]));
         }
-        if (g.mapId == 1 && g.mode == 2 && g.bombActive) {  // the bomb, its light blinking with the beeps
-            const Vec3& b = g.bombPos;
-            dynamicBoxes.push_back(makeBox(b + Vec3{-7, -5, 0}, b + Vec3{7, 5, 4}, 0x4a4f36, false));
-            dynamicBoxes.push_back(makeBox(b + Vec3{-5, -3, 4}, b + Vec3{3, 3, 5}, 0x22252a, false));
-            if (g.nextBeep - g.simTime > 0.5 * std::clamp((g.bombExplodeAt - g.simTime) / kRetakeRoundTime, 0.1, 1.0))
-                dynamicBoxes.push_back(makeEmissive(b + Vec3{4, -1, 4}, b + Vec3{6, 1, 6}, 0xff2020));
-        }
+        // The C4: taped bricks, a keypad with a screen, wires, and a red light that blinks with the beeps
+        // once it's armed. Planted (retakes, competitive) or lying where the carrier dropped it.
+        auto drawBomb = [&](const Vec3& b, bool armed, bool lightOn) {
+            const float turn = std::fmod(std::fabs(b.x * 0.37f + b.y * 0.11f), 6.2832f);  // any angle, stable
+            auto bit = [&](Vec3 mn, Vec3 mx, uint32_t col, bool glow) {
+                mn = mn * 1.4f;  // a touch bigger than real so it reads from across a site
+                mx = mx * 1.4f;
+                dynamicBoxes.push_back(glow ? makeEmissive(b + mn, b + mx, col) : makeBox(b + mn, b + mx, col, false));
+                yawBox(dynamicBoxes.back(), b, turn);
+            };
+            bit({-6.0f, -3.5f, 0.0f}, {6.0f, 3.5f, 3.0f}, 0x77704a, false);   // the charge
+            bit({-4.5f, -3.6f, 0.0f}, {-3.3f, 3.6f, 3.1f}, 0x2a2b2e, false);  // tape
+            bit({3.3f, -3.6f, 0.0f}, {4.5f, 3.6f, 3.1f}, 0x2a2b2e, false);
+            bit({-2.5f, -2.6f, 3.0f}, {2.7f, 2.6f, 4.0f}, 0x2d3035, false);   // keypad
+            bit({-2.0f, -1.8f, 4.0f}, {0.6f, 1.8f, 4.25f}, armed ? 0x7dff8a : 0x2e3f30, armed);  // screen
+            bit({2.7f, 0.8f, 3.0f}, {5.2f, 1.5f, 3.6f}, 0xb02828, false);     // wires
+            bit({2.7f, -1.5f, 3.0f}, {5.2f, -0.8f, 3.6f}, 0xc8a028, false);
+            bit({1.4f, -0.5f, 4.0f}, {2.2f, 0.5f, 4.6f}, lightOn ? 0xff2020 : 0x401010, lightOn);  // light
+        };
+        if (g.mapId == 1 && (g.mode == 2 || g.mode == 3) && g.bombActive)
+            drawBomb(g.bombPos, true,
+                     g.nextBeep - g.simTime > 0.5 * std::clamp((g.bombExplodeAt - g.simTime) / kRetakeRoundTime, 0.1, 1.0));
+        if (g.mapId == 1 && g.mode == 3 && g.comp.carrier == -2 && !g.comp.planted) drawBomb(g.comp.dropped, false, false);
         for (const Game::Fire& f : g.fires) {
             // Flames: glowing columns that flicker (cosmetic hash of time), dying down at the end.
             float age = float(g.simTime + tickAcc - f.start);

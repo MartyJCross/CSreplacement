@@ -32,6 +32,7 @@ struct BotBrain {
     // checks noises and fights, then holds wherever it ends up.
     bool holdOnly = false;
     bool frozen = false;      // prefire targets: never move, just turn on you (and shoot, if bots shoot back)
+    bool urgent = false;      // in a hurry (competitive: the bomb carrier, the clock): no cover, no chasing
     float holdYaw = 0;
     Vec3 holdLook;
     bool hasHoldLook = false, holdCoverChecked = false;

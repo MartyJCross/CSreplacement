@@ -141,4 +141,6 @@ NadeStep stepGrenade(const World& world, Vec3& pos, Vec3& vel);
 // Where a grenade thrown now goes off: flash and HE on their fuse, molotov on its first landing (or
 // fuse), smoke once it has stopped (or fuse + 4 s). `path` (optional) gets the position every tick.
 Vec3 predictGrenade(const World& world, Vec3 pos, Vec3 vel, int type, std::vector<Vec3>* path = nullptr);
-constexpr double grenadeFuse(int type) { return type == 3 ? 2.0 : 1.5; }  // type: 0 smoke, 1 flash, 2 HE, 3 molotov
+// Fuse in seconds by type (0 smoke, 1 flash, 2 HE, 3 molotov): smoke and molotov like CS, flash and HE a
+// little longer (owner: time to react to them).
+constexpr double grenadeFuse(int type) { return type == 3 ? 2.0 : type == 0 ? 1.5 : 1.8; }

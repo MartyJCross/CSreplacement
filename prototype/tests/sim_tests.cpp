@@ -846,6 +846,9 @@ void testDustScales() {
                 if (!nav.standable(p) || !w.boxFits(p + Vec3{0, 0, 8.5f}, hullMins(), hullMaxs(false))) {  // (ramps: up to 8 under)
                     std::printf("    prefire %s bot (%.0f, %.0f) is not standing room\n", r.name, double(b.x), double(b.y));
                     ++badSpots;
+                } else if (w.traceRay(start + Vec3{0, 0, 64}, p + Vec3{0, 0, 64}).fraction >= 1.0f) {
+                    std::printf("    prefire %s bot (%.0f, %.0f) can see the start\n", r.name, double(b.x), double(b.y));
+                    ++badSpots;
                 } else if (!nav.findPath(start, p, path) && !nav.findPath(start, dustPoint(b.lookX, b.lookY), path)) {
                     // (raised spots like goose need a jump: then the place it watches must be reachable)
                     std::printf("    prefire %s bot (%.0f, %.0f) can't be reached\n", r.name, double(b.x), double(b.y));

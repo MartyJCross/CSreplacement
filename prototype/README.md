@@ -95,8 +95,8 @@ They fly like CS:GO: thrown at 675 u/s (a lob is 30% of that) about 10° above w
 **Trajectory preview** (`nade_preview`, Settings → Gameplay): while you hold a grenade, dots show exactly where a full throw would go and a cross where it goes off (smoke: where it stops). It uses the same code as the real grenade, so it's never off. Default: everywhere but competitive (`nade_preview 2` = always, `0` = off).
 
 - **Smoke:** pops once it has stopped rolling (1.5 s at the earliest), lasts 15 s, blocks sight (yours and the bots'). Same throw = same landing spot.
-- **Flashbang:** whites you out if you can see it, fully if you're looking at it, less if you're turned away; your ears ring. Bots facing it go blind for a few seconds.
-- **HE:** up to 98 damage, falling off to nothing at 350 units; walls stop it. It hurts you too.
+- **Flashbang:** pops 1.8 s after the throw (a bit longer than CS, so you can turn away). Whites you out if you can see it, fully if you're looking at it, less if you're turned away; your ears ring. Bots facing it go blind for a few seconds.
+- **HE:** goes off 1.8 s after the throw: up to 98 damage, falling off to nothing at 350 units; walls stop it. It hurts you too.
 - **Molotov:** bursts where it lands into a 7 s fire, 10 damage every 0.25 s to anyone in it. A smoke puts it out, and a molotov thrown into a smoke fizzles.
 
 ## Performance
@@ -115,9 +115,9 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Win** by killing the other side, planting and letting it blow (T), defusing (CT) or running the clock out without a plant (CT).
 - **Money, like CS:** start with $800; win $3,250 ($3,500 for a bomb win); loss bonus $1,400 rising by $500 per loss in a row up to $3,400; Ts get $800 more for a plant; $300 per kill ($100 with the sniper).
 - **Buy menu (B):** in your spawn during the first 20 s of a round. 1 rifle $2,700 · 2 sniper $4,750 · 3 kevlar $650 · 4 kevlar + helmet $1,000 · 5 smoke $300 · 6 flashbang $200 · 7 HE $300 · 8 molotov $400 · 9 defuse kit $400 (CT). Kevlar takes body and arm hits to 77.5%, a helmet does the same for the head. If you survive, you keep what you had.
-- **The bomb:** a random T carries it. Hold **E** on either site for 3.2 s to plant. If the carrier dies it drops; walk over it to pick it up (T bots go and fetch it). CTs defuse with **E**: 5 s with a kit, 10 without. You can't move while planting or defusing.
+- **The bomb:** a random T carries it. Hold **E** on either site for 3.2 s to plant. If the carrier dies it drops; walk over it to pick it up (T bots go and fetch it). You can see it: a C4 brick with a keypad, wires and a light that blinks with the beeps once it's planted. CTs defuse with **E**: 5 s with a kit, 10 without. You can't move while planting or defusing.
 - **Spawns:** both teams spread over their spawn, you at the front, and nobody is in sight of the other team's spawn when the round starts (the long mid-doors sightline is kept clear; tested).
-- **The bots:** Ts gather at a staging point (long, short / catwalk or B tunnels), then execute together after 20 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant, the rest take the site's angles. CTs either split (two A, two B, one mid) or stack one site; once Ts show up on a site, the far CTs rotate, and after a plant they all retake. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
+- **The bots:** Ts gather at a staging point (long, short / catwalk or B tunnels), then execute together after 14 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant (it doesn't hide or chase: it fights its way through and gets straight back on its way), the rest take the site's angles. With 45 s left and no plant, every T commits to the site. CTs either split (two A, two B, one mid) or stack one site; once Ts show up on a site, the far CTs rotate, and after a plant they all retake, in a hurry. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
 - **When you die** you spectate (fly) until the next round.
 - **Tab** shows both teams with money for yours; the radar shows your teammates and anything they spot.
 
@@ -125,7 +125,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 
 - **The match:** 5 minutes (`dm_minutes`) against 10 bots (`dm_bots`, up to 16); results screen, then a new match.
 - **Spawns are anywhere on the map**, away from the bots and out of their sight, with every gun reloaded and 1 s of protection. Bots respawn 2–4 s after you kill them, out of your sight.
-- **A kill gives you +40 HP** (up to 100).
+- **A kill gives you +40 HP** (up to 100) **and 10 rounds** in your magazine (up to a full mag).
 - **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a 0.25–0.55 s reaction once they've turned to face you. Half the time they roam towards your part of the map. In a fight they use cover when there's some close by (shoot, duck behind it, peek again), else they jiggle (strafe a step, stop, shoot). They spawn out of sight of where you are and of where you'll be a moment later.
 
 ## Retakes (Play: MODE)
@@ -136,6 +136,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 ## Prefire (Play: MODE)
 
 - **Pick a route** (A long, B tunnels, mid, A short). Bots stand at the usual defender angles along it, facing the way you come: the long corner, pit, goose, behind the default boxes, B doors, back plat, mid doors and so on. They never move, but they turn on you and shoot (BOTS SHOOT BACK on the Play screen, `prefire_bots_shoot`, on by default).
+- **Every route starts out of the bots' sight** (tested), and they hold fire until your clock starts.
 - **The clock** starts when you move or shoot and stops when the last one dies: your time, accuracy and headshots, and the best time per route this session. Die and the route starts over; Esc → RESTART ROUTE any time.
 
 ## Kill feed, damage report, scoreboard

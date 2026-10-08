@@ -175,13 +175,14 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             b.strafing = false;
             b.strafeTimer = 0.4f + botRand(rng) * 0.4f;
             b.coverFor = chosen->id;
-            b.hasCover = findCover(s, d.pos, chosen->eye, 200.0f, b.cover, b.peek);
+            // In a hurry (bomb carrier, clock running out): no hiding, fight and keep going.
+            b.hasCover = !b.urgent && findCover(s, d.pos, chosen->eye, 200.0f, b.cover, b.peek);
             b.inCover = false;
             b.firstShots = true;
             b.coverTimer = 0.5f + botRand(rng) * 0.5f;
         }
         b.lastSawAt = s.now;
-        b.timer = 0.6f;  // keep the angle for a moment after losing sight
+        b.timer = b.urgent ? 0.25f : 0.6f;  // keep the angle for a moment after losing sight
     } else if (!b.frozen && s.noiseFresh && s.playerUp && b.state != 2 && length(s.noisePos - d.pos) < s.noiseRadius) {
         b.lastSeen = s.noisePos;
         b.state = 3;
@@ -257,7 +258,10 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             }
             if (!b.sees) {
                 b.strafing = false;
-                if ((b.timer -= kTickDt) <= 0) { b.state = 3; b.path.clear(); }
+                if ((b.timer -= kTickDt) <= 0) {  // gone: go and look - or, in a hurry, straight back on the way
+                    b.state = b.urgent && b.hasGoal ? 0 : 3;
+                    b.path.clear();
+                }
                 break;
             }
             if ((b.strafeTimer -= kTickDt) <= 0) {

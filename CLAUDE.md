@@ -148,7 +148,9 @@ See `prototype/README.md` for full details. Each item below lists where its code
   `startCompRound`/`compTick`/`endCompRound`: MR12, CS economy, buy menu, bomb carry/drop/plant/defuse, bots fight
   bots via `BotSenses::targets`, goals via `BotBrain::goal`). Ts stage (`Comp::stagePoint`) then execute (`executing`); CTs split or stack, far
   CTs rotate when Ts reach the site (`rotated`). Execute utility: `Comp::throws` + `botThrow` (solves throws with
-  `predictGrenade`). Team spawns never see each other (tested). Automated runs log rounds, executes, throws and
+  `predictGrenade`). Urgency (`BotBrain::urgent`: no cover, back on the way after a fight): the carrier on the
+  execute, every T with 45 s left, CTs after a plant. The C4 is drawn planted/dropped (`drawBomb`). Team spawns
+  never see each other (tested). Automated runs log rounds, executes, throws and
   alive counts to `comp_log.txt` (an idle test player can't die, so its side rarely wins by elimination).
 - **Bot cover** (`findCover` in bots.cpp): a hidden spot + a peek spot next to it; fights alternate peek/cover,
   anchors (`holdLook`) hold from beside cover. Tested in `testBotCover`.
