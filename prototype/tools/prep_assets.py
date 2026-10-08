@@ -80,6 +80,14 @@ def onsets(x):
     return out
 
 
+def extra_bangs(clip):
+    """How many more shots start inside `clip` after its first (quiet burst shots that onsets() misses)."""
+    hop = RATE // 200
+    env = np.array([np.abs(clip[k:k + hop]).max() for k in range(0, len(clip) - hop, hop)])
+    bangs = [k for k in range(3, len(env)) if env[k] > 0.15 * env.max() and env[k] > 2.5 * env[k - 3]]
+    return sum(1 for a, b in zip([-100] + bangs, bangs) if b - a > 10 and b > 6)
+
+
 def cut_shots(files, length):
     """Single shots, each `length` s with its echo fading out; none that clip or overlap the next one."""
     shots = []
@@ -93,7 +101,7 @@ def cut_shots(files, length):
             if i + 1 < len(on) and on[i + 1] < end:
                 continue  # another shot inside this one
             clip = x[start:end].copy()
-            if len(clip) < int(0.6 * length * RATE):
+            if len(clip) < int(0.6 * length * RATE) or extra_bangs(clip):
                 continue
             clipped = int((np.abs(clip) > 0.995).sum())
             fade = np.ones(len(clip), dtype=np.float32)
@@ -124,6 +132,8 @@ def sounds():
                                          ('sniper_shot', ['Tikka', 'Mosin Nagant'], 1.4, 3)):
         files = [f for fo in folders for f in sorted(glob.glob(os.path.join(lib, fo, '*.wav')))]
         shots = cut_shots(files, length)[:count]
+        for old in glob.glob(os.path.join(d, f'{name}_*.wav')):  # the game loads _1, _2... until one is missing
+            os.remove(old)
         for k, clip in enumerate(shots):
             write_wav(os.path.join(d, f'{name}_{k + 1}.wav'), clip)
         made[name] = len(shots)

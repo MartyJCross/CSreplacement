@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 # The build number shown on the main menu and in the window title. Bump it for every build handed out
 # (the zip is named Crisp-v<version>.zip).
-project(Crisp VERSION 0.11.0 LANGUAGES C CXX)
+project(Crisp VERSION 0.11.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -101,7 +101,9 @@ if(CRISP_BUILD_GAME)
     target_link_options(crisp PRIVATE /INCREMENTAL:NO)
   endif()
   # Copy the player README next to the executable (config.cfg is written on first launch).
+  # assets/ is replaced, not merged: a stale sound variant left behind would still be played.
   add_custom_command(TARGET crisp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/README.md $<TARGET_FILE_DIR:crisp>/README.md
+    COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:crisp>/assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:crisp>/assets)
 endif()
