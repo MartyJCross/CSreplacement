@@ -118,7 +118,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **The bomb:** a random T carries it. Hold **E** on either site for 3.2 s to plant. If the carrier dies it drops; walk over it to pick it up (T bots go and fetch it). You can see it: a C4 brick with a keypad, wires and a light that blinks with the beeps once it's planted. CTs defuse with **E**: 5 s with a kit, 10 without. You can't move while planting or defusing.
 - **Spawns:** both teams spread over their spawn, you at the front, and nobody is in sight of the other team's spawn when the round starts (the long mid-doors sightline is kept clear; tested).
 - **The bots:** Ts gather at a staging point (long, short / catwalk or B tunnels), then execute together after 14 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant (it doesn't hide or chase: it fights its way through and gets straight back on its way), the rest take the site's angles. With 45 s left and no plant, every T commits to the site. CTs either split (two A, two B, one mid) or stack one site; once Ts show up on a site, the far CTs rotate, and after a plant they all retake, in a hurry. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
-- **When you die** you spectate (fly) until the next round.
+- **When you die** you watch through a living teammate's eyes until the next round: **Mouse 1 / Mouse 2** next / previous teammate, **Space** to fly free (and back). If the one you watch dies, it moves on to the next. The dead can't shoot.
+- **Teammate radio:** your side's bots call out in the top-right feed (green): ENEMY SPOTTED: LONG A, GOING B, THEY'RE ON A, ROTATING, PLANTING THE BOMB, DEFUSING.
 - **Tab** shows both teams with money for yours; the radar shows your teammates and anything they spot.
 
 ## Deathmatch (Play: MODE)
@@ -156,6 +157,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 
 - **A subtle tick** plays when your bullet connects (a little lower and louder on a kill): `hitsound`.
 - **Small ticks around the crosshair** flash for an instant: white for a body hit, red for the head, slightly bigger on a kill: `hitmarker`.
+- **Damage direction:** when a bot hits you, a red arc round the crosshair points at where it came from (fades over a second), like CS.
+- **A helmet "tink"** when your headshot is stopped by a helmet instead of killing.
 
 ## Inspect, knives and finishes
 
@@ -176,6 +179,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Every sound has 2–6 variants.** Each play picks a different one, with a little random pitch and volume, so repeats never sound identical.
 - **Gunshots** have a mid "bark", a short boom (sub-bass is cut so they don't sound like the bass is turned up) and a slapback echo off the walls. Rifle, pistol and sniper each have their own sound.
 - **Bots shooting from more than ~1,400 units away** sound distant: muffled, no crack, mostly echo.
+- **Bullets you hear:** your shots hitting the world chip stone, thunk into wood or ping off metal; a bot's bullet that just misses your head whizzes past your ear.
 - **Footsteps** are boot-on-grit (heel, toe scuff, crunch), and landing has a bit of gear rattle.
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.

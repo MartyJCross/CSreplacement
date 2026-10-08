@@ -159,7 +159,10 @@ See `prototype/README.md` for full details. Each item below lists where its code
   CS:GO throw physics in the sim lib (`grenadeThrowVelocity`, `stepGrenade`, `predictGrenade` in combat.cpp); the
   game, the trajectory preview (`nade_preview`) and bot throws share them (tested: preview == real flight).
 - **Combat record:** `recordDamage` feeds the kill feed, per-life damage report, assists, ADR/HS%/MVP scoreboard.
-- **HUD:** radar (`buildRadar`, spotting), subtle hitmarker + tick (`hitmarker`, `hitsound`), Tab scoreboard.
+- **HUD:** radar (`buildRadar`, spotting), subtle hitmarker + tick (`hitmarker`, `hitsound`), Tab scoreboard,
+  damage-direction arcs (`hurtFrom`), competitive spectating (`spec`, `nextTeammate`) and teammate radio (`radio` in
+  compTick). Sky: `Renderer::drawSky` (far-plane triangle; haze uses its horizon colour).
+- **Audio details:** impacts by material (`ShotResult::worldBox`), helmet tink, near-miss whiz (`nearMiss`).
 - **Menus** (`MenuScreen`, `menuRows`, `drawMenu`, `menuUse` in main.cpp): main menu at launch, Esc pause menu,
   Play screen (mode + its options; START reloads the map), settings split into pages, controls page; mouse
   hover/click. The in-game help is just a short hint now.
@@ -169,7 +172,7 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Owner's sound feedback:** the deep/boomy rework was "too much bass"; shots now sit halfway (cut sub-bass,
   short boom). Measure with `--dump-sounds` before changing tone.
 - **Screenshot helpers:** `--spawn X Y YAW` (world coords: Dust is scaled!), `--weapon`, `--inspect N`,
-  `--smoke --nade T`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`, `--weapon 5` (grenade out).
+  `--smoke --nade T`, `--bots`, `--menu N` (a `MenuScreen`), `--bench S`, `--weapon 5` (grenade out), `--die N`.
 
 ## 8. Roadmap (owner priorities first)
 
