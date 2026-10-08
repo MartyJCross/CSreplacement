@@ -20,6 +20,7 @@
 #include "fx.h"
 #include "gl.h"
 #include "movement.h"
+#include "net.h"
 #include "nav.h"
 #include "render.h"
 #include "world.h"
@@ -50,6 +51,8 @@ struct Options {
     int nadeType = 0;                            // --nade T: grenade type for --smoke (0 smoke .. 3 molotov)
     int dieFrame = -1;                           // --die N: you die on frame N (screenshots of death / spectating)
     bool startCT = false;                        // --ct: competitive starts with you on CT (testing)
+    bool netHost = false;                        // --host: host an online game straight away
+    std::string netJoin;                         // --join ADDR: join one
 };
 
 Options parseArgs(int argc, char** argv) {
@@ -73,6 +76,10 @@ Options parseArgs(int argc, char** argv) {
             o.bots = true;
         } else if (a == "--nade") {
             o.nadeType = std::atoi(next());
+        } else if (a == "--host") {
+            o.netHost = true;
+        } else if (a == "--join") {
+            o.netJoin = next();
         } else if (a == "--ct") {
             o.startCT = true;
         } else if (a == "--die") {
@@ -205,6 +212,20 @@ struct Game {
     std::vector<BotBrain> bots;
     // Retakes (mode 2, Dust only): bots hold a random site, you clear it from a random entry.
     int rtBots = 4, rtSite = 0, rtWon = 0, rtLost = 0;
+    int compMates = 4, compEnemies = 5, mateSkill = 1, enemySkill = 2;  // competitive teams, bot skill (config)
+    // Online (mode 5): players are dummies[id] (id = their net id; yours stays hidden). Their states are
+    // played back a few ticks behind the newest, interpolated, so they move smoothly through jitter.
+    Net net;
+    struct Remote {
+        NetState snaps[32];
+        bool present = false;
+        uint32_t latest = 0;
+        double play = -1;  // the tick being shown
+    };
+    Remote remotes[kNetMaxPlayers];
+    uint32_t netTick = 0;
+    bool netJoining = false;
+    bool inputBlocked = false;  // a menu is open over a game that keeps running (online)
     double rtRoundEnd = 0, rtResultUntil = -1;
     bool rtResultWin = false;
     const char* rtResultText = "";
@@ -365,11 +386,23 @@ void makeNoise(Game& g, const Vec3& pos, float radius) {
 void addMoney(Game& g, int id, int amount);
 int nextTeammate(const Game& g, int from, int dir);
 
+bool g_onlineNames = false;  // online: dummies are players, not bots
+
 std::string agentName(int id) {
     if (id < 0) return "YOU";
     char b[16];
-    std::snprintf(b, sizeof(b), "BOT %d", id + 1);
+    std::snprintf(b, sizeof(b), g_onlineNames ? "PLAYER %d" : "BOT %d", id + 1);
     return b;
+}
+
+// Online: weapons as a byte on the wire.
+uint8_t netWeaponCode(const char* name) {
+    const std::string n = name ? name : "";
+    return n == "PISTOL" ? 1 : n == "KNIFE" ? 2 : n == "SNIPER" ? 4 : n == "RIFLE" ? 0 : 3;
+}
+const char* netWeaponName(uint8_t code) {
+    static const char* const kNames[] = {"RIFLE", "PISTOL", "KNIFE", "GRENADE", "SNIPER"};
+    return kNames[code < 5 ? code : 3];
 }
 
 Game::Stats& statsOf(Game& g, int id) { return id < 0 ? g.you : g.botStats[size_t(id)]; }
@@ -466,7 +499,11 @@ void applyConfig(Game& g, const Config& cfg) {
     g.moveParams = MoveParams{};
     g.dmBots = std::clamp(cfg.dm_bots, 1, 16);       // takes effect at the next match
     g.dmMinutes = std::clamp(cfg.dm_minutes, 1, 60);
-    g.rtBots = std::clamp(cfg.rt_bots, 1, 6);  // next round
+    g.rtBots = std::clamp(cfg.rt_bots, 1, 6);
+    g.compMates = std::clamp(cfg.comp_mates, 0, 4);  // next match
+    g.compEnemies = std::clamp(cfg.comp_enemies, 1, 5);
+    g.mateSkill = std::clamp(cfg.mate_skill, 0, 3);  // straight away
+    g.enemySkill = std::clamp(cfg.enemy_skill, 0, 3);  // next round
     g.viewShake = cfg.view_shake != 0;
     g.vm.setKnife(std::clamp(cfg.knife, 0, 3));
     g.vm.setFinish(std::clamp(cfg.finish, 0, 4));
@@ -596,6 +633,32 @@ void endPrefire(Game& g, bool won) {
 constexpr double kRetakeRoundTime = 40.0;
 void pushHitLog(Game& g, const std::string& text, uint32_t color);
 
+// Online: a deathmatch with no bots and no clock; the dummies are the other players (hidden until they
+// show up). You spawn away from them, like deathmatch.
+void startOnline(Game& g) {
+    g_onlineNames = true;
+    for (size_t i = 0; i < g.dummies.size(); ++i) {
+        g.dummies[i] = Dummy{};
+        g.dummies[i].respawnLeft = 1e9f;
+        g.dummies[i].deadFor = 10.0f;
+        g.dummies[i].hp = 1e6f;  // never dies here: the victim's own game decides that
+        g.bots[i] = BotBrain{};
+    }
+    for (Game::Remote& r : g.remotes) r = Game::Remote{};
+    g.botsFire = true;  // (no bots: this shows HP and deaths on the HUD)
+    g.dmEnd = 1e18;
+    g.dmOverUntil = -1;
+    resetRecord(g);
+    g.spawn = pickDmSpawn(g, true);
+    g.spawnYaw = rnd(g) * 360.0f - 180.0f;
+    g.hp = 100;
+    g.deadUntil = -1;
+    refillAmmo(g);
+    resetPosition(g);
+    g.spawnProtectUntil = g.simTime + 1.0;
+    g.hudDirty = true;
+}
+
 // A new retake round: random site, its bots on random hold spots facing the way you'll come, you at
 // a random entry with full ammo and HP.
 void startRetakeRound(Game& g) {
@@ -696,7 +759,9 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
     g.deadUntil = g.simTime + 1.2;
     g.flashFull = g.flashEnd = 0;
     buildDamageReport(g);
-    if (g.mode == 1 && g.mapId == 1) {
+    if (g.mode == 5 && g.net.ready())
+        g.net.sendDeath(uint8_t(attacker >= 0 ? attacker : g.net.myId()), head, netWeaponCode(weapon));
+    if ((g.mode == 1 || g.mode == 5) && g.mapId == 1) {
         g.spawn = pickDmSpawn(g, true);
         g.spawnYaw = rnd(g) * 360.0f - 180.0f;
         g.spawnProtectUntil = g.deadUntil + 1.0;
@@ -841,7 +906,7 @@ void buildRadar(Game& g) {
 }
 
 // ---- Competitive ----
-constexpr int kCompTeamBots = 4, kCompEnemyBots = 5, kCompRoundsToWin = 13;
+constexpr int kCompRoundsToWin = 13;
 constexpr double kCompFreeze = 5.0, kCompBuyTime = 20.0, kCompRoundTime = 115.0, kCompPlantTime = 3.2;
 
 int teamOf(const Game& g, int id) { return id < 0 ? g.comp.youTeam : g.team[size_t(id)]; }
@@ -870,6 +935,8 @@ void compBotsBuy(Game& g) {
         else if (d.armor <= 0 && m >= 650) { d.armor = 100; m -= 650; }
     }
 }
+
+std::string g_compLog;  // automated runs: one line per competitive round (testing)
 
 // A new round: everyone to their spawn, survivors keep their kit, bots buy and get their plan.
 void startCompRound(Game& g) {
@@ -927,7 +994,7 @@ void startCompRound(Game& g) {
     c.siteTarget = rnd(g) < 0.5f ? 0 : 1;
     // Like CS, a random T gets the bomb (you, if you're T and it's your turn).
     std::vector<int> ts;
-    if (youSide == 0) ts.push_back(-1);
+    if (youSide == 0 && g_compLog.empty()) ts.push_back(-1);  // (automated runs: the idle you never gets it)
     for (size_t i = 0; i < g.dummies.size(); ++i)
         if (g.team[i] == 0) ts.push_back(int(i));
     c.carrier = ts.empty() ? -3 : ts[size_t(rnd(g) * float(ts.size())) % ts.size()];
@@ -1000,7 +1067,7 @@ void startCompMatch(Game& g) {
     c = Game::Comp{};
     c.youTeam = g_compStartSide;
     g.team.assign(g.dummies.size(), 0);
-    for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = int(i) < kCompTeamBots ? c.youTeam : 1 - c.youTeam;
+    for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = int(i) < g.compMates ? c.youTeam : 1 - c.youTeam;
     c.botMoney.assign(g.dummies.size(), 800);
     c.botRifle.assign(g.dummies.size(), 0);
     c.youDead = true;
@@ -1009,7 +1076,6 @@ void startCompMatch(Game& g) {
     startCompRound(g);
 }
 
-std::string g_compLog;  // automated runs: one line per competitive round (testing)
 
 // The round is decided: money, MVP, score; then the next round or the end of the match.
 void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
@@ -1416,7 +1482,8 @@ void loadMap(Game& g, Renderer& r, int id) {
     if (id == 1) {
         g.dummies.assign(g.mode == 1   ? size_t(g.dmBots)
                          : g.mode == 2 ? size_t(g.rtBots)
-                         : g.mode == 3 ? size_t(kCompTeamBots + kCompEnemyBots)
+                         : g.mode == 3 ? size_t(g.compMates + g.compEnemies)
+                         : g.mode == 5 ? size_t(kNetMaxPlayers)
                          : g.mode == 4 ? dustPrefireRoutes()[size_t(std::clamp(g.pf.route, 0, int(dustPrefireRoutes().size()) - 1))].bots.size()
                                        : 4,
                          Dummy{});
@@ -1482,6 +1549,8 @@ void loadMap(Game& g, Renderer& r, int id) {
     }
     if (id == 1 && g.mode == 3) startCompMatch(g);
     if (id == 1 && g.mode == 4) startPrefire(g);
+    if (id == 1 && g.mode == 5) startOnline(g);
+    else g_onlineNames = false;
     g.hudDirty = true;
 }
 
@@ -1534,6 +1603,7 @@ void simTick(Game& g, const Options& opt) {
     in.side = float(keys[SDL_SCANCODE_D]) - float(keys[SDL_SCANCODE_A]);
     in.walk = keys[SDL_SCANCODE_LSHIFT];
     in.duck = keys[SDL_SCANCODE_LCTRL];
+    if (g.inputBlocked) in = MoveInput{};  // online with the menu open: you stand still, the game goes on
     in.jumpPressed = g.jumpLatch || (g.autoHop && keys[SDL_SCANCODE_SPACE]);
     g.jumpLatch = false;
     g.defuseHeld = keys[SDL_SCANCODE_E];
@@ -1668,6 +1738,11 @@ void simTick(Game& g, const Options& opt) {
         fired = true;
         ws.ammo--;
         g.shots++;
+        if (g.mode == 5 && g.net.ready()) {
+            const uint8_t code = g.weapon == &g.pistol ? 1 : g.weapon == &g.sniper ? 4 : 0;
+            g.net.sendFire(g.lastRenderEye, r.end, code);
+            if (r.dummyIndex >= 0) g.net.sendHit(uint8_t(r.dummyIndex), r.damage, r.group == kHead, code);
+        }
         makeNoise(g, g.player.origin, 2200.0f);
 
         // Cosmetics: shot sound, weapon kick, tracer, impacts.
@@ -1810,6 +1885,65 @@ void simTick(Game& g, const Options& opt) {
         bool wasAlive = g.dummies[i].alive();
         updateDummy(g.dummies[i], kTickDt);
         if (!wasAlive && g.dummies[i].alive()) g.aliveSince[i] = g.simTime;
+    }
+    if (g.mode == 5 && g.mapId == 1 && g.dummies.size() >= size_t(kNetMaxPlayers)) {
+        // Online: each other player shown 6 ticks (~47 ms) behind their newest state, interpolated; the
+        // playback drifts gently to stay that far behind, and snaps if it falls far out.
+        for (int id = 0; id < kNetMaxPlayers; ++id) {
+            Game::Remote& rm = g.remotes[id];
+            Dummy& d = g.dummies[size_t(id)];
+            if (!rm.present || id == g.net.myId()) {
+                d.respawnLeft = 1e9f;
+                d.deadFor = 10.0f;
+                continue;
+            }
+            const double target = double(rm.latest) - 6.0;
+            if (rm.play < 0 || std::fabs(rm.play - target) > 32.0) rm.play = target;
+            else rm.play = std::min(rm.play + 1.0 + (target - rm.play) * 0.05, double(rm.latest));
+            auto snap = [&](int64_t t) -> const NetState* {
+                if (t < 0) return nullptr;
+                const NetState& s = rm.snaps[size_t(t) % 32];
+                return s.tick == uint32_t(t) ? &s : nullptr;
+            };
+            const int64_t t0 = int64_t(std::floor(rm.play));
+            const NetState *a = nullptr, *b = nullptr;
+            for (int64_t t = t0; t > t0 - 16 && !a; --t) a = snap(t);
+            for (int64_t t = t0 + 1; t <= int64_t(rm.latest) && t < t0 + 16 && !b; ++t) b = snap(t);
+            if (!a) a = b;
+            if (!a) continue;
+            Vec3 pos = a->pos;
+            float yaw = a->yaw;
+            if (b && b != a && b->tick > a->tick) {
+                const float k = std::clamp(float((rm.play - double(a->tick)) / double(b->tick - a->tick)), 0.0f, 1.0f);
+                pos = lerp(a->pos, b->pos, k);
+                yaw = wrapDeg(a->yaw + wrapDeg(b->yaw - a->yaw) * k);
+            }
+            const bool aliveNow = (a->flags & kNetAlive) != 0;
+            if (aliveNow && !d.alive()) {  // (re)spawned: no smear from where they died
+                d.respawnLeft = 0;
+                d.deadFor = 0;
+                d.prevPos = pos;
+                d.prevYaw = yaw;
+            } else if (!aliveNow && d.alive()) {
+                d.respawnLeft = 1e9f;
+                d.deadFor = 0;
+            }
+            if (length2d(pos - d.pos) > 200.0f) { d.prevPos = pos; d.prevYaw = yaw; }  // a teleport, not a run
+            d.pos = pos;
+            d.yaw = yaw;
+            d.hp = 1e6f;
+            g.bots[size_t(id)].state = 1;  // (spawn picking keeps away from players it counts as placed)
+        }
+        if (g.net.ready()) {
+            NetState me;
+            me.tick = ++g.netTick;
+            me.pos = g.player.origin;
+            me.yaw = float(g.viewYaw);
+            me.pitch = float(g.viewPitch);
+            me.flags = uint8_t((g.deadUntil < 0 ? kNetAlive : 0) | (g.player.ducked ? kNetDucked : 0));
+            me.weapon = g.weapon == &g.pistol ? 1 : g.weapon == &g.knife ? 2 : g.weapon == &g.grenade ? 3 : g.weapon == &g.sniper ? 4 : 0;
+            g.net.sendState(me);
+        }
     }
 
     // Movement sounds: footsteps above walking speed, jump, landing.
@@ -2039,7 +2173,7 @@ void simTick(Game& g, const Options& opt) {
             if (!anyAlive && pf.start >= 0) endPrefire(g, true);
         }
     }
-    if (g.mapId == 1 && g.mode != 0 && g.nav.ready()) {
+    if (g.mapId == 1 && g.mode != 0 && g.mode != 5 && g.nav.ready()) {
         BotSenses sense;
         sense.world = &g.world;
         sense.nav = &g.nav;
@@ -2136,17 +2270,19 @@ void simTick(Game& g, const Options& opt) {
                 if (!(g.mode != 0 && g.mapId == 1 && g.bots[i].sees && d.alive())) g.botSeen[i] = 0;
                 continue;
             }
+            // Skill: your competitive teammates use theirs, every other bot the enemy skill.
+            const BotSkill& sk = botSkill(comp && g.team[i] == g.comp.youTeam ? g.mateSkill : g.enemySkill);
             if (g.botSeen[i] == 0)  // human-ish reaction time, a bit slower after a quiet spell (see BotBrain::surprise)
-                g.botReact[i] = 0.25f + rnd(g) * 0.3f + (g.mapId == 1 ? 0.2f * g.bots[i].surprise : 0.0f);
+                g.botReact[i] = sk.reactMin + rnd(g) * sk.reactRange + (g.mapId == 1 ? 0.2f * g.bots[i].surprise : 0.0f);
             g.botSeen[i] += kTickDt;
             g.botCooldown[i] -= kTickDt;
             if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
             const bool rifle = !comp || g.comp.botRifle[i];
-            g.botCooldown[i] = (rifle ? 0.22f : 0.32f) + rnd(g) * 0.16f;
+            g.botCooldown[i] = ((rifle ? 0.22f : 0.32f) + rnd(g) * 0.16f) * sk.fireScale;
             if (tgt >= 0) {  // competitive: shooting another bot
                 const Dummy& v = g.dummies[size_t(tgt)];
-                Vec3 aim = v.pos + Vec3{0, 0, 50};
-                float err = length(aim - head) * 0.014f;
+                Vec3 aim = v.pos + Vec3{0, 0, rnd(g) < sk.headChance ? 63.0f : 50.0f};  // head or chest
+                float err = length(aim - head) * 0.014f * sk.aimError;
                 aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 1.5f * err};
                 Vec3 dir = normalize(aim - head);
                 TraceResult wt = g.world.traceRay(head, head + dir * 5000.0f);
@@ -2174,8 +2310,9 @@ void simTick(Game& g, const Options& opt) {
                 continue;
             }
 
-            Vec3 aim = g.eyeHistory[(g.histHead - 1 - 26 + 64) & 63] - Vec3{0, 0, 16};  // your chest 0.2 s ago
-            float err = length(aim - head) * 0.014f;  // ~0.8 deg of random aim error
+            // Where you were a moment ago (0.1-0.25 s by skill): your chest, or now and then your head.
+            Vec3 aim = g.eyeHistory[(g.histHead - 1 - sk.lagTicks + 64) & 63] - Vec3{0, 0, rnd(g) < sk.headChance ? 2.0f : 16.0f};
+            float err = length(aim - head) * 0.014f * sk.aimError;  // ~0.8 deg of random aim error at normal
             aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * err};
             Vec3 dir = normalize(aim - head);
             TraceResult wt = g.world.traceRay(head, head + dir * 5000.0f);
@@ -2274,13 +2411,15 @@ struct MenuItem {
     float step = 1, lo = 0, hi = 1;
     const char* const* labels = nullptr;  // optional names for int values
     int action = 0;                        // kAct*: a button instead of a setting
+    std::string* text = nullptr;           // a text field (type to edit) instead of a setting
 };
 
 enum MenuScreen {
     kMenuNone, kMenuMain, kMenuPause, kMenuPlay, kMenuSettings, kMenuControls,
     kMenuMouse, kMenuCrosshair, kMenuWeapon, kMenuVideo, kMenuGameplay,  // settings pages, in order
 };
-enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActGoto = 100 };
+enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
+                  kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
 
 // Which screen is up (kMenuNone = playing), the highlighted row, and where Back ends up:
@@ -2297,8 +2436,9 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"THE LAB", "DUST2"};
-const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE"};
+const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE", "ONLINE"};
 const char* const kRouteNames[] = {"A LONG", "B TUNNELS", "MID", "A SHORT"};
+const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kKnifeNames[] = {"BUTTERFLY", "KARAMBIT", "M9 BAYONET", "TALON"};
 const char* const kFinishNames[] = {"FACTORY", "CRIMSON", "ARCTIC", "JUNGLE", "GOLD"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
@@ -2348,7 +2488,18 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         }
         case kMenuPlay: {
             const GameMenu& m = g_gameMenu;
-            std::vector<MenuItem> r = {{"MODE", nullptr, &g_gameMenu.mode, 1, 0, 4, kModeNames}};
+            std::vector<MenuItem> r = {{"MODE", nullptr, &g_gameMenu.mode, 1, 0, 5, kModeNames}};
+            if (m.mode == 5) {  // online: host, or join someone's game
+                r.push_back(button("HOST A GAME", kActHost));
+                MenuItem addr{"JOIN ADDRESS"};
+                addr.text = &c.net_address;
+                r.push_back(addr);
+                r.push_back(button("JOIN", kActJoin));
+                r.push_back({"PORT", nullptr, &c.net_port, 1, 1024, 65535});
+                r.push_back({"DUST SIZE (HOST'S IS USED)", nullptr, &c.dust_scale, 5, 50, 100});
+                r.push_back(back);
+                return r;
+            }
             if (m.mode == 4) {
                 r.push_back({"ROUTE", nullptr, &g_gameMenu.route, 1, 0, 3, kRouteNames});
                 r.push_back({"BOTS SHOOT BACK", nullptr, &c.prefire_bots_shoot, 1, 0, 1, kOnOff});
@@ -2363,6 +2514,14 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({"MINUTES", nullptr, &c.dm_minutes, 1, 1, 30});
             }
             if (m.mode == 2) r.push_back({"BOTS ON THE SITE", nullptr, &c.rt_bots, 1, 1, 6});
+            if (m.mode == 3) {
+                r.push_back({"TEAMMATES", nullptr, &c.comp_mates, 1, 0, 4});
+                r.push_back({"ENEMIES", nullptr, &c.comp_enemies, 1, 1, 5});
+                r.push_back({"TEAMMATE SKILL", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"ENEMY SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+            } else if (m.mode != 0 || m.bots) {
+                r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+            }
             if (m.mode != 0 || m.map == 1) r.push_back({"DUST SIZE (% OF REAL)", nullptr, &c.dust_scale, 5, 50, 100});
             r.push_back(button("START", kActStart));
             r.push_back(back);
@@ -2416,7 +2575,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
 
 // Changes setting row `it` by `dir` steps (shift = x5). Returns true if it's a setting.
 bool adjustMenu(Config& c, const MenuItem& it, int dir, bool big) {
-    if (it.action) return false;
+    if (it.action || it.text) return false;
     float mult = big ? 5.0f : 1.0f;
     if (it.f) {
         float v = std::clamp(*it.f + it.step * mult * float(dir), it.lo, it.hi);
@@ -2491,6 +2650,10 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
         std::string v;
         if (it.action >= kActGoto) {
             v = ">";
+        } else if (it.text) {  // shown in capitals (the font's), typed in any case
+            std::string t = *it.text;
+            for (char& ch : t) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+            v = sel ? t + "_" : t;
         } else if (!it.action) {
             char val[48];
             if (it.f) std::snprintf(val, sizeof(val), it.step < 0.1f ? "%.2f" : "%.1f", double(*it.f));
@@ -2500,8 +2663,10 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
         }
         if (!v.empty()) hud.text(L.x + L.w - hud.textWidth(v), y, v, col);
     }
-    const bool setting = g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && !rows[size_t(g_menu.sel)].action;
-    const char* hint = setting ? "LEFT/RIGHT, CLICK OR WHEEL CHANGES   (SAVED)"
+    const bool typing = g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && rows[size_t(g_menu.sel)].text;
+    const bool setting = g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && !rows[size_t(g_menu.sel)].action && !typing;
+    const char* hint = typing ? "TYPE THE ADDRESS (IP OR NAME)   BACKSPACE DELETES"
+                       : setting ? "LEFT/RIGHT, CLICK OR WHEEL CHANGES   (SAVED)"
                                : screen == kMenuMain ? "ENTER OR CLICK TO SELECT" : "ENTER OR CLICK TO SELECT   ESC BACK";
     hud.text(L.x, L.rowsY + (float(rows.size()) + 0.5f) * L.rowH, hint, 0x909090FF);
 }
@@ -2642,6 +2807,12 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         else if (g.mode == 2 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "RETAKES   TAB SCORES");
         else if (g.mode == 3 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "COMPETITIVE   TAB SCORES   B BUY   E PLANT / DEFUSE");
         else if (g.mode == 4 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "PREFIRE   BOTS SHOOT BACK");
+        else if (g.mode == 5 && g.mapId == 1) {
+            int n = 1;
+            for (int id = 0; id < kNetMaxPlayers; ++id) n += g.remotes[id].present && id != g.net.myId();
+            if (g.net.isHost()) std::snprintf(buf, sizeof(buf), "ONLINE   HOSTING   %d PLAYER%s   TAB SCORES", n, n == 1 ? "" : "S");
+            else std::snprintf(buf, sizeof(buf), "ONLINE   %d PLAYERS   PING %d MS   TAB SCORES", n, g.net.pingMs());
+        }
         else std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
         hud.text(x, y, buf, 0xFF8060FF);
         y += lh;
@@ -2666,6 +2837,14 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         }
     }
     if (g.mapId == 1 && g.callout[0]) hud.text(cx - hud.textWidth(g.callout, s * 2) / 2, 12.0f * s, g.callout, 0xFFFFFFD0, s * 2);
+    if (g.netJoining) {
+        const char* c = "CONNECTING...";
+        hud.text(cx - hud.textWidth(c, s * 2) / 2, cy - 60.0f * s, c, 0xFFD060FF, s * 2);
+    }
+    if (g.mapId == 1 && g.mode == 5) {
+        std::snprintf(buf, sizeof(buf), "ONLINE DEATHMATCH   KILLS %d   DEATHS %d", g.you.kills, g.you.deaths);
+        hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
+    }
     if (g.mapId == 1 && g.mode == 1) {
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
         std::snprintf(buf, sizeof(buf), "%d:%02d   KILLS %d   DEATHS %d", left / 60, left % 60, g.you.kills, g.you.deaths);
@@ -2706,6 +2885,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         else if (g.mode == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   %d:%02d LEFT", left / 60, left % 60);
         else if (g.mode == 3) std::snprintf(buf, sizeof(buf), "COMPETITIVE   YOU %d : %d THEM   ROUND %d", g.comp.youScore,
                                             g.comp.themScore, g.comp.round + 1);
+        else if (g.mode == 5) std::snprintf(buf, sizeof(buf), "ONLINE DEATHMATCH");
         else std::snprintf(buf, sizeof(buf), "RETAKES   WON %d   LOST %d", g.rtWon, g.rtLost);
         hud.text(px, py, buf, 0xFFD060FF, s * 2);
         float ry = py + rowH * 2.5f;
@@ -2715,7 +2895,9 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         const bool teams = g.mode == 3 && g.team.size() == g.botStats.size();
         auto enemy = [&](int id) { return teams && teamOf(g, id) != g.comp.youTeam; };
         std::vector<int> order;
-        for (int i = -1; i < int(g.botStats.size()); ++i) order.push_back(i);
+        for (int i = -1; i < int(g.botStats.size()); ++i)
+            if (g.mode != 5 || i < 0 || (i < kNetMaxPlayers && g.remotes[i].present && i != g.net.myId()))  // online: who's here
+                order.push_back(i);
         std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
             if (enemy(a) != enemy(b)) return !enemy(a);  // your team first
             return statsOf(g, a).kills > statsOf(g, b).kills;
@@ -3030,6 +3212,17 @@ int main(int argc, char** argv) {
         g.nadeHold = 0;  // a grenade you were holding stays in your hand
         g.hudDirty = true;
     };
+    auto goOnline = [&]() {  // hosting, or just connected: the online deathmatch on Dust
+        g.mode = 5;
+        loadMap(g, renderer, 1);
+        g_menu.root = kMenuPause;
+        setMenu(kMenuNone);
+        if (opt.spawnOverride) {  // (tests: start where told)
+            g.spawn = {opt.spawnX, opt.spawnY, dustGrid().floorAt(opt.spawnX, opt.spawnY)};
+            g.spawnYaw = opt.spawnYaw;
+            resetPosition(g);
+        }
+    };
     auto menuBack = [&]() {
         const int from = g_menu.screen;
         if (from >= kMenuMouse) {
@@ -3044,6 +3237,8 @@ int main(int argc, char** argv) {
     // START on the play screen: the chosen mode and map, from scratch.
     auto startFromMenu = [&]() {
         const GameMenu& m = g_gameMenu;
+        g.net.stop();  // (leaving an online game, if you were in one)
+        g.netJoining = false;
         g.mode = m.mode;
         g.pf.route = m.route;
         loadMap(g, renderer, m.mode != 0 ? 1 : m.map);
@@ -3088,7 +3283,40 @@ int main(int argc, char** argv) {
                 break;
             case kActQuit: running = false; break;
             case kActBack: menuBack(); break;
-            case kActMainMenu: g_menu.root = kMenuMain; setMenu(kMenuMain); break;
+            case kActMainMenu:
+                if (g.mode == 5) {  // leaving an online game: back to an offline map behind the menu
+                    g.net.stop();
+                    g.mode = 0;
+                    loadMap(g, renderer, 0);
+                }
+                g.net.stop();
+                g.netJoining = false;
+                g_menu.root = kMenuMain;
+                setMenu(kMenuMain);
+                break;
+            case kActHost: {
+                std::string err;
+                const uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
+                if (g.net.host(port, float(cfg.dust_scale) / 100.0f, err)) {
+                    goOnline();
+                    char msg[64];
+                    std::snprintf(msg, sizeof(msg), "HOSTING ON PORT %d", int(port));
+                    pushHitLog(g, msg, 0x80ff80);
+                } else {
+                    pushHitLog(g, err, 0xff6060);
+                }
+                break;
+            }
+            case kActJoin: {
+                std::string err;
+                if (g.net.join(cfg.net_address, uint16_t(std::clamp(cfg.net_port, 1024, 65535)), err)) {
+                    g.netJoining = true;
+                    setMenu(kMenuNone);
+                } else {
+                    pushHitLog(g, err, 0xff6060);
+                }
+                break;
+            }
             default: if (it.action >= kActGoto) setMenu(it.action - kActGoto); break;
         }
     };
@@ -3104,6 +3332,108 @@ int main(int argc, char** argv) {
     };
     g_menu.root = kMenuMain;
     setMenu(automated ? kMenuNone : kMenuMain);  // launch on the main menu
+
+    // ---- Online ----
+    std::vector<NetEvent> netEvents;
+    auto pumpNet = [&]() {
+        if (!g.net.active()) return;
+        netEvents.clear();
+        g.net.poll(netEvents);
+        for (const NetEvent& ev : netEvents) {
+            const bool inGame = g.mode == 5 && g.mapId == 1 && ev.from < kNetMaxPlayers && g.dummies.size() >= size_t(kNetMaxPlayers);
+            switch (ev.type) {
+                case NetEvent::Connected:
+                    g.netJoining = false;
+                    if (int(std::lround(ev.dustScale * 100.0f)) != cfg.dust_scale) {  // the host's map size
+                        cfg.dust_scale = int(std::lround(ev.dustScale * 100.0f));
+                        setDustScale(ev.dustScale);
+                    }
+                    goOnline();
+                    pushHitLog(g, "CONNECTED", 0x80ff80);
+                    if (automated) std::fprintf(stderr, "net: connected as player %d\n", g.net.myId() + 1);
+                    break;
+                case NetEvent::Failed:
+                    g.netJoining = false;
+                    pushHitLog(g, "COULDN'T CONNECT TO " + cfg.net_address, 0xff6060);
+                    if (automated) std::fprintf(stderr, "net: couldn't connect\n");
+                    break;
+                case NetEvent::Joined:
+                    pushHitLog(g, agentName(ev.from) + " JOINED", 0x80ff80);
+                    if (automated) std::fprintf(stderr, "net: player %d joined\n", ev.from + 1);
+                    break;
+                case NetEvent::Left:
+                    if (ev.from == 0 && !g.net.isHost()) {  // the host is gone: back to an offline map
+                        g.net.stop();
+                        pushHitLog(g, "THE HOST LEFT", 0xff6060);
+                        if (g.mode == 5) { g.mode = 0; loadMap(g, renderer, 0); }
+                    } else if (ev.from < kNetMaxPlayers) {
+                        g.remotes[ev.from].present = false;
+                        pushHitLog(g, agentName(ev.from) + " LEFT", 0xffd060);
+                    }
+                    break;
+                case NetEvent::State: {
+                    if (!inGame || ev.from == g.net.myId()) break;
+                    Game::Remote& rm = g.remotes[ev.from];
+                    if (!rm.present) { rm = Game::Remote{}; rm.present = true; }
+                    rm.snaps[ev.state.tick % 32] = ev.state;
+                    rm.latest = std::max(rm.latest, ev.state.tick);
+                    break;
+                }
+                case NetEvent::Fire:
+                    if (!inGame) break;
+                    if (g.audio) {
+                        const bool far = length(ev.a - g.lastRenderEye) > 1400.0f;
+                        const Sfx s = far ? Sfx::RifleShotFar : ev.weapon == 1 ? Sfx::PistolShot : ev.weapon == 4 ? Sfx::SniperShot : Sfx::RifleShot;
+                        g.audio->play3D(s, ev.a, g.lastRenderEye, float(g.viewYaw), far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f);
+                    }
+                    g.fx.tracer(ev.a, ev.b);
+                    break;
+                case NetEvent::Hit:  // their game says their bullet hit you: it counts (they saw it)
+                    if (!inGame) break;
+                    if (automated) std::fprintf(stderr, "net: hit by player %d for %.0f%s\n", ev.from + 1, double(ev.damage), ev.head ? " (head)" : "");
+                    hurtPlayer(g, ev.from, ev.damage, ev.head, netWeaponName(ev.weapon));
+                    break;
+                case NetEvent::Death: {  // someone died: the kill feed, scores; your kill heals and reloads you
+                    if (!inGame) break;
+                    Dummy& d = g.dummies[ev.from];
+                    if (d.alive()) { d.respawnLeft = 1e9f; d.deadFor = 0; }
+                    if (automated) std::fprintf(stderr, "net: player %d killed by player %d\n", ev.from + 1, ev.other + 1);
+                    if (ev.other == g.net.myId()) {
+                        recordDamage(g, -1, ev.from, 0, ev.head, netWeaponName(ev.weapon), false, true);
+                        if (g.deadUntil < 0) {
+                            g.hp = std::min(100.0f, g.hp + 40.0f);
+                            if (g.weapon->def->canFire) g.weapon->ammo = std::min(g.weapon->ammo + 10, g.weapon->def->magSize);
+                        }
+                        sound(g, Sfx::HitMarker, 1.0f, 0.0f, 0.8f);
+                    } else if (ev.other < kNetMaxPlayers && ev.other != ev.from) {
+                        recordDamage(g, ev.other, ev.from, 0, ev.head, netWeaponName(ev.weapon), false, true);
+                    }
+                    g.hudDirty = true;
+                    break;
+                }
+            }
+        }
+    };
+    // The text field under the menu cursor, if it's on one (the join address).
+    auto menuField = [&]() -> std::string* {
+        if (!paused) return nullptr;
+        std::vector<MenuItem> rows = menuRows(g_menu.screen, cfg, g.mode);
+        return g_menu.sel >= 0 && g_menu.sel < int(rows.size()) ? rows[size_t(g_menu.sel)].text : nullptr;
+    };
+    auto typedChar = [](SDL_Keycode k) -> char {  // what an address can hold: letters, digits, . and -
+        if ((k >= SDLK_0 && k <= SDLK_9) || (k >= SDLK_A && k <= SDLK_Z) || k == SDLK_PERIOD || k == SDLK_MINUS) return char(k);
+        return 0;
+    };
+    if (opt.netHost) {  // tests: --host / --join ADDR
+        std::string netErr;
+        if (g.net.host(uint16_t(std::clamp(cfg.net_port, 1024, 65535)), float(cfg.dust_scale) / 100.0f, netErr)) goOnline();
+        else std::fprintf(stderr, "net: %s\n", netErr.c_str());
+    } else if (!opt.netJoin.empty()) {
+        std::string netErr;
+        cfg.net_address = opt.netJoin;
+        if (g.net.join(opt.netJoin, uint16_t(std::clamp(cfg.net_port, 1024, 65535)), netErr)) g.netJoining = true;
+        else std::fprintf(stderr, "net: %s\n", netErr.c_str());
+    }
 
     const double freq = double(SDL_GetPerformanceFrequency());
     uint64_t last = SDL_GetPerformanceCounter();
@@ -3204,6 +3534,15 @@ int main(int argc, char** argv) {
                     } else if (sc == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT)) {
                         bool fs = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
                         SDL_SetWindowFullscreen(window, !fs);
+                    } else if (paused && menuField() && (sc == SDL_SCANCODE_BACKSPACE || typedChar(e.key.key))) {
+                        std::string& t = *menuField();
+                        if (sc == SDL_SCANCODE_BACKSPACE) {
+                            if (!t.empty()) t.pop_back();
+                        } else if (t.size() < 64) {
+                            t.push_back(typedChar(e.key.key));
+                        }
+                        saveConfig(cfgPath, cfg);
+                        g.hudDirty = true;
                     } else if (paused && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN)) {
                         int n = int(menuRows(g_menu.screen, cfg, g.mode).size());
                         g_menu.sel = (g_menu.sel + (sc == SDL_SCANCODE_DOWN ? 1 : n - 1)) % n;
@@ -3258,7 +3597,9 @@ int main(int argc, char** argv) {
             bool tab = !paused && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_TAB];
             if (tab != g.showScores) { g.showScores = tab; g.hudDirty = true; }
         }
-        if (!paused) {
+        pumpNet();
+        g.inputBlocked = paused;
+        if (!paused || g.mode == 5) {  // online never pauses
             tickAcc += dt;
             while (tickAcc >= kTickDt) {
                 simTick(g, opt);

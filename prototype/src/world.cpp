@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 
 namespace {
@@ -847,16 +848,30 @@ World buildDust() {
     barrel(-1200, 1240, 0, -30);                            // lower tunnels
     {
         // Door leaves, swung open beside their (scaled, at least 96 wide) doorways. Wood: wallbangable.
-        float x0, x1, y0, y1;
+        float y0, y1;
         scaledSpan(2140, 2280, y0, y1);  // B doors: a leaf against the corridor's south side
         w.solids.push_back({{-1350.0f * sc, y0 - 12, 32 * sc}, {-1350.0f * sc + 72, y0, 32 * sc + 120}, kDWood, kMatWood});
         scaledSpan(300, 460, y0, y1);    // long doors
         w.solids.push_back({{900.0f * sc - 8, y0, 0}, {900.0f * sc, y0 + 80, 128}, kDWood, kMatWood});
-        scaledSpan(-240, -120, x0, x1);  // mid doors: both leaves open towards CT mid
-        scaledSpan(1880, 1912, y0, y1);
-        float mz = m.floorAt((x0 + x1) * 0.5f, y1 + 8);
-        w.solids.push_back({{x0, y1, mz}, {x0 + 8, y1 + 44, mz + 120}, kDWood, kMatWood});
-        w.solids.push_back({{x1 - 8, y1, mz}, {x1, y1 + 44, mz + 120}, kDWood, kMatWood});
+        // Mid doors, mostly shut like Dust2's: a leaf from each side across the doorway, a gap in the middle
+        // you can walk (and shoot) through. The gap sits on the doorway's middle grid cell, so the bots' nav
+        // (and you) always fit through it at every map size.
+        int di0 = m.w, di1 = -1, dj1 = -1;
+        for (int j = 0; j < m.h; ++j)
+            for (int i = 0; i < m.w; ++i)
+                if (m.area[size_t(m.index(i, j))] >= 0 && std::strcmp(kDustAreas[m.area[size_t(m.index(i, j))]].name, "MID DOORS") == 0) {
+                    di0 = std::min(di0, i);
+                    di1 = std::max(di1, i);
+                    dj1 = std::max(dj1, j);
+                }
+        if (di1 >= di0) {
+            const float left = m.x0 + float(di0) * m.cell, right = m.x0 + float(di1 + 1) * m.cell;
+            const float mid = m.x0 + (float((di0 + di1) / 2) + 0.5f) * m.cell, gap = 22.0f;
+            const float y = m.y0 + float(dj1 + 1) * m.cell;  // the CT-side face of the doorway
+            const float mz = m.floorAt(mid, y - 8);
+            if (mid - gap > left) w.solids.push_back({{left, y - 8, mz}, {mid - gap, y, mz + 120}, kDWood, kMatWood});
+            if (mid + gap < right) w.solids.push_back({{mid + gap, y - 8, mz}, {right, y, mz + 120}, kDWood, kMatWood});
+        }
     }
     arch(-300, 280, 20, 320, 176);    // top mid into mid
     arch(150, 2330, 330, 2370, 176);  // top of the short stairs

@@ -64,6 +64,25 @@ struct BotSenses {
 
 constexpr float kBotRunSpeed = 215.0f;  // rifle run speed
 
+// Bot skill (difficulty), 0 easy .. 3 expert: reaction time (min + random range, seconds), aim error (x the
+// normal ~0.8 degrees), time between shots (x), how far behind your movement they aim (ticks; 26 = 0.2 s) and
+// how often a shot goes for the head instead of the chest.
+struct BotSkill {
+    float reactMin, reactRange, aimError, fireScale;
+    int lagTicks;
+    float headChance;
+    const char* name;
+};
+inline const BotSkill& botSkill(int level) {
+    static const BotSkill kSkills[4] = {
+        {0.45f, 0.40f, 1.80f, 1.30f, 32, 0.00f, "EASY"},
+        {0.25f, 0.30f, 1.00f, 1.00f, 26, 0.00f, "NORMAL"},  // how they've always played
+        {0.18f, 0.20f, 0.70f, 0.90f, 19, 0.20f, "HARD"},
+        {0.12f, 0.15f, 0.50f, 0.85f, 13, 0.40f, "EXPERT"},
+    };
+    return kSkills[level < 0 ? 0 : level > 3 ? 3 : level];
+}
+
 float botRand(uint32_t& state);  // 0..1, xorshift (bots only: the player's shots never use randomness)
 
 // A random standing spot anywhere on the walkable map: at least `minDist` from every watcher and out of

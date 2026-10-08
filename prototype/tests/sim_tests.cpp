@@ -256,6 +256,24 @@ void testDeterminism() {
     CHECK(same, "identical inputs must give bit-identical results");
 }
 
+// Bot skill: each level up reacts faster, aims tighter, tracks you more closely and goes for the head more.
+void testBotSkills() {
+    std::printf("bot skill\n");
+    int wrong = 0;
+    for (int l = 0; l < 4; ++l) {
+        const BotSkill& s = botSkill(l);
+        std::printf("  %-6s reaction %.2f-%.2f s, aim error x%.2f, fire x%.2f, aims %.0f ms behind, head %.0f%%\n", s.name,
+                    double(s.reactMin), double(s.reactMin + s.reactRange), double(s.aimError), double(s.fireScale),
+                    s.lagTicks * 1000.0 / kTickRate, double(s.headChance) * 100.0);
+        if (l > 0) {
+            const BotSkill& e = botSkill(l - 1);
+            wrong += !(s.reactMin < e.reactMin && s.aimError < e.aimError && s.lagTicks < e.lagTicks &&
+                       s.headChance >= e.headChance && s.fireScale <= e.fireScale);
+        }
+    }
+    CHECK(wrong == 0 && botSkill(1).aimError == 1.0f, "%d", wrong);
+}
+
 // Fire timing: a held trigger keeps the exact cadence; taps and clicks, however fast or badly timed,
 // never get two shots closer together than one fire interval.
 void testFireTiming() {
@@ -781,7 +799,7 @@ void testDustRoutes() {
     std::printf("dust routes (knife, 250 u/s)\n");
     const Landmark tSpawn{"T spawn", dustSpawn().pos}, ctSpawn{"CT spawn", dpt(-150, 2750)},
         longDoors{"long doors", dpt(775, 380)}, aSite{"A site", dpt(1300, 2900)}, bSite{"B site", dpt(-1850, 2400)},
-        midDoors{"mid doors", dpt(-176, 1896)}, cat{"catwalk", dpt(170, 1700)}, pit{"pit", dpt(1700, 350)},
+        midDoors{"mid doors", dpt(-180, 1950)}, cat{"catwalk", dpt(170, 1700)}, pit{"pit", dpt(1700, 350)},
         lower{"lower tunnels", dpt(-1100, 1150)};
     struct Route { Landmark a, b; float minS, maxS; };
     const Route routes[] = {
@@ -811,7 +829,7 @@ void testDustScales() {
         World w = buildDust();
         NavGrid nav;
         nav.build(dustGrid(), w, dustSpawn().pos);
-        const float pts[][2] = {{-150, 2750}, {775, 380}, {1300, 2900}, {-1850, 2400}, {-176, 1896},
+        const float pts[][2] = {{-150, 2750}, {775, 380}, {1300, 2900}, {-1850, 2400}, {-180, 1950},
                                 {170, 1700}, {1700, 420}, {-1100, 1150}};
         std::vector<Vec3> path;
         int missing = 0, badSpots = 0;
@@ -913,6 +931,7 @@ int main() {
     testDeterminism();
     testWeapon();
     testFireTiming();
+    testBotSkills();
     testWallbang();
     testRayVsBoxes();
     testMaterialWallbang();

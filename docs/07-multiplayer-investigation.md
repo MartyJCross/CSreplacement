@@ -1,6 +1,8 @@
 # 07 — Multiplayer: where we are and how to get there
 
-An investigation only; nothing is built yet. The design target is already written up in [04 — Netcode & hit registration](04-netcode-and-hitreg.md). This note covers the practical path from today's Crisp code to playing against a friend.
+**Update:** a first version is built: online deathmatch for 2-8 friends (see prototype/README.md, "Online"). It's the quick "trust each other" model (each PC simulates itself; the shooter decides hits), hosted from the game over ENet. The rest of this note is the original investigation and still describes the road to a proper server-authoritative version.
+
+The original investigation follows. The design target is already written up in [04 — Netcode & hit registration](04-netcode-and-hitreg.md). This note covers the practical path from today's Crisp code to playing against a friend.
 
 ## What we already have that helps
 

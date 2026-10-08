@@ -73,6 +73,15 @@ dm_minutes 5
 rt_bots 4
 // Grenade trajectory preview while holding a grenade: 0 off, 1 everywhere but competitive, 2 always.
 nade_preview 1
+// Competitive: bots on your team (0..4) and theirs (1..5). Bot skill 0 easy, 1 normal, 2 hard, 3 expert:
+// your teammates, and the enemy bots (enemy_skill is the bots' skill in every other mode too).
+// Online: the address to join and the UDP port (hosting: forward this port, or use a LAN / ZeroTier).
+net_address 127.0.0.1
+net_port 27015
+comp_mates 4
+comp_enemies 5
+mate_skill 1
+enemy_skill 2
 // Prefire: the bots shoot back (1) or are just targets (0).
 prefire_bots_shoot 1
 )";
@@ -100,7 +109,9 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\nknife " << c.knife << "\nfinish " << c.finish << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
         << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
-        << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot << "\n";
+        << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
+        << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nmate_skill " << c.mate_skill
+        << "\nenemy_skill " << c.enemy_skill << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port << "\n";
     return bool(out);
 }
 
@@ -120,8 +131,13 @@ Config loadConfig(const std::string& path) {
         if (cut != std::string::npos) line.resize(cut);
         std::istringstream ss(line);
         std::string key;
+        if (!(ss >> key)) continue;
+        if (key == "net_address") {  // the one text setting
+            ss >> c.net_address;
+            continue;
+        }
         float v;
-        if (!(ss >> key >> v)) continue;
+        if (!(ss >> v)) continue;
         auto i = [&](int& dst) { dst = int(v); };
         if (key == "sensitivity") c.sensitivity = v;
         else if (key == "m_yaw") c.m_yaw = v;
@@ -170,6 +186,11 @@ Config loadConfig(const std::string& path) {
         else if (key == "dm_minutes") i(c.dm_minutes);
         else if (key == "rt_bots") i(c.rt_bots);
         else if (key == "nade_preview") i(c.nade_preview);
+        else if (key == "comp_mates") i(c.comp_mates);
+        else if (key == "comp_enemies") i(c.comp_enemies);
+        else if (key == "mate_skill") i(c.mate_skill);
+        else if (key == "enemy_skill") i(c.enemy_skill);
+        else if (key == "net_port") i(c.net_port);
         else if (key == "prefire_bots_shoot") i(c.prefire_bots_shoot);
     }
     return c;

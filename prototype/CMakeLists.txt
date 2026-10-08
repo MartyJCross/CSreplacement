@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 # The build number shown on the main menu and in the window title. Bump it for every build handed out
 # (the zip is named Crisp-v<version>.zip).
-project(Crisp VERSION 0.7.0 LANGUAGES C CXX)
+project(Crisp VERSION 0.8.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,6 +46,17 @@ if(CRISP_BUILD_GAME)
     URL_HASH SHA256=9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(SDL3)
+  # ENet (MIT): small, reliable/unreliable UDP for online play.
+  FetchContent_Declare(enet
+    URL https://github.com/lsalzman/enet/archive/refs/tags/v1.3.18.tar.gz
+    URL_HASH SHA256=28603c895f9ed24a846478180ee72c7376b39b4bb1287b73877e5eae7d96b0dd
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(enet)
+  if(MSVC)
+    target_compile_options(enet PRIVATE /w)
+  else()
+    target_compile_options(enet PRIVATE -w)
+  endif()
 
   # Third-party single-file decoders (public domain / MIT): Ogg Vorbis sounds and JPEG textures from
   # assets/. Built on their own, without our warning flags.
@@ -63,8 +74,13 @@ if(CRISP_BUILD_GAME)
     src/gl.cpp
     src/config.cpp
     src/audio.cpp
-    src/fx.cpp)
-  target_link_libraries(crisp PRIVATE crisp_sim crisp_third_party SDL3::SDL3-static)
+    src/fx.cpp
+    src/net.cpp)
+  target_link_libraries(crisp PRIVATE crisp_sim crisp_third_party enet SDL3::SDL3-static)
+  target_include_directories(crisp PRIVATE ${enet_SOURCE_DIR}/include)
+  if(WIN32)
+    target_link_libraries(crisp PRIVATE ws2_32 winmm)  # ENet's sockets and timer
+  endif()
   target_compile_definitions(crisp PRIVATE CRISP_VERSION="${PROJECT_VERSION}")
   if(MSVC)
     target_link_options(crisp PRIVATE /INCREMENTAL:NO)
