@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 # The build number shown on the main menu and in the window title. Bump it for every build handed out
 # (the zip is named Crisp-v<version>.zip).
-project(Crisp VERSION 0.8.0 LANGUAGES C CXX)
+project(Crisp VERSION 0.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,11 +52,24 @@ if(CRISP_BUILD_GAME)
     URL_HASH SHA256=28603c895f9ed24a846478180ee72c7376b39b4bb1287b73877e5eae7d96b0dd
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(enet)
-  if(MSVC)
-    target_compile_options(enet PRIVATE /w)
-  else()
-    target_compile_options(enet PRIVATE -w)
-  endif()
+  # miniupnpc (BSD): asks the home router to open the host's port.
+  set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(UPNPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
+  set(UPNPC_NO_INSTALL ON CACHE BOOL "" FORCE)
+  FetchContent_Declare(miniupnpc
+    URL https://github.com/miniupnp/miniupnp/archive/refs/tags/miniupnpc_2_2_8.tar.gz
+    URL_HASH SHA256=3d0d49f761f09c1321ceb663d1b008825361d7bd242640c60ae467e82642502a
+    SOURCE_SUBDIR miniupnpc
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(miniupnpc)
+  foreach(lib enet libminiupnpc-static)
+    if(MSVC)
+      target_compile_options(${lib} PRIVATE /w)
+    else()
+      target_compile_options(${lib} PRIVATE -w)
+    endif()
+  endforeach()
 
   # Third-party single-file decoders (public domain / MIT): Ogg Vorbis sounds and JPEG textures from
   # assets/. Built on their own, without our warning flags.
@@ -75,8 +88,9 @@ if(CRISP_BUILD_GAME)
     src/config.cpp
     src/audio.cpp
     src/fx.cpp
-    src/net.cpp)
-  target_link_libraries(crisp PRIVATE crisp_sim crisp_third_party enet SDL3::SDL3-static)
+    src/net.cpp
+    src/upnp.cpp)
+  target_link_libraries(crisp PRIVATE crisp_sim crisp_third_party enet libminiupnpc-static SDL3::SDL3-static)
   target_include_directories(crisp PRIVATE ${enet_SOURCE_DIR}/include)
   if(WIN32)
     target_link_libraries(crisp PRIVATE ws2_32 winmm)  # ENet's sockets and timer

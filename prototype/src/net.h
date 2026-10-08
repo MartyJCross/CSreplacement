@@ -24,7 +24,7 @@ struct NetState {                        // one player, one tick
 constexpr uint8_t kNetAlive = 1, kNetDucked = 2;
 
 struct NetEvent {
-    enum Type { Connected, Failed, Joined, Left, State, Fire, Hit, Death } type;
+    enum Type { Connected, Failed, Joined, Left, State, Fire, Hit, Death, Name } type;
     uint8_t from = 0;                    // who it's about (Joined/Left/State/Fire), the shooter (Hit), the victim (Death)
     uint8_t other = 0;                   // Hit: the victim; Death: the killer
     NetState state;                      // State
@@ -33,6 +33,7 @@ struct NetEvent {
     bool head = false;                   // Hit, Death
     uint8_t weapon = 0;                  // Fire, Hit, Death
     float dustScale = 0.6f;              // Connected: the host's map size (everyone must match)
+    std::string text;                    // Name: the player's name
 };
 
 class Net {
@@ -53,6 +54,9 @@ public:
     void sendFire(const Vec3& from, const Vec3& to, uint8_t weapon);
     void sendHit(uint8_t victim, float damage, bool head, uint8_t weapon);
     void sendDeath(uint8_t killer, bool head, uint8_t weapon);
+    // Your name, shown to everyone (letters, digits, - and _; up to 15). Set before hosting/joining or any time.
+    void setName(const std::string& name);
+    static std::string cleanName(const std::string& name);
 
 private:
     void* host_ = nullptr;   // ENetHost*
@@ -62,6 +66,8 @@ private:
     int myId_ = -1;
     float dustScale_ = 0.6f;
     double connectStarted_ = 0;
+    std::string myName_ = "PLAYER";
+    std::string names_[kNetMaxPlayers];  // host: everyone's, to tell newcomers
     void sendTo(void* peer, const std::vector<uint8_t>& msg, bool reliable);
     void broadcastExcept(int except, const std::vector<uint8_t>& msg, bool reliable);
     void handle(const uint8_t* data, size_t len, int fromPeerId, std::vector<NetEvent>& out);

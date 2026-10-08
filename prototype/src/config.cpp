@@ -78,6 +78,7 @@ nade_preview 1
 // Online: the address to join and the UDP port (hosting: forward this port, or use a LAN / ZeroTier).
 net_address 127.0.0.1
 net_port 27015
+player_name PLAYER
 comp_mates 4
 comp_enemies 5
 mate_skill 1
@@ -111,7 +112,8 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nmate_skill " << c.mate_skill
-        << "\nenemy_skill " << c.enemy_skill << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port << "\n";
+        << "\nenemy_skill " << c.enemy_skill << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
+        << "\nplayer_name " << c.player_name << "\n";
     return bool(out);
 }
 
@@ -132,8 +134,8 @@ Config loadConfig(const std::string& path) {
         std::istringstream ss(line);
         std::string key;
         if (!(ss >> key)) continue;
-        if (key == "net_address") {  // the one text setting
-            ss >> c.net_address;
+        if (key == "net_address" || key == "player_name") {  // the text settings
+            ss >> (key == "net_address" ? c.net_address : c.player_name);
             continue;
         }
         float v;

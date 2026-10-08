@@ -3,13 +3,14 @@
 #include <enet/enet.h>
 #include <cstdint>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
 
 namespace {
 
 // Messages: a type byte, then fixed little-endian fields. Channel 0 unreliable (states: a lost one
 // is replaced by the next tick's), channel 1 reliable (everything else).
-enum Msg : uint8_t { kWelcome = 1, kState, kFire, kHit, kDeath, kLeave };
+enum Msg : uint8_t { kWelcome = 1, kState, kFire, kHit, kDeath, kLeave, kName };
 
 struct Writer {
     std::vector<uint8_t> b;
@@ -18,6 +19,10 @@ struct Writer {
     void u32(uint32_t v) { for (int k = 0; k < 4; ++k) b.push_back(uint8_t(v >> (8 * k))); }
     void f32(float v) { uint32_t u; std::memcpy(&u, &v, 4); u32(u); }
     void vec(const Vec3& v) { f32(v.x); f32(v.y); f32(v.z); }
+    void str(const std::string& s) {
+        u8(uint8_t(s.size()));
+        b.insert(b.end(), s.begin(), s.end());
+    }
 };
 
 struct Reader {
@@ -36,7 +41,21 @@ struct Reader {
     }
     float f32() { uint32_t u = u32(); float v; std::memcpy(&v, &u, 4); return v; }
     Vec3 vec() { Vec3 v; v.x = f32(); v.y = f32(); v.z = f32(); return v; }
+    std::string str() {
+        const size_t len = u8();
+        if (i + len > n) { ok = false; return ""; }
+        std::string s(reinterpret_cast<const char*>(p + i), len);
+        i += len;
+        return s;
+    }
 };
+
+std::vector<uint8_t> nameMsg(int id, const std::string& name) {
+    Writer w(kName);
+    w.u8(uint8_t(id));
+    w.str(name);
+    return w.b;
+}
 
 bool g_enetReady = false;
 
@@ -71,6 +90,7 @@ bool Net::host(uint16_t port, float dustScale, std::string& err) {
     isHost_ = true;
     myId_ = 0;
     dustScale_ = dustScale;
+    names_[0] = myName_;
     return true;
 }
 
@@ -155,6 +175,8 @@ void Net::poll(std::vector<NetEvent>& out) {
                     w.u8(uint8_t(id));
                     w.f32(dustScale_);
                     sendTo(e.peer, w.b, true);
+                    for (int k = 0; k < kNetMaxPlayers; ++k)  // everyone's names so far
+                        if (!names_[k].empty()) sendTo(e.peer, nameMsg(k, names_[k]), true);
                     NetEvent ev{NetEvent::Joined};
                     ev.from = uint8_t(id);
                     out.push_back(ev);
@@ -169,6 +191,7 @@ void Net::poll(std::vector<NetEvent>& out) {
                     const int id = peerId(e.peer);
                     if (id > 0 && id < kNetMaxPlayers && peers_[id] == e.peer) {
                         peers_[id] = nullptr;
+                        names_[id].clear();
                         Writer w(kLeave);
                         w.u8(uint8_t(id));
                         broadcastExcept(-1, w.b, true);
@@ -206,6 +229,7 @@ void Net::handle(const uint8_t* data, size_t len, int fromPeer, std::vector<NetE
             ev.dustScale = r.f32();
             if (!r.ok) return;
             enet_peer_timeout(P(server_), 32, 4000, 10000);
+            sendTo(server_, nameMsg(myId_, myName_), true);  // tell everyone who you are
             break;
         case kState: {
             ev.state.id = r.u8();
@@ -271,6 +295,17 @@ void Net::handle(const uint8_t* data, size_t len, int fromPeer, std::vector<NetE
                 broadcastExcept(fromPeer, copy, true);
             }
             break;
+        case kName:
+            ev.type = NetEvent::Name;
+            ev.from = r.u8();
+            ev.text = cleanName(r.str());
+            if (!r.ok) return;
+            if (isHost_) {  // a client says who they are: remember it, tell the others
+                ev.from = uint8_t(fromPeer);
+                if (fromPeer > 0 && fromPeer < kNetMaxPlayers) names_[fromPeer] = ev.text;
+                broadcastExcept(fromPeer, nameMsg(fromPeer, ev.text), true);
+            }
+            break;
         case kLeave:
             ev.type = NetEvent::Left;
             ev.from = r.u8();
@@ -280,6 +315,27 @@ void Net::handle(const uint8_t* data, size_t len, int fromPeer, std::vector<NetE
             return;
     }
     out.push_back(ev);
+}
+
+std::string Net::cleanName(const std::string& name) {
+    std::string out;
+    for (char c : name) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (std::isalnum(u) || c == '-' || c == '_') out.push_back(char(std::toupper(u)));
+        if (out.size() >= 15) break;
+    }
+    return out.empty() ? "PLAYER" : out;
+}
+
+void Net::setName(const std::string& name) {
+    myName_ = cleanName(name);
+    if (!ready()) return;
+    if (isHost_) {
+        names_[0] = myName_;
+        broadcastExcept(-1, nameMsg(0, myName_), true);
+    } else {
+        sendTo(server_, nameMsg(myId_, myName_), true);
+    }
 }
 
 void Net::sendState(const NetState& s) {

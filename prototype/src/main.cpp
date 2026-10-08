@@ -21,6 +21,7 @@
 #include "gl.h"
 #include "movement.h"
 #include "net.h"
+#include "upnp.h"
 #include "nav.h"
 #include "render.h"
 #include "world.h"
@@ -216,6 +217,7 @@ struct Game {
     // Online (mode 5): players are dummies[id] (id = their net id; yours stays hidden). Their states are
     // played back a few ticks behind the newest, interpolated, so they move smoothly through jitter.
     Net net;
+    PortOpener ports;  // hosting: the router's port, and the addresses to give friends
     struct Remote {
         NetState snaps[32];
         bool present = false;
@@ -225,6 +227,7 @@ struct Game {
     Remote remotes[kNetMaxPlayers];
     uint32_t netTick = 0;
     bool netJoining = false;
+    uint16_t netPort = kNetDefaultPort;
     bool inputBlocked = false;  // a menu is open over a game that keeps running (online)
     double rtRoundEnd = 0, rtResultUntil = -1;
     bool rtResultWin = false;
@@ -387,12 +390,24 @@ void addMoney(Game& g, int id, int amount);
 int nextTeammate(const Game& g, int from, int dir);
 
 bool g_onlineNames = false;  // online: dummies are players, not bots
+std::string g_playerNames[kNetMaxPlayers];  // online: everyone's names (by net id)
+// Bots get generic first names; a different set each match (the offset is picked when a map loads).
+const char* const kBotNames[] = {"ALEX", "BLAKE", "CASEY", "DANNY", "ELLIOT", "FINN", "GRANT", "HUGO",
+                                 "IVAN", "JACK", "KYLE", "LEO", "MAX", "NOAH", "OSCAR", "PETE",
+                                 "QUINN", "RYAN", "SAM", "TOMMY", "VINCE", "WADE", "ZACK", "BEN",
+                                 "COLE", "DEAN", "EVAN", "FRANK", "GUS", "HANK", "JOE", "LUKE"};
+constexpr int kBotNameCount = int(sizeof(kBotNames) / sizeof(kBotNames[0]));
+int g_botNameOffset = 0;
 
 std::string agentName(int id) {
     if (id < 0) return "YOU";
-    char b[16];
-    std::snprintf(b, sizeof(b), g_onlineNames ? "PLAYER %d" : "BOT %d", id + 1);
-    return b;
+    if (g_onlineNames) {
+        if (id < kNetMaxPlayers && !g_playerNames[id].empty()) return g_playerNames[id];
+        char b[16];
+        std::snprintf(b, sizeof(b), "PLAYER %d", id + 1);
+        return b;
+    }
+    return kBotNames[(id + g_botNameOffset) % kBotNameCount];
 }
 
 // Online: weapons as a byte on the wire.
@@ -1203,7 +1218,7 @@ void compTick(Game& g) {
     // Teammate radio: what the bots on your side see and do, as short lines in the top-right feed.
     auto radio = [&](int bot, const std::string& msg) {
         if (bot >= 0 && size_t(bot) < g.team.size() && g.team[size_t(bot)] == c.youTeam)
-            pushHitLog(g, "BOT " + std::to_string(bot + 1) + ": " + msg, 0x90e0a0);
+            pushHitLog(g, agentName(bot) + ": " + msg, 0x90e0a0);
     };
     auto firstAlive = [&](int side) {
         for (size_t i = 0; i < g.dummies.size(); ++i)
@@ -1549,6 +1564,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     }
     if (id == 1 && g.mode == 3) startCompMatch(g);
     if (id == 1 && g.mode == 4) startPrefire(g);
+    g_botNameOffset = int(rnd(g) * float(kBotNameCount)) % kBotNameCount;  // new names every match
     if (id == 1 && g.mode == 5) startOnline(g);
     else g_onlineNames = false;
     g.hudDirty = true;
@@ -2490,6 +2506,9 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
             const GameMenu& m = g_gameMenu;
             std::vector<MenuItem> r = {{"MODE", nullptr, &g_gameMenu.mode, 1, 0, 5, kModeNames}};
             if (m.mode == 5) {  // online: host, or join someone's game
+                MenuItem name{"YOUR NAME"};
+                name.text = &c.player_name;
+                r.push_back(name);
                 r.push_back(button("HOST A GAME", kActHost));
                 MenuItem addr{"JOIN ADDRESS"};
                 addr.text = &c.net_address;
@@ -2665,7 +2684,7 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
     }
     const bool typing = g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && rows[size_t(g_menu.sel)].text;
     const bool setting = g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && !rows[size_t(g_menu.sel)].action && !typing;
-    const char* hint = typing ? "TYPE THE ADDRESS (IP OR NAME)   BACKSPACE DELETES"
+    const char* hint = typing ? "TYPE IT   BACKSPACE DELETES"
                        : setting ? "LEFT/RIGHT, CLICK OR WHEEL CHANGES   (SAVED)"
                                : screen == kMenuMain ? "ENTER OR CLICK TO SELECT" : "ENTER OR CLICK TO SELECT   ESC BACK";
     hud.text(L.x, L.rowsY + (float(rows.size()) + 0.5f) * L.rowH, hint, 0x909090FF);
@@ -2844,6 +2863,27 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (g.mapId == 1 && g.mode == 5) {
         std::snprintf(buf, sizeof(buf), "ONLINE DEATHMATCH   KILLS %d   DEATHS %d", g.you.kills, g.you.deaths);
         hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
+        if (g.net.isHost()) {  // the address to give friends, once the router has (or hasn't) opened the port
+            const PortStatus ps = g.ports.status();
+            const std::string port = g.netPort == kNetDefaultPort ? "" : ":" + std::to_string(g.netPort);
+            std::string a, b;
+            if (ps.state == PortStatus::Working) {
+                a = "OPENING PORT " + std::to_string(g.netPort) + " ON YOUR ROUTER...";
+            } else if (ps.state == PortStatus::Opened && ps.note.empty()) {
+                a = "FRIENDS JOIN: " + ps.publicIp + port + "     SAME HOUSE: " + ps.localIp + port;
+            } else {
+                a = "SAME HOUSE: " + (ps.localIp.empty() ? std::string("YOUR PC'S IP") : ps.localIp) + port +
+                    "     OVER THE INTERNET: ZEROTIER, OR FORWARD UDP " + std::to_string(g.netPort);
+                b = ps.note;
+            }
+            auto line = [&](const std::string& t, float y, uint32_t col) {  // on a dark strip: readable on the sky
+                const float tw = hud.textWidth(t);
+                hud.rect(cx - tw / 2 - 6.0f * s, y - 2.0f * s, tw + 12.0f * s, 12.0f * s, 0x101216B0);
+                hud.text(cx - tw / 2, y, t, col);
+            };
+            line(a, 44.0f * s, 0xFFD060FF);
+            if (!b.empty()) line(b, 57.0f * s, 0xFFA070FF);
+        }
     }
     if (g.mapId == 1 && g.mode == 1) {
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
@@ -2993,7 +3033,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         if (c.youDead && c.phase == 1) {
             char spec[96];
             if (g.spec >= 0 && size_t(g.spec) < g.dummies.size())
-                std::snprintf(spec, sizeof(spec), "SPECTATING BOT %d  -  %d HP      MOUSE 1/2: NEXT   SPACE: FLY FREE", g.spec + 1,
+                std::snprintf(spec, sizeof(spec), "SPECTATING %s  -  %d HP      MOUSE 1/2: NEXT   SPACE: FLY FREE", agentName(g.spec).c_str(),
                               int(std::max(0.0f, g.dummies[size_t(g.spec)].hp)));
             else
                 std::snprintf(spec, sizeof(spec), "DEAD - FLYING FREE UNTIL THE NEXT ROUND      SPACE: WATCH A TEAMMATE");
@@ -3212,6 +3252,28 @@ int main(int argc, char** argv) {
         g.nadeHold = 0;  // a grenade you were holding stays in your hand
         g.hudDirty = true;
     };
+    auto leaveOnline = [&]() {  // stop hosting / leave: the connection, the router's port, the names
+        g.net.stop();
+        g.ports.close();
+        g.netJoining = false;
+        for (std::string& n : g_playerNames) n.clear();
+    };
+    // "host:port" -> host, port (no colon: the port stays as it was).
+    auto splitAddress = [](std::string& address, uint16_t& port) {
+        const size_t colon = address.rfind(':');
+        if (colon == std::string::npos) return;
+        const int p = std::atoi(address.c_str() + colon + 1);
+        if (p >= 1 && p <= 65535) port = uint16_t(p);
+        address.resize(colon);
+    };
+    // What a text field can hold: letters, digits, . - _ and : (for address:port).
+    auto typedChar = [](SDL_Keycode k, SDL_Keymod mod) -> char {
+        const bool shift = (mod & SDL_KMOD_SHIFT) != 0;
+        if ((k >= SDLK_0 && k <= SDLK_9) || (k >= SDLK_A && k <= SDLK_Z) || k == SDLK_PERIOD) return char(k);
+        if (k == SDLK_MINUS) return shift ? '_' : '-';
+        if (k == SDLK_SEMICOLON && shift) return ':';
+        return 0;
+    };
     auto goOnline = [&]() {  // hosting, or just connected: the online deathmatch on Dust
         g.mode = 5;
         loadMap(g, renderer, 1);
@@ -3237,8 +3299,7 @@ int main(int argc, char** argv) {
     // START on the play screen: the chosen mode and map, from scratch.
     auto startFromMenu = [&]() {
         const GameMenu& m = g_gameMenu;
-        g.net.stop();  // (leaving an online game, if you were in one)
-        g.netJoining = false;
+        leaveOnline();  // (if you were in an online game)
         g.mode = m.mode;
         g.pf.route = m.route;
         loadMap(g, renderer, m.mode != 0 ? 1 : m.map);
@@ -3285,19 +3346,22 @@ int main(int argc, char** argv) {
             case kActBack: menuBack(); break;
             case kActMainMenu:
                 if (g.mode == 5) {  // leaving an online game: back to an offline map behind the menu
-                    g.net.stop();
+                    leaveOnline();
                     g.mode = 0;
                     loadMap(g, renderer, 0);
                 }
-                g.net.stop();
-                g.netJoining = false;
+                leaveOnline();
                 g_menu.root = kMenuMain;
                 setMenu(kMenuMain);
                 break;
             case kActHost: {
                 std::string err;
                 const uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
+                g.net.setName(cfg.player_name);
                 if (g.net.host(port, float(cfg.dust_scale) / 100.0f, err)) {
+                    g.netPort = port;
+                    g.ports.open(port);  // ask the router, in the background
+                    g_playerNames[0] = Net::cleanName(cfg.player_name);
                     goOnline();
                     char msg[64];
                     std::snprintf(msg, sizeof(msg), "HOSTING ON PORT %d", int(port));
@@ -3309,7 +3373,11 @@ int main(int argc, char** argv) {
             }
             case kActJoin: {
                 std::string err;
-                if (g.net.join(cfg.net_address, uint16_t(std::clamp(cfg.net_port, 1024, 65535)), err)) {
+                g.net.setName(cfg.player_name);
+                std::string address = cfg.net_address;
+                uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
+                splitAddress(address, port);
+                if (g.net.join(address, port, err)) {
                     g.netJoining = true;
                     setMenu(kMenuNone);
                 } else {
@@ -3357,18 +3425,26 @@ int main(int argc, char** argv) {
                     pushHitLog(g, "COULDN'T CONNECT TO " + cfg.net_address, 0xff6060);
                     if (automated) std::fprintf(stderr, "net: couldn't connect\n");
                     break;
-                case NetEvent::Joined:
-                    pushHitLog(g, agentName(ev.from) + " JOINED", 0x80ff80);
+                case NetEvent::Joined:  // (announced once their name arrives)
                     if (automated) std::fprintf(stderr, "net: player %d joined\n", ev.from + 1);
+                    break;
+                case NetEvent::Name:
+                    if (ev.from >= kNetMaxPlayers) break;
+                    if (g_playerNames[ev.from].empty() && ev.from != g.net.myId())
+                        pushHitLog(g, ev.text + " IS HERE", 0x80ff80);
+                    g_playerNames[ev.from] = ev.text;
+                    if (automated) std::fprintf(stderr, "net: player %d is %s\n", ev.from + 1, ev.text.c_str());
+                    g.hudDirty = true;
                     break;
                 case NetEvent::Left:
                     if (ev.from == 0 && !g.net.isHost()) {  // the host is gone: back to an offline map
-                        g.net.stop();
+                        leaveOnline();
                         pushHitLog(g, "THE HOST LEFT", 0xff6060);
                         if (g.mode == 5) { g.mode = 0; loadMap(g, renderer, 0); }
                     } else if (ev.from < kNetMaxPlayers) {
                         g.remotes[ev.from].present = false;
                         pushHitLog(g, agentName(ev.from) + " LEFT", 0xffd060);
+                        g_playerNames[ev.from].clear();
                     }
                     break;
                 case NetEvent::State: {
@@ -3420,18 +3496,25 @@ int main(int argc, char** argv) {
         std::vector<MenuItem> rows = menuRows(g_menu.screen, cfg, g.mode);
         return g_menu.sel >= 0 && g_menu.sel < int(rows.size()) ? rows[size_t(g_menu.sel)].text : nullptr;
     };
-    auto typedChar = [](SDL_Keycode k) -> char {  // what an address can hold: letters, digits, . and -
-        if ((k >= SDLK_0 && k <= SDLK_9) || (k >= SDLK_A && k <= SDLK_Z) || k == SDLK_PERIOD || k == SDLK_MINUS) return char(k);
-        return 0;
-    };
+
     if (opt.netHost) {  // tests: --host / --join ADDR
         std::string netErr;
-        if (g.net.host(uint16_t(std::clamp(cfg.net_port, 1024, 65535)), float(cfg.dust_scale) / 100.0f, netErr)) goOnline();
+        g.net.setName(cfg.player_name);
+        g.netPort = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
+        if (g.net.host(g.netPort, float(cfg.dust_scale) / 100.0f, netErr)) {
+            g.ports.open(g.netPort);  // like the menu's HOST: ask the router
+            g_playerNames[0] = Net::cleanName(cfg.player_name);
+            goOnline();
+        }
         else std::fprintf(stderr, "net: %s\n", netErr.c_str());
     } else if (!opt.netJoin.empty()) {
         std::string netErr;
         cfg.net_address = opt.netJoin;
-        if (g.net.join(opt.netJoin, uint16_t(std::clamp(cfg.net_port, 1024, 65535)), netErr)) g.netJoining = true;
+        g.net.setName(cfg.player_name);
+        std::string address = opt.netJoin;
+        uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
+        splitAddress(address, port);
+        if (g.net.join(address, port, netErr)) g.netJoining = true;
         else std::fprintf(stderr, "net: %s\n", netErr.c_str());
     }
 
@@ -3534,13 +3617,14 @@ int main(int argc, char** argv) {
                     } else if (sc == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT)) {
                         bool fs = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
                         SDL_SetWindowFullscreen(window, !fs);
-                    } else if (paused && menuField() && (sc == SDL_SCANCODE_BACKSPACE || typedChar(e.key.key))) {
+                    } else if (paused && menuField() && (sc == SDL_SCANCODE_BACKSPACE || typedChar(e.key.key, e.key.mod))) {
                         std::string& t = *menuField();
                         if (sc == SDL_SCANCODE_BACKSPACE) {
                             if (!t.empty()) t.pop_back();
-                        } else if (t.size() < 64) {
-                            t.push_back(typedChar(e.key.key));
+                        } else if (t.size() < (&t == &cfg.player_name ? 15u : 64u)) {
+                            t.push_back(typedChar(e.key.key, e.key.mod));
                         }
+                        if (&t == &cfg.player_name && g.net.active()) g.net.setName(t);  // (live, if you're online)
                         saveConfig(cfgPath, cfg);
                         g.hudDirty = true;
                     } else if (paused && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN)) {
