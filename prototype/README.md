@@ -130,6 +130,28 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## v0.23: the premium pass
+
+- **Sun shadows.** Walls, roofs, awnings and crates cast real shadows from the sun (worked out once when the map
+  loads, so they cost little); what's in shade is cooler and darker, and players walking into shade darken too.
+  Settings → Video + sound → SUN SHADOWS (`shadows`: 0 off, 1 on, 2 sharp).
+- **Post-processing** (`post_fx`, restart): each map has its own colour grade (Dust warm and sun-baked, Harbor cooler,
+  the Lab neutral) and a soft vignette that leaves the middle of the screen alone. With `msaa 0` it smooths edges with
+  FXAA, which is much cheaper than MSAA on integrated graphics. The HUD isn't touched.
+- **A real font.** The HUD and menus use Rajdhani Bold (SIL Open Font License) instead of the 5x7 pixel font; the
+  scoreboard's columns still line up. Without the font file the old one comes back.
+- **A living main menu.** Behind the menu a camera drifts slowly over the map from one angle to the next. A map
+  loading or a competitive round starting fades in from black.
+- **Ambience and echo.** Dust has wind and distant birds, Harbor has waves, gulls and sea wind (`ambience_volume`,
+  AMBIENCE row). Shots and steps echo in tunnels and roofed halls, with a short slap off the walls in the streets; UI
+  sounds stay dry.
+- **Footsteps by surface:** sand on the streets, a harder stone click on the bomb sites' paving and the Lab's
+  concrete, wood on crates and doors, metal on the container.
+- **Viewmodel polish:** the sway settles on a spring (a little weight), strafing leans the gun, jumping drops it a
+  touch, the walk bob rolls slightly, and it breathes when you stand still. The shot kick is unchanged.
+- **Graphics presets** (`graphics_preset`): LOW (no shadows, FXAA), MEDIUM (shadows, FXAA), HIGH (sharp shadows, 4x
+  MSAA). Changing one of those settings by hand shows CUSTOM.
+
 ## v0.22.1: no mid fights, bots that shoot
 
 - **Competitive bots don't take a mid fight from spawn.** No T plan stages in mid any more (A goes long in one or two
@@ -271,7 +293,7 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable.
 - **Competitive colours:** Ts in tan, CTs in blue; a green marker floats over your teammates.
 - **The models:** two legs that step as they walk, boots and knee pads, a belt with a buckle, a vest with pouches, shoulder pads and a small pack, sleeves and gloves on the gun. CTs wear a helmet with goggles; Ts a balaclava with an eye slit and a beanie. Every piece sits inside its hitbox, and a hit flashes the part you hit.
-- **Anti-aliasing** (`msaa 4`, Settings → Video + sound, applies on restart) smooths edges so far-away players stop shimmering.
+- **Anti-aliasing** (`msaa 4`, Settings → Video + sound, applies on restart) smooths edges so far-away players stop shimmering. With `msaa 0` and post-processing on, FXAA smooths them instead (cheaper).
 
 ## Hit feedback
 

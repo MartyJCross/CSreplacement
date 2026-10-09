@@ -56,7 +56,8 @@ prototype/
     main.cpp              window/input, 128 Hz fixed-step loop, the modes, grenades, bot shooting, competitive (plays,
                           economy, bomb), KZ, HUD, menus, map loading, replays/killcam, stats, online glue (~6k lines)
     render.*, gl.*        OpenGL 3.3: everything is an instanced box (optionally yaw-rotated: yawBox) or a ModelDraw
-                          (boxes under a matrix); HUD is one batch; muzzle light uniform; tiny GL loader (+ fences)
+                          (boxes under a matrix); HUD is one batch (TrueType font atlas); muzzle light uniform; static
+                          sun shadow map; post pass (FXAA, grade, vignette); tiny GL loader (+ fences, FBOs)
     fx.*                  cosmetic only: first-person weapons/knives (weaponDraws), the inventory showcase, tracers,
                           particles, debris (helmets)
     net.*                 online play: ENet host/join, relay through the host, state/fire/hit/death/name/grenade
@@ -69,7 +70,7 @@ prototype/
   tests/sim_tests.cpp     headless tests (~all systems; see rule 7)
   assets/                 sounds/ (<sound>_<n>.wav|.ogg replace that sound's synthesized variants; m4_shot_N, the AR-15
                           base), music/menu.ogg, textures/ (512 px detail maps), CREDITS.md; copied next to the exe
-  third_party/            stb_vorbis.c, stb_image.h (public domain / MIT; built as crisp_third_party, no warnings)
+  third_party/            stb_vorbis.c, stb_image.h, stb_truetype.h (public domain / MIT; built as crisp_third_party)
   tools/                  gen_font.py, make_zip.ps1, prep_assets.py (builds assets/ from ../asset-downloads),
                           sound_bands.py (measures dumped sounds: bands, length, ringing, 3D cues)
 .github/workflows/prototype.yml   CI: Windows build + tests + artifact; Linux sim tests (GCC)
@@ -258,6 +259,12 @@ GENERAL; career ADR counts competitive only.
 pause menu (+ WATCH REPLAY), Play screen (mode, map, its options), settings pages (mouse, crosshair, weapons, video +
 sound, gameplay). Every change saves config.cfg.
 
+**v0.23 premium pass** (details in §8's checklist): sun shadows (render.cpp `buildShadows`, `kSunDir`), post pass
+(`setPost`/`endScene`/`setGrade`; MSAA lives in the offscreen buffers when `post_fx` is on), TrueType HUD font
+(`loadFont`, assets/fonts, OFL), main-menu camera (`menuCamera`), fades (`drawFadeIn`), ambience + room echo (audio.cpp
+`ambienceBed`, `Reverb`, `setAmbience`/`setRoom`), stone footsteps (`Sfx::FootstepStone`), viewmodel spring sway /
+lean, graphics presets (`applyGraphicsPreset`).
+
 **Performance & latency**: depth pre-pass, per-frame frustum cull + front-to-back sort, per-face lighting. Nav routes
 are A* (`NavGrid::findPath`, octile estimate). The mixer only locks to take new voices. v0.21 check on the owner's
 laptop (1080p, MSAA 2, DM, 7 bots): ~200 FPS, GPU-bound (gpu ~2.8 ms, sim ~0.15 ms), MSAA 0 gives ~275; the mixer
@@ -286,8 +293,9 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
 
-**IN PROGRESS: v0.23 "premium pass"** (owner asked for all of it, 2026-10-09; done in pieces, each committed and pushed
-so a cut-off session can carry on; light testing, no benches while they use the PC). Tick each piece off here:
+**Done in v0.23: the "premium pass"** (owner asked for all of it, 2026-10-09; done in pieces, each committed and
+pushed; light testing, no benches while they used the PC: **the FPS cost of shadows + post pass is not measured yet on
+their laptop**; next session with their OK, run `--bench 10` with presets LOW/MEDIUM/HIGH):
 - [x] 1. Sun shadows (`Renderer::buildShadows`: static depth map from `kSunDir` at map load, `sunVis`/`sunLit` in the
       box FS, config `shadows` 0/1/2 + menu row) and bevelled prop edges (wood/metal faces, box FS)
 - [x] 2. Post pass (`setPost`, `endScene`, `setGrade` per map in loadMap; kPostFS): scene into an FBO (MSAA samples
@@ -307,7 +315,7 @@ so a cut-off session can carry on; light testing, no benches while they use the 
       (`ViewModelInput::sideSpeed`, `lean_`), dip on takeoff, roll in the walk bob, idle breathing; shot kick untouched
 - [x] 8. Graphics presets (`graphics_preset`, `kPresets`, `applyGraphicsPreset` in settingsChanged): LOW (no shadows,
       FXAA), MEDIUM (shadows, FXAA), HIGH (sharp shadows, MSAA 4), CUSTOM when a setting is changed by hand
-- [ ] 9. Docs: README section, CLAUDE.md §7, final report + CI link + zip
+- [x] 9. Docs: README section, CLAUDE.md §7, final report + CI link + zip
 
 Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competitive bots (CT utility, post-plant,
 saving, fire avoidance), the performance check (A* routes, mixer lock).
