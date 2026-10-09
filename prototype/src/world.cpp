@@ -344,8 +344,16 @@ const DustArea kHarborAreas[] = {
     {"B CT PATH", -650, 1300, -450, 1500, 0, 0, 0, kHSand, 0},
 };
 
-// The town maps: their areas, how far the grid reaches (real units), whether DUST SIZE scales them, and their
-// three wall shades.
+// Walls that must hold at every map size: areas whose gap is thinner than a grid cell at some sizes would touch
+// there (and you'd see through). The first area of each pair gives up its edge cells to a wall.
+const char* const kDustSeparate[][2] = {
+    {"CT MID", "SHORT"},     // short's wall: CT mid must not see across short onto A site
+    {"CT SPAWN", "SHORT"},
+    {"CT MID", "CATWALK"},   // and CT mid doesn't open onto the top of catwalk
+};
+
+// The town maps: their areas, how far the grid reaches (real units), whether DUST SIZE scales them, their three
+// wall shades, and the area pairs that must always have a wall between them.
 struct TownDef {
     const char* name;
     const DustArea* areas;
@@ -353,11 +361,14 @@ struct TownDef {
     float minX, minY, maxX, maxY;
     bool scalable;
     uint32_t shades[3];
+    const char* const (*separate)[2];
+    int separateCount;
 };
 const TownDef kTowns[2] = {
-    {"DUST", kDustAreas, kDustAreaCount, -2400, -1216, 1952, 3264, true, {kDStone, 0xd2bd94, 0xc7b089}},
+    {"DUST", kDustAreas, kDustAreaCount, -2400, -1216, 1952, 3264, true, {kDStone, 0xd2bd94, 0xc7b089}, kDustSeparate,
+     int(sizeof(kDustSeparate) / sizeof(kDustSeparate[0]))},
     {"HARBOR", kHarborAreas, int(sizeof(kHarborAreas) / sizeof(kHarborAreas[0])), -1650, -1650, 1500, 1950, false,
-     {0xdcd6c8, 0xcfc8b6, 0xc2bba8}},
+     {0xdcd6c8, 0xcfc8b6, 0xc2bba8}, nullptr, 0},
 };
 constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
 
@@ -453,6 +464,28 @@ void buildDustGrid() {
                 m.ceiling[c] = d.roof > 0 ? z + d.roof : MapGrid::kOpenSky;  // headroom never shrinks
                 m.area[c] = a;
             }
+    }
+    // The walls that must hold: any cell of the first area touching (sides or corners) the second becomes wall.
+    for (int k = 0; k < td.separateCount; ++k) {
+        std::vector<size_t> carve;
+        auto named = [&](int i, int j, const char* name) {
+            if (i < 0 || j < 0 || i >= m.w || j >= m.h) return false;
+            const int a = m.area[size_t(m.index(i, j))];
+            return a >= 0 && std::strcmp(td.areas[a].name, name) == 0;
+        };
+        for (int j = 0; j < m.h; ++j)
+            for (int i = 0; i < m.w; ++i) {
+                if (!named(i, j, td.separate[k][0])) continue;
+                bool touches = false;
+                for (int dj = -1; dj <= 1 && !touches; ++dj)
+                    for (int di = -1; di <= 1 && !touches; ++di) touches = named(i + di, j + dj, td.separate[k][1]);
+                if (touches) carve.push_back(size_t(m.index(i, j)));
+            }
+        for (size_t c : carve) {
+            m.floor[c] = MapGrid::kNoFloor;
+            m.ceiling[c] = MapGrid::kOpenSky;
+            m.area[c] = -1;
+        }
     }
     g_dustGrid = std::move(m);
     g_dustBuilt = true;

@@ -1376,6 +1376,45 @@ void testHarbor() {
     setTownMap(0);
 }
 
+// Dust's walls hold at every size: from mid and CT mid you can't see A site (short's wall), and nowhere in CT mid
+// can you see onto catwalk. (Thin walls between areas used to vanish at some sizes when they were under a grid cell.)
+void testDustSightlines() {
+    std::printf("dust sightlines (mid can't see A site)\n");
+    const float keep = townScale();
+    int seen = 0, pairs = 0;
+    for (float sc : {0.5f, 0.6f, 0.7f, 0.75f, 0.8f, 0.85f, 0.9f, 0.95f, 1.0f}) {
+        setDustScale(sc);
+        const World w = buildTown();
+        const MapGrid& m = townGrid();
+        std::vector<Vec3> from, to, cat;
+        for (int j = 0; j < m.h; ++j)
+            for (int i = 0; i < m.w; ++i) {
+                const int a = m.area[size_t(m.index(i, j))];
+                if (a < 0 || (i + j) % 2) continue;
+                const std::string name = townCallout(m.center(i, j));
+                const Vec3 c = m.center(i, j) + Vec3{0, 0, 64};
+                if (name == "MID" || name == "CT MID") from.push_back(c);
+                if (name == "A SITE") to.push_back(c);
+                if (name == "CATWALK") cat.push_back(c);
+            }
+        int here = 0;
+        for (size_t f = 0; f < from.size(); f += 3)
+            for (size_t t = 0; t < to.size(); t += 3) {
+                ++pairs;
+                if (w.traceRay(from[f], to[t]).fraction >= 1.0f) {
+                    if (here++ < 3)
+                        std::printf("    at %.0f%%: %s (%.0f, %.0f) sees A site (%.0f, %.0f)\n", double(sc * 100),
+                                    townCallout(from[f]), double(from[f].x / sc), double(from[f].y / sc), double(to[t].x / sc),
+                                    double(to[t].y / sc));
+                }
+            }
+        seen += here;
+    }
+    setDustScale(keep);
+    std::printf("  %d mid -> A site sightlines checked over 9 sizes: %d clear\n", pairs, seen);
+    CHECK(seen == 0, "%d sightlines from mid into A site", seen);
+}
+
 // Every Dust size the menu offers still has all its routes and valid bot spots.
 void testDustScales() {
     std::printf("dust sizes\n");
@@ -1503,6 +1542,7 @@ int main() {
 
 
     testCareer();
+    testDustSightlines();
     testHarbor();
     testReplay();
     testBotCover();

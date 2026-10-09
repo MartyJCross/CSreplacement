@@ -223,8 +223,9 @@ See `prototype/README.md` for full details. Each item below lists where its code
   1-2 frames less lag; compare with `--bench-raw 10` (no glFinish), not `--bench`.
 - **Suppressed sounds** (audio.cpp `suppressedFrom`, `kUspS`, `kM4A1S`): built on the AK recording (owner: "the AK sounds SO good").
   Owner history: v0.14 "a bit tinny, like Bond"; v0.15 sound lab; v0.16 "too thumpy, more whispy"; v0.18 "doesn't
-  sound like a gun, like tapping glass with metal" -> v0.19 removed every ringing layer (metal slide ring, zip
-  tone): keep >4 kHz at 1-2% like the real recordings, no tonal layers, the AK's own band balance underneath.
+  sound like a gun, like tapping glass with metal" -> v0.19 removed the ringing layers but kept the AK's body ->
+  "WAY less thumpy" -> v0.20, researched: a suppressor removes the muzzle blast (<500 Hz) and leaves gas fizzle,
+  the supersonic crack (rifle only) and the action. Keep <500 Hz ~1%, a mid pop, no tonal layers, no body.
 - **Model size** (`model_scale`, default 120 per the owner; `setModelScale`, `modelScale`, `dummyEyeZ` in combat):
   dummy hitboxes, crouchZ, bot eyes/aim and the drawn model scale together (rule 3); the player's hull doesn't.
   Tests run at 1.0; use dummyEyeZ() for any new character-height code, never a bare 64.
@@ -256,7 +257,8 @@ See `prototype/README.md` for full details. Each item below lists where its code
   townPeekSpots, townTactics, buildTown) answers for it. Bot tactics per map: `TownTactics` (stages, utility,
   pushes, radio calls). Game::mapId stays 1 for both; config `map` 0 Lab, 1 Dust2 (shown as DUST), 2 Harbor. Online: the map
   rides in the welcome's game byte (bit 0 game, bits 1+ map). Harbor is tested in `testHarbor`: change its spots
-  and keep that passing.
+  and keep that passing. `TownDef::separate` (Dust: `kDustSeparate`): area pairs that always get a wall between
+  them (thin gaps vanish at some sizes); `testDustSightlines` checks mid / CT mid can't see A site at 9 sizes.
 - **Doors** (world.cpp, end of buildTown): frames (jambs + lintel) at both ends of each doorway and the leaves,
   all placed on the doorway's grid cells (`cellsOf`, `frame`, `openLeaf` shortens a leaf that would hit a prop).
 - **Performance:** the owner's laptop has only an integrated Radeon (GPU-bound, fill-rate). Depth pre-pass,

@@ -189,43 +189,42 @@ std::vector<float> suppressedShot(Rng& r) {
     return b;
 }
 
-// The suppressed guns, built on the AK-47 recording (the owner's favourite) the way a suppressor changes a real
-// shot: the crack and the top end gone (above `tone`), the bang shorter (`tail` ms) but still a gun underneath
-// (its body kept down to `lowCut`), a breathy burst of gas out of the can, and the action cycling as a short dull
-// clack of noise. Nothing in it rings: v0.16's metal slide ring and movie "zip" sounded like tapping glass.
+// The suppressed guns, the way a suppressor really changes a shot. A gunshot's energy is mostly the muzzle blast,
+// below 500 Hz, and that blast is the one part a suppressor takes away. What's left: the high "fizzle" of gas
+// leaving the can, the bullet's crack if it's supersonic (the M4A1-S's 5.56; the USP's .45 is subsonic, so none),
+// and the action cycling, which suddenly stands out. So: only the top of the AK recording (its blast cut below
+// `cut`), a short breathy noise fizzle, the crack for the rifle, the action as two dull noise clacks, a little room.
+// Nothing tonal (v0.16's metal ring and "zip" sounded like tapping glass) and no body (v0.19 was "way too thumpy").
 struct Silencer {
-    float tone, tail, lowCut, thump, thumpHz, gas, gasLo, gasHi, gasTail, clack, room;
+    float cut, tail, report, fizz, fizzLo, fizzHi, fizzTail, crack, clack, room;
 };
-constexpr Silencer kUspS = {3200, 90, 280, 0.08f, 220, 0.75f, 700, 3600, 0.011f, 0.3f, 0.16f};
-constexpr Silencer kM4A1S = {3000, 120, 150, 0.18f, 160, 0.7f, 600, 3300, 0.013f, 0.25f, 0.22f};
+constexpr Silencer kUspS = {700, 30, 1.0f, 0.5f, 1400, 5000, 0.012f, 0.0f, 0.4f, 0.12f};
+constexpr Silencer kM4A1S = {600, 40, 1.0f, 0.45f, 1200, 5500, 0.016f, 0.6f, 0.35f, 0.16f};
 
 std::vector<float> suppressedFrom(const std::vector<float>& shot, const Silencer& t, bool rifle, Rng& r) {
     float peak = 0;
     for (float v : shot) peak = std::max(peak, std::fabs(v));
-    auto b = buffer(rifle ? 0.45f : 0.36f);
-    if (peak > 0) {
+    auto b = buffer(rifle ? 0.3f : 0.25f);
+    if (peak > 0) {  // what's left of the report: the AK's top end, short
         size_t onset = 0;
         while (onset < shot.size() && std::fabs(shot[onset]) < peak * 0.15f) ++onset;
-        onset = onset > 48 ? onset - 48 : 0;  // keep the first millisecond of the rise
+        onset = onset > 24 ? onset - 24 : 0;
         const float tail = t.tail * 0.001f;
         for (size_t i = 0; i < b.size() && onset + i < shot.size(); ++i)
             b[i] = shot[onset + i] / peak * std::exp(-float(i) / kRate / tail);
+        for (int k = 0; k < 3; ++k) highpass(b, t.cut);  // the blast gone (three poles)
+        lowpass(b, 7000);
+        normalize(b, t.report);
     }
-    lowpass(b, t.tone);  // the crack gone
-    lowpass(b, t.tone * 1.3f);
-    highpass(b, t.lowCut);  // and the boom (two poles)
-    highpass(b, t.lowCut);
-    normalize(b, 1.0f);
-    addTone(b, 0, t.thump, t.thumpHz * r.jitter(0.06f), t.thumpHz * 0.55f, rifle ? 0.035f : 0.025f);   // the thump
-    addNoise(b, 0.0004f, t.gas, t.gasLo, t.gasHi, t.gasTail, r, 0.0008f);                             // gas
-    addNoise(b, (rifle ? 0.022f : 0.014f) * r.jitter(0.1f), t.clack, 250, 1800, 0.004f, r, 0.0003f);  // the action
-    addNoise(b, (rifle ? 0.07f : 0.05f) * r.jitter(0.1f), t.clack * 0.6f, 250, 1500, 0.004f, r, 0.0003f);
-    highpass(b, 60);
-    saturate(b, rifle ? 1.8f : 1.6f);
-    lowpass(b, rifle ? 5000.0f : 5500.0f);
-    addReflections(b, rifle ? 45.0f : 35.0f, rifle ? 40.0f : 30.0f, rifle ? 5 : 4, t.room, 0.55f, 2200, r);
+    addNoise(b, 0.0002f, t.fizz, t.fizzLo * r.jitter(0.08f), t.fizzHi, t.fizzTail * r.jitter(0.12f), r, 0.0004f);  // fizzle
+    if (t.crack > 0) addNoise(b, 0, t.crack, 2000, 12000, 0.0012f, r, 0.00005f);  // the bullet's crack
+    addNoise(b, (rifle ? 0.02f : 0.013f) * r.jitter(0.1f), t.clack, 700, 3500, 0.0035f, r, 0.0002f);  // the action back...
+    addNoise(b, (rifle ? 0.06f : 0.045f) * r.jitter(0.1f), t.clack * 0.7f, 600, 3000, 0.0035f, r, 0.0002f);  // ...and home
+    highpass(b, 350);  // nothing low left anywhere
+    saturate(b, 1.4f);
+    addReflections(b, rifle ? 40.0f : 30.0f, rifle ? 35.0f : 28.0f, 4, t.room, 0.5f, 3500, r);
     fadeTail(b);
-    normalize(b, rifle ? 0.9f : 0.8f);
+    normalize(b, rifle ? 0.85f : 0.8f);
     return b;
 }
 
