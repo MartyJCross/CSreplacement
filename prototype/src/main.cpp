@@ -1479,6 +1479,12 @@ int& moneyOf(Game& g, int id) {
 void addMoney(Game& g, int id, int amount) { moneyOf(g, id) = std::clamp(moneyOf(g, id) + amount, 0, 16000); }
 
 std::string g_compLog;  // automated runs: one line per competitive round (testing)
+extern double g_uiTime;  // (defined with the menus)
+// Fades from black (cosmetic): a map loading or a competitive round starting fades in from g_fadeFrom over
+// kFadeIn; the main menu's camera fades through black between its shots (g_menuFade, 0..1).
+double g_fadeFrom = -100.0;
+constexpr double kFadeIn = 0.45;
+float g_menuFade = 0.0f;
 
 // Bots buy at the start of a round like a CS team: each side calls the round (pistol, eco, force, full buy) from
 // its bots' money, then every bot buys for its role (botBuy: the first is the AWPer). A gun it survived with, it
@@ -1568,6 +1574,7 @@ void teamRadio(Game& g, int bot, const std::string& msg) {
 void startCompRound(Game& g) {
     Game::Comp& c = g.comp;
     c.roundStartAt = g.simTime;
+    g_fadeFrom = g_uiTime;
     const bool halfTime = c.round == 12;
     if (halfTime) {  // swap sides: fresh economy
         c.youTeam = 1 - c.youTeam;
@@ -2892,6 +2899,7 @@ void startNetCompClient(Game& g) {
 }
 
 void loadMap(Game& g, Renderer& r, int id) {
+    g_fadeFrom = g_uiTime;
     g.mapId = id;
     g.rv = Game::ReplayView{};  // no killcam or replay carried over from the last game
     g.killcamAt = -1;
@@ -4675,7 +4683,13 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
     const std::vector<MenuItem> rows = menuRows(screen, view, mode);
     const MenuLayout L = menuLayout(screen, rows.size(), w, h, s);
     const float fs = float(s);
-    hud.rect(0, 0, float(w), float(h), g_menu.root == kMenuMain ? 0x06080BD8 : 0x000000A0);
+    if (g_menu.root == kMenuMain) {  // the camera's view shows through: a light veil, cinematic bars
+        hud.rect(0, 0, float(w), float(h), 0x06080B50 + uint32_t(g_menuFade * 175.0f));
+        hud.rect(0, 0, float(w), float(h) * 0.09f, 0x000000E6);
+        hud.rect(0, float(h) * 0.91f, float(w), float(h) * 0.09f, 0x000000E6);
+    } else {
+        hud.rect(0, 0, float(w), float(h), 0x000000A0);
+    }
     hud.rect(L.x - 14 * fs, L.top - 14 * fs, L.w + 28 * fs, L.bottom - L.top + 28 * fs, 0x15181CE8);
     hud.text(L.x, L.top, menuTitle(screen), 0xFFD060FF, screen == kMenuMain ? s * 3 : s * 2);
     if (screen == kMenuMain) {
@@ -5059,6 +5073,75 @@ void drawMenuExtras(HudBatch& hud, const Config& cfg, int w, int h, int s) {
 
 void drawNetNotice(HudBatch& hud, int w, int h, int s);
 void drawHostAddress(HudBatch& hud, const Game& g, int w, int s);
+
+// The main menu's backdrop (cosmetic): a slow camera through the map. On Dust and Harbor it drifts from one CT
+// angle to the next (each spot's own view, 11 s a shot, through black between them); in the Lab it pans slowly
+// from the spawn.
+void menuCamera(const Game& g, double t, Vec3& eye, float& pitch, float& yaw) {
+    g_menuFade = 0.0f;
+    auto aim = [&](const Vec3& from, const Vec3& at) {
+        const Vec3 d = normalize(at - from);
+        yaw = std::atan2(d.y, d.x) / kDegToRad;
+        pitch = -std::asin(std::clamp(d.z, -1.0f, 1.0f)) / kDegToRad;
+    };
+    if (g.mapId != 1) {
+        eye = g.spawn + Vec3{0, 0, kStandEye + 24.0f};
+        yaw = g.spawnYaw + 28.0f * float(std::sin(t * 0.09));
+        pitch = 4.0f + 2.0f * float(std::sin(t * 0.05));
+        return;
+    }
+    struct Shot { Vec3 from, to, look; };
+    static std::vector<Shot> shots;
+    static int builtMap = -1;
+    static float builtScale = -1.0f;
+    static size_t builtSolids = 0;
+    if (builtMap != townMap() || builtScale != townScale() || builtSolids != g.world.solids.size()) {
+        builtMap = townMap();
+        builtScale = townScale();
+        builtSolids = g.world.solids.size();
+        shots.clear();
+        size_t most = 0;
+        for (int role = 0; role < kCtRoles; ++role) most = std::max(most, townCtSpots(role).size());
+        for (size_t k = 0; k < most; ++k)  // one of each role, then the next of each: the shots move round the map
+            for (int role = 0; role < kCtRoles; ++role) {
+                const std::vector<RetakeSpot>& spots = townCtSpots(role);
+                if (k >= spots.size()) continue;
+                const RetakeSpot& h = spots[k];
+                // High over the spot (open sky only), pulled back from where it looks, looking down onto that
+                // angle; only shots that see what they look at.
+                const Vec3 floor = townPoint(h.x, h.y);
+                const Vec3 look = townPoint(h.lookX, h.lookY) + Vec3{0, 0, 40};
+                if (g.world.traceRay(floor + Vec3{0, 0, 40}, floor + Vec3{0, 0, 420}).fraction < 1.0f) continue;
+                Vec3 dir = look - floor;
+                dir.z = 0;
+                if (length(dir) < 1.0f) continue;
+                dir = normalize(dir);
+                const Vec3 high = floor + Vec3{0, 0, 300};
+                const TraceResult back = g.world.traceRay(high, high - dir * 260.0f);
+                const Vec3 from = high - dir * std::max(0.0f, 260.0f * back.fraction - 32.0f);
+                const TraceResult ahead = g.world.traceRay(from, from + dir * 320.0f);  // a slow dolly, never into a wall
+                const Vec3 to = from + dir * std::max(0.0f, 320.0f * ahead.fraction - 48.0f);
+                if (g.world.traceRay(from, look).fraction < 0.97f || g.world.traceRay(to, look).fraction < 0.97f) continue;
+                shots.push_back({from, to, look});
+            }
+    }
+    if (shots.empty()) return;
+    constexpr double kShot = 11.0;
+    const size_t idx = size_t(t / kShot) % shots.size();
+    const float u = float(std::fmod(t, kShot) / kShot);
+    const Shot& sh = shots[idx];
+    eye = lerp(sh.from, sh.to, u);
+    aim(eye, sh.look + Vec3{0, 0, 10.0f * float(std::sin(t * 0.3))});
+    const float edge = std::min(u, 1.0f - u) * float(kShot);  // seconds from the cut
+    g_menuFade = std::clamp(1.0f - edge / 0.8f, 0.0f, 1.0f);
+}
+
+// A fade in from black over everything (a map loading, a round starting).
+void drawFadeIn(HudBatch& hud, int w, int h) {
+    const double k = (g_uiTime - g_fadeFrom) / kFadeIn;
+    if (k >= 1.0 || k < 0.0) return;
+    hud.rect(0, 0, float(w), float(h), uint32_t(std::clamp(1.0 - k, 0.0, 1.0) * 255.0));
+}
 
 void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats& st, int w, int h) {
     hud.clear();
@@ -6839,6 +6922,10 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Behind the main menu: the slow camera through the map.
+        const bool menuCam = g_menu.screen != kMenuNone && g_menu.root == kMenuMain && !replayView;
+        if (menuCam) menuCamera(g, g_uiTime, eye, camPitch, camYaw);
+
         float aspect = pixH > 0 ? float(pixW) / float(pixH) : 1.0f;
         if (!paused) g.fovPunch *= std::exp(-float(dt) / 0.045f);
         const float thump = g.zoom == 0 ? 1.0f + 0.014f * g.fovPunch : 1.0f;  // shot thump: ~1.4% wider, 45 ms
@@ -7068,7 +7155,7 @@ int main(int argc, char** argv) {
                                                     p + Vec3{2.5f, 2.5f, crouchZ(85 * ms, crouch)}, 0x60ff90));
 
         }
-        if (!replayView) g.lastRenderEye = eye;
+        if (!replayView && !menuCam) g.lastRenderEye = eye;
         // Guns on the floor: the held model, lying on its side.
         dropDraws.resize(replayView ? 0 : g.drops.size());
         for (size_t k = 0; k < dropDraws.size(); ++k) {
@@ -7197,7 +7284,7 @@ int main(int argc, char** argv) {
         }
 
         // First-person weapon: own FOV and fresh depth so it never clips into walls.
-        if (cfg.show_viewmodel && g.zoom == 0 && !spectating && !replayView) {
+        if (cfg.show_viewmodel && g.zoom == 0 && !spectating && !replayView && !menuCam) {
             float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
             Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
             modelDraws.clear();
@@ -7214,6 +7301,7 @@ int main(int argc, char** argv) {
         bool rebuild = g.hudDirty || markerExpired || nowSec - lastHudBuild > 1.0 / 60.0;
         if (rebuild) {
             buildHud(hud, g, cfg, stats, pixW, pixH);
+            drawFadeIn(hud, pixW, pixH);
             lastHudBuild = nowSec;
             g.hudDirty = false;
             hitMarkerShownUntil = g.simTime < g.hitMarkerUntil ? g.hitMarkerUntil : 0;

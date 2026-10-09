@@ -295,7 +295,9 @@ so a cut-off session can carry on; light testing, no benches while they use the 
 - [x] 3. Real font (`Renderer::loadFont`, `g_ttf` in render.cpp): Rajdhani Bold (OFL, assets/fonts) baked by
       stb_truetype at scales 1,2,3,4,6,8,12 into a 2048 atlas; capitals as tall as the bitmap font's; lines with
       double spaces (padded columns) keep fixed cells; bitmap font.h is the fallback
-- [ ] 4. Living main menu: a slow camera over Dust/Harbor behind the main menu; fades between screens / round start
+- [x] 4. Living main menu (`menuCamera`: high dolly shots over the CT spots, 11 s each, through black via
+      `g_menuFade`; light veil + letterbox in drawMenu) and fades in from black (`g_fadeFrom`, `drawFadeIn`) on map
+      load and competitive round start
 - [ ] 5. Map ambience (per-map loops) + room echo (reverb in tunnels/roofed areas)
 - [ ] 6. Footsteps by surface (stone/sand, wood, metal)
 - [ ] 7. Viewmodel polish: smoother sway/bob, landing dip, strafe tilt
