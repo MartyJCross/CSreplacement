@@ -235,7 +235,7 @@ online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
 - Retakes (`townRetakeSites`), prefire (`townPrefireRoutes`, `startPrefire`, frozen bots, timed).
 
 **Players** (main.cpp, the dummies loop): models with stepping legs, vest, pouches, gloves; CT helmet + goggles, T
-balaclava + beanie; every piece inside its hitbox; hits flash per part. **Model size** (`model_scale`, default 120 per
+balaclava + beanie; every piece inside its hitbox; hits flash per part. **Model size** (`model_scale`, default 102 (v0.23.1: owner asked 15% smaller than 120) per
 the owner; `setModelScale`, `modelScale`, `dummyEyeZ` in combat): hitboxes, crouchZ, bot eyes/aim and the drawn model
 scale together; your own hull doesn't (their heads sit above your eye line at 120%). Use `dummyEyeZ()` for any
 character-height code, never a bare 64. Tests run at 1.0. The dead topple along `Dummy::hitDir` (`deadDraws`), a
@@ -337,7 +337,7 @@ practice tools (grenade lineups, spray-pattern overlay, CS-style console), a thi
   must stay 0).
 - Standing preferences: CS:GO feel above all; no tagging slowdown; guns only when they ask; no gimmicks (rejected
   "import CS crosshair codes"); the exact Dust2 copy is fine for personal testing; bhop off by default (they play with
-  it on); reloads 20% faster than CS; model size 120%; muzzle light on walls only at 0.45; killcam skips on a click
+  it on); reloads 20% faster than CS; model size 102% (was 120%, owner shrank it 15% in v0.23.1); muzzle light on walls only at 0.45; killcam skips on a click
   (Space made them jump on spawn); ADR only where there are rounds; random shotgun spread (their exception to rule 2);
   menu music only on the main menu; they loved the AK sound.
 - **Suppressor sound history** (don't repeat it): v0.13 deep "thwump" ok-ish → v0.14 "make it a bit tinny, like
@@ -361,7 +361,7 @@ practice tools (grenade lineups, spray-pattern overlay, CS-style console), a thi
   Re-run the configure step after adding source files to CMakeLists.txt.
 - **`build/Release/config.cfg` is the owner's own config** (they run `build\Release\crisp.exe`). Before screenshots or
   automated runs that need other settings, copy it to the scratchpad, edit, run, and **restore it**. Their settings
-  include `dust_scale 95`, `bhop 1`, `model_scale 120`, `mode 1`, `map 1`.
+  include `dust_scale 95`, `bhop 1`, `model_scale 102`, `mode 1`, `map 1`.
 - **Never edit C/C++ through a Bash heredoc**: the shell layer turns `\n` inside string literals into real newlines
   (broke builds many times). Write a Python edit script with the Write tool into the scratchpad and run it (assert
   each `old` text is present before replacing), or use the Edit tool. If a split literal slips through, rejoin it.

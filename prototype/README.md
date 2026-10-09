@@ -130,6 +130,11 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## v0.23.1
+
+- **Characters 15% smaller:** the default model size goes from 120% to 102% (hitboxes, crouch, eye height and aim
+  scale with it, as before).
+
 ## v0.23: the premium pass
 
 - **Sun shadows.** Walls, roofs, awnings and crates cast real shadows from the sun (worked out once when the map
@@ -287,7 +292,7 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 
 ## Players: facing, arms, anti-aliasing
 
-- **Model size** (Settings → Gameplay → PLAYER MODEL SIZE, `model_scale`, 120% by default, 80-150): how big the characters are. Their hitboxes grow with them (what you see is what you hit), and so do their crouch, the bots' eye height (77 units at 120%) and where they aim. Your own movement hull doesn't change, so at 120% their heads are a little above your eye line on the same floor.
+- **Model size** (Settings → Gameplay → PLAYER MODEL SIZE, `model_scale`, 102% by default since v0.23.1 (was 120%), 80-150): how big the characters are. Their hitboxes grow with them (what you see is what you hit), and so do their crouch, the bots' eye height (77 units at 120%, 65 at 102%) and where they aim. Your own movement hull doesn't change, so bigger models' heads sit above your eye line on the same floor.
 
 - **Bots turn to face you** when they fight. Their hitboxes turn with them. Head-on you see about 27 units of shoulders; side-on, about 21.
 - **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable.
