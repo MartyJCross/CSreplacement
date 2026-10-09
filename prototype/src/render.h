@@ -6,6 +6,9 @@
 #include <vector>
 #include "vecmath.h"
 
+// Where the sun is (towards it): the sky draws it there and the shadows fall away from it.
+constexpr Vec3 kSunDir{0.55f, 0.32f, 0.75f};
+
 struct BoxInstance {
     float mins[3];
     float maxs[3];
@@ -61,7 +64,15 @@ struct HudBatch {
 class Renderer {
 public:
     bool init(std::string& err);
-    void setStaticBoxes(const std::vector<BoxInstance>& boxes);
+    void setStaticBoxes(const std::vector<BoxInstance>& boxes);  // (also builds the sun shadows for them)
+    // Sun shadows: the shadow map's size (0 off, 2048, 4096); rebuilt for the current map when it changes.
+    void setShadowSize(int size) {
+        if (size == shadowSize_) return;
+        shadowSize_ = size;
+        if (!staticCpu_.empty()) buildShadows(staticCpu_);
+    }
+    // Shadows on the next draws (off for the inventory stage, which floats wherever the camera is).
+    void setSunShadows(bool on);
     // Surface textures (assets/textures/*.jpg, 512 px detail maps) for the stone, wood and metal surfaces.
     // Returns how many loaded; 0 = none (missing files): the shader falls back to its procedural patterns.
     int loadTextures(const std::string& dir);
@@ -107,6 +118,12 @@ private:
     int uViewProj_ = -1, uModel_ = -1, uEye_ = -1, uScreen_ = -1, uFont_ = -1;
     int uFlash_ = -1, uTime_ = -1, uDepthTime_ = -1;
     float time_ = 0;
+    // Sun shadows (buildShadows): made once per map from the static boxes.
+    int shadowSize_ = 4096, shadowBuilt_ = 0;
+    bool hasShadow_ = false;
+    unsigned shadowTex_ = 0, shadowFbo_ = 0;
+    int uShadowTex_ = -1, uShadowVP_ = -1, uHasShadow_ = -1, uSun_ = -1, uShadowTexel_ = -1;
+    void buildShadows(const std::vector<BoxInstance>& boxes);
     int uPaint_ = -1, uPA_ = -1, uPB_ = -1, uPC_ = -1, uPaintMisc_ = -1, uPaintZ_ = -1;
     void setPaint(const PaintParams* p);
 

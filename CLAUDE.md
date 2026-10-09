@@ -286,6 +286,19 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
 
+**IN PROGRESS: v0.23 "premium pass"** (owner asked for all of it, 2026-10-09; done in pieces, each committed and pushed
+so a cut-off session can carry on; light testing, no benches while they use the PC). Tick each piece off here:
+- [x] 1. Sun shadows (`Renderer::buildShadows`: static depth map from `kSunDir` at map load, `sunVis`/`sunLit` in the
+      box FS, config `shadows` 0/1/2 + menu row) and bevelled prop edges (wood/metal faces, box FS)
+- [ ] 2. Post pass: scene into an FBO (MSAA inside it), then FXAA + colour grading per map + vignette; config `post_fx`
+- [ ] 3. Real font: stb_truetype + an OFL font baked into the HUD atlas, bitmap fallback
+- [ ] 4. Living main menu: a slow camera over Dust/Harbor behind the main menu; fades between screens / round start
+- [ ] 5. Map ambience (per-map loops) + room echo (reverb in tunnels/roofed areas)
+- [ ] 6. Footsteps by surface (stone/sand, wood, metal)
+- [ ] 7. Viewmodel polish: smoother sway/bob, landing dip, strafe tilt
+- [ ] 8. Graphics presets (LOW/MEDIUM/HIGH set shadows, post, msaa)
+- [ ] 9. Docs: README section, CLAUDE.md §7, final report + CI link + zip
+
 Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competitive bots (CT utility, post-plant,
 saving, fire avoidance), the performance check (A* routes, mixer lock).
 Offered, not chosen yet: T molotovs on executes, bots dropping guns for teammates, CT retake utility, pick up / drop guns (G), server-authoritative netcode with lag compensation (`docs/04`),

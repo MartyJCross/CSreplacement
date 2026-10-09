@@ -42,6 +42,7 @@ struct Config {
     int map = 0;               // 0 = the Lab, 1 = dust (Play screen)
     int dust_scale = 60;       // Dust's size in % of real Dust2 (50..100)
     int msaa = 4;              // anti-aliasing samples (0 = off); applies on restart
+    int shadows = 2;           // sun shadows: 0 off, 1 on (2048 map), 2 sharp (4096)
     int depth_prepass = 1;     // 1 = depth pre-pass (faster on most GPUs, identical image)
     int mode = 0;              // 0 practice, 1 deathmatch, 2 retakes, 3 competitive, 4 prefire (Play screen)
     int dm_bots = 10;          // deathmatch: number of bots

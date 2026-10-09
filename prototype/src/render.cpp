@@ -93,6 +93,30 @@ uniform vec3 uPA, uPB, uPC;
 uniform vec3 uPaintMisc;  // wear, gloss, seed
 uniform vec2 uPaintZ;     // the model's z range (back..front runs along it)
 uniform vec4 uFlash;      // the muzzle light: position, strength (0 = off)
+// Sun shadows (Renderer::buildShadows): a depth map of the world seen from the sun, made once per map.
+uniform sampler2DShadow uShadow;
+uniform mat4 uShadowVP;
+uniform int uHasShadow;     // 0: no shadows (off, or not built)
+uniform vec3 uSun;          // towards the sun
+uniform float uShadowTexel; // one texel of the map, in its 0..1 coordinates
+// How much sun reaches this point (0 shade .. 1 full sun): faces turned away get none; the rest look the sun's way
+// in the shadow map (5 hardware-filtered taps: soft edges).
+float sunVis(vec3 N) {
+    float ndl = dot(N, uSun);
+    if (ndl <= 0.0) return 0.0;
+    vec4 q = uShadowVP * vec4(vWorld + N * 1.5, 1.0);
+    vec3 s = q.xyz * 0.5 + 0.5;
+    if (s.x <= 0.0 || s.y <= 0.0 || s.x >= 1.0 || s.y >= 1.0 || s.z >= 1.0) return 1.0;
+    float t = uShadowTexel * 1.2;
+    float v = texture(uShadow, s) * 0.36 + (texture(uShadow, s + vec3(t, t * 0.4, 0.0)) + texture(uShadow, s + vec3(-t * 0.4, t, 0.0)) +
+                                            texture(uShadow, s + vec3(-t, -t * 0.4, 0.0)) + texture(uShadow, s + vec3(t * 0.4, -t, 0.0))) * 0.16;
+    return v * smoothstep(0.0, 0.12, ndl);
+}
+// Sun and shade: warm in the sun, cool and darker in the shade.
+vec3 sunLit(vec3 c, vec3 N) {
+    if (uHasShadow == 0) return c;
+    return c * mix(vec3(0.66, 0.71, 0.82), vec3(1.06, 1.03, 0.97), sunVis(N));
+}
 // A gunshot lights the walls near it (owner: not the floor): warm, fading to nothing at 420 units, brightest on
 // faces turned to it. Floors and ceilings (faces pointing up or down) get none.
 vec3 flashLit(vec3 c) {
@@ -211,7 +235,7 @@ void main() {
         c = mix(c, c * env * 1.7, g * 0.35);
         c += vec3(pow(max(dot(N, normalize(L + V)), 0.0), 48.0)) * g * 0.6;
         c += env * pow(1.0 - max(dot(N, V), 0.0), 4.0) * g * 0.25;
-        oColor = vec4(flashLit(c), 1.0);
+        oColor = vec4(flashLit(sunLit(c, N)), 1.0);
         return;
     }
     vec3 n = vNormal;
@@ -289,9 +313,13 @@ void main() {
             float frame = 1.0 - smoothstep(3.0, 3.0 + fwidth(edge), edge);
             c *= (0.88 + 0.16 * rib) * (1.0 - 0.18 * frame);
         }
+        if (a <= 0.91) {  // crates, doors, containers: a bevelled edge that catches the light, a softer corner
+            float rim = 1.0 - smoothstep(0.6, 0.6 + fwidth(edge) + 0.8, edge);
+            c *= 1.0 + (top ? 0.20 : 0.12) * rim * near;
+        }
     }
     c *= ao;
-    c = flashLit(c);
+    c = flashLit(sunLit(c, n));
     float d = length(vWorld - uEye);
     c = mix(c, vec3(0.80, 0.84, 0.87), clamp(d / 9000.0, 0.0, 0.30));  // haze: the horizon colour
     oColor = vec4(c, 1.0);
@@ -318,7 +346,7 @@ void main() {
     const vec3 zenith = vec3(0.30, 0.52, 0.86), horizon = vec3(0.80, 0.84, 0.87), ground = vec3(0.74, 0.70, 0.62);
     vec3 c = d.z >= 0.0 ? mix(horizon, zenith, pow(clamp(d.z, 0.0, 1.0), 0.5))
                         : mix(horizon, ground, clamp(-d.z * 4.0, 0.0, 1.0));
-    float s = max(dot(d, normalize(vec3(0.5, 0.25, 0.83))), 0.0);  // the sun: high, the way the shading lights
+    float s = max(dot(d, normalize(vec3(0.55, 0.32, 0.75))), 0.0);  // the sun: where the shadows come from (kSunDir)
     c += vec3(1.0, 0.86, 0.62) * (pow(s, 600.0) * 1.6 + pow(s, 24.0) * 0.16);
     oColor = vec4(c, 1.0);
 }
@@ -561,6 +589,14 @@ bool Renderer::init(std::string& err) {
     uEye_ = glGetUniformLocation(boxProgram_, "uEye");
     uFlash_ = glGetUniformLocation(boxProgram_, "uFlash");
     uTime_ = glGetUniformLocation(boxProgram_, "uTime");
+    uShadowTex_ = glGetUniformLocation(boxProgram_, "uShadow");
+    uShadowVP_ = glGetUniformLocation(boxProgram_, "uShadowVP");
+    uHasShadow_ = glGetUniformLocation(boxProgram_, "uHasShadow");
+    uSun_ = glGetUniformLocation(boxProgram_, "uSun");
+    uShadowTexel_ = glGetUniformLocation(boxProgram_, "uShadowTexel");
+    glUseProgram(boxProgram_);
+    glUniform1i(uHasShadow_, 0);
+    glUniform1i(uShadowTex_, 2);
     uScreen_ = glGetUniformLocation(hudProgram_, "uScreen");
     uFont_ = glGetUniformLocation(hudProgram_, "uFont");
 
@@ -621,7 +657,127 @@ bool Renderer::init(std::string& err) {
     return true;
 }
 
+void Renderer::buildShadows(const std::vector<BoxInstance>& boxes) {
+    hasShadow_ = false;
+    glUseProgram(boxProgram_);
+    glUniform1i(uHasShadow_, 0);
+    if (shadowSize_ <= 0) return;
+    // Casters: the world, without the flat shadow sheets (alpha 30..49) lying on the floor (or anything parked far
+    // below the map).
+    std::vector<BoxInstance> casters;
+    casters.reserve(boxes.size());
+    for (const BoxInstance& b : boxes)
+        if ((b.rgba[3] < 30 || b.rgba[3] > 49) && std::fabs(b.mins[2]) < 1e6f && std::fabs(b.maxs[2]) < 1e6f) casters.push_back(b);
+    if (casters.empty()) return;
+    // The sun's view: an orthographic box round the whole map, looking down the sun's rays.
+    const Vec3 L = normalize(kSunDir), f = Vec3{0, 0, 0} - L, r = normalize(cross(f, Vec3{0, 0, 1})), u = cross(r, f);
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    for (const BoxInstance& b : casters) {
+        if (b.maxs[0] - b.mins[0] > 20000.0f || b.maxs[1] - b.mins[1] > 20000.0f || b.maxs[2] - b.mins[2] > 20000.0f)
+            continue;  // (a giant ground or backdrop box: the map's bounds come from the rest)
+        for (int k = 0; k < 8; ++k) {
+            const Vec3 c{(k & 1) ? b.maxs[0] : b.mins[0], (k & 2) ? b.maxs[1] : b.mins[1], (k & 4) ? b.maxs[2] : b.mins[2]};
+            const float q[3] = {dot(c, r), dot(c, u), dot(c, f)};
+            for (int a = 0; a < 3; ++a) {
+                lo[a] = std::min(lo[a], q[a]);
+                hi[a] = std::max(hi[a], q[a]);
+            }
+        }
+    }
+    if (lo[0] > hi[0]) return;
+    // Very large worlds (the Lab's open floor) are clamped round the middle: the map stays sharp where it matters.
+    for (int a = 0; a < 3; ++a)
+        if (hi[a] - lo[a] > 16000.0f) {
+            const float mid = (lo[a] + hi[a]) * 0.5f;
+            lo[a] = mid - 8000.0f;
+            hi[a] = mid + 8000.0f;
+        }
+    const float sx = 2.0f / (hi[0] - lo[0] + 2.0f), sy = 2.0f / (hi[1] - lo[1] + 2.0f), sz = 2.0f / (hi[2] - lo[2] + 2.0f);
+    const float cx = (lo[0] + hi[0]) * 0.5f, cy = (lo[1] + hi[1]) * 0.5f, cz = (lo[2] + hi[2]) * 0.5f;
+    Mat4 m = identity();  // column-major: m[col * 4 + row]
+    const Vec3 rows[3] = {r * sx, u * sy, f * sz};
+    const float offs[3] = {-cx * sx, -cy * sy, -cz * sz};
+    for (int row = 0; row < 3; ++row) {
+        m.m[0 * 4 + row] = rows[row].x;
+        m.m[1 * 4 + row] = rows[row].y;
+        m.m[2 * 4 + row] = rows[row].z;
+        m.m[3 * 4 + row] = offs[row];
+    }
+    GLint maxTex = 2048;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTex);
+    const int size = std::min(shadowSize_, int(maxTex));
+    if (!shadowTex_ || shadowBuilt_ != size) {
+        if (shadowTex_) glDeleteTextures(1, &shadowTex_);
+        if (!shadowFbo_) glGenFramebuffers(1, &shadowFbo_);
+        glGenTextures(1, &shadowTex_);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, shadowTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, size, size, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glActiveTexture(GL_TEXTURE0);
+        glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowTex_, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        shadowBuilt_ = size;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+    const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (complete) {
+        unsigned vao = 0, vbo = 0;
+        glGenVertexArrays(1, &vao);
+        glGenBuffers(1, &vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(casters.size() * sizeof(BoxInstance)), casters.data(), GL_STATIC_DRAW);
+        setupInstanceVao(vao, cubeVbo_, vbo);
+        glViewport(0, 0, size, size);
+        glDepthMask(GL_TRUE);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LESS);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);  // the far sides of the boxes: surfaces facing the sun never shadow themselves
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.5f, 2.0f);
+        glUseProgram(depthProgram_);
+        const Mat4 id = identity();
+        glUniformMatrix4fv(uDepthViewProj_, 1, GL_FALSE, m.m);
+        glUniformMatrix4fv(uDepthModel_, 1, GL_FALSE, id.m);
+        glUniform1f(uDepthTime_, 0.0f);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 36, GLsizei(casters.size()));
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glCullFace(GL_BACK);
+        glDepthFunc(GL_LEQUAL);
+        glDeleteBuffers(1, &vbo);
+        glDeleteVertexArrays(1, &vao);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (width_ > 0) glViewport(0, 0, width_, height_);
+    if (!complete) return;
+    hasShadow_ = true;
+    glUseProgram(boxProgram_);
+    glUniformMatrix4fv(uShadowVP_, 1, GL_FALSE, m.m);
+    glUniform1i(uShadowTex_, 2);
+    glUniform3f(uSun_, L.x, L.y, L.z);
+    glUniform1f(uShadowTexel_, 1.0f / float(size));
+    glUniform1i(uHasShadow_, 1);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, shadowTex_);
+    glActiveTexture(GL_TEXTURE0);
+}
+
+void Renderer::setSunShadows(bool on) {
+    glUseProgram(boxProgram_);
+    glUniform1i(uHasShadow_, on && hasShadow_ ? 1 : 0);
+}
+
 void Renderer::setStaticBoxes(const std::vector<BoxInstance>& boxes) {
+    buildShadows(boxes);
     staticCpu_ = boxes;
     visible_.reserve(boxes.size());
     order_.reserve(boxes.size());

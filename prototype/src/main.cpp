@@ -4361,6 +4361,7 @@ MenuState g_menu;
 bool g_replayAvailable = false;  // the pause menu offers WATCH REPLAY (something's recorded, offline)
 
 const char* const kOnOff[] = {"OFF", "ON"};
+const char* const kShadowNames[] = {"OFF", "ON", "SHARP"};
 const uint32_t kCrosshairColors[] = {0x00FF00, 0xFFFF00, 0x00FFFF, 0xFFFFFF, 0xFF3030, 0xFF40FF};
 const char* const kCrosshairColorNames[] = {"GREEN", "YELLOW", "CYAN", "WHITE", "RED", "PINK"};
 int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
@@ -4582,6 +4583,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
                     {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
+                    {"SUN SHADOWS", nullptr, &c.shadows, 1, 0, 2, kShadowNames},
                     back};
         case kMenuGameplay:
             return {{"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
@@ -5825,6 +5827,8 @@ int main(int argc, char** argv) {
     validateEquips(g);
     g.mode = cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
+    auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
+    renderer.setShadowSize(shadowSize(cfg.shadows));
     setDustScale(float(cfg.dust_scale) / 100.0f);
     setTownMap(cfg.map == 2 ? 1 : 0);
     loadMap(g, renderer, cfg.map >= 1 || g.mode != 0 ? 1 : 0);
@@ -5834,6 +5838,7 @@ int main(int argc, char** argv) {
         g_caseKills = std::clamp(cfg.case_kills, 1, 1000);
         g_allSkins = cfg.all_skins != 0;
         if (setDustScale(float(cfg.dust_scale) / 100.0f) && g.mapId == 1) loadMap(g, renderer, 1);
+        renderer.setShadowSize(shadowSize(cfg.shadows));
     };
     if (opt.spawnOverride) {
         float floorZ = g.mapId == 1 ? townGrid().floorAt(opt.spawnX, opt.spawnY) : 0.0f;
@@ -7229,7 +7234,9 @@ int main(int argc, char** argv) {
                                          float(std::fmod(g_uiTime * 25.0, 360.0)), centre, size, modelDraws);
                 const Mat4 stageProj = perspective(40.0f * kDegToRad, aspect, 1.0f, 512.0f) * viewFromAngles(eye, camPitch, camYaw);
                 renderer.clearDepth();
+                renderer.setSunShadows(false);
                 for (const ModelDraw& md : modelDraws) renderer.drawModel(stageProj, md.model, md.boxes, &md.paint);
+                renderer.setSunShadows(true);
             }
         }
 

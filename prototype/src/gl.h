@@ -71,6 +71,33 @@ typedef struct __GLsync* GLsync;
 #define GL_TEXTURE_2D_ARRAY 0x8C1A
 #define GL_TEXTURE_MAX_ANISOTROPY 0x84FE      // EXT_texture_filter_anisotropic (everywhere in practice)
 #define GL_MAX_TEXTURE_MAX_ANISOTROPY 0x84FF
+#define GL_NONE 0
+#define GL_FRONT 0x0404
+#define GL_UNSIGNED_SHORT 0x1403
+#define GL_UNSIGNED_INT 0x1405
+#define GL_DEPTH_COMPONENT 0x1902
+#define GL_DEPTH_COMPONENT16 0x81A5
+#define GL_DEPTH_COMPONENT24 0x81A6
+#define GL_DEPTH24_STENCIL8 0x88F0
+#define GL_RGBA8 0x8058
+#define GL_TEXTURE2 0x84C2
+#define GL_TEXTURE3 0x84C3
+#define GL_TEXTURE_BORDER_COLOR 0x1004
+#define GL_CLAMP_TO_BORDER 0x812D
+#define GL_TEXTURE_COMPARE_MODE 0x884C
+#define GL_TEXTURE_COMPARE_FUNC 0x884D
+#define GL_COMPARE_REF_TO_TEXTURE 0x884E
+#define GL_POLYGON_OFFSET_FILL 0x8037
+#define GL_MAX_TEXTURE_SIZE 0x0D33
+#define GL_MAX_SAMPLES 0x8D57
+#define GL_FRAMEBUFFER 0x8D40
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#define GL_DRAW_FRAMEBUFFER 0x8CA9
+#define GL_RENDERBUFFER 0x8D41
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#define GL_DEPTH_ATTACHMENT 0x8D00
+#define GL_DEPTH_STENCIL_ATTACHMENT 0x821A
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
 #define GL_SYNC_GPU_COMMANDS_COMPLETE 0x9117
 #define GL_SYNC_FLUSH_COMMANDS_BIT 0x00000001
 
@@ -133,7 +160,29 @@ typedef struct __GLsync* GLsync;
     X(void, UniformMatrix4fv, (GLint loc, GLsizei n, GLboolean transpose, const GLfloat* m))        \
     X(GLsync, FenceSync, (GLenum condition, GLbitfield flags))                                       \
     X(GLenum, ClientWaitSync, (GLsync sync, GLbitfield flags, GLuint64 timeout))                     \
-    X(void, DeleteSync, (GLsync sync))
+    X(void, DeleteSync, (GLsync sync))                                                               \
+    X(void, GetIntegerv, (GLenum pname, GLint * data))                                               \
+    X(void, DeleteTextures, (GLsizei n, const GLuint* t))                                            \
+    X(void, DeleteBuffers, (GLsizei n, const GLuint* b))                                             \
+    X(void, DeleteVertexArrays, (GLsizei n, const GLuint* a))                                        \
+    X(void, TexParameterfv, (GLenum target, GLenum pname, const GLfloat* v))                         \
+    X(void, PolygonOffset, (GLfloat factor, GLfloat units))                                          \
+    X(void, DrawBuffer, (GLenum buf))                                                                \
+    X(void, ReadBuffer, (GLenum buf))                                                                \
+    X(void, GenFramebuffers, (GLsizei n, GLuint * f))                                                \
+    X(void, DeleteFramebuffers, (GLsizei n, const GLuint* f))                                        \
+    X(void, BindFramebuffer, (GLenum target, GLuint f))                                              \
+    X(void, FramebufferTexture2D, (GLenum target, GLenum att, GLenum textarget, GLuint t, GLint lvl)) \
+    X(GLenum, CheckFramebufferStatus, (GLenum target))                                               \
+    X(void, GenRenderbuffers, (GLsizei n, GLuint * r))                                               \
+    X(void, DeleteRenderbuffers, (GLsizei n, const GLuint* r))                                       \
+    X(void, BindRenderbuffer, (GLenum target, GLuint r))                                             \
+    X(void, RenderbufferStorage, (GLenum target, GLenum ifmt, GLsizei w, GLsizei h))                 \
+    X(void, RenderbufferStorageMultisample, (GLenum target, GLsizei samples, GLenum ifmt, GLsizei w, \
+                                             GLsizei h))                                             \
+    X(void, FramebufferRenderbuffer, (GLenum target, GLenum att, GLenum rbtarget, GLuint r))         \
+    X(void, BlitFramebuffer, (GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint dx0, GLint dy0,      \
+                              GLint dx1, GLint dy1, GLbitfield mask, GLenum filter))
 
 #define GL_DECLARE(ret, name, args) \
     typedef ret(GLAPIENTRY* PFN_gl##name) args; \
