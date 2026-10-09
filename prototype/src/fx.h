@@ -6,8 +6,8 @@
 #include "render.h"
 #include "vecmath.h"
 
-enum class ViewWeapon { Rifle, Pistol, Sniper, Knife, Grenade, Berettas, Deagle, Nova, Mac10 };
-constexpr int kViewWeapons = 9;
+enum class ViewWeapon { Rifle, Pistol, Sniper, Knife, Grenade, Berettas, Deagle, Nova, Mac10, M4A4, Galil, Ssg08, Ump45 };
+constexpr int kViewWeapons = 13;
 
 struct ViewModelInput {
     float dt;                  // frame time
@@ -80,6 +80,14 @@ struct Particle {
     bool glow = false;  // unlit (fire, sparks)
 };
 
+// A solid piece that tumbles through the air, bounces once and lies there (a helmet knocked off).
+struct Debris {
+    Vec3 pos, vel;
+    float life = 0, spin = 0, spinRate = 0, tilt = 0;
+    uint32_t color = 0;
+    bool resting = false;
+};
+
 struct Tracer {
     Vec3 start, dir;
     float length, travelled;
@@ -95,14 +103,17 @@ public:
     void setGround(float (*groundAt)(float x, float y)) { ground_ = groundAt; }
     void blood(const Vec3& pos, const Vec3& dir);
     void tracer(const Vec3& from, const Vec3& to);
+    // A headshot kill: the helmet flies off along `dir`, spinning.
+    void helmet(const Vec3& pos, const Vec3& dir, uint32_t color);
     void update(float dt);
     void appendParticles(std::vector<BoxInstance>& out) const;
-    void appendTracers(std::vector<ModelDraw>& out) const;
+    void appendTracers(std::vector<ModelDraw>& out) const;  // (and the debris)
 
 private:
     float rnd();  // -1..1
     std::vector<Particle> particles_;
     std::vector<Tracer> tracers_;
+    std::vector<Debris> debris_;
     uint32_t rng_ = 0xC0FFEEu;
     float (*ground_)(float, float) = nullptr;
 };

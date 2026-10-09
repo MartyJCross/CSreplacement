@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 # The build number shown on the main menu and in the window title. Bump it for every build handed out
 # (the zip is named Crisp-v<version>.zip).
-project(Crisp VERSION 0.12.0 LANGUAGES C CXX)
+project(Crisp VERSION 0.13.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

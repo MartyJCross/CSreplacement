@@ -10,8 +10,12 @@ const char* hitGroupName(HitGroup g);
 
 struct RecoilStep { float up, right; };  // degrees per shot
 
-// Every weapon has an id (also its byte online): the first five are the original ones.
-enum WeaponId : uint8_t { kWRifle, kWPistol, kWKnife, kWGrenade, kWSniper, kWBerettas, kWDeagle, kWNova, kWMac10, kWeaponCount };
+// Every weapon has an id (also its byte online): the first five are the original ones. kWRifle is the AK-47,
+// kWSniper the AWP-like bolt action.
+enum WeaponId : uint8_t {
+    kWRifle, kWPistol, kWKnife, kWGrenade, kWSniper, kWBerettas, kWDeagle, kWNova, kWMac10, kWM4A4, kWGalil, kWSsg08,
+    kWUmp45, kWeaponCount
+};
 
 struct WeaponDef {
     const char* name;
@@ -37,6 +41,9 @@ struct WeaponDef {
     bool primary = true;     // slot 1 (else the pistol slot)
     int price = 0;           // competitive buy menu
     int killReward = 300;    // competitive money per kill
+    float armorRatio = 0.775f;  // damage kept through kevlar / a helmet (CS: the AWP 97.5%, the M4A4 70%)
+    bool scope = false;      // Mouse 2 zooms (the snipers)
+    float noscopeInaccuracy = 0;  // degrees of spread unscoped (only with the moving-spread option on)
 };
 
 const WeaponDef& rifleDef();
@@ -60,6 +67,7 @@ struct WeaponState {
     // Random spread is OFF by default: bullets go exactly to crosshair + fixed recoil pattern.
     bool spraySpread = false;   // random spread that grows during a spray
     bool moveSpread = false;    // random spread while moving / airborne
+    bool scoped = false;        // the game sets it: a sniper's noscope spread is off while zoomed
 };
 
 // Cumulative recoil (aim punch) in degrees at a given (fractional) spray index.
@@ -98,7 +106,11 @@ struct Dummy {
     // Crouch: 0 standing .. 1 fully crouched (online players; the model and its hitboxes squat together).
     // shownCrouch is what was drawn on the last frame, like shownYaw.
     float crouch = 0, prevCrouch = 0, shownCrouch = 0;
-    uint8_t weapon = 0;  // what they hold (cosmetic): 0 rifle, 1 pistol, 2 knife, 3 grenade, 4 sniper
+    uint8_t weapon = 0;  // what they hold (cosmetic): a WeaponId
+    // Cosmetic: the direction of the last bullet that hit them (they fall that way when it kills), and a
+    // headshot kill knocks the helmet off.
+    Vec3 hitDir;
+    bool lostHelmet = false;
     bool alive() const { return respawnLeft <= 0; }
 };
 
@@ -115,8 +127,9 @@ bool rayHitsDummy(const Vec3& pos, float yaw, float crouch, const Vec3& start, c
 // Damage multiplier for where a bullet lands (head x4, stomach x1.25, legs x0.75).
 float hitGroupDamageScale(HitGroup g);
 
-// Damage after armor (CS: kevlar takes 77.5% on body/arms/stomach, a helmet on the head; legs unarmored).
-float armoredDamage(float damage, HitGroup group, float armor, bool helmet);
+// Damage after armor: kevlar keeps `ratio` of it on body/arms/stomach, a helmet on the head; legs unarmored.
+// The ratio is the weapon's armorRatio (CS: 77.5% for most guns, the AWP 97.5%).
+float armoredDamage(float damage, HitGroup group, float armor, bool helmet, float ratio = 0.775f);
 std::vector<Dummy> buildDummies();
 void updateDummy(Dummy& d, float dt);
 

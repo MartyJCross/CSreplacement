@@ -75,7 +75,10 @@ const Part kSniperBody[] = {
     {{-0.9f, 1.5f, 5.0f}, {0.9f, 3.1f, 6.5f}, kMetal},               // eyepiece
     {{-0.4f, 1.0f, -3.0f}, {0.4f, 1.6f, -2.0f}, kMetalLight},        // front mount
     {{-0.4f, 1.0f, 2.0f}, {0.4f, 1.6f, 3.0f}, kMetalLight},          // rear mount
-    {{0.8f, 0.2f, 2.0f}, {2.2f, 0.6f, 2.6f}, kMetalLight},           // bolt handle
+};
+const Part kSniperBolt[] = {  // cycles back and forward after each shot
+    {{0.8f, 0.2f, 2.0f}, {2.2f, 0.6f, 2.6f}, kMetalLight},           // handle
+    {{2.0f, 0.0f, 1.9f}, {2.6f, 0.8f, 2.7f}, kMetal},                // knob
 };
 const Part kSniperArms[] = {
     {{-1.3f, -4.0f, 4.5f}, {1.4f, -1.2f, 7.5f}, kGlove},             // right hand
@@ -190,6 +193,101 @@ const Part kMac10Arms[] = {
 const Part kMac10Mag[] = {
     {{-0.5f, -8.2f, -1.1f}, {0.5f, -4.5f, 0.5f}, kMetal},
     {{-0.55f, -8.5f, -1.2f}, {0.55f, -8.2f, 0.6f}, kMetalLight},
+};
+
+// M4A4: black, flat-top with a rail, a square quad-rail handguard, the A-frame front sight, a stubby
+// flash hider and a collapsible stock on its buffer tube; a straighter mag than the AK's.
+const Part kM4Body[] = {
+    {{-0.85f, -1.0f, -6.0f}, {0.85f, 1.1f, 5.5f}, kMetal},           // receiver
+    {{-0.6f, 1.1f, -6.0f}, {0.6f, 1.5f, 5.0f}, kMetalLight},         // flat-top rail
+    {{-0.35f, 1.5f, 3.0f}, {0.35f, 2.4f, 4.4f}, kMetal},             // rear sight
+    {{-1.0f, -1.1f, -14.0f}, {1.0f, 1.0f, -6.0f}, kPolymer},         // handguard
+    {{-0.5f, 1.0f, -13.5f}, {0.5f, 1.35f, -6.0f}, kMetalLight},      // its top rail
+    {{-1.05f, -0.2f, -13.0f}, {1.05f, 0.2f, -7.0f}, kMetalLight},    // side rails
+    {{-0.3f, -0.05f, -22.0f}, {0.3f, 0.5f, -14.0f}, kMetal},         // barrel
+    {{-0.4f, 0.5f, -17.0f}, {0.4f, 2.4f, -16.2f}, kMetal},           // front sight post
+    {{-0.42f, -0.25f, -24.0f}, {0.42f, 0.7f, -22.0f}, kMetalLight},  // flash hider
+    {{-0.2f, -2.0f, 0.5f}, {0.2f, -1.0f, 2.8f}, kMetal},             // trigger guard
+    {{-0.6f, -4.4f, 2.6f}, {0.6f, -1.0f, 4.4f}, kPolymer},           // pistol grip
+    {{-0.35f, -0.4f, 5.5f}, {0.35f, 0.4f, 9.0f}, kMetal},            // buffer tube
+    {{-0.75f, -1.8f, 8.5f}, {0.75f, 0.9f, 14.0f}, kPolymer},         // stock
+    {{0.85f, 0.2f, 0.0f}, {1.15f, 0.7f, 2.2f}, kMetalLight},         // ejection port cover
+};
+const Part kM4Mag[] = {
+    {{-0.6f, -5.0f, -4.0f}, {0.6f, -1.0f, -1.6f}, kMetal},
+    {{-0.6f, -8.0f, -4.6f}, {0.6f, -4.8f, -2.2f}, kMetal},
+};
+
+// Galil AR: a dark receiver with a tall rear sight and a raised charging handle, a dark wooden handguard,
+// a skeleton folding stock, a long curved mag.
+const Part kGalilBody[] = {
+    {{-0.9f, -1.1f, -6.5f}, {0.9f, 1.1f, 6.0f}, kMetal},             // receiver
+    {{-0.8f, 1.1f, -5.5f}, {0.8f, 1.5f, 5.5f}, kMetalLight},         // top cover
+    {{-0.3f, 1.5f, 3.5f}, {0.3f, 2.5f, 4.5f}, kMetal},               // rear sight
+    {{-1.05f, -1.2f, -13.0f}, {1.05f, 0.7f, -6.5f}, kWoodDark},      // handguard
+    {{-0.32f, -0.1f, -21.0f}, {0.32f, 0.55f, -13.0f}, kMetal},       // barrel
+    {{-0.4f, 0.55f, -19.5f}, {0.4f, 2.1f, -18.7f}, kMetal},          // front sight
+    {{-0.45f, -0.3f, -22.5f}, {0.45f, 0.75f, -21.0f}, kMetalLight},  // muzzle
+    {{-0.2f, -2.0f, 0.4f}, {0.2f, -1.1f, 2.8f}, kMetal},             // trigger guard
+    {{-0.6f, -4.5f, 2.6f}, {0.6f, -1.1f, 4.5f}, kPolymer},           // grip
+    {{-0.55f, 0.2f, 6.0f}, {0.55f, 0.8f, 15.0f}, kMetal},            // folding stock: top tube
+    {{-0.55f, -2.6f, 6.0f}, {0.55f, -2.0f, 15.0f}, kMetal},          // bottom tube
+    {{-0.7f, -2.8f, 14.0f}, {0.7f, 0.9f, 15.2f}, kPolymer},          // butt plate
+    {{0.9f, 0.0f, -2.5f}, {1.6f, 0.5f, -1.5f}, kMetal},              // charging handle
+};
+const Part kGalilMag[] = {
+    {{-0.6f, -5.0f, -4.4f}, {0.6f, -1.1f, -1.6f}, kMetal},
+    {{-0.6f, -8.0f, -6.0f}, {0.6f, -4.8f, -2.9f}, kMetal},
+    {{-0.6f, -10.0f, -7.4f}, {0.6f, -7.8f, -4.4f}, kMetal},
+};
+
+// SSG 08: slim and light, a thin fluted barrel, a polymer stock, a smaller scope than the big sniper's.
+const Part kSsgBody[] = {
+    {{-0.7f, -0.9f, -4.5f}, {0.7f, 0.9f, 5.5f}, kMetal},             // receiver
+    {{-0.9f, -1.4f, -13.0f}, {0.9f, 0.3f, -4.5f}, kPolymer},         // forend
+    {{-0.28f, -0.05f, -29.0f}, {0.28f, 0.5f, -13.0f}, kMetal},       // barrel
+    {{-0.34f, 0.5f, -26.0f}, {0.34f, 0.6f, -15.0f}, kMetalLight},    // flutes
+    {{-0.4f, -0.15f, -30.5f}, {0.4f, 0.6f, -29.0f}, kMetalLight},    // muzzle
+    {{-0.8f, -1.6f, 5.5f}, {0.8f, 0.9f, 9.0f}, kPolymer},            // wrist
+    {{-0.6f, -4.0f, 4.5f}, {0.6f, -1.4f, 6.5f}, kPolymer},           // grip
+    {{-0.85f, -3.6f, 9.0f}, {0.85f, 1.0f, 16.5f}, kPolymer},         // stock
+    {{-0.6f, 1.4f, -5.5f}, {0.6f, 2.6f, 4.5f}, kMetal},              // scope tube
+    {{-0.85f, 1.25f, -7.5f}, {0.85f, 2.75f, -5.5f}, kMetal},         // objective
+    {{-0.75f, 1.3f, 4.5f}, {0.75f, 2.7f, 6.0f}, kMetal},             // eyepiece
+    {{-0.25f, 2.6f, -1.0f}, {0.25f, 3.0f, 0.0f}, kMetalLight},       // turret
+    {{-0.3f, 0.9f, -3.0f}, {0.3f, 1.4f, -2.0f}, kMetalLight},        // mounts
+    {{-0.3f, 0.9f, 2.0f}, {0.3f, 1.4f, 3.0f}, kMetalLight},
+};
+const Part kSsgBolt[] = {
+    {{0.7f, 0.1f, 2.0f}, {2.0f, 0.5f, 2.5f}, kMetalLight},
+    {{1.8f, -0.1f, 1.9f}, {2.4f, 0.6f, 2.6f}, kMetal},
+};
+const Part kSsgMag[] = {
+    {{-0.55f, -2.6f, -2.5f}, {0.55f, -0.9f, 0.5f}, kMetal},
+};
+
+// UMP-45: a boxy polymer SMG, a straight mag, a folding stock.
+const Part kUmpBody[] = {
+    {{-0.9f, -1.4f, -7.0f}, {0.9f, 1.2f, 4.0f}, kPolymer},           // receiver
+    {{-0.5f, 1.2f, -6.5f}, {0.5f, 1.6f, 3.5f}, kMetal},              // top rail
+    {{-0.35f, 1.6f, 2.0f}, {0.35f, 2.3f, 3.0f}, kMetal},             // rear sight
+    {{-0.35f, 1.6f, -6.0f}, {0.35f, 2.3f, -5.2f}, kMetal},           // front sight
+    {{-0.35f, -0.1f, -10.5f}, {0.35f, 0.5f, -7.0f}, kMetal},         // barrel
+    {{-0.5f, -0.3f, -11.0f}, {0.5f, 0.7f, -10.0f}, kMetalLight},     // muzzle
+    {{-0.25f, -2.4f, -0.3f}, {0.25f, -1.4f, 2.0f}, kPolymer},        // trigger guard
+    {{-0.6f, -4.6f, 1.8f}, {0.6f, -1.4f, 3.8f}, kPolymer},           // grip
+    {{-0.5f, -0.2f, 4.0f}, {0.5f, 0.6f, 12.0f}, kPolymer},           // stock arm
+    {{-0.5f, -2.6f, 10.5f}, {0.5f, 0.6f, 12.5f}, kPolymer},          // butt
+    {{0.9f, 0.3f, -5.5f}, {1.4f, 0.8f, -4.5f}, kMetal},              // charging handle
+};
+const Part kUmpArms[] = {
+    {{-1.3f, -4.4f, 1.4f}, {1.4f, -1.4f, 4.2f}, kGlove},             // right hand
+    {{0.6f, -6.5f, 4.2f}, {3.6f, -3.2f, 13.0f}, kSleeve},            // right forearm
+    {{-1.5f, -2.6f, -6.5f}, {1.5f, -1.0f, -3.5f}, kGlove},           // left hand under the front
+    {{-5.5f, -6.5f, -5.0f}, {-1.2f, -2.6f, 1.5f}, kSleeve},          // left forearm
+};
+const Part kUmpMag[] = {
+    {{-0.6f, -6.8f, -2.9f}, {0.6f, -1.4f, -0.6f}, kMetal},
 };
 
 // ---- Knives. Blades are steel with a bright edge bevel and a darker fuller (a skin paints all three). ----
@@ -424,6 +522,10 @@ void paintSpan(ViewWeapon w, PaintParams& p) {
         case ViewWeapon::Sniper: p.zMin = -32.0f; p.zMax = 17.0f; break;
         case ViewWeapon::Nova: p.zMin = -26.0f; p.zMax = 16.0f; break;
         case ViewWeapon::Mac10: p.zMin = -9.2f; p.zMax = 3.9f; break;
+        case ViewWeapon::M4A4: p.zMin = -24.0f; p.zMax = 14.0f; break;
+        case ViewWeapon::Galil: p.zMin = -22.5f; p.zMax = 15.2f; break;
+        case ViewWeapon::Ssg08: p.zMin = -30.5f; p.zMax = 16.5f; break;
+        case ViewWeapon::Ump45: p.zMin = -11.0f; p.zMax = 12.5f; break;
         case ViewWeapon::Knife: p.zMin = -11.2f; p.zMax = 0.0f; break;
         default: p.zMin = -23.5f; p.zMax = 15.0f; break;
     }
@@ -435,6 +537,7 @@ struct Anim {
     bool magVisible = true, arms = true;
     float bladeAngle = 0, biteAngle = 0, ringSpin = 0, pumpZ = 0;
     float shell = -1;  // Nova reload: 0..1 the shell going in, < 0 none
+    Vec3 bolt;         // the snipers: the bolt handle's offset (up, then back, as it cycles)
     int grenade = 0;
 };
 
@@ -451,10 +554,28 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
         case ViewWeapon::Pistol:
         case ViewWeapon::Deagle:
         case ViewWeapon::Berettas:
-        case ViewWeapon::Mac10: {
-            std::vector<BoxInstance> body, mag;
+        case ViewWeapon::Mac10:
+        case ViewWeapon::M4A4:
+        case ViewWeapon::Galil:
+        case ViewWeapon::Ssg08:
+        case ViewWeapon::Ump45: {
+            std::vector<BoxInstance> body, mag, bolt;
             if (w == ViewWeapon::Rifle) { addParts(body, kRifleBody, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kRifleMag, painted); }
-            if (w == ViewWeapon::Sniper) { addParts(body, kSniperBody, painted); if (a.arms) addParts(body, kSniperArms); addParts(mag, kSniperMag, painted); }
+            if (w == ViewWeapon::Sniper) {
+                addParts(body, kSniperBody, painted);
+                if (a.arms) addParts(body, kSniperArms);
+                addParts(mag, kSniperMag, painted);
+                addParts(bolt, kSniperBolt, painted);
+            }
+            if (w == ViewWeapon::M4A4) { addParts(body, kM4Body, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kM4Mag, painted); }
+            if (w == ViewWeapon::Galil) { addParts(body, kGalilBody, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kGalilMag, painted); }
+            if (w == ViewWeapon::Ssg08) {
+                addParts(body, kSsgBody, painted);
+                if (a.arms) addParts(body, kSniperArms);
+                addParts(mag, kSsgMag, painted);
+                addParts(bolt, kSsgBolt, painted);
+            }
+            if (w == ViewWeapon::Ump45) { addParts(body, kUmpBody, painted); if (a.arms) addParts(body, kUmpArms); addParts(mag, kUmpMag, painted); }
             if (w == ViewWeapon::Pistol) { addParts(body, kPistolBody, painted); if (a.arms) addParts(body, kPistolArms); addParts(mag, kPistolMag, painted); }
             if (w == ViewWeapon::Deagle) { addParts(body, kDeagleBody, painted); if (a.arms) addParts(body, kDeagleArms); addParts(mag, kDeagleMag, painted); }
             if (w == ViewWeapon::Berettas) {
@@ -470,6 +591,7 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
             if (w == ViewWeapon::Mac10) { addParts(body, kMac10Body, painted); if (a.arms) addParts(body, kMac10Arms); addParts(mag, kMac10Mag, painted); }
             add(world, std::move(body));
             if (a.magVisible) add(world * translation(a.magOffset), std::move(mag));
+            if (!bolt.empty()) add(world * translation(a.bolt), std::move(bolt));
             break;
         }
         case ViewWeapon::Nova: {
@@ -527,7 +649,9 @@ void ViewModel::onShot(uint32_t seed) {
     sinceShot_ = 0;
     float build = std::min(float(shotsInRow_), 10.0f) / 10.0f;
     float r1 = float(seed % 1000) / 1000.0f - 0.5f, r2 = float((seed / 1000) % 1000) / 1000.0f - 0.5f;
-    const float big = weapon_ == ViewWeapon::Deagle || weapon_ == ViewWeapon::Nova ? 1.6f : 1.0f;  // heavy hitters
+    const float big = weapon_ == ViewWeapon::Sniper ? 2.0f
+                      : weapon_ == ViewWeapon::Deagle || weapon_ == ViewWeapon::Nova || weapon_ == ViewWeapon::Ssg08 ? 1.6f
+                                                                                                                       : 1.0f;  // heavy hitters
     kickBack_ = std::min(kickBack_ + (2.0f + 0.6f * build) * big, 4.4f * big);
     kickPitch_ = std::min(kickPitch_ + (2.4f + 1.0f * build) * big, 7.5f * big);
     kickYaw_ += r1 * (0.7f + 0.8f * build);
@@ -596,7 +720,7 @@ void ViewModel::update(const ViewModelInput& in) {
 void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX, float offY, float offZ,
                       float bobScale, std::vector<ModelDraw>& out) const {
     const bool sniper = weapon_ == ViewWeapon::Sniper;
-    const bool pistol = isPistolLike(weapon_), mac = weapon_ == ViewWeapon::Mac10;
+    const bool pistol = isPistolLike(weapon_), mac = weapon_ == ViewWeapon::Mac10 || weapon_ == ViewWeapon::Ump45;
     const bool rifle = isGun(weapon_) && !pistol && !mac;  // rifle, sniper, nova
     const bool gun = isGun(weapon_);
     // Camera-local placement (x right, y up, z back). Tuned so the guns sit lower-right like CS; the
@@ -641,6 +765,19 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
 
     Anim a;
     a.grenade = grenade_;
+    // The snipers' bolt, after each shot: roll the gun a little, lift the handle, pull it back (the sound),
+    // push it home, and settle. The scout's is a bit quicker.
+    if ((sniper || weapon_ == ViewWeapon::Ssg08) && sinceShot_ < 1.3f && reloadT_ < 0) {
+        const float t = sinceShot_ / (sniper ? 1.0f : 0.85f);
+        const float tilt = ramp(t, 0.25f, 0.38f) * (1.0f - ramp(t, 0.8f, 1.05f));
+        roll -= 14.0f * tilt;
+        pitch += 4.0f * tilt;
+        pos += Vec3{-2.6f, 1.6f, -1.5f} * tilt;  // in towards the middle, so you see the bolt work
+        yaw += 6.0f * tilt;
+        const float lift = ramp(t, 0.35f, 0.42f) * (1.0f - ramp(t, 0.68f, 0.75f));
+        const float back = ramp(t, 0.44f, 0.55f) * (1.0f - ramp(t, 0.58f, 0.67f));
+        a.bolt = {0.2f * lift, 0.7f * lift, 3.6f * back};
+    }
     // The Nova's pump: back and forward again after each shot.
     if (weapon_ == ViewWeapon::Nova && sinceShot_ < 0.7f)
         a.pumpZ = 4.0f * (ramp(sinceShot_, 0.16f, 0.32f) - ramp(sinceShot_, 0.4f, 0.58f));
@@ -733,6 +870,10 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
         float s = (1.0f + float((flashSeed_ / 90) % 50) / 100.0f) * (rifle ? 1.0f : 0.75f) *
                   (weapon_ == ViewWeapon::Nova || weapon_ == ViewWeapon::Deagle ? 1.35f : 1.0f);
         Vec3 muzzle = sniper                           ? Vec3{0, 0.2f, -33.3f}
+                      : weapon_ == ViewWeapon::Ssg08    ? Vec3{0, 0.2f, -31.4f}
+                      : weapon_ == ViewWeapon::M4A4     ? Vec3{0, 0.2f, -24.8f}
+                      : weapon_ == ViewWeapon::Galil    ? Vec3{0, 0.2f, -23.3f}
+                      : weapon_ == ViewWeapon::Ump45    ? Vec3{0, 0.2f, -11.7f}
                       : weapon_ == ViewWeapon::Nova     ? Vec3{0, 0.6f, -26.8f}
                       : weapon_ == ViewWeapon::Rifle    ? Vec3{0, 0.2f, -24.8f}
                       : weapon_ == ViewWeapon::Deagle   ? Vec3{0, 0.9f, -11.8f}
@@ -822,8 +963,43 @@ void Effects::tracer(const Vec3& from, const Vec3& to) {
     tracers_.push_back({from, d * (1.0f / len), len, 0});
 }
 
+void Effects::helmet(const Vec3& pos, const Vec3& dir, uint32_t color) {
+    Vec3 d = dir;
+    d.z = 0;
+    const float len = length(d);
+    d = len > 0.01f ? d * (1.0f / len) : Vec3{1, 0, 0};
+    Debris h;
+    h.pos = pos;
+    h.vel = d * (150.0f + 40.0f * rnd()) + Vec3{rnd() * 40.0f, rnd() * 40.0f, 230.0f + 40.0f * rnd()};
+    h.spinRate = 540.0f + 240.0f * rnd();
+    h.color = color;
+    debris_.push_back(h);
+    if (debris_.size() > 12) debris_.erase(debris_.begin());
+}
+
 void Effects::update(float dt) {
     dt = std::min(dt, 0.05f);
+    for (Debris& d : debris_) {
+        d.life += dt;
+        if (d.resting) continue;
+        d.vel.z -= 800.0f * dt;
+        d.pos += d.vel * dt;
+        d.spin += d.spinRate * dt;
+        d.tilt += d.spinRate * 0.6f * dt;
+        const float floorZ = (ground_ ? ground_(d.pos.x, d.pos.y) : 0.0f) + 2.0f;
+        if (d.pos.z < floorZ && d.pos.z > floorZ - 48.0f) {
+            d.pos.z = floorZ;
+            if (d.vel.z < -150.0f) {  // one bounce, then it rolls to a stop
+                d.vel = Vec3{d.vel.x * 0.4f, d.vel.y * 0.4f, -d.vel.z * 0.3f};
+                d.spinRate *= 0.4f;
+            } else {
+                d.resting = true;
+                d.tilt = 0;
+            }
+        }
+    }
+    debris_.erase(std::remove_if(debris_.begin(), debris_.end(), [](const Debris& d) { return d.life > 4.0f; }),
+                  debris_.end());
     for (Particle& p : particles_) {
         p.life += dt;
         p.vel.z -= 800.0f * dt;
@@ -849,6 +1025,12 @@ void Effects::appendParticles(std::vector<BoxInstance>& out) const {
 }
 
 void Effects::appendTracers(std::vector<ModelDraw>& out) const {
+    for (const Debris& d : debris_) {  // a helmet: the shell and its crown
+        ModelDraw md{translation(d.pos) * rotationZ(d.spin) * rotationX(d.tilt), {}, {}};
+        md.boxes.push_back(makeBox({-4.5f, -4.5f, -2.0f}, {4.5f, 4.5f, 2.0f}, d.color, false));
+        md.boxes.push_back(makeBox({-3.4f, -3.4f, 2.0f}, {3.4f, 3.4f, 3.4f}, d.color, false));
+        out.push_back(std::move(md));
+    }
     for (const Tracer& t : tracers_) {
         float head = std::min(t.travelled, t.length), tail = std::max(0.0f, t.travelled - 160.0f);
         if (head <= tail) continue;

@@ -847,30 +847,83 @@ World buildDust() {
     anchored(-2200, 1300, 0, 0, 48, 48, 48, kDCrate);      // upper tunnels
     barrel(-1200, 1240, 0, -30);                            // lower tunnels
     {
-        // Door leaves, swung open beside their (scaled, at least 96 wide) doorways. Wood: wallbangable.
-        float y0, y1;
-        scaledSpan(2140, 2280, y0, y1);  // B doors: a leaf against the corridor's south side
-        w.solids.push_back({{-1350.0f * sc, y0 - 12, 32 * sc}, {-1350.0f * sc + 72, y0, 32 * sc + 120}, kDWood, kMatWood});
-        scaledSpan(300, 460, y0, y1);    // long doors
-        w.solids.push_back({{900.0f * sc - 8, y0, 0}, {900.0f * sc, y0 + 80, 128}, kDWood, kMatWood});
-        // Mid doors, mostly shut like Dust2's: a leaf from each side across the doorway, a gap in the middle
-        // you can walk (and shoot) through. The gap sits on the doorway's middle grid cell, so the bots' nav
-        // (and you) always fit through it at every map size.
-        int di0 = m.w, di1 = -1, dj1 = -1;
-        for (int j = 0; j < m.h; ++j)
-            for (int i = 0; i < m.w; ++i)
-                if (m.area[size_t(m.index(i, j))] >= 0 && std::strcmp(kDustAreas[m.area[size_t(m.index(i, j))]].name, "MID DOORS") == 0) {
-                    di0 = std::min(di0, i);
-                    di1 = std::max(di1, i);
-                    dj1 = std::max(dj1, j);
+        // Doorways (long, B and mid doors): a wooden frame at both ends (a jamb up each side, a lintel under
+        // the roof) with the door leaves hung on it, so no door floats and no gap shows round one. Everything
+        // sits on the doorway's own grid cells, so it fits at every map size. Wood: wallbangable.
+        struct Cells { int i0, j0, i1, j1; };
+        auto cellsOf = [&](const char* name) {
+            Cells c{m.w, m.h, -1, -1};
+            for (int j = 0; j < m.h; ++j)
+                for (int i = 0; i < m.w; ++i) {
+                    const int a = m.area[size_t(m.index(i, j))];
+                    if (a < 0 || std::strcmp(kDustAreas[a].name, name) != 0) continue;
+                    c.i0 = std::min(c.i0, i); c.i1 = std::max(c.i1, i);
+                    c.j0 = std::min(c.j0, j); c.j1 = std::max(c.j1, j);
                 }
-        if (di1 >= di0) {
-            const float left = m.x0 + float(di0) * m.cell, right = m.x0 + float(di1 + 1) * m.cell;
-            const float mid = m.x0 + (float((di0 + di1) / 2) + 0.5f) * m.cell, gap = 22.0f;
-            const float y = m.y0 + float(dj1 + 1) * m.cell;  // the CT-side face of the doorway
-            const float mz = m.floorAt(mid, y - 8);
-            if (mid - gap > left) w.solids.push_back({{left, y - 8, mz}, {mid - gap, y, mz + 120}, kDWood, kMatWood});
-            if (mid + gap < right) w.solids.push_back({{mid + gap, y - 8, mz}, {right, y, mz + 120}, kDWood, kMatWood});
+            return c;
+        };
+        const float jamb = 4, depth = 10, beam = 10, leafT = 6;
+        // A box by passage coordinates: p along the doorway, a across it.
+        auto wood = [&](bool alongX, float p0, float p1, float a0, float a1, float z0, float z1) {
+            Box b = alongX ? Box{{p0, a0, z0}, {p1, a1, z1}, kDWood} : Box{{a0, p0, z0}, {a1, p1, z1}, kDWood};
+            b.material = kMatWood;
+            return b;
+        };
+        // A leaf swung open flat against the wall, shortened where it would run into a prop.
+        auto openLeaf = [&](Box b, bool alongX, bool growsUp) {
+            auto overlaps = [&](const Box& s) {
+                const float e = 0.5f;
+                return s.mins.x < b.maxs.x - e && s.maxs.x > b.mins.x + e && s.mins.y < b.maxs.y - e &&
+                       s.maxs.y > b.mins.y + e && s.mins.z < b.maxs.z - e && s.maxs.z > b.mins.z + e;
+            };
+            for (int tries = 0; tries < 40 && std::any_of(w.solids.begin(), w.solids.end(), overlaps); ++tries) {
+                float& end = growsUp ? (alongX ? b.maxs.y : b.maxs.x) : (alongX ? b.mins.y : b.mins.x);
+                end += growsUp ? -4.0f : 4.0f;
+            }
+            w.solids.push_back(b);
+        };
+        // The frame at both ends of a doorway; returns its opening (a0..a1 across, p0..p1 along), floor and
+        // the lintel's underside.
+        struct Opening { float p0, p1, a0, a1, z, top; };
+        auto frame = [&](const Cells& c, bool alongX) {
+            Opening o;
+            o.p0 = alongX ? X(c.i0) : Y(c.j0);
+            o.p1 = alongX ? X(c.i1 + 1) : Y(c.j1 + 1);
+            o.a0 = alongX ? Y(c.j0) : X(c.i0);
+            o.a1 = alongX ? Y(c.j1 + 1) : X(c.i1 + 1);
+            const size_t mid = size_t(m.index((c.i0 + c.i1) / 2, (c.j0 + c.j1) / 2));
+            o.z = m.floor[mid];
+            const float ceil = m.ceiling[mid];
+            o.top = ceil - beam;
+            for (float e : {o.p0, o.p1 - depth}) {
+                w.solids.push_back(wood(alongX, e, e + depth, o.a0, o.a0 + jamb, o.z, ceil));
+                w.solids.push_back(wood(alongX, e, e + depth, o.a1 - jamb, o.a1, o.z, ceil));
+                w.solids.push_back(wood(alongX, e, e + depth, o.a0 + jamb, o.a1 - jamb, o.top, ceil));
+            }
+            return o;
+        };
+        const Cells longCells = cellsOf("LONG DOORS"), bCells = cellsOf("B DOORS"), midCells = cellsOf("MID DOORS");
+        if (longCells.i1 >= 0) {
+            // Long doors: both leaves swung out into long A, flat against the wall either side.
+            const Opening o = frame(longCells, true);
+            const float leaf = (o.a1 - o.a0) * 0.5f - jamb, h = o.top - 2;
+            openLeaf(wood(true, o.p1, o.p1 + leafT, o.a0 + jamb - leaf, o.a0 + jamb, o.z, h), true, false);
+            openLeaf(wood(true, o.p1, o.p1 + leafT, o.a1 - jamb, o.a1 - jamb + leaf, o.z, h), true, true);
+        }
+        if (bCells.i1 >= 0) {
+            // B doors: one wide leaf swung into the site against the wall south of the doors (B window is north).
+            const Opening o = frame(bCells, true);
+            const float leaf = (o.a1 - o.a0) - 2 * jamb;
+            openLeaf(wood(true, o.p0 - leafT, o.p0, o.a0 + jamb - leaf, o.a0 + jamb, o.z, o.top - 2), true, false);
+        }
+        if (midCells.i1 >= 0) {
+            // Mid doors, mostly shut like Dust2's: a leaf from each jamb across the doorway, a gap in the middle
+            // you can walk (and shoot) through. The gap sits on the doorway's middle grid cell, so the bots' nav
+            // (and you) always fit through it at every map size. The leaves hang at the CT end, up to the lintel.
+            const Opening o = frame(midCells, false);
+            const float mid = X((midCells.i0 + midCells.i1) / 2) + m.cell * 0.5f, gap = 22.0f;
+            if (mid - gap > o.a0 + jamb) w.solids.push_back(wood(false, o.p1 - 8, o.p1, o.a0 + jamb, mid - gap, o.z, o.top));
+            if (mid + gap < o.a1 - jamb) w.solids.push_back(wood(false, o.p1 - 8, o.p1, mid + gap, o.a1 - jamb, o.z, o.top));
         }
     }
     arch(-300, 280, 20, 320, 176);    // top mid into mid

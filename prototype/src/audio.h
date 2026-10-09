@@ -20,6 +20,7 @@ enum class Sfx {
     Whiz,                                   // a bot's bullet passing close to your head
     UiClick,                                // menu clicks
     SuppressedShot,                         // the starting pistol's silencer: a muted "thwip" and the slide
+    Zoom,                                   // a sniper scoping in: a soft mechanical "chk"
     Count
 };
 
@@ -37,8 +38,9 @@ public:
     void play3D(Sfx s, const Vec3& pos, const Vec3& listener, float listenerYawDeg, float maxDist, float gain = 1.0f,
                 float pitch = 1.0f);
 
-    // Dev aid: writes every synthesized sound (each variant) as a 16-bit WAV into `dir`.
-    static bool dumpWavs(const std::string& dir);
+    // Dev aid: writes every synthesized sound (each variant) as a 16-bit WAV into `dir`; with `assetDir`,
+    // what the game really plays (recordings swapped in).
+    static bool dumpWavs(const std::string& dir, const std::string& assetDir = "");
     void setVolume(float v) { master_ = v; }
 
 private:

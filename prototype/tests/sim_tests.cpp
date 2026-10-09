@@ -280,7 +280,9 @@ void testBotSkills() {
 // never get two shots closer together than one fire interval.
 void testFireTiming() {
     std::printf("fire timing\n");
-    for (const WeaponDef* def : {&rifleDef(), &pistolDef(), &berettasDef(), &deagleDef(), &novaDef(), &mac10Def()}) {
+    for (int id = 0; id < kWeaponCount; ++id) {
+        const WeaponDef* def = &weaponDef(id);
+        if (!def->canFire) continue;
         WeaponState ws;
         ws.def = def;
         // Held for 30 shots.
@@ -852,6 +854,58 @@ void testNewGuns() {
                 double(near), hitsFar, double(far));
     CHECK(pellets == 9 && near >= 100.0f && far < 60.0f && hitsNear == hitsNear2 && near == near2,
           "nova pellets %d near %.0f far %.0f", pellets, double(near), double(far));
+
+    // The rifles, like CS: the AK-47 one-taps a helmet, the M4A4 and the Galil don't.
+    const bool ak = headshot(rifleDef(), 500, true, d);
+    std::printf("  AK-47, helmet, 500 units: %.0f damage%s\n", double(d), ak ? " KILL" : "");
+    CHECK(ak, "the AK-47 must one-tap a helmet (%.0f)", double(d));
+    for (int id : {int(kWM4A4), int(kWGalil)}) {
+        const bool kill = headshot(weaponDef(id), 64, true, d);
+        std::printf("  %s, helmet, 64 units: %.0f damage%s\n", weaponDef(id).name, double(d), kill ? " KILL" : "");
+        CHECK(!kill && d > 85.0f, "%s must not one-tap a helmet (%.0f)", weaponDef(id).name, double(d));
+    }
+    // The snipers through kevlar: the AWP kills with a body shot anywhere, the SSG 08 needs the head (which
+    // it gets through a helmet from anywhere).
+    auto bodyShot = [&](const WeaponDef& def, float dist, float& dmg) {
+        std::vector<Dummy> dd(1);
+        dd[0].pos = dd[0].prevPos = {dist, 0, 0};
+        dd[0].armor = 100.0f;
+        dd[0].helmet = true;
+        std::vector<Vec3> pos{dd[0].pos};
+        WeaponState ws;
+        ws.def = &def;
+        ShotResult r = fireBullet(ws, {0, 0, 50}, 0, 0, 0, true, false, empty, dd, pos);
+        dmg = r.dummyIndex == 0 && r.group == kChest ? r.damage : 0.0f;
+        return r.kill;
+    };
+    for (float dist : {500.0f, 4000.0f}) {
+        const bool awp = bodyShot(sniperDef(), dist, d);
+        std::printf("  AWP, kevlar, chest, %4.0f units: %.0f damage%s\n", double(dist), double(d), awp ? " KILL" : "");
+        CHECK(awp, "the AWP must kill through kevlar at %.0f (%.0f)", double(dist), double(d));
+        const bool ssgBody = bodyShot(weaponDef(kWSsg08), dist, d);
+        CHECK(!ssgBody && d > 60.0f, "an SSG 08 body shot must not kill through kevlar (%.0f)", double(d));
+        const bool ssgHead = headshot(weaponDef(kWSsg08), dist, true, d);
+        std::printf("  SSG 08, helmet, %4.0f units: %.0f damage%s\n", double(dist), double(d), ssgHead ? " KILL" : "");
+        CHECK(ssgHead, "the SSG 08 must one-tap a helmet at %.0f (%.0f)", double(dist), double(d));
+    }
+    // The UMP-45 hits hard up close and falls off fast.
+    float umpNear = 0, umpFar = 0;
+    bodyShot(weaponDef(kWUmp45), 200, umpNear);
+    bodyShot(weaponDef(kWUmp45), 2000, umpFar);
+    std::printf("  UMP-45 through kevlar: %.0f at 200 units, %.0f at 2000\n", double(umpNear), double(umpFar));
+    CHECK(umpNear > 20.0f && umpFar < umpNear * 0.65f, "ump %.0f / %.0f", double(umpNear), double(umpFar));
+    // Only the snipers scope; a noscope is only inaccurate with the moving-spread option on.
+    WeaponState awp;
+    awp.def = &sniperDef();
+    const float exact = currentInaccuracy(awp, 0, true, false);
+    awp.moveSpread = true;
+    const float noscope = currentInaccuracy(awp, 0, true, false);
+    awp.scoped = true;
+    const float scoped = currentInaccuracy(awp, 0, true, false);
+    int scopes = 0;
+    for (int id = 0; id < kWeaponCount; ++id) scopes += weaponDef(id).scope ? 1 : 0;
+    CHECK(exact == 0.0f && noscope > 3.0f && scoped == 0.0f && scopes == 2 && weaponDef(kWSsg08).scope,
+          "scope %.1f %.1f %.1f (%d scoped guns)", double(exact), double(noscope), double(scoped), scopes);
 }
 
 // Cases: 100,000 openings land on the CS odds, every rarity has skins, a case comes every N kills, and the

@@ -14,6 +14,7 @@ fov 90
 // 0 = unlimited
 fps_max 0
 vsync 0
+low_latency 1
 fullscreen 1
 // 0 = desktop resolution (try e.g. 1280 960 for 4:3 stretched)
 width 0
@@ -103,7 +104,7 @@ bool saveConfig(const std::string& path, const Config& c) {
     out << "// Crisp config. Written by the in-game menus (Esc); you can also edit it by hand.\n";
     out << "sensitivity " << c.sensitivity << "\nm_yaw " << c.m_yaw << "\nm_pitch " << c.m_pitch
         << "\nzoom_sensitivity_ratio " << c.zoom_sensitivity_ratio << "\nfov " << c.fov << "\nfps_max " << c.fps_max
-        << "\nvsync " << c.vsync << "\nfullscreen " << c.fullscreen << "\nwidth " << c.width << "\nheight " << c.height
+        << "\nvsync " << c.vsync << "\nlow_latency " << c.low_latency << "\nfullscreen " << c.fullscreen << "\nwidth " << c.width << "\nheight " << c.height
         << "\ncrosshair_size " << c.crosshair_size << "\ncrosshair_gap " << c.crosshair_gap
         << "\ncrosshair_thickness " << c.crosshair_thickness << "\ncrosshair_r " << c.crosshair_r
         << "\ncrosshair_g " << c.crosshair_g << "\ncrosshair_b " << c.crosshair_b
@@ -156,6 +157,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "fov") c.fov = v;
         else if (key == "fps_max") i(c.fps_max);
         else if (key == "vsync") i(c.vsync);
+        else if (key == "low_latency") i(c.low_latency);
         else if (key == "fullscreen") i(c.fullscreen);
         else if (key == "width") i(c.width);
         else if (key == "height") i(c.height);

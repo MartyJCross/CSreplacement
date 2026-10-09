@@ -36,8 +36,9 @@ prototype/
                           (Dust2 from the kDustAreas table on a 32u grid, decor, props), bot/retake/prefire/spawn
                           spots, KZ course
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
-    combat.*              weapons (WeaponId: rifle, pistol, knife, grenade, sniper, Berettas, Deagle, Nova, MAC-10;
-                          weaponDef), recoil patterns, Nova pellets (firePellets, fixed pattern), wallbangs, armor,
+    combat.*              weapons (WeaponId: rifle = AK-47, pistol, knife, grenade, sniper = AWP, Berettas, Deagle, Nova,
+                          MAC-10, M4A4, Galil, SSG 08, UMP-45; weaponDef; armorRatio per gun; `scope`), recoil patterns,
+                          Nova pellets (firePellets, fixed pattern), wallbangs, armor,
                           dummies + hitboxes (dummies have a yaw and a crouch; shots test in the dummy's model space
                           using shownYaw/shownCrouch), grenade throw/flight/prediction
     items.*               skins (allSkins: 29 gun skins + 6 knives x 9 finishes), rarities and CS odds, rollCase,
@@ -137,9 +138,16 @@ See `prototype/README.md` for full details. Each item below lists where its code
   - real ramps: `Box::slope`/`lowZ` wedges, swept Quake-style against their planes (`world.cpp`)
 - **Weapons** (`combat.cpp`), CS slots: 1 primary (rifle/sniper), 2 pistol, 3 knife, 4 grenade (4 again cycles
   smoke/flash/HE/molotov), Q previous, F inspect, G quick-throw.
-  - the owner doesn't want a "tagging" slowdown when shot; guns only when they name them (they asked for the
-    Berettas, Deagle, Nova and MAC-10). The starting pistol must not one-tap a helmet; the Deagle must from any
-    range (tested in testNewGuns)
+  - the owner doesn't want a "tagging" slowdown when shot; guns only when they ask (they named the Berettas,
+    Deagle, Nova and MAC-10; then asked for "more guns" and got the M4A4, Galil AR, SSG 08 and UMP-45, CS stats).
+    The starting pistol must not one-tap a helmet; the Deagle must from any range; the AK does, the M4A4/Galil
+    don't; the AWP kills through kevlar with a body shot (armorRatio 0.975); all tested in testNewGuns
+  - the player's guns live in `Game::guns[kWeaponCount]` (by WeaponId; `weaponState(g, id)`); a new gun is a
+    WeaponDef + enum entry, a ViewWeapon + parts in fx.cpp, a world model (the dummies loop), a buy entry, skins
+    and an inventory row (`kInvWeapons`), its sound (`gunshotPitch`); `items.h kSlots` must equal kWeaponCount
+  - snipers (`WeaponDef::scope`): CS behaviour, a shot drops the scope (`resumeZoom` at fireInterval - 0.12 s), the
+    viewmodel cycles the bolt (`Anim::bolt`, kSniperBolt/kSsgBolt), zoom eases in (`Game::shownFov`), `Sfx::Zoom`;
+    noscope spread (`noscopeInaccuracy`, `WeaponState::scoped`) only with spread_movement on
   - B buy wheel like CS:GO's radial (`drawBuyWheel`, `buySlotAt`, `buyPick`; the mouse is freed while it's open),
     CS categories (`buyEntries`, `compBuy`, `takeGun`) and full buys (`fullBuy`: rifle or sniper + armor, kit,
     nades): competitive in spawn during buy time for money, everywhere else free; slot 1 `g.primary`, slot 2
@@ -193,6 +201,8 @@ See `prototype/README.md` for full details. Each item below lists where its code
   `player_name`). Everything shown goes through `agentName(id)`.
 - **Player models** (main.cpp, the dummies loop): legs that step (`Dummy::stepDist`), vest, pouches, gloves;
   CT helmet + goggles, T balaclava + beanie; every piece inside its hitbox (rule 3); hits flash per part.
+  The dead are drawn as one ModelDraw each (`deadDraws`) that tips over along `Dummy::hitDir` (set by every hit),
+  lies 2.5 s and sinks; a headshot kill knocks the CT helmet off (`knockHelmet`, `Effects::helmet` debris).
   Spectating looks where they look (`Dummy::pitch`; online in `NetState`/`NetBot`).
 - **Map holes:** `testMapGaps` casts rays at/below the horizon from every standing spot; none may leave the map.
 - **Combat record:** `recordDamage` feeds the kill feed, per-life damage report, assists, ADR/HS%/MVP scoreboard.
@@ -203,6 +213,11 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Menus** (`MenuScreen`, `menuRows`, `drawMenu`, `menuUse` in main.cpp): main menu at launch, Esc pause menu,
   Play screen (mode + its options; START reloads the map), settings split into pages, controls page; mouse
   hover/click. The in-game help is just a short hint now.
+- **Low latency mode** (`low_latency`, default 1): a GL fence after each swap, waited on before reading input, so
+  at most one frame is queued on the GPU (Reflex/Anti-Lag by hand). Costs ~17% FPS on the owner's laptop for
+  1-2 frames less lag; compare with `--bench-raw 10` (no glFinish), not `--bench`.
+- **Doors** (world.cpp, end of buildDust): frames (jambs + lintel) at both ends of each doorway and the leaves,
+  all placed on the doorway's grid cells (`cellsOf`, `frame`, `openLeaf` shortens a leaf that would hit a prop).
 - **Performance:** the owner's laptop has only an integrated Radeon (GPU-bound, fill-rate). Depth pre-pass,
   per-frame frustum cull + front-to-back sort of world boxes, per-face lighting. Measure with
   `crisp --bench 10` (writes bench.txt) before and after any rendering change.
@@ -212,7 +227,9 @@ See `prototype/README.md` for full details. Each item below lists where its code
   `--buy N` (the buy wheel open on category N), `--smoke --nade T [--throw-frame N]`, `--bots`, `--menu N [--menu-row R]` (a `MenuScreen`; 11 inventory, 12 a case
 
   opening with `--give-cases N`), `--bench S`, `--weapon 5` (grenade out; 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10),
-  `--die N`, `--ct` (competitive starting on CT: test both sides), `--host`,
+  `--die N`, `--ct` (competitive starting on CT: test both sides), `--host`, `--weapon 10..13` (M4A4, Galil, SSG 08,
+  UMP-45), `--bench-raw S`, `--dump-played-sounds DIR` (recordings included; the suppressed pistol is derived
+  from the pistol recording),
 
   `--join ADDR`. Automated competitive runs never give the bomb to the (idle) test player; set `comp_enemies 4`
   for a fair 4v4 bot test.
@@ -229,7 +246,7 @@ See `prototype/README.md` for full details. Each item below lists where its code
    Competitive: the host runs `compTick`, bots and `netRoster` (teams, bots fill), sends `NetRound` (start/end/
    roster), `NetMatch` (8 Hz) and `NetBot` (64 Hz); joined games run `compClientTick` (their plant/defuse, beeps),
    keep their own money and armor (hits arrive unarmored: the victim applies its armor). Aliveness in
-   competitive comes from round starts and death messages, not the state stream. `kNetProtocol` must match to join.
+   competitive comes from round starts and death messages, not the state stream. `kNetProtocol` (6) must match to join.
    The owner's network is double-NATed (router behind the ISP's router), so UPnP alone doesn't reach them from
    outside: the HUD says so. Later: a server-authoritative model with lag compensation (`docs/04`) if it ever goes
    public. Test locally with two copies in separate folders (own config.cfg): `crisp --host` (`net_game 1` for

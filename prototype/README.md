@@ -5,7 +5,7 @@ This is a deliberately tiny prototype for testing **movement and shooting feel**
 - 128-tick fixed simulation
 - uncapped FPS
 - raw mouse input
-- seven guns with fixed spray patterns (rifle, sniper, Nova, MAC-10, pistol, Dual Berettas, Deagle), knives and grenades
+- eleven guns with fixed spray patterns (AK-47, M4A4, Galil AR, AWP, SSG 08, Nova, MAC-10, UMP-45, pistol, Dual Berettas, Deagle), knives and grenades
 - target dummies on a grey-box test map
 - **sound:**
   - gunshots, footsteps, landing, reload, dry-fire
@@ -15,7 +15,7 @@ This is a deliberately tiny prototype for testing **movement and shooting feel**
   - every gun and knife, with skins from cases
   - recoil kick, sway, walk bob, landing dip
   - reload and draw animations
-- **effects:** muzzle flash, tracers, impact debris, blood, and dummies that collapse on death
+- **effects:** muzzle flash, tracers, impact debris, blood; the dead fall over the way the shot pushed them, and a headshot kill knocks a helmet off
 
 Almost everything is generated in code (models are boxes; a few CC0 sounds and textures sit in `assets/`, with synthesized fallbacks), and the download is a few MB. Online play is in (see **Online**). See `../docs/06-build-process.md` (Phase 0) for why feel comes first.
 
@@ -39,12 +39,12 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Shift | Walk |
 | Mouse 1 | Fire |
 | R | Reload |
-| 1 / 2 / 3 / 4 | Like CS: primary (rifle, sniper, Nova or MAC-10) / pistol (pistol, Dual Berettas or Deagle) / knife (faster movement) / grenade. **Press 4 again** to cycle smoke → flash → HE → molotov |
+| 1 / 2 / 3 / 4 | Like CS: primary (a rifle, sniper, SMG or the Nova) / pistol (pistol, Dual Berettas or Deagle) / knife (faster movement) / grenade. **Press 4 again** to cycle smoke → flash → HE → molotov |
 | Q | Switch back to your previous weapon |
 | F | Inspect your weapon |
 | E | Plant (T, on a site) / defuse (CT, at the bomb). Hold it |
-| B | The **buy wheel**, like CS:GO's: the mouse is free while it's open; click a category, then an item (or press its number). Right click / Esc goes back. Underneath: **7 FULL BUY: RIFLE** and **8 FULL BUY: SNIPER**. Competitive: with money, in your spawn during buy time. Everywhere else: any gun, free, any time |
-| Mouse 2 | Sniper scope: 40 → 15 FOV → off. Stays scoped when you fire. With a grenade out: hold for an underhand lob, thrown on release |
+| B | The **buy wheel**, like CS:GO's: the mouse is free while it's open; click a category, then an item (or press its number). Right click / Esc goes back. Underneath: **7 FULL BUY: AK-47** and **8 FULL BUY: AWP**. Competitive: with money, in your spawn during buy time. Everywhere else: any gun, free, any time |
+| Mouse 2 | Sniper scope (AWP, SSG 08): 40 → 15 FOV → off. Like CS, a shot takes the scope down while the bolt cycles and it comes back up by itself. With a grenade out: hold for an underhand lob, thrown on release |
 | Tab | Scoreboard (deathmatch, retakes, competitive) |
 | G | Quick-throw the current grenade without switching (deterministic bounces, so lineups repeat) |
 | V | Noclip (fly where you look; Shift = slow) |
@@ -75,7 +75,7 @@ Dust2 at **60% of real size** by default (`dust_scale`, Play screen DUST SIZE, 5
 - **Every route:** T spawn, outside long, long doors, long A with the blue container and the pit, the A ramp, A site with goose; top mid, mid, xbox (jump on it to reach catwalk), catwalk, short; mid doors, CT mid, CT spawn, the CT ramp, mid to B, B doors and **B window** (see and shoot through it, can't climb through); outside, upper and lower tunnels, the tunnel exit, B site with the back plat, car and boxes. **Arches** over top mid, short and CT mid.
 - **Real slopes:** the ramps (A ramp, CT ramp, short stairs, top mid, mid, the tunnel stairs...) are smooth slopes, not steps. You slide up and down them like in Source, and jumping onto one doesn't snag.
 - **Real surfaces** (CC0 textures from Poly Haven): sand underfoot, paving on the sites, sandstone and plaster walls, plank crates and doors, a painted ribbed container, metal barrels and cars. They're detail maps over the map's own colours, mipmapped and filtered so they don't shimmer.
-- **Mid doors** are mostly shut, like Dust2's: a gap in the middle you can walk and shoot through (the leaves are wood, so they're wallbangable).
+- **Doors:** every doorway (long, mid, B) has a wooden frame at both ends, a jamb up each side and a lintel under the roof, and the leaves hang on it with no gaps: long doors swung open flat against the walls into long A, B doors one wide leaf against the wall inside the site (the B window is on the other side), and **mid doors** mostly shut, like Dust2's, with a gap in the middle you can walk and shoot through. They're built on the doorway's own grid cells, so they fit at every map size. The doors are wood, so they're wallbangable.
 - **Proportions like the real map:** lanes are as narrow as Dust2's (mid, catwalk, the tunnels and long were far too wide before), so it plays tight rather than open.
 - **Scenery:** buildings of different heights with stone-block walls, a trim along their foot and top, windows with painted shutters, doors under cloth awnings and wooden beam ends; flagstone and sand floors, plank crates, a ribbed metal container and barrels. None of the scenery on walls blocks you or your bullets (it's all thin and flat against the wall or above head height).
 - **Cover everywhere:** crates, barrels and cars in every area (long, the pit, both sites, mid, the tunnels, both spawns), mostly against walls so the lanes keep their width.
@@ -103,11 +103,13 @@ They fly like CS:GO: thrown at 675 u/s (a lob is 30% of that) about 10° above w
 
 ## Performance
 
-`crisp.exe --bench 10` runs 10 s at real speed and writes `bench.txt` (avg FPS, 1% low, time per frame part, GPU). On the owner's Ryzen 7 4800H (integrated Radeon), 1080p deathmatch at 4x MSAA went from 126 to ~190 FPS average and 62 to ~130 1% low with:
+`crisp.exe --bench 10` runs 10 s at real speed and writes `bench.txt` (avg FPS, 1% low, time per frame part, GPU; it waits for the GPU every frame to time it). `--bench-raw 10` is the same without that wait, so frames queue like they do in play: use it to compare **low latency mode**. On the owner's Ryzen 7 4800H (integrated Radeon), 1080p deathmatch at 4x MSAA went from 126 to ~190 FPS average and 62 to ~130 1% low with:
 - a depth pre-pass, so every pixel is shaded once (`depth_prepass`)
 - world boxes culled to the view and drawn nearest-first each frame
 - lighting worked out per face instead of per pixel
 - `msaa 0` gives ~275 FPS if you'd rather have frames than smooth edges
+
+**Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
 ## Competitive 5v5 (Play: MODE)
 
@@ -116,8 +118,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Rounds:** 15 s freeze time (buy and plan, can't move; `freeze_time`, Play: FREEZE TIME), 1:55 to play, 40 s bomb fuse.
 - **Win** by killing the other side, planting and letting it blow (T), defusing (CT) or running the clock out without a plant (CT).
 - **Money, like CS:** start with $800; win $3,250 ($3,500 for a bomb win); loss bonus $1,400 rising by $500 per loss in a row up to $3,400; Ts get $800 more for a plant; kill rewards below.
-- **Buy menu (B):** a wheel, only in your spawn during freeze time and the first 20 s after it. **Full buys** in one click: **FULL BUY: RIFLE** (rifle, kevlar + helmet, a kit on CT, then smoke, flash, HE and molotov while the money lasts) or **FULL BUY: SNIPER**. Or pick a category, then the item: **1 pistols** (pistol $200, Dual Berettas $300, Deagle $700) · **2 heavy** (Nova $1,050) · **3 SMGs** (MAC-10 $1,050) · **4 rifles** (rifle $2,700, sniper $4,750) · **5 gear** (kevlar $650, kevlar + helmet $1,000, defuse kit $400, CT) · **6 grenades** (smoke $300, flashbang $200, HE $300, molotov $400). Kevlar takes body and arm hits to 77.5%, a helmet does the same for the head. If you survive, you keep what you had.
-- **Kill rewards, like CS:** $300 (sniper $100, MAC-10 $600, Nova $900).
+- **Buy menu (B):** a wheel, only in your spawn during freeze time and the first 20 s after it. **Full buys** in one click: **FULL BUY: AK-47** (AK-47, kevlar + helmet, a kit on CT, then smoke, flash, HE and molotov while the money lasts) or **FULL BUY: AWP**. Or pick a category, then the item: **1 pistols** (pistol $200, Dual Berettas $300, Deagle $700) · **2 heavy** (Nova $1,050) · **3 SMGs** (MAC-10 $1,050, UMP-45 $1,200) · **4 rifles** (Galil AR $1,800, AK-47 $2,700, M4A4 $3,100, SSG 08 $1,700, AWP $4,750) · **5 gear** (kevlar $650, kevlar + helmet $1,000, defuse kit $400, CT) · **6 grenades** (smoke $300, flashbang $200, HE $300, molotov $400). Both sides can buy every gun. Armor, like CS, depends on the gun: most keep 77.5% of their damage through kevlar (and a helmet, for the head), the M4A4 70%, the UMP-45 65%, the SSG 08 85% and the AWP 97.5%. If you survive, you keep what you had.
+- **Kill rewards, like CS:** $300 (AWP $100, SMGs $600, Nova $900).
 - **The bomb:** a random T carries it. Hold **E** on either site for 3.2 s to plant. If the carrier dies it drops; walk over it to pick it up (T bots go and fetch it). You can see it: a C4 brick with a keypad, wires and a light that blinks with the beeps once it's planted. CTs defuse with **E**: 5 s with a kit, 10 without. You can't move while planting or defusing.
 - **Spawns:** both teams spread over their spawn, you at the front, and nobody is in sight of the other team's spawn when the round starts (the long mid-doors sightline is kept clear; tested).
 - **Names:** the bots have ordinary first names (a different set every match), in the kill feed, scoreboard, radio and when you spectate them.
@@ -199,21 +201,26 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Small ticks around the crosshair** flash for an instant: white for a body hit, red for the head, slightly bigger on a kill: `hitmarker`.
 - **Damage direction:** when a bot hits you, a red arc round the crosshair points at where it came from (fades over a second), like CS.
 - **A helmet "tink"** when your headshot is stopped by a helmet instead of killing.
+- **Kills you can see:** the dead fall over the way your bullet pushed them, faster and faster like a toppling body, slide a little, lie there for a few seconds and sink away. A **headshot kill knocks the helmet off** (CTs; like CS:GO): it flies along the shot, spinning, bounces once and lies there.
 
 ## Guns
 
 | | Slot | Damage | Fire | Mag | Notes |
 |---|---|---|---|---|---|
-| Rifle | 1 | 36 | 600 RPM, auto | 30 | wallbangs |
-| Sniper | 1 | 115 | bolt, 1.46 s | 5 | scope (Mouse 2) |
+| AK-47 | 1 | 36 | 600 RPM, auto | 30 | wallbangs; **a headshot kills through a helmet** (109 at 500 units) |
+| M4A4 | 1 | 33 | 666 RPM, auto | 30 | the CT rifle: a gentler climb, runs at 225; **no one-tap through a helmet** (92); kevlar keeps 70% |
+| Galil AR | 1 | 30 | 666 RPM, auto | 35 | the cheap rifle: the AK's climb, softer and longer; no one-tap through a helmet (93) |
+| AWP | 1 | 115 | bolt, 1.46 s | 5 | scope (Mouse 2); **a body shot kills through kevlar** (97.5% kept: 111 at 500 units, 103 at 4,000) |
+| SSG 08 | 1 | 88 | bolt, 1.25 s | 10 | the scout: scope, runs at 230; **a headshot kills through a helmet from anywhere**, a body shot doesn't |
 | Nova | 1 | 9 × 26 | pump, 0.88 s | 8 | pellets in a **fixed pattern** (the same every shot, no luck); loads shell by shell (firing stops the reload) |
 | MAC-10 | 1 | 29 | 800 RPM, auto | 30 | runs at 240 |
+| UMP-45 | 1 | 35 | 666 RPM, auto | 25 | heavy hits up close, falls off fast (21 → 12 through kevlar from 200 to 2,000 units) |
 | Pistol | 2 | 30 | semi | 12 | **suppressed** (quiet, barely a flash; bots hear it from 900 units, not 2,200). A headshot kills without a helmet up close, **not through one** (93) |
 
 | Dual Berettas | 2 | 32 | semi, fast | 30 | one in each hand, firing left and right in turn; no one-tap through a helmet |
 | Deagle | 2 | 63 | semi, 0.225 s | 7 | **a headshot kills through a helmet from anywhere** (still 106 at 6,000 units), big kick |
 
-Tested in `sim_tests` (new guns): the pistol and Berettas can't one-tap a helmet, the Deagle can at 64 to 6,000 units, the Nova's pattern is the same every time and kills close but not far.
+Tested in `sim_tests` (new guns): the pistol, Berettas, M4A4 and Galil can't one-tap a helmet, the AK-47 can, the Deagle and the SSG 08 can from anywhere, the AWP kills through kevlar with a body shot at 500 and 4,000 units, the UMP-45 falls off, the Nova's pattern is the same every time and kills close but not far.
 
 ## Inspect, knives, skins and cases
 
@@ -245,7 +252,10 @@ Tested in `sim_tests` (new guns): the pistol and Berettas can't one-tap a helmet
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
 - **Volume** is `volume` in `config.cfg` (0..1).
-- **Synthesized sounds** are made at startup (and stand in for any recording that's missing). To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV.
+- **Each gun sounds like itself:** the shared recordings pitched per gun (the M4A4 tighter than the AK, the UMP-45 a slow thump, the SSG 08 a smaller bang than the AWP).
+- **The suppressed pistol** is made from the pistol recording the way a suppressor changes a shot: the crack and the top end cut away, a deep "thwump" of gas, the bang dying faster, then the slide cycling as a dull chunk. Most of it sits between 150 and 1,500 Hz (it used to be a tinny metallic click: 40% of its energy was at 1.5–4 kHz, now 6%).
+- **Scoping in** has its own soft "chk".
+- **Synthesized sounds** are made at startup (and stand in for any recording that's missing). To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV; `--dump-played-sounds <folder>` writes what the game really plays, recordings included.
 
 
 ## Bots, smokes, wallbangs, KZ
@@ -268,12 +278,15 @@ Off by default (`bhop 0`, like CS: one jump per press, and landing costs a littl
 
 Perfect hops keep 250 u/s, and good strafes build to 500+.
 
-## Sniper
+## Snipers (AWP, SSG 08)
 
-- **One-shot body kill:** 115 damage (it's a leg shot that doesn't kill).
-- **Bolt action:** 1.46 s between shots, 5 rounds.
+- **The AWP:** 115 damage, a one-shot body kill even through kevlar (it's a leg shot that doesn't kill). 1.46 s between shots, 5 rounds.
+- **The SSG 08:** 88 damage, a headshot kills through a helmet from anywhere, a body shot doesn't. 1.25 s, 10 rounds, light (230 u/s).
+- **Like CS, a shot takes the scope down:** you see the bolt cycle (the gun rolls in, the bolt lifts, comes back and goes home, with the sound), and the scope comes back up by itself just before you can fire again. Switching weapons (Q Q) cancels it.
+- **Scoping in** eases the zoom over a few frames (instant out), with a soft "chk"; the scope has a dark lens edge and cross hairs that thicken into posts towards the rim.
+- **A heavier shot:** a bigger kick in the hands and a view thump.
 - **Movement:** half speed while scoped.
-- **No crosshair unscoped,** like CS, so noscopes are a skill rather than luck. There's still no random spread.
+- **No crosshair unscoped,** like CS. With **RANDOM MOVING SPREAD** on, a noscope is also inaccurate, like CS (AWP 4.5°, SSG 3°); off (the default) there's still no random spread.
 - **Scoped sensitivity** is scaled so flicks feel the same as unscoped (`zoom_sensitivity_ratio`, default 1).
 
 ## Zero-lag camera

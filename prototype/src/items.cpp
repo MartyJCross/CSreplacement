@@ -25,6 +25,8 @@ const char* knifeName(int type) {
     return kNames[std::clamp(type, 0, kKnifeTypes - 1)];
 }
 
+static_assert(kSlots == kWeaponCount, "one equip slot per weapon");
+
 namespace {
 
 std::vector<SkinDef> buildSkins() {
@@ -34,14 +36,14 @@ std::vector<SkinDef> buildSkins() {
         s.push_back({std::string(wkey) + "_" + skin, std::string(wname) + " | " + skin, weapon, -1, rarity, pattern, a, b, c, gloss});
     };
     // Rifle
-    gun(kWRifle, "RIFLE", "RIFLE", "DESERT STORM", kMilSpec, kPatCamo, 0xc2a878, 0x8a6f48, 0x5e4a30, 0.15f);
-    gun(kWRifle, "RIFLE", "RIFLE", "JUNGLE", kMilSpec, kPatCamo, 0x4a5a32, 0x2f3a22, 0x6f7f42, 0.15f);
-    gun(kWRifle, "RIFLE", "RIFLE", "CRIMSON", kRestricted, kPatTwoTone, 0x9e1a22, 0x1b1b1e, 0x34343a, 0.55f);
-    gun(kWRifle, "RIFLE", "RIFLE", "CARBON RED", kRestricted, kPatCarbon, 0x1a1a1c, 0x2e2e33, 0xc0202a, 0.6f);
-    gun(kWRifle, "RIFLE", "RIFLE", "POLAR", kClassified, kPatHazard, 0xe8ecf0, 0x1f6fd0, 0x15171a, 0.45f);
-    gun(kWRifle, "RIFLE", "RIFLE", "GOLD", kClassified, kPatSolid, 0xd8b24a, 0x9c7a28, 0x2a2418, 0.9f);
-    gun(kWRifle, "RIFLE", "RIFLE", "WILDFIRE", kCovert, kPatFlames, 0xffd23a, 0xff5a1a, 0x2a0c08, 0.5f);
-    gun(kWRifle, "RIFLE", "RIFLE", "ROYAL", kCovert, kPatMarble, 0xd8b24a, 0x1d3f8f, 0x0c0d10, 0.8f);
+    gun(kWRifle, "RIFLE", "AK-47", "DESERT STORM", kMilSpec, kPatCamo, 0xc2a878, 0x8a6f48, 0x5e4a30, 0.15f);
+    gun(kWRifle, "RIFLE", "AK-47", "JUNGLE", kMilSpec, kPatCamo, 0x4a5a32, 0x2f3a22, 0x6f7f42, 0.15f);
+    gun(kWRifle, "RIFLE", "AK-47", "CRIMSON", kRestricted, kPatTwoTone, 0x9e1a22, 0x1b1b1e, 0x34343a, 0.55f);
+    gun(kWRifle, "RIFLE", "AK-47", "CARBON RED", kRestricted, kPatCarbon, 0x1a1a1c, 0x2e2e33, 0xc0202a, 0.6f);
+    gun(kWRifle, "RIFLE", "AK-47", "POLAR", kClassified, kPatHazard, 0xe8ecf0, 0x1f6fd0, 0x15171a, 0.45f);
+    gun(kWRifle, "RIFLE", "AK-47", "GOLD", kClassified, kPatSolid, 0xd8b24a, 0x9c7a28, 0x2a2418, 0.9f);
+    gun(kWRifle, "RIFLE", "AK-47", "WILDFIRE", kCovert, kPatFlames, 0xffd23a, 0xff5a1a, 0x2a0c08, 0.5f);
+    gun(kWRifle, "RIFLE", "AK-47", "ROYAL", kCovert, kPatMarble, 0xd8b24a, 0x1d3f8f, 0x0c0d10, 0.8f);
     // Pistol
     gun(kWPistol, "PISTOL", "PISTOL", "FOREST", kMilSpec, kPatCamo, 0x55663c, 0x2c3522, 0x8a8a5a, 0.15f);
     gun(kWPistol, "PISTOL", "PISTOL", "COBALT", kRestricted, kPatSolid, 0x2a54c8, 0x16306e, 0x0f1420, 0.85f);
@@ -64,11 +66,28 @@ std::vector<SkinDef> buildSkins() {
     gun(kWMac10, "MAC10", "MAC-10", "CANDY", kRestricted, kPatFade, 0xff7ad0, 0xb07aff, 0x4ae0ff, 0.75f);
     gun(kWMac10, "MAC10", "MAC-10", "NEON", kClassified, kPatNeon, 0x120c18, 0xff2ad0, 0x40104a, 0.5f);
     // Sniper
-    gun(kWSniper, "SNIPER", "SNIPER", "SAFARI", kMilSpec, kPatCamo, 0xb8a070, 0x6e5a36, 0x3c3020, 0.1f);
-    gun(kWSniper, "SNIPER", "SNIPER", "PINK ICE", kRestricted, kPatTwoTone, 0xff8ac8, 0xf2f4f6, 0x8a8f96, 0.7f);
-    gun(kWSniper, "SNIPER", "SNIPER", "HAZARD", kClassified, kPatHazard, 0xf2f2ee, 0xff7a1a, 0x121314, 0.45f);
-    gun(kWSniper, "SNIPER", "SNIPER", "LIGHTNING", kCovert, kPatNeon, 0x0c1020, 0x5ab4ff, 0x1a2a60, 0.6f);
-    gun(kWSniper, "SNIPER", "SNIPER", "DRAGON", kCovert, kPatMarble, 0xc8201e, 0xf0b040, 0x200808, 0.7f);
+    gun(kWSniper, "SNIPER", "AWP", "SAFARI", kMilSpec, kPatCamo, 0xb8a070, 0x6e5a36, 0x3c3020, 0.1f);
+    gun(kWSniper, "SNIPER", "AWP", "PINK ICE", kRestricted, kPatTwoTone, 0xff8ac8, 0xf2f4f6, 0x8a8f96, 0.7f);
+    gun(kWSniper, "SNIPER", "AWP", "HAZARD", kClassified, kPatHazard, 0xf2f2ee, 0xff7a1a, 0x121314, 0.45f);
+    gun(kWSniper, "SNIPER", "AWP", "LIGHTNING", kCovert, kPatNeon, 0x0c1020, 0x5ab4ff, 0x1a2a60, 0.6f);
+    gun(kWSniper, "SNIPER", "AWP", "DRAGON", kCovert, kPatMarble, 0xc8201e, 0xf0b040, 0x200808, 0.7f);
+    // M4A4
+    gun(kWM4A4, "M4A4", "M4A4", "URBAN DDPAT", kMilSpec, kPatCamo, 0x7a7f86, 0x4a4e55, 0x2a2d32, 0.15f);
+    gun(kWM4A4, "M4A4", "M4A4", "DESERT TECH", kRestricted, kPatTwoTone, 0xc9a978, 0x2a2c30, 0x5e4a30, 0.45f);
+    gun(kWM4A4, "M4A4", "M4A4", "ICE COLD", kClassified, kPatFade, 0xe8f6ff, 0x6ab8ff, 0x2a4aa0, 0.8f);
+    gun(kWM4A4, "M4A4", "M4A4", "HOWL", kCovert, kPatFlames, 0xffb020, 0xd02818, 0x180808, 0.55f);
+    // Galil AR
+    gun(kWGalil, "GALIL", "GALIL AR", "SAGE", kMilSpec, kPatCamo, 0x8a9a6a, 0x5a6a42, 0x3a4228, 0.15f);
+    gun(kWGalil, "GALIL", "GALIL AR", "ROCKET POP", kRestricted, kPatHazard, 0xf2f2ee, 0xff3a6a, 0x2a6aff, 0.5f);
+    gun(kWGalil, "GALIL", "GALIL AR", "CERBERUS", kClassified, kPatTiger, 0xd04a1a, 0x1a0e08, 0x5a1a08, 0.5f);
+    // SSG 08
+    gun(kWSsg08, "SSG08", "SSG 08", "LICHEN", kMilSpec, kPatCamo, 0x7a8a6a, 0xb0b89a, 0x3a4630, 0.1f);
+    gun(kWSsg08, "SSG08", "SSG 08", "ABYSS", kRestricted, kPatMarble, 0x1a4a6a, 0x0a1a2a, 0x5ab4d0, 0.6f);
+    gun(kWSsg08, "SSG08", "SSG 08", "BLOOD IN THE WATER", kClassified, kPatWeb, 0x2a7ab0, 0xd02020, 0x0a1a2a, 0.55f);
+    // UMP-45
+    gun(kWUmp45, "UMP45", "UMP-45", "CARBON", kMilSpec, kPatCarbon, 0x1a1a1c, 0x2e2e33, 0x5a5e66, 0.4f);
+    gun(kWUmp45, "UMP45", "UMP-45", "PRIMAL", kRestricted, kPatTiger, 0x8a5a2a, 0x1a1008, 0x3a2410, 0.3f);
+    gun(kWUmp45, "UMP45", "UMP-45", "BLAZE", kClassified, kPatFlames, 0xffe066, 0xff6a00, 0x120604, 0.6f);
     // Knives: every case knife in every finish (the gold).
     struct Finish { const char* name; int pattern; uint32_t a, b, c; float gloss; };
     const Finish finishes[] = {

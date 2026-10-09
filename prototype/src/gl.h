@@ -20,6 +20,8 @@ typedef char GLchar;
 typedef unsigned char GLubyte;
 typedef std::ptrdiff_t GLsizeiptr;
 typedef std::ptrdiff_t GLintptr;
+typedef uint64_t GLuint64;
+typedef struct __GLsync* GLsync;
 
 #define GL_FALSE 0
 #define GL_TRUE 1
@@ -69,6 +71,8 @@ typedef std::ptrdiff_t GLintptr;
 #define GL_TEXTURE_2D_ARRAY 0x8C1A
 #define GL_TEXTURE_MAX_ANISOTROPY 0x84FE      // EXT_texture_filter_anisotropic (everywhere in practice)
 #define GL_MAX_TEXTURE_MAX_ANISOTROPY 0x84FF
+#define GL_SYNC_GPU_COMMANDS_COMPLETE 0x9117
+#define GL_SYNC_FLUSH_COMMANDS_BIT 0x00000001
 
 #define GL_FUNCTIONS(X)                                                                              \
     X(const GLubyte*, GetString, (GLenum name))                                                      \
@@ -124,7 +128,10 @@ typedef std::ptrdiff_t GLintptr;
     X(void, Uniform1i, (GLint loc, GLint v))                                                         \
     X(void, Uniform2f, (GLint loc, GLfloat a, GLfloat b))                                            \
     X(void, Uniform3f, (GLint loc, GLfloat a, GLfloat b, GLfloat c))                                 \
-    X(void, UniformMatrix4fv, (GLint loc, GLsizei n, GLboolean transpose, const GLfloat* m))
+    X(void, UniformMatrix4fv, (GLint loc, GLsizei n, GLboolean transpose, const GLfloat* m))        \
+    X(GLsync, FenceSync, (GLenum condition, GLbitfield flags))                                       \
+    X(GLenum, ClientWaitSync, (GLsync sync, GLbitfield flags, GLuint64 timeout))                     \
+    X(void, DeleteSync, (GLsync sync))
 
 #define GL_DECLARE(ret, name, args) \
     typedef ret(GLAPIENTRY* PFN_gl##name) args; \

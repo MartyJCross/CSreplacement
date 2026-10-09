@@ -24,7 +24,7 @@ const RecoilStep kRiflePattern[30] = {
 };
 
 const WeaponDef kRifle = {
-    "RIFLE", true, 215.0f, 36.0f, 0.98f, 0.1f, 30, 2.4f,
+    "AK-47", true, 215.0f, 36.0f, 0.98f, 0.1f, 30, 2.4f,
     0.34f, 5.0f, 8.0f, 0.12f, kRiflePattern, 30, true, 24.0f, kWRifle, 1, 0.0f, false, true, 2700, 300,
 };
 
@@ -44,8 +44,9 @@ const WeaponDef kPistol = {
 const RecoilStep kSniperPattern[2] = {{0.0f, 0.0f}, {2.2f, 0.0f}};
 
 const WeaponDef kSniper = {
-    "SNIPER", true, 200.0f, 115.0f, 0.99f, 1.46f, 5, 3.6f,
+    "AWP", true, 200.0f, 115.0f, 0.99f, 1.46f, 5, 3.6f,
     0.34f, 8.0f, 12.0f, 0.0f, kSniperPattern, 2, false, 40.0f, kWSniper, 1, 0.0f, false, true, 4750, 100,
+    0.975f, true, 4.5f,  // a body shot kills through kevlar (112), like CS
 };
 
 const WeaponDef kKnife = {
@@ -94,6 +95,56 @@ const WeaponDef kMac10 = {
     0.34f, 5.0f, 8.0f, 0.15f, kMac10Pattern, 30, true, 10.0f, kWMac10, 1, 0.0f, false, true, 1050, 600,
 };
 
+// M4A4: the CT rifle. 33 damage (a headshot through a helmet does 92: no one-tap there, like CS), 666 rounds a
+// minute, a gentler climb than the AK; kevlar keeps only 70%.
+const RecoilStep kM4Pattern[30] = {
+    {0.00f, 0.00f}, {0.75f, 0.04f}, {0.90f, 0.08f}, {1.00f, 0.04f}, {1.05f, 0.08f}, {1.00f, 0.12f},
+    {0.85f, 0.16f}, {0.70f, 0.16f}, {0.55f, 0.20f}, {0.30f, -0.40f}, {0.25f, -0.55f}, {0.20f, -0.62f},
+    {0.15f, -0.60f}, {0.12f, -0.50f}, {0.08f, -0.40f}, {0.08f, 0.30f}, {0.08f, 0.52f}, {0.04f, 0.62f},
+    {0.04f, 0.62f}, {0.04f, 0.55f}, {0.04f, 0.45f}, {0.00f, 0.30f}, {0.04f, -0.26f}, {0.00f, -0.38f},
+    {0.04f, -0.34f}, {0.00f, 0.22f}, {0.04f, 0.34f}, {0.00f, 0.26f}, {0.04f, -0.22f}, {0.00f, -0.22f},
+};
+const WeaponDef kM4A4 = {
+    "M4A4", true, 225.0f, 33.0f, 0.97f, 0.09f, 30, 3.1f,
+    0.34f, 4.5f, 8.0f, 0.10f, kM4Pattern, 30, true, 24.0f, kWM4A4, 1, 0.0f, false, true, 3100, 300, 0.70f,
+};
+
+// Galil AR: the cheap rifle. 30 damage, 35 rounds, the AK's climb a little softer and longer.
+const RecoilStep kGalilPattern[35] = {
+    {0.00f, 0.00f}, {0.85f, 0.05f}, {1.00f, 0.08f}, {1.15f, 0.05f}, {1.20f, 0.10f}, {1.10f, 0.14f},
+    {0.95f, 0.18f}, {0.80f, 0.18f}, {0.60f, 0.22f}, {0.30f, -0.50f}, {0.25f, -0.68f}, {0.20f, -0.76f},
+    {0.18f, -0.72f}, {0.12f, -0.62f}, {0.10f, -0.50f}, {0.10f, 0.36f}, {0.08f, 0.62f}, {0.05f, 0.76f},
+    {0.05f, 0.76f}, {0.05f, 0.66f}, {0.05f, 0.52f}, {0.00f, 0.36f}, {0.05f, -0.32f}, {0.00f, -0.45f},
+    {0.05f, -0.40f}, {0.00f, 0.28f}, {0.05f, 0.40f}, {0.00f, 0.32f}, {0.05f, -0.28f}, {0.00f, -0.28f},
+    {0.04f, 0.24f}, {0.00f, 0.30f}, {0.04f, -0.22f}, {0.00f, -0.26f}, {0.04f, 0.20f},
+};
+const WeaponDef kGalil = {
+    "GALIL AR", true, 215.0f, 30.0f, 0.98f, 0.09f, 35, 3.0f,
+    0.34f, 5.0f, 8.0f, 0.12f, kGalilPattern, 35, true, 24.0f, kWGalil, 1, 0.0f, false, true, 1800, 300,
+};
+
+// SSG 08 (the scout): a light bolt-action sniper. 88 damage: a headshot kills through a helmet anywhere, a body
+// shot doesn't; you run with it nearly as fast as with a knife.
+const RecoilStep kSsgPattern[2] = {{0.0f, 0.0f}, {1.6f, 0.0f}};
+const WeaponDef kSsg08 = {
+    "SSG 08", true, 230.0f, 88.0f, 0.98f, 1.25f, 10, 3.7f,
+    0.34f, 6.0f, 3.0f, 0.0f, kSsgPattern, 2, false, 30.0f, kWSsg08, 1, 0.0f, false, true, 1700, 300,
+    0.85f, true, 3.0f,
+};
+
+// UMP-45: a heavy, slower SMG. 35 damage that falls off fast, 25 rounds; kevlar keeps 65%.
+const RecoilStep kUmpPattern[25] = {
+    {0.00f, 0.00f}, {0.60f, 0.05f}, {0.70f, 0.08f}, {0.75f, 0.05f}, {0.75f, 0.10f}, {0.70f, 0.12f},
+    {0.60f, 0.15f}, {0.50f, 0.20f}, {0.40f, 0.25f}, {0.30f, 0.30f}, {0.20f, -0.35f}, {0.15f, -0.50f},
+    {0.15f, -0.55f}, {0.10f, -0.50f}, {0.10f, -0.40f}, {0.10f, 0.35f}, {0.05f, 0.50f}, {0.05f, 0.50f},
+    {0.05f, 0.40f}, {0.05f, -0.30f}, {0.00f, -0.40f}, {0.05f, -0.35f}, {0.00f, 0.30f}, {0.05f, 0.35f},
+    {0.00f, -0.25f},
+};
+const WeaponDef kUmp45 = {
+    "UMP-45", true, 230.0f, 35.0f, 0.85f, 0.09f, 25, 3.5f,
+    0.34f, 5.0f, 8.0f, 0.15f, kUmpPattern, 25, true, 10.0f, kWUmp45, 1, 0.0f, false, true, 1200, 600, 0.65f,
+};
+
 uint32_t hash32(uint32_t x) {
     x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
     return x;
@@ -134,6 +185,10 @@ const WeaponDef& weaponDef(int id) {
         case kWDeagle: return kDeagle;
         case kWNova: return kNova;
         case kWMac10: return kMac10;
+        case kWM4A4: return kM4A4;
+        case kWGalil: return kGalil;
+        case kWSsg08: return kSsg08;
+        case kWUmp45: return kUmp45;
         default: return kRifle;
     }
 }
@@ -163,6 +218,7 @@ float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, 
         inacc += t * w.moveInaccuracy;
     }
     if (!onGround) inacc += w.airInaccuracy;
+    if (w.scope && !ws.scoped) inacc += w.noscopeInaccuracy;  // a noscope, like CS
     if (ducked && onGround) inacc *= 0.8f;
     return inacc;
 }
@@ -234,9 +290,9 @@ bool rayHitsDummy(const Vec3& pos, float yaw, float crouch, const Vec3& start, c
 
 float hitGroupDamageScale(HitGroup g) { return hitGroupMultiplier(g); }
 
-float armoredDamage(float damage, HitGroup group, float armor, bool helmet) {
+float armoredDamage(float damage, HitGroup group, float armor, bool helmet, float ratio) {
     if (armor <= 0 || group == kLegs || (group == kHead && !helmet)) return damage;
-    return damage * 0.775f;
+    return damage * ratio;
 }
 
 void updateDummy(Dummy& d, float dt) {
@@ -367,11 +423,13 @@ ShotResult traceShot(const WeaponDef& w, const Vec3& eye, const Vec3& dir, const
         Dummy& d = dummies[res.dummyIndex];
         res.damage = armoredDamage(
             w.damage * hitGroupMultiplier(res.group) * std::pow(w.rangeModifier, bestT / 500.0f) * dmgScale, res.group,
-            d.armor, d.helmet);
+            d.armor, d.helmet, w.armorRatio);
         d.hp -= res.damage;
         d.flash[res.group] = 0.15f;
+        d.hitDir = dir;
         if (d.hp <= 0) {
             res.kill = true;
+            d.lostHelmet = res.group == kHead;
             // Drill: varied respawn delay so you can't pre-time it.
             d.respawnLeft = d.randomRespawn ? 0.5f + rand01(d.respawns * 31u + 7u) * 0.9f : 1.0f;
         }

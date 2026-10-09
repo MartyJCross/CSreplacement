@@ -9,6 +9,7 @@ struct Config {
     float fov = 90.0f;        // horizontal FOV at 4:3, like CS (wider screens get more, not less)
     int fps_max = 0;          // 0 = unlimited
     int vsync = 0;
+    int low_latency = 1;      // 1 = never more than one frame queued on the GPU (less input lag when GPU-bound)
     int fullscreen = 1;
     int width = 0, height = 0;  // 0 = desktop resolution (fullscreen) / 1280x720 (windowed)
     int crosshair_size = 5;
