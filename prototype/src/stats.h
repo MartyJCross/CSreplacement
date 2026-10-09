@@ -34,7 +34,7 @@ struct Career {
     int wins() const;  // competitive wins + deathmatch matches you topped
     // Totals over all matches.
     int kills() const, deaths() const, hsKills() const;
-    float adr() const;  // damage per round / life over all matches
+    float adr() const;  // damage per round over the competitive matches
     bool save(const std::string& path) const;
     bool load(const std::string& path);  // false if there's no file (a fresh career)
 };

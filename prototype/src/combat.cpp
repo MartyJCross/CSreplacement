@@ -239,7 +239,30 @@ void decayRecoil(WeaponState& ws, float dt) {
     ws.recoilIndex = std::max(0.0f, ws.recoilIndex - dt * (3.0f + 3.5f * ws.recoilIndex));
 }
 
+namespace {
+float g_modelScale = 1.0f;
+std::vector<Hitbox> g_scaledBoxes;
+}  // namespace
+
+float modelScale() { return g_modelScale; }
+float dummyEyeZ(float crouch) { return crouchZ(64.0f * g_modelScale, crouch); }
+
+const std::vector<Hitbox>& baseHitboxes();
+void setModelScale(float scale) {
+    g_modelScale = std::clamp(scale, 0.5f, 2.0f);
+    g_scaledBoxes = baseHitboxes();
+    for (Hitbox& b : g_scaledBoxes) {
+        b.mins = b.mins * g_modelScale;
+        b.maxs = b.maxs * g_modelScale;
+    }
+}
+
 const std::vector<Hitbox>& dummyHitboxes() {
+    if (g_scaledBoxes.empty()) setModelScale(g_modelScale);
+    return g_scaledBoxes;
+}
+
+const std::vector<Hitbox>& baseHitboxes() {
     // Model space: the dummy faces -X, so it's wider along Y. Arms count as chest, like CS.
     static const std::vector<Hitbox> boxes = {
         {{-5.0f, -8.0f, 0}, {5.0f, 8.0f, 34}, kLegs},
@@ -276,7 +299,7 @@ std::vector<Dummy> buildDummies() {
 }
 
 float crouchZ(float z, float crouch) {
-    constexpr float kHip = 34.0f, kDrop = 18.0f;
+    const float kHip = 34.0f * g_modelScale, kDrop = 18.0f * g_modelScale;
     return z <= kHip ? z * (1.0f - kDrop / kHip * crouch) : z - kDrop * crouch;
 }
 

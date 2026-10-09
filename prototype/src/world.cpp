@@ -355,7 +355,7 @@ struct TownDef {
     uint32_t shades[3];
 };
 const TownDef kTowns[2] = {
-    {"DUST2", kDustAreas, kDustAreaCount, -2400, -1216, 1952, 3264, true, {kDStone, 0xd2bd94, 0xc7b089}},
+    {"DUST", kDustAreas, kDustAreaCount, -2400, -1216, 1952, 3264, true, {kDStone, 0xd2bd94, 0xc7b089}},
     {"HARBOR", kHarborAreas, int(sizeof(kHarborAreas) / sizeof(kHarborAreas[0])), -1650, -1650, 1500, 1950, false,
      {0xdcd6c8, 0xcfc8b6, 0xc2bba8}},
 };

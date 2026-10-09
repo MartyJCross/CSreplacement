@@ -51,8 +51,9 @@ float Career::adr() const {
     float dmg = 0;
     int per = 0;
     for (const MatchRecord& m : matches) {
+        if (m.rounds <= 0) continue;  // (deathmatch has no rounds)
         dmg += m.damage;
-        per += m.rounds > 0 ? m.rounds : m.deaths + 1;
+        per += m.rounds;
     }
     return per > 0 ? dmg / float(per) : 0.0f;
 }

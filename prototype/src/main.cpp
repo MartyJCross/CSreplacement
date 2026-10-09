@@ -165,6 +165,7 @@ struct Game {
     Vec3 spawn;
     float spawnYaw = 0;
     bool noclip = false;
+    bool jumpNeedsRelease = false;  // just spawned: Space has to come up before it jumps again
     WeaponState* weapon = &guns[kWRifle];
     std::vector<Dummy> dummies;
 
@@ -673,6 +674,7 @@ void applyConfig(Game& g, const Config& cfg) {
     g.skillVariance = std::clamp(cfg.skill_variance, 0, 2);
     g.dmBotFights = cfg.dm_bot_fights != 0;
     g.killcamOn = cfg.killcam != 0;
+    setModelScale(float(std::clamp(cfg.model_scale, 80, 150)) / 100.0f);
     g.viewShake = cfg.view_shake != 0;
     // (knife and skins: the inventory, applySkins)
     g.hitSound = cfg.hitsound != 0;
@@ -692,6 +694,8 @@ void applyConfig(Game& g, const Config& cfg) {
 }
 
 void resetPosition(Game& g) {
+    g.jumpLatch = false;
+    g.jumpNeedsRelease = true;  // a jump key still held from before (skipping a killcam...) doesn't jump you
     g.player = {};
     // Stand on the real ground under the spawn (spawn heights come from a stepped grid; ramps are smooth).
     TraceResult down = g.world.traceBox(g.spawn + Vec3{0, 0, 24}, g.spawn - Vec3{0, 0, 24}, hullMins(), hullMaxs(false));
@@ -726,8 +730,8 @@ Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         const Dummy& d = g.dummies[i];
         if (!d.alive() || i == self || g.bots[i].state < 0) continue;
-        (forPlayer ? watchers : occupied).push_back(forPlayer ? d.pos + Vec3{0, 0, 64} : d.pos);
-        if (!forPlayer && g.dmBotFights) watchers.push_back(d.pos + Vec3{0, 0, 64});  // bots fight: not in each other's sight
+        (forPlayer ? watchers : occupied).push_back(forPlayer ? d.pos + Vec3{0, 0, dummyEyeZ()} : d.pos);
+        if (!forPlayer && g.dmBotFights) watchers.push_back(d.pos + Vec3{0, 0, dummyEyeZ()});  // bots fight: not in each other's sight
     }
     if (!forPlayer) {  // you, and you a moment from now (so they don't appear round the corner you're taking)
         watchers.push_back(g.player.origin + Vec3{0, 0, kStandEye});
@@ -1009,7 +1013,7 @@ void stepReplay(Game& g, double dt) {
         Vec3 ear = g.rv.camPos;
         float earYaw = g.rv.camYaw;
         if (have && g.rv.pov >= 0 && size_t(g.rv.pov) < now.agents.size()) {
-            ear = now.agents[size_t(g.rv.pov)].pos + Vec3{0, 0, 64};
+            ear = now.agents[size_t(g.rv.pov)].pos + Vec3{0, 0, dummyEyeZ()};
             earYaw = now.agents[size_t(g.rv.pov)].yaw;
         }
         for (const ReplayShot& sh : shots) {
@@ -1079,7 +1083,7 @@ void knockHelmet(Game& g, size_t i, const Vec3& dir) {
     if (i >= g.dummies.size() || (g.mode == 3 && i < g.team.size() && g.team[i] == 0)) return;
     Dummy& d = g.dummies[i];
     d.lostHelmet = true;
-    g.fx.helmet(d.pos + Vec3{0, 0, crouchZ(67.0f, d.crouch)}, dir, 0x2c3a24);
+    g.fx.helmet(d.pos + Vec3{0, 0, crouchZ(67.0f * modelScale(), d.crouch)}, dir, 0x2c3a24);
 }
 
 void botDied(Game& g, size_t i) {
@@ -1134,7 +1138,7 @@ void flashBang(Game& g, const Vec3& pos) {
         const Dummy& d = g.dummies[i];
         if (!d.alive()) continue;
         float y = d.yaw * kDegToRad;
-        float k = strength(d.pos + Vec3{0, 0, 64}, {std::cos(y), std::sin(y), 0});
+        float k = strength(d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)}, {std::cos(y), std::sin(y), 0});
         if (k > 0.1f) g.bots[i].blindUntil = std::max(g.bots[i].blindUntil, g.simTime + 3.6 * k);
     }
 }
@@ -1718,7 +1722,7 @@ void sendBot(Game& g, size_t i, const Vec3& to, bool hold, const RetakeSpot* h =
 // flight as the real thing) and takes the one that ends closest. False if none gets within 150 units.
 bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
     Dummy& d = g.dummies[i];
-    const Vec3 eye = d.pos + Vec3{0, 0, 64};
+    const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
     const float yaw0 = yawTo(eye, target), dist = length2d(target - eye);
     float bestErr = 1e30f;
     Vec3 bestStart, bestVel;
@@ -2306,6 +2310,9 @@ void startNetCompClient(Game& g) {
 
 void loadMap(Game& g, Renderer& r, int id) {
     g.mapId = id;
+    g.rv = Game::ReplayView{};  // no killcam or replay carried over from the last game
+    g.killcamAt = -1;
+    g.replay.clear();
     g.world = id == 1 ? buildTown() : buildLab();
     if (id == 1) {
         g.dummies.assign(g.mode == 1   ? size_t(g.dmBots)
@@ -2666,7 +2673,8 @@ void simTick(Game& g, const Options& opt) {
     in.walk = keys[SDL_SCANCODE_LSHIFT];
     in.duck = keys[SDL_SCANCODE_LCTRL];
     if (g.inputBlocked) in = MoveInput{};  // online with the menu open: you stand still, the game goes on
-    in.jumpPressed = g.jumpLatch || (g.autoHop && keys[SDL_SCANCODE_SPACE]);
+    if (g.jumpNeedsRelease && !keys[SDL_SCANCODE_SPACE]) g.jumpNeedsRelease = false;
+    in.jumpPressed = !g.inputBlocked && !g.jumpNeedsRelease && (g.jumpLatch || (g.autoHop && keys[SDL_SCANCODE_SPACE]));
     g.jumpLatch = false;
     g.defuseHeld = keys[SDL_SCANCODE_E];
     if (g.defuseStart >= 0) in = MoveInput{};  // like CS: you can't move while defusing
@@ -3407,7 +3415,7 @@ void simTick(Game& g, const Options& opt) {
         if (g.mode == 1 && g.dmBotFights) {
             for (size_t i = 0; i < g.dummies.size(); ++i)
                 if (g.dummies[i].alive() && g.bots[i].state >= 0)
-                    everyone.push_back({int(i), g.dummies[i].pos, g.dummies[i].pos + Vec3{0, 0, crouchZ(64.0f, g.dummies[i].crouch)}});
+                    everyone.push_back({int(i), g.dummies[i].pos, g.dummies[i].pos + Vec3{0, 0, dummyEyeZ(g.dummies[i].crouch)}});
             if (sense.playerUp) everyone.push_back({-1, sense.playerOrigin, sense.playerEye});
             sense.targets = &everyone;
             sense.huntYou = true;
@@ -3418,7 +3426,7 @@ void simTick(Game& g, const Options& opt) {
                 for (size_t i = 0; i < g.dummies.size(); ++i)
                     if (g.dummies[i].alive() && g.team[i] != side)
                         enemiesOf[side].push_back(
-                            {int(i), g.dummies[i].pos, g.dummies[i].pos + Vec3{0, 0, crouchZ(64.0f, g.dummies[i].crouch)}});
+                            {int(i), g.dummies[i].pos, g.dummies[i].pos + Vec3{0, 0, dummyEyeZ(g.dummies[i].crouch)}});
                 if (sense.playerUp && g.comp.youTeam != side) enemiesOf[side].push_back({-1, sense.playerOrigin, sense.playerEye});
             }
         }
@@ -3440,10 +3448,10 @@ void simTick(Game& g, const Options& opt) {
             {  // where it looks up or down (seen when you spectate it): at whoever it's fighting, else level
                 float want = 0;
                 if (b.sees && b.target >= -1) {
-                    const Vec3 eye = d.pos + Vec3{0, 0, 64};
+                    const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
                     const Vec3 at = b.target == -1 ? sense.playerEye
                                     : size_t(b.target) < g.dummies.size()
-                                        ? g.dummies[size_t(b.target)].pos + Vec3{0, 0, crouchZ(58.0f, g.dummies[size_t(b.target)].crouch)}
+                                        ? g.dummies[size_t(b.target)].pos + Vec3{0, 0, crouchZ(58.0f * modelScale(), g.dummies[size_t(b.target)].crouch)}
                                         : eye;
                     want = -std::atan2(at.z - eye.z, std::max(1.0f, length2d(at - eye))) / kDegToRad;
                 }
@@ -3459,10 +3467,11 @@ void simTick(Game& g, const Options& opt) {
         const Vec3 look = anglesToForward(float(g.viewPitch), float(g.viewYaw));
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             const Dummy& d = g.dummies[i];
-            Vec3 to = d.pos + Vec3{0, 0, 56} - eye;
+            const float chestZ = 56.0f * modelScale();
+            Vec3 to = d.pos + Vec3{0, 0, chestZ} - eye;
             float dist = length(to);
             if (d.alive() && dist > 1 && dot(to * (1.0f / dist), look) > 0.5f &&
-                g.world.traceRay(eye, d.pos + Vec3{0, 0, 56}).fraction >= 1.0f && !smokeBlocks(g, eye, d.pos + Vec3{0, 0, 56}))
+                g.world.traceRay(eye, d.pos + Vec3{0, 0, chestZ}).fraction >= 1.0f && !smokeBlocks(g, eye, d.pos + Vec3{0, 0, chestZ}))
                 g.spottedUntil[i] = g.simTime + 0.6;
         }
         // Competitive: whatever your teammates see shows on your radar too.
@@ -3495,7 +3504,7 @@ void simTick(Game& g, const Options& opt) {
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             if (!isBot(g, i)) continue;
             const Dummy& d = g.dummies[i];
-            Vec3 head = d.pos + Vec3{0, 0, 64};
+            Vec3 head = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
             // Deathmatch bots need to see you (view cone) and have turned to face you first.
             bool los = g.mode != 0 && g.mapId == 1
                            ? d.alive() && g.bots[i].aimed
@@ -3520,7 +3529,7 @@ void simTick(Game& g, const Options& opt) {
             g.botCooldown[i] = ((rifle ? 0.22f : 0.32f) + rnd(g) * 0.16f) * sk.fireScale;
             if (tgt >= 0) {  // competitive: shooting another bot (online: or another player)
                 const Dummy& v = g.dummies[size_t(tgt)];
-                Vec3 aim = v.pos + Vec3{0, 0, crouchZ(rnd(g) < sk.headChance ? 63.0f : 50.0f, v.crouch)};  // head or chest
+                Vec3 aim = v.pos + Vec3{0, 0, crouchZ((rnd(g) < sk.headChance ? 63.0f : 50.0f) * modelScale(), v.crouch)};  // head or chest
                 float err = length(aim - head) * 0.014f * sk.aimError;
                 aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 1.5f * err};
                 Vec3 dir = normalize(aim - head);
@@ -3697,7 +3706,7 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 // The PLAY screen's choices; they only take effect on START.
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
-const char* const kMapNames[] = {"THE LAB", "DUST2", "HARBOR"};
+const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE", "ONLINE"};
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
@@ -3862,6 +3871,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuGameplay:
             return {{"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
                     {"KILLCAM", nullptr, &c.killcam, 1, 0, 1, kOnOff},
+                    {"PLAYER MODEL SIZE (%)", nullptr, &c.model_scale, 5, 80, 150},
                     {"GRENADE TRAJECTORY", nullptr, &c.nade_preview, 1, 0, 2, kPreviewNames},
                     {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
                     {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
@@ -4286,9 +4296,11 @@ void drawStatsPanel(HudBatch& hud, int w, int h, int s) {
     for (size_t i = c.matches.size(); i-- > 0 && ty < y + ph - 14.0f * fs;) {
         const MatchRecord& m = c.matches[i];
         const int dr = m.ratingAfter - m.ratingBefore;
-        std::snprintf(line, sizeof(line), "%-16s %-12s %-11s %3d-%-3d HS %3d%%  ADR %3.0f   %s%d", m.when.c_str(),
+        char adr[16] = "   ";
+        if (m.mode == 3) std::snprintf(adr, sizeof(adr), "%3.0f", double(m.adr()));  // (rounds only)
+        std::snprintf(line, sizeof(line), "%-16s %-12s %-11s %3d-%-3d HS %3d%%  %s%s   %s%d", m.when.c_str(),
                       m.mode == 3 ? "COMPETITIVE" : "DEATHMATCH", m.result.c_str(), m.kills, m.deaths,
-                      m.kills ? m.hsKills * 100 / m.kills : 0, double(m.adr()), dr >= 0 ? "+" : "", dr);
+                      m.kills ? m.hsKills * 100 / m.kills : 0, m.mode == 3 ? "ADR " : "    ", adr, dr >= 0 ? "+" : "", dr);
         hud.text(x + 16.0f * fs, ty, line, dr >= 0 ? 0xC8F0C8FF : 0xF0C8C8FF);
         ty += 12.0f * fs;
     }
@@ -4336,7 +4348,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             hud.text(cx - hud.textWidth(title, s * 2) / 2, 8.0f * fs, title, 0xFF5A5AFF, s * 2);
             const std::string by = who(g.rv.killer) + " KILLED YOU";
             hud.text(cx - hud.textWidth(by) / 2, 30.0f * fs, by, 0xFFFFFFFF);
-            const char* skip = "SPACE OR CLICK TO SKIP";
+            const char* skip = "CLICK TO SKIP";
             hud.text(cx - hud.textWidth(skip) / 2, float(h) - 30.0f * fs, skip, 0xC0C0C0FF);
             return;
         }
@@ -4588,7 +4600,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         else std::snprintf(buf, sizeof(buf), "RETAKES   WON %d   LOST %d", g.rtWon, g.rtLost);
         hud.text(px, py, buf, 0xFFD060FF, s * 2);
         float ry = py + rowH * 2.5f;
-        hud.text(px, ry, "NAME          K    A    D    ADR   HS%   MVP", 0xA0A0A0FF);
+        const bool roundBased = g.mode == 2 || g.mode == 3;  // ADR means damage per round: not in deathmatch
+        hud.text(px, ry, roundBased ? "NAME          K    A    D    ADR   HS%   MVP" : "NAME          K    A    D    HS%   MVP", 0xA0A0A0FF);
         ry += rowH * 1.3f;
         const int rounds = g.mode == 2 ? std::max(1, g.rtWon + g.rtLost) : g.mode == 3 ? std::max(1, g.comp.round) : 0;
         const bool teams = g.mode == 3 && g.team.size() == g.botStats.size();
@@ -4615,10 +4628,13 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
                 std::snprintf(line, sizeof(line), "%-10s %4d %4d %4d %6.0f %5d %5d   $%d", agentName(id).c_str(), ps.kills,
                               ps.assists, ps.deaths, double(ps.damage) / per, ps.kills ? ps.hsKills * 100 / ps.kills : 0,
                               ps.mvps, id < 0 ? g.comp.money : g.comp.botMoney[size_t(id)]);
-            else
+            else if (roundBased)
                 std::snprintf(line, sizeof(line), "%-10s %4d %4d %4d %6.0f %5d %5d", agentName(id).c_str(), ps.kills,
                               ps.assists, ps.deaths, double(ps.damage) / per, ps.kills ? ps.hsKills * 100 / ps.kills : 0,
                               ps.mvps);
+            else
+                std::snprintf(line, sizeof(line), "%-10s %4d %4d %4d %5d %5d", agentName(id).c_str(), ps.kills, ps.assists,
+                              ps.deaths, ps.kills ? ps.hsKills * 100 / ps.kills : 0, ps.mvps);
             bool dead = teams && (id < 0 ? g.comp.youDead : !g.dummies[size_t(id)].alive());
             uint32_t col = id < 0 ? 0xFFFFFFFF : enemy(id) ? 0xFF9080FF : teams ? 0x90E0FFFF : 0xC8C8C8FF;
             if (dead) col = (col & 0xFFFFFF00u) | 0x80;
@@ -5534,7 +5550,7 @@ int main(int argc, char** argv) {
                         ReplayFrame& now = replayNow;
                         const int agents = int(now.agents.size());
                         if (g.rv.killcam) {
-                            if (sc == SDL_SCANCODE_SPACE || sc == SDL_SCANCODE_ESCAPE) g.rv.t = g.rv.end;  // skip
+                            if (sc == SDL_SCANCODE_ESCAPE) g.rv.t = g.rv.end;  // skip (or a click)
                         } else if (sc == SDL_SCANCODE_ESCAPE) {
                             g.rv.on = false;
                             setMenu(kMenuPause);
@@ -5552,7 +5568,7 @@ int main(int argc, char** argv) {
                         } else if (sc == SDL_SCANCODE_F && agents > 0) {  // free camera <-> back to someone's eyes
                             if (g.rv.pov >= 0) {
                                 const ReplayAgent& a = now.agents[size_t(std::min(g.rv.pov, agents - 1))];
-                                g.rv.camPos = a.pos + Vec3{0, 0, 64};
+                                g.rv.camPos = a.pos + Vec3{0, 0, dummyEyeZ()};
                                 g.rv.camYaw = a.yaw;
                                 g.rv.camPitch = a.pitch;
                                 g.rv.pov = -1;
@@ -5753,7 +5769,7 @@ int main(int argc, char** argv) {
         const bool spectating = g.spec >= 0;
         if (spectating) {
             const Dummy& d = g.dummies[size_t(g.spec)];
-            eye = lerp(d.prevPos, d.pos, alpha) + Vec3{0, 0, kStandEye};
+            eye = lerp(d.prevPos, d.pos, alpha) + Vec3{0, 0, dummyEyeZ(d.crouch)};
             camYaw = wrapDeg(d.prevYaw + wrapDeg(d.yaw - d.prevYaw) * alpha);
             camPitch = d.prevPitch + (d.pitch - d.prevPitch) * alpha;
         }
@@ -5763,7 +5779,8 @@ int main(int argc, char** argv) {
         if (replayView) {
             if (g.rv.pov >= 0 && size_t(g.rv.pov) < replayNow.agents.size()) {
                 const ReplayAgent& a = replayNow.agents[size_t(g.rv.pov)];
-                eye = a.pos + Vec3{0, 0, crouchZ(kStandEye, a.crouch)};
+                const bool you = size_t(g.rv.pov) + 1 == replayNow.agents.size();  // (your own eyes: your height)
+                eye = a.pos + Vec3{0, 0, you ? kStandEye + (kDuckEye - kStandEye) * a.crouch : dummyEyeZ(a.crouch)};
                 camYaw = a.yaw;
                 camPitch = a.pitch;
             } else {
@@ -5870,7 +5887,10 @@ int main(int argc, char** argv) {
                                      {}, {}});
                 body = &deadDraws.back();
             }
+            const float ms = modelScale();
             auto part = [&](Vec3 mn, Vec3 mx, uint32_t c) {
+                mn = mn * ms;
+                mx = mx * ms;
                 mn.z = crouchZ(mn.z, crouch) * squash;
                 mx.z = crouchZ(mx.z, crouch) * squash;
                 if (body) {
@@ -6008,8 +6028,8 @@ int main(int argc, char** argv) {
                     break;
             }
             if (d.friendly && d.alive())  // teammate marker floating over their head (cosmetic, not hittable)
-                dynamicBoxes.push_back(makeEmissive(p + Vec3{-2.5f, -2.5f, crouchZ(80, crouch)},
-                                                    p + Vec3{2.5f, 2.5f, crouchZ(85, crouch)}, 0x60ff90));
+                dynamicBoxes.push_back(makeEmissive(p + Vec3{-2.5f, -2.5f, crouchZ(80 * ms, crouch)},
+                                                    p + Vec3{2.5f, 2.5f, crouchZ(85 * ms, crouch)}, 0x60ff90));
 
         }
         if (!replayView) g.lastRenderEye = eye;

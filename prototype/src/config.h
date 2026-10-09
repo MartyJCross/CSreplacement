@@ -55,6 +55,7 @@ struct Config {
     int skill_variance = 0;    // 0 every bot the same; 1 slight, 2 wide: each bot a little better or worse than the level
     int dm_bot_fights = 1;     // deathmatch: the bots fight each other too, not just you
     int killcam = 1;           // when a bot kills you: replay the last moments through its eyes
+    int model_scale = 120;     // the characters' size in % (their hitboxes, crouch, eyes and aim scale with it)
     int nade_preview = 1;      // grenade trajectory preview: 0 off, 1 everywhere but competitive, 2 always
     std::string net_address = "127.0.0.1";  // online: the host to join (IP or name, optionally :port)
     std::string player_name = "PLAYER";      // online: your name

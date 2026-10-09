@@ -189,16 +189,15 @@ std::vector<float> suppressedShot(Rng& r) {
     return b;
 }
 
-// The suppressed guns, built on the AK-47 recording (the owner's favourite) the way a suppressor changes a shot:
-// the crack and top end cut above `tone`, the bang dying over `tail` ms, the low body cut below `lowCut`; then a
-// little "thwump", a breathy "pfft" of gas (the whisper), the falling movie "zip", the slide or bolt ringing, some
-// room. The settings were tuned by the owner in v0.15's sound lab, then made whispier (the pistol) and given a
-// little more weight (the M4A1-S).
+// The suppressed guns, built on the AK-47 recording (the owner's favourite) the way a suppressor changes a real
+// shot: the crack and the top end gone (above `tone`), the bang shorter (`tail` ms) but still a gun underneath
+// (its body kept down to `lowCut`), a breathy burst of gas out of the can, and the action cycling as a short dull
+// clack of noise. Nothing in it rings: v0.16's metal slide ring and movie "zip" sounded like tapping glass.
 struct Silencer {
-    float tone, tail, lowCut, thump, thumpHz, pfft, pfftLo, pfftHi, pfftTail, zip, zipHz, slide, room;
+    float tone, tail, lowCut, thump, thumpHz, gas, gasLo, gasHi, gasTail, clack, room;
 };
-constexpr Silencer kUspS = {2300, 120, 290, 0.06f, 265, 1.1f, 900, 6800, 0.014f, 0.5f, 3700, 0.15f, 0.17f};
-constexpr Silencer kM4A1S = {2100, 135, 200, 0.16f, 200, 1.0f, 900, 7000, 0.011f, 0.45f, 3400, 0.15f, 0.2f};
+constexpr Silencer kUspS = {3200, 90, 280, 0.08f, 220, 0.75f, 700, 3600, 0.011f, 0.3f, 0.16f};
+constexpr Silencer kM4A1S = {3000, 120, 150, 0.18f, 160, 0.7f, 600, 3300, 0.013f, 0.25f, 0.22f};
 
 std::vector<float> suppressedFrom(const std::vector<float>& shot, const Silencer& t, bool rifle, Rng& r) {
     float peak = 0;
@@ -212,21 +211,19 @@ std::vector<float> suppressedFrom(const std::vector<float>& shot, const Silencer
         for (size_t i = 0; i < b.size() && onset + i < shot.size(); ++i)
             b[i] = shot[onset + i] / peak * std::exp(-float(i) / kRate / tail);
     }
-    lowpass(b, t.tone);
-    lowpass(b, t.tone * 1.25f);
-    highpass(b, t.lowCut);
+    lowpass(b, t.tone);  // the crack gone
+    lowpass(b, t.tone * 1.3f);
+    highpass(b, t.lowCut);  // and the boom (two poles)
     highpass(b, t.lowCut);
     normalize(b, 1.0f);
-    addTone(b, 0, t.thump, t.thumpHz * r.jitter(0.06f), t.thumpHz * 0.53f, rifle ? 0.04f : 0.03f);  // thwump
-    addNoise(b, 0.0003f, t.pfft, t.pfftLo, t.pfftHi, t.pfftTail, r, 0.0004f);                        // pfft
-    addTone(b, 0, t.zip, t.zipHz * r.jitter(0.05f), t.zipHz * 0.44f, 0.006f);                        // zip
-    addNoise(b, 0.012f * r.jitter(0.1f), rifle ? 0.1f : 0.12f, 400, 2000, 0.006f, r, 0.0002f);       // slide back
-    addMetal(b, rifle ? 0.02f * r.jitter(0.1f) : 0.013f, t.slide, (rifle ? 1900.0f : 2400.0f) * r.jitter(0.06f),
-             rifle ? 0.02f : 0.012f, r);
-    if (!rifle) addNoise(b, 0.05f * r.jitter(0.1f), 0.1f, 500, 2000, 0.005f, r, 0.0002f);            // and home
-    highpass(b, 70);
-    saturate(b, rifle ? 1.8f : 1.5f);
-    addReflections(b, rifle ? 45.0f : 35.0f, rifle ? 40.0f : 30.0f, rifle ? 5 : 4, t.room, 0.55f, 2500, r);
+    addTone(b, 0, t.thump, t.thumpHz * r.jitter(0.06f), t.thumpHz * 0.55f, rifle ? 0.035f : 0.025f);   // the thump
+    addNoise(b, 0.0004f, t.gas, t.gasLo, t.gasHi, t.gasTail, r, 0.0008f);                             // gas
+    addNoise(b, (rifle ? 0.022f : 0.014f) * r.jitter(0.1f), t.clack, 250, 1800, 0.004f, r, 0.0003f);  // the action
+    addNoise(b, (rifle ? 0.07f : 0.05f) * r.jitter(0.1f), t.clack * 0.6f, 250, 1500, 0.004f, r, 0.0003f);
+    highpass(b, 60);
+    saturate(b, rifle ? 1.8f : 1.6f);
+    lowpass(b, rifle ? 5000.0f : 5500.0f);
+    addReflections(b, rifle ? 45.0f : 35.0f, rifle ? 40.0f : 30.0f, rifle ? 5 : 4, t.room, 0.55f, 2200, r);
     fadeTail(b);
     normalize(b, rifle ? 0.9f : 0.8f);
     return b;

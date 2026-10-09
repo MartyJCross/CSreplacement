@@ -975,6 +975,29 @@ void testNewGuns() {
     bodyShot(weaponDef(kWUmp45), 2000, umpFar);
     std::printf("  UMP-45 through kevlar: %.0f at 200 units, %.0f at 2000\n", double(umpNear), double(umpFar));
     CHECK(umpNear > 20.0f && umpFar < umpNear * 0.65f, "ump %.0f / %.0f", double(umpNear), double(umpFar));
+    // Model size (PLAYER MODEL SIZE): at 120% the head is 20% higher and the eye moves with it; a shot at the
+    // bigger head's height hits the head, one at the old head height now hits the chest. Back to 100% after.
+    {
+        auto hitAt = [&](float z) {
+            std::vector<Dummy> dd(1);
+            dd[0].pos = dd[0].prevPos = {400, 0, 0};
+            dd[0].hp = 1e9f;
+            std::vector<Vec3> pos{dd[0].pos};
+            WeaponState ws;
+            ws.def = &rifleDef();
+            return fireBullet(ws, {0, 0, z}, 0, 0, 0, true, false, empty, dd, pos).group;
+        };
+        setModelScale(1.2f);
+        const HitGroup big = hitAt(78.0f), old = hitAt(63.0f);
+        const float eye = dummyEyeZ(), eyeCrouched = dummyEyeZ(1.0f);
+        setModelScale(1.0f);
+        std::printf("  model size 120%%: z 78 hits %s, z 63 hits %s; eye %.1f (crouched %.1f)\n", hitGroupName(big),
+                    hitGroupName(old), double(eye), double(eyeCrouched));
+        CHECK(big == kHead && old != kHead && std::fabs(eye - 76.8f) < 0.01f && eyeCrouched < eye - 20.0f &&
+                  hitAt(64.0f) == kHead && std::fabs(dummyEyeZ() - 64.0f) < 0.01f,
+              "model scale");
+    }
+
     // Collats: a bullet that goes through walls goes through bodies too, into the next one in line.
     auto lineShot = [&](const WeaponDef& def, float z, int& kills, int& hits) {
         std::vector<Dummy> dd(3);

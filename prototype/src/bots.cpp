@@ -79,8 +79,8 @@ bool findCover(const BotSenses& s, const Vec3& around, const Vec3& threatEye, fl
     // Seen = the head or the chest of someone standing there is in the threat's line of sight (walls and
     // props; smokes don't count, they go away).
     auto seen = [&](const Vec3& feet) {
-        return s.world->traceRay(threatEye, feet + Vec3{0, 0, 62}).fraction >= 1.0f ||
-               s.world->traceRay(threatEye, feet + Vec3{0, 0, 40}).fraction >= 1.0f;
+        return s.world->traceRay(threatEye, feet + Vec3{0, 0, 62.0f * modelScale()}).fraction >= 1.0f ||
+               s.world->traceRay(threatEye, feet + Vec3{0, 0, 40.0f * modelScale()}).fraction >= 1.0f;
     };
     struct Cand { Vec3 p; float d; };
     static thread_local std::vector<Cand> cands;  // reused: no allocation after warm-up
@@ -133,7 +133,7 @@ Vec3 randomSpawnPoint(const NavGrid& nav, const World& world, const std::vector<
     float bestScore = -1e30f;
     for (int tries = 0; tries < 40; ++tries) {
         Vec3 p = nav.roamPoint(botRand(rng), true);
-        Vec3 head = p + Vec3{0, 0, 64};
+        Vec3 head = p + Vec3{0, 0, dummyEyeZ()};
         float score = 0;
         for (const Vec3& eye : watcherEyes) {
             float d = length(eye - head);
@@ -162,7 +162,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     // Perception: a 150 degree view cone (all round for a moment after being shot), line of sight,
     // no smoke in between. With several enemies it fights the nearest one it can see (sticking with
     // its current target while that one stays visible).
-    const Vec3 head = d.pos + Vec3{0, 0, 64};
+    const Vec3 head = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
     const bool blind = s.now < b.blindUntil;
     auto visible = [&](const BotTarget& t) {
         const float dist = length(t.eye - head);
@@ -249,7 +249,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             if (b.holdOnly && b.hasHoldLook && !b.holdCoverChecked) {
                 // An anchor: hold the angle from here, but find cover from it to step back into.
                 b.holdCoverChecked = true;
-                b.hasCover = findCover(s, d.pos, b.holdLook + Vec3{0, 0, 64}, 160.0f, b.cover, b.peek);
+                b.hasCover = findCover(s, d.pos, b.holdLook + Vec3{0, 0, dummyEyeZ()}, 160.0f, b.cover, b.peek);
                 b.peek = d.pos;
                 b.inCover = false;
                 b.coverTimer = 5.0f + botRand(rng) * 5.0f;

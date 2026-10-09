@@ -222,8 +222,12 @@ See `prototype/README.md` for full details. Each item below lists where its code
   at most one frame is queued on the GPU (Reflex/Anti-Lag by hand). Costs ~17% FPS on the owner's laptop for
   1-2 frames less lag; compare with `--bench-raw 10` (no glFinish), not `--bench`.
 - **Suppressed sounds** (audio.cpp `suppressedFrom`, `kUspS`, `kM4A1S`): built on the AK recording (owner: "the AK sounds SO good").
-  The owner tuned them in v0.15's sound lab (removed in v0.16), then asked for a whispier pistol: keep the
-  low "thump" (150-500 Hz) around 15%, the M4A1-S a little fuller.
+  Owner history: v0.14 "a bit tinny, like Bond"; v0.15 sound lab; v0.16 "too thumpy, more whispy"; v0.18 "doesn't
+  sound like a gun, like tapping glass with metal" -> v0.19 removed every ringing layer (metal slide ring, zip
+  tone): keep >4 kHz at 1-2% like the real recordings, no tonal layers, the AK's own band balance underneath.
+- **Model size** (`model_scale`, default 120 per the owner; `setModelScale`, `modelScale`, `dummyEyeZ` in combat):
+  dummy hitboxes, crouchZ, bot eyes/aim and the drawn model scale together (rule 3); the player's hull doesn't.
+  Tests run at 1.0; use dummyEyeZ() for any new character-height code, never a bare 64.
 - **3D audio** (audio.cpp `spatialize`, `mixVoice`): per-voice ITD (far ear up to 0.65 ms late), head shadow,
   behind/below darker, above brighter, occlusion (`Audio::setOcclusion`: two rays, muffled + -10 dB). Measure with
   `--dump-spatial DIR`. 2D sounds (`play`) are untouched.
@@ -250,7 +254,7 @@ See `prototype/README.md` for full details. Each item below lists where its code
   extents, scalable, wall shades). `setTownMap(0|1)` picks the active one; every `town*` function (townGrid,
   townPoint, townCallout, townSpawn, townTeamSpawns, townRetakeSites, townCtSpots, townPrefireRoutes,
   townPeekSpots, townTactics, buildTown) answers for it. Bot tactics per map: `TownTactics` (stages, utility,
-  pushes, radio calls). Game::mapId stays 1 for both; config `map` 0 Lab, 1 Dust2, 2 Harbor. Online: the map
+  pushes, radio calls). Game::mapId stays 1 for both; config `map` 0 Lab, 1 Dust2 (shown as DUST), 2 Harbor. Online: the map
   rides in the welcome's game byte (bit 0 game, bits 1+ map). Harbor is tested in `testHarbor`: change its spots
   and keep that passing.
 - **Doors** (world.cpp, end of buildTown): frames (jambs + lintel) at both ends of each doorway and the leaves,

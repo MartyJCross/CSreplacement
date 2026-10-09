@@ -114,9 +114,17 @@ struct Dummy {
     bool alive() const { return respawnLeft <= 0; }
 };
 
+// How big the characters are (config model_scale, the owner's PLAYER MODEL SIZE: 1.2 = 20% bigger). Their model,
+// their hitboxes (what you see is what you hit), their crouch, the bots' eyes and where they aim all scale with
+// it; your own movement hull doesn't. 1 by default (the tests).
+void setModelScale(float scale);
+float modelScale();
+// A character's eye height at `crouch` (64 standing at size 1).
+float dummyEyeZ(float crouch = 0);
+
 const std::vector<Hitbox>& dummyHitboxes();
-// A height on the standing model, crouched by `crouch`: the legs fold (0..34 shrinks to 0..16) and
-// everything above drops 18 units, like the player's eye (64 -> 46).
+// A height on the standing model (at the current model size), crouched by `crouch`: the legs fold (0..34 shrinks
+// to 0..16 at size 1) and everything above drops 18 units, like the player's eye (64 -> 46).
 float crouchZ(float z, float crouch);
 
 // A ray against a dummy standing at `pos` facing `yaw` (crouched by `crouch`): true with the distance and hit group of the

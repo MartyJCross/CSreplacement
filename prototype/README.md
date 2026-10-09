@@ -69,7 +69,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 - **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **62 ms** counter-strafing vs **~195 ms** releasing.
 - **Hit log (top right):** hitgroup, damage, kill, distance in metres.
 
-## Dust2 (Play: any mode, or practice on DUST2)
+## Dust2 (Play: any mode, MAP DUST)
 
 Dust2 at **60% of real size** by default (`dust_scale`, Play screen DUST SIZE, 50–100%). Everything scales evenly, heights too, so slopes stay walkable; crates, headroom and doorways (at least 96 units wide) keep their real size. The area you're in shows at the top of the screen (LONG A, CATWALK, B SITE, ...).
 
@@ -197,9 +197,11 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 
 - **Kill feed** top-right: who killed whom, with what, headshot / wallbang.
 - **Damage report** bottom-left when you die: damage given and taken this life, per player and hits.
-- **Tab scoreboard:** kills, assists (41+ damage on someone a teammate finished), deaths, ADR (damage per round; per life in deathmatch), HS% (headshot kills) and MVPs.
+- **Tab scoreboard:** kills, assists (41+ damage on someone a teammate finished), deaths, ADR (damage per round: only in the modes with rounds, retakes and competitive), HS% (headshot kills) and MVPs.
 
 ## Players: facing, arms, anti-aliasing
+
+- **Model size** (Settings → Gameplay → PLAYER MODEL SIZE, `model_scale`, 120% by default, 80-150): how big the characters are. Their hitboxes grow with them (what you see is what you hit), and so do their crouch, the bots' eye height (77 units at 120%) and where they aim. Your own movement hull doesn't change, so at 120% their heads are a little above your eye line on the same floor.
 
 - **Bots turn to face you** when they fight. Their hitboxes turn with them. Head-on you see about 27 units of shoulders; side-on, about 21.
 - **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable.
@@ -268,7 +270,7 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
 - **Volume** is `volume` in `config.cfg` (0..1).
 - **Each gun sounds like itself:** the shared recordings pitched per gun (the UMP-45 a slow thump, the SSG 08 a smaller bang than the AWP). The **shotguns** are real 12 gauge recordings (a Benelli Nova, a Winchester Model 12, a Charles Daly).
-- **The suppressed guns are built on the AK-47 recording**, the way a suppressor changes a shot: the crack and top end cut away, the bang dying slower, then a breathy "pfft" of gas, a falling movie "zip" and the slide or bolt ringing. Tuned by the owner in v0.15's sound lab, then the **pistol** made whispier (most of the low "thump" cut: 15% of it below 500 Hz, from 37%) and the **M4A1-S** given a little more weight and a slightly deeper pitch.
+- **The suppressed guns are built on the AK-47 recording**, the way a suppressor changes a real shot: the crack and the top end cut away, the bang shorter but still a gun underneath, a breathy burst of gas out of the can, and the action cycling as a short dull clack. Nothing in them rings (v0.16 had a metal slide ring and a movie "zip" that sounded like tapping glass): above 4 kHz they're now 1-2%, like the real recordings, and the M4A1-S has nearly the AK's own balance (bass 11%, low mids 28%, mids 50%, highs 10%), softer and longer. The pistol keeps a pistol's mid-range body with less thump.
 
 - **Menu music:** "Menu Music" by wipics (CC0, an upbeat electronic loop) plays on the main menu and its pages, and fades out when a game starts (not in the pause menu). MENU MUSIC in Settings → Video + sound sets its volume (`music_volume`, 0 = off). It's decoded in the background, so startup isn't slower.
 - **Scoping in** has its own soft "chk".
@@ -287,7 +289,7 @@ Sounds come from where they are, the way two ears hear them (not a measured HRTF
 
 ## Replays and the killcam
 
-- **Killcam:** when a bot kills you (deathmatch, competitive), you see the last 3 seconds through its eyes, with its shots and their sound. Space or a click skips it. In deathmatch you respawn when it ends. Settings → Gameplay → KILLCAM.
+- **Killcam:** when a bot kills you (deathmatch, competitive), you see the last 3 seconds through its eyes, with its shots and their sound. A click (or Esc) skips it. In deathmatch you respawn when it ends; a jump key still held from before doesn't make you jump when you spawn (it has to come up first). Settings → Gameplay → KILLCAM.
 - **Watch a replay:** pause menu → WATCH REPLAY. The last 2.5 minutes (competitive: from the start of the round that just finished) with everyone where they were. The game waits while you watch. Mouse 1 / Mouse 2 change whose eyes you see through (you, bots, other players); F flies a free camera (WASD + mouse, Shift slow, Space / Ctrl up and down); Left / Right jump 5 s; Up / Down change the speed (x0.25 to x4); Space or P pauses; Esc goes back to the pause menu.
 - Recorded 64 times a second into a ring (`replay.h`): about 10 MB for the last 2.5 minutes, no allocations once it's full.
 
