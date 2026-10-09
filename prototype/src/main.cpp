@@ -7274,7 +7274,8 @@ int main(int argc, char** argv) {
                 ws.reloadEndTime >= 0 ? g.simTime + tickAcc - (ws.reloadEndTime - ws.def->reloadTime) : -1.0;
             g.vm.setPrimed(g.weapon == &g.guns[kWGrenade] ? g.nadeHold : 0);  // wind-up pose while you hold a grenade
             g.vm.update({paused ? 0.0f : fdt, frameYawDelta, framePitchDelta, length2d(g.player.velocity),
-                         g.player.onGround, float(reloadProgress), ws.def->reloadTime});
+                         g.player.onGround, float(reloadProgress), ws.def->reloadTime,
+                         dot(g.player.velocity, yawToRight(float(g.viewYaw)))});
         }
 
         const uint64_t tScene = SDL_GetPerformanceCounter();

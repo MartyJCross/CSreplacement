@@ -19,6 +19,7 @@ struct ViewModelInput {
     bool onGround;
     float reloadProgress;      // seconds into the reload, < 0 if not reloading
     float reloadTime;
+    float sideSpeed = 0;       // sideways speed relative to the view (+ = moving right): the strafe lean
 };
 
 struct ModelDraw {
@@ -56,6 +57,10 @@ private:
     ViewWeapon weapon_ = ViewWeapon::Rifle;
     float kickBack_ = 0, kickPitch_ = 0, kickYaw_ = 0;
     float swayYaw_ = 0, swayPitch_ = 0;
+    float swayYawVel_ = 0, swayPitchVel_ = 0;  // sway is a spring: the gun has a little weight
+    float lean_ = 0;           // strafe lean, -1 (left) .. 1 (right), eased
+    float idleT_ = 0;          // breathing clock
+    bool wasOnGround_ = true;
     float bobPhase_ = 0, bobAmount_ = 0;
     float landDip_ = 0, landVel_ = 0;
     float drawT_ = 1;          // 0..1 raise animation

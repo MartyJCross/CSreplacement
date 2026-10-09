@@ -728,9 +728,22 @@ void ViewModel::update(const ViewModelInput& in) {
     kickRoll_ *= std::exp(-dt * 12.0f);
     sinceShot_ += dt;
 
-    // Sway: the weapon lags slightly behind camera turns.
-    swayYaw_ = std::clamp(swayYaw_ - in.mouseYawDelta * 0.5f, -3.0f, 3.0f) * std::exp(-dt * 10.0f);
-    swayPitch_ = std::clamp(swayPitch_ - in.mousePitchDelta * 0.5f, -3.0f, 3.0f) * std::exp(-dt * 10.0f);
+    // Sway: the weapon lags behind camera turns on a spring, so it settles back with a touch of overshoot (weight)
+    // instead of snapping.
+    swayYaw_ = std::clamp(swayYaw_ - in.mouseYawDelta * 0.45f, -3.2f, 3.2f);
+    swayPitch_ = std::clamp(swayPitch_ - in.mousePitchDelta * 0.45f, -3.2f, 3.2f);
+    for (int k = 0; k < 2; ++k) {
+        float& x = k == 0 ? swayYaw_ : swayPitch_;
+        float& v = k == 0 ? swayYawVel_ : swayPitchVel_;
+        v += (-150.0f * x - 19.0f * v) * dt;
+        x += v * dt;
+    }
+    // Strafing leans the gun into the move; jumping drops it a touch (it lags the body going up).
+    const float leanTarget = in.onGround ? std::clamp(in.sideSpeed / 250.0f, -1.0f, 1.0f) : lean_;
+    lean_ += (leanTarget - lean_) * (1.0f - std::exp(-dt * 7.0f));
+    if (wasOnGround_ && !in.onGround) landVel_ -= 9.0f;
+    wasOnGround_ = in.onGround;
+    idleT_ += dt;
 
     // Bob scales with ground speed.
     float target = in.onGround ? std::min(in.horizSpeed / 250.0f, 1.0f) : 0.0f;
@@ -770,9 +783,13 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     float pitch = gun ? 2.0f : 10.0f, yaw = rifle ? 4.0f : pistol || mac ? 3.0f : 6.0f, roll = gun ? 0.0f : -15.0f;
     if (weapon_ == ViewWeapon::Berettas) yaw = 0.0f;
 
-    // Walk bob (figure-eight) and landing dip.
+    // Walk bob (figure-eight, rolling a little with each step), landing dip, strafe lean, and a slow breath when still.
     pos.x += std::cos(bobPhase_) * 0.32f * bobAmount_ * bobScale;
     pos.y += std::sin(2.0f * bobPhase_) * 0.16f * bobAmount_ * bobScale + landDip_ * 0.08f;
+    roll += std::cos(bobPhase_) * 0.7f * bobAmount_ * bobScale;
+    roll -= lean_ * 2.4f;
+    pos.x -= lean_ * 0.35f;
+    pos.y += std::sin(idleT_ * 1.3f) * 0.05f * (1.0f - bobAmount_);
 
     // Grenade wind-up while the pin's out: back and up for a throw, down low for an underhand lob.
     if (weapon_ == ViewWeapon::Grenade && primeT_ > 0) {
