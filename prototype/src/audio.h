@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "config.h"
 #include "vecmath.h"
 
 enum class Sfx {
@@ -46,6 +47,10 @@ public:
     static bool dumpWavs(const std::string& dir, const std::string& assetDir = "");
     void setVolume(float v) { master_ = v; }
 
+    // The sound lab: rebuilds the suppressed pistol (rifle = false) or the M4A1-S from their base recordings
+    // with these settings. Safe while sounds are playing.
+    void setSuppressorTone(bool rifle, const SuppressorTone& t);
+
     // Music: an Ogg/WAV decoded on a background thread (startup isn't held up), then looped. setMusic() sets
     // the level it fades to over about a second (0 = silent; it keeps its place while silent).
     void loadMusic(const std::string& path);
@@ -70,6 +75,7 @@ private:
     std::mutex mutex_;
     std::atomic<float> master_{0.6f};
     int loaded_ = 0;  // sounds replaced by recordings from assets/
+    std::vector<std::vector<float>> pistolBase_, rifleBase_;  // the unsuppressed shots the lab builds from
     std::vector<float> music_;           // stereo, interleaved, 48 kHz (written by the loader thread)
     std::atomic<bool> musicReady_{false};
     std::atomic<float> musicTarget_{0.0f};

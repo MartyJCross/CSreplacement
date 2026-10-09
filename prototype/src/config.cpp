@@ -15,7 +15,7 @@ fov 90
 fps_max 0
 vsync 0
 low_latency 1
-muzzle_light 1
+muzzle_brightness 0.35
 music_volume 0.5
 fullscreen 1
 // 0 = desktop resolution (try e.g. 1280 960 for 4:3 stretched)
@@ -98,6 +98,15 @@ enemy_skill 2
 prefire_bots_shoot 1
 )";
 
+// The sound lab's settings, by name (snd_pistol_<name>, snd_m4_<name>).
+struct ToneField { const char* name; float SuppressorTone::* member; };
+const ToneField kToneFields[] = {
+    {"tone", &SuppressorTone::tone},     {"tail", &SuppressorTone::tail},   {"thump", &SuppressorTone::thump},
+    {"thump_hz", &SuppressorTone::thumpHz}, {"pfft", &SuppressorTone::pfft}, {"zip", &SuppressorTone::zip},
+    {"zip_hz", &SuppressorTone::zipHz},  {"slide", &SuppressorTone::slide}, {"room", &SuppressorTone::room},
+    {"volume", &SuppressorTone::volume}, {"pitch", &SuppressorTone::pitch},
+};
+
 }  // namespace
 
 bool saveConfig(const std::string& path, const Config& c) {
@@ -106,7 +115,7 @@ bool saveConfig(const std::string& path, const Config& c) {
     out << "// Crisp config. Written by the in-game menus (Esc); you can also edit it by hand.\n";
     out << "sensitivity " << c.sensitivity << "\nm_yaw " << c.m_yaw << "\nm_pitch " << c.m_pitch
         << "\nzoom_sensitivity_ratio " << c.zoom_sensitivity_ratio << "\nfov " << c.fov << "\nfps_max " << c.fps_max
-        << "\nvsync " << c.vsync << "\nlow_latency " << c.low_latency << "\nmuzzle_light " << c.muzzle_light
+        << "\nvsync " << c.vsync << "\nlow_latency " << c.low_latency << "\nmuzzle_brightness " << c.muzzle_brightness
         << "\nmusic_volume " << c.music_volume << "\nfullscreen " << c.fullscreen << "\nwidth " << c.width << "\nheight " << c.height
         << "\ncrosshair_size " << c.crosshair_size << "\ncrosshair_gap " << c.crosshair_gap
         << "\ncrosshair_thickness " << c.crosshair_thickness << "\ncrosshair_r " << c.crosshair_r
@@ -125,8 +134,14 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nfreeze_time " << c.freeze_time
         << "\nmate_skill " << c.mate_skill
-        << "\nenemy_skill " << c.enemy_skill << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
+        << "\nenemy_skill " << c.enemy_skill << "\nskill_variance " << c.skill_variance
+        << "\ndm_bot_fights " << c.dm_bot_fights << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
         << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\n";
+    out << "// Sound lab: the suppressed pistol (snd_pistol_*) and the M4A1-S (snd_m4_*)\n";
+    for (int gun = 0; gun < 2; ++gun) {
+        const SuppressorTone& t = gun ? c.snd_m4 : c.snd_pistol;
+        for (const ToneField& f : kToneFields) out << (gun ? "snd_m4_" : "snd_pistol_") << f.name << " " << t.*(f.member) << "\n";
+    }
     return bool(out);
 }
 
@@ -161,7 +176,15 @@ Config loadConfig(const std::string& path) {
         else if (key == "fps_max") i(c.fps_max);
         else if (key == "vsync") i(c.vsync);
         else if (key == "low_latency") i(c.low_latency);
-        else if (key == "muzzle_light") i(c.muzzle_light);
+        else if (key == "muzzle_brightness") c.muzzle_brightness = v;
+        else if (key == "skill_variance") i(c.skill_variance);
+        else if (key == "dm_bot_fights") i(c.dm_bot_fights);
+        else if (key.rfind("snd_pistol_", 0) == 0 || key.rfind("snd_m4_", 0) == 0) {
+            const bool m4 = key[4] == 'm';
+            const std::string field = key.substr(m4 ? 7 : 11);
+            for (const ToneField& f : kToneFields)
+                if (field == f.name) (m4 ? c.snd_m4 : c.snd_pistol).*(f.member) = v;
+        }
         else if (key == "music_volume") c.music_volume = v;
         else if (key == "fullscreen") i(c.fullscreen);
         else if (key == "width") i(c.width);

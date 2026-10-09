@@ -237,6 +237,9 @@ struct Game {
     // Retakes (mode 2, Dust only): bots hold a random site, you clear it from a random entry.
     int rtBots = 4, rtSite = 0, rtWon = 0, rtLost = 0;
     int compMates = 4, compEnemies = 5, mateSkill = 1, enemySkill = 2;  // competitive teams, bot skill (config)
+    int skillVariance = 0;        // 0 off, 1 slight, 2 wide (config skill_variance)
+    bool dmBotFights = true;      // deathmatch: the bots fight each other (config dm_bot_fights)
+    SuppressorTone sndPistol, sndM4 = rifleToneDefaults();  // the sound lab: your suppressed shots' volume and pitch
     double freezeTime = 15;                 // competitive freeze time, seconds (config freeze_time)
     // Online: deathmatch (mode 5) or competitive (mode 3 with `online`). Players are dummies[id] (id = their
     // net id; yours stays hidden); in competitive the host's bots are dummies 8..17. Their states are played
@@ -490,6 +493,22 @@ const char* const kBotNames[] = {"ALEX", "BLAKE", "CASEY", "DANNY", "ELLIOT", "F
 constexpr int kBotNameCount = int(sizeof(kBotNames) / sizeof(kBotNames[0]));
 int g_botNameOffset = 0;
 
+// A bot's skill: its side's level (your competitive teammates' or everyone else's), plus, with skill variance,
+// its own fixed bit for the match: a little better or a little worse (slight: up to half a level either way,
+// wide: up to a whole level). Seeded by the bot and the match, so it doesn't change mid-match.
+BotSkill botSkillOf(const Game& g, size_t i) {
+    const bool comp = g.mode == 3 && g.mapId == 1;
+    const int level = comp && i < g.team.size() && g.team[i] == g.comp.youTeam ? g.mateSkill : g.enemySkill;
+    float off = 0;
+    if (g.skillVariance > 0) {
+        uint32_t h = uint32_t(i + 1) * 2654435761u ^ uint32_t(g_botNameOffset + 7) * 2246822519u;
+        h = (h ^ (h >> 15)) * 0x2c1b3c6du;
+        h ^= h >> 12;
+        off = (float(h & 0xFFFF) / 65535.0f * 2.0f - 1.0f) * (g.skillVariance == 1 ? 0.5f : 1.0f);
+    }
+    return skillAt(float(level) + off);
+}
+
 std::string agentName(int id) {
     if (id < 0) return "YOU";
     if (g_onlineNames && id < kNetMaxPlayers) {  // (online competitive: 8.. are the host's bots)
@@ -619,6 +638,10 @@ void applyConfig(Game& g, const Config& cfg) {
     g.compEnemies = std::clamp(cfg.comp_enemies, 1, 5);
     g.mateSkill = std::clamp(cfg.mate_skill, 0, 3);  // straight away
     g.enemySkill = std::clamp(cfg.enemy_skill, 0, 3);  // next round
+    g.skillVariance = std::clamp(cfg.skill_variance, 0, 2);
+    g.dmBotFights = cfg.dm_bot_fights != 0;
+    g.sndPistol = cfg.snd_pistol;
+    g.sndM4 = cfg.snd_m4;
     g.viewShake = cfg.view_shake != 0;
     // (knife and skins: the inventory, applySkins)
     g.hitSound = cfg.hitsound != 0;
@@ -673,6 +696,7 @@ Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
         const Dummy& d = g.dummies[i];
         if (!d.alive() || i == self || g.bots[i].state < 0) continue;
         (forPlayer ? watchers : occupied).push_back(forPlayer ? d.pos + Vec3{0, 0, 64} : d.pos);
+        if (!forPlayer && g.dmBotFights) watchers.push_back(d.pos + Vec3{0, 0, 64});  // bots fight: not in each other's sight
     }
     if (!forPlayer) {  // you, and you a moment from now (so they don't appear round the corner you're taking)
         watchers.push_back(g.player.origin + Vec3{0, 0, kStandEye});
@@ -2532,7 +2556,8 @@ void simTick(Game& g, const Options& opt) {
     if (ws.reloadEndTime >= 0 && !wd.shellReload) {
         // Reload sounds keyed to the animation: mag out, mag in, bolt.
         double progress = g.simTime - (ws.reloadEndTime - wd.reloadTime);
-        const double cues[3] = {0.3, 1.4, 2.0};
+        const double k = wd.reloadTime / 2.4;  // (timed for a 2.4 s reload, stretched to this gun's)
+        const double cues[3] = {0.3 * k, 1.4 * k, 2.0 * k};
         const Sfx sfx[3] = {Sfx::MagOut, Sfx::MagIn, Sfx::Bolt};
         while (g.reloadStage < 3 && progress >= cues[g.reloadStage]) sound(g, sfx[g.reloadStage++], 0.8f);
     }
@@ -2619,7 +2644,7 @@ void simTick(Game& g, const Options& opt) {
         } else if (wd.id == kWXm1014) {
             sound(g, Sfx::ShotgunShot, 1.8f, 0.0f, gunshotPitch(wd.id));
         } else if (wd.id == kWM4A1S) {
-            sound(g, Sfx::SuppressedRifle, 1.7f);
+            sound(g, Sfx::SuppressedRifle, g.sndM4.volume, 0.0f, g.sndM4.pitch);
         } else if (wd.id == kWDeagle) {
             sound(g, Sfx::PistolShot, 1.9f, 0.0f, 0.72f);  // heavy
         } else if (wd.id == kWMac10) {
@@ -2627,7 +2652,7 @@ void simTick(Game& g, const Options& opt) {
         } else if (wd.id == kWBerettas) {
             sound(g, Sfx::PistolShot, 1.45f, (g.shots & 1) ? -0.15f : 0.15f, 1.1f);  // left, right
         } else if (wd.id == kWPistol) {
-            sound(g, Sfx::SuppressedShot, 1.3f);
+            sound(g, Sfx::SuppressedShot, g.sndPistol.volume, 0.0f, g.sndPistol.pitch);
         } else if (wd.id == kWSsg08) {
             sound(g, Sfx::SniperShot, 1.7f, 0.0f, gunshotPitch(wd.id));  // lighter and sharper than the AWP
             g.boltAt = g.simTime + 0.47;
@@ -3166,8 +3191,17 @@ void simTick(Game& g, const Options& opt) {
             return smokeBlocks(*static_cast<const Game*>(ctx), a, b);
         };
         sense.blockCtx = &g;
-        // Competitive: each side fights the other side's bots, and you if you're on the other side.
-        std::vector<BotTarget> enemiesOf[2];
+        // Competitive: each side fights the other side's bots, and you if you're on the other side. Deathmatch
+        // (with dm_bot_fights): everyone fights everyone, and the bots still come looking for you half the time.
+        std::vector<BotTarget> enemiesOf[2], everyone;
+        if (g.mode == 1 && g.dmBotFights) {
+            for (size_t i = 0; i < g.dummies.size(); ++i)
+                if (g.dummies[i].alive() && g.bots[i].state >= 0)
+                    everyone.push_back({int(i), g.dummies[i].pos, g.dummies[i].pos + Vec3{0, 0, crouchZ(64.0f, g.dummies[i].crouch)}});
+            if (sense.playerUp) everyone.push_back({-1, sense.playerOrigin, sense.playerEye});
+            sense.targets = &everyone;
+            sense.huntYou = true;
+        }
         if (g.mode == 3) {
             sense.playerUp = sense.playerUp && youAlive(g) && g.comp.phase == 1;
             for (int side = 0; side < 2; ++side) {
@@ -3183,6 +3217,7 @@ void simTick(Game& g, const Options& opt) {
             BotBrain& b = g.bots[i];
             if (!d.alive() || !isBot(g, i)) { b.state = -1; b.sees = b.aimed = false; continue; }
             if (g.mode == 1 && needsSpawn(d, b)) spawnDeathmatchBot(d, b, pickDmSpawn(g, false, i), g.rng);
+            sense.self = int(i);
             if (g.mode == 3) {
                 if (g.comp.phase != 1 || g.comp.planter == int(i) || g.comp.defuser == int(i)) {
                     b.sees = b.aimed = false;  // frozen, planting or defusing: hands busy
@@ -3243,7 +3278,8 @@ void simTick(Game& g, const Options& opt) {
         const Vec3 p = from + dir * t;
         if (length(p - simEye) < 56.0f) g.audio->play3D(Sfx::Whiz, p, simEye, float(g.viewYaw), 300.0f, 0.8f);
     };
-    if (g.botsFire && (comp || (g.deadUntil < 0 && !g.noclip)) && !netClient(g)) {
+    const bool dmFights = g.mode == 1 && g.mapId == 1 && g.dmBotFights;  // deathmatch bots shoot each other too
+    if (g.botsFire && (comp || dmFights || (g.deadUntil < 0 && !g.noclip)) && !netClient(g)) {
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             if (!isBot(g, i)) continue;
             const Dummy& d = g.dummies[i];
@@ -3253,14 +3289,16 @@ void simTick(Game& g, const Options& opt) {
                            ? d.alive() && g.bots[i].aimed
                            : d.alive() && length(simEye - head) < 4000.0f && g.simTime >= g.bots[i].blindUntil &&
                                  g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
-            const int tgt = comp ? g.bots[i].target : -1;  // competitive: whoever it's fighting
+            const int tgt = comp || dmFights ? g.bots[i].target : -1;  // competitive, deathmatch: whoever it's fighting
             if (comp && (tgt < -1 || (tgt == -1 && !youAlive(g)) || g.comp.phase != 1)) los = false;
+            if (dmFights && (tgt < -1 || (tgt == -1 && (g.deadUntil >= 0 || g.noclip)))) los = false;
             if (!los) {  // reaction time only starts over once it loses sight (a jiggle doesn't reset it)
                 if (!(g.mode != 0 && g.mapId == 1 && g.bots[i].sees && d.alive())) g.botSeen[i] = 0;
                 continue;
             }
-            // Skill: your competitive teammates use theirs, every other bot the enemy skill.
-            const BotSkill& sk = botSkill(comp && g.team[i] == g.comp.youTeam ? g.mateSkill : g.enemySkill);
+            // Skill: your competitive teammates use theirs, every other bot the enemy skill (give or take its own
+            // bit, with skill variance).
+            const BotSkill sk = botSkillOf(g, i);
             if (g.botSeen[i] == 0)  // human-ish reaction time, a bit slower after a quiet spell (see BotBrain::surprise)
                 g.botReact[i] = sk.reactMin + rnd(g) * sk.reactRange + (g.mapId == 1 ? 0.2f * g.bots[i].surprise : 0.0f);
             g.botSeen[i] += kTickDt;
@@ -3281,7 +3319,7 @@ void simTick(Game& g, const Options& opt) {
                 if (g.audio) {
                     bool far = length(d.pos - simEye) > 1400.0f;
                     if (!rifle)  // the starting pistol, suppressed
-                        g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.0f);
+                        g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.0f, g.sndPistol.pitch);
                     else
                         g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
                                         far ? 6500.0f : 4000.0f, far ? 1.15f : 0.95f);
@@ -3330,7 +3368,7 @@ void simTick(Game& g, const Options& opt) {
             if (g.audio) {  // far away a gunshot is mostly echo: muffled, no crack
                 bool far = length(d.pos - simEye) > 1400.0f;
                 if (!rifle)
-                    g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.1f);
+                    g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.1f, g.sndPistol.pitch);
                 else
                     g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
                                     far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f);
@@ -3424,9 +3462,10 @@ enum MenuScreen {
     kMenuNone, kMenuMain, kMenuPause, kMenuPlay, kMenuSettings, kMenuControls,
     kMenuMouse, kMenuCrosshair, kMenuWeapon, kMenuVideo, kMenuGameplay,  // settings pages, in order
     kMenuInventory, kMenuCase,
+    kMenuSoundPistol, kMenuSoundRifle,  // the sound lab: the suppressed pistol and the M4A1-S
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
-                  kActOpenCase, kActSkipCase, kActEquipNew, kActGoto = 100 };
+                  kActOpenCase, kActSkipCase, kActEquipNew, kActPlaySound, kActResetSound, kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
 
 // Which screen is up (kMenuNone = playing), the highlighted row, and where Back ends up:
@@ -3446,6 +3485,7 @@ const char* const kMapNames[] = {"THE LAB", "DUST2"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE", "ONLINE"};
 const char* const kRouteNames[] = {"A LONG", "B TUNNELS", "MID", "A SHORT"};
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
+const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
 const char* const kNetGameNames[] = {"DEATHMATCH", "COMPETITIVE"};
 const char* const kNetTeamNames[] = {"SPLIT BETWEEN THE SIDES", "ALL ON ONE SIDE VS BOTS"};
@@ -3472,6 +3512,8 @@ const char* menuTitle(int screen) {
         case kMenuGameplay: return "GAMEPLAY";
         case kMenuInventory: return "INVENTORY";
         case kMenuCase: return "CASE";
+        case kMenuSoundPistol: return "SOUND LAB: SUPPRESSED PISTOL";
+        case kMenuSoundRifle: return "SOUND LAB: M4A1-S";
         default: return "";
     }
 }
@@ -3510,6 +3552,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     r.push_back({"ENEMIES (PLAYERS + BOTS)", nullptr, &c.comp_enemies, 1, 1, 5});
                     r.push_back({"YOUR TEAM'S BOTS", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
                     r.push_back({"OTHER TEAM'S BOTS", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                    r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
                     r.push_back({"FREEZE TIME (BUY), SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
                 }
                 r.push_back(button("HOST A GAME", kActHost));
@@ -3541,10 +3584,13 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({"ENEMIES", nullptr, &c.comp_enemies, 1, 1, 5});
                 r.push_back({"TEAMMATE SKILL", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
                 r.push_back({"ENEMY SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
                 r.push_back({"FREEZE TIME (BUY), SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
             } else if (m.mode != 0 || m.bots) {
                 r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
             }
+            if (m.mode == 1) r.push_back({"BOTS FIGHT EACH OTHER", nullptr, &c.dm_bot_fights, 1, 0, 1, kOnOff});
             if (m.mode != 0 || m.map == 1) r.push_back({"DUST SIZE (% OF REAL)", nullptr, &c.dust_scale, 5, 50, 100});
             r.push_back(button("START", kActStart));
             r.push_back(back);
@@ -3553,8 +3599,29 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuSettings:
             return {button("MOUSE + VIEW", goTo(kMenuMouse)), button("CROSSHAIR + HUD", goTo(kMenuCrosshair)),
                     button("WEAPONS + SKINS", goTo(kMenuWeapon)), button("VIDEO + SOUND", goTo(kMenuVideo)),
-                    button("GAMEPLAY", goTo(kMenuGameplay)), button("RELOAD CONFIG.CFG", kActReload), back};
+                    button("GAMEPLAY", goTo(kMenuGameplay)), button("SOUND LAB (SUPPRESSED GUNS)", goTo(kMenuSoundPistol)),
+                    button("RELOAD CONFIG.CFG", kActReload), back};
         case kMenuControls: return {back};
+        case kMenuSoundPistol:
+        case kMenuSoundRifle: {  // every change rebuilds the sound and plays it; all saved in config.cfg (snd_*)
+            const bool m4 = screen == kMenuSoundRifle;
+            SuppressorTone& t = m4 ? c.snd_m4 : c.snd_pistol;
+            return {button("PLAY IT (OR FIRE IT IN A GAME)", kActPlaySound),
+                    {"TONE: BRIGHTNESS (HZ)", &t.tone, nullptr, 100.0f, 600.0f, 9000.0f},
+                    {"TAIL: HOW LONG THE BANG LASTS (MS)", &t.tail, nullptr, 5.0f, 10.0f, 300.0f},
+                    {"THUMP: THE LOW THWUMP", &t.thump, nullptr, 0.02f, 0.0f, 1.0f},
+                    {"THUMP PITCH (HZ)", &t.thumpHz, nullptr, 5.0f, 40.0f, 400.0f},
+                    {"PFFT: THE GAS SPIT", &t.pfft, nullptr, 0.02f, 0.0f, 1.2f},
+                    {"ZIP: THE MOVIE WHISTLE", &t.zip, nullptr, 0.02f, 0.0f, 1.0f},
+                    {"ZIP PITCH (HZ)", &t.zipHz, nullptr, 100.0f, 800.0f, 9000.0f},
+                    {m4 ? "BOLT RING" : "SLIDE RING", &t.slide, nullptr, 0.01f, 0.0f, 0.6f},
+                    {"ROOM ECHO", &t.room, nullptr, 0.01f, 0.0f, 0.6f},
+                    {"VOLUME (YOUR SHOTS)", &t.volume, nullptr, 0.05f, 0.2f, 3.0f},
+                    {"PITCH (PLAYBACK SPEED)", &t.pitch, nullptr, 0.01f, 0.5f, 1.8f},
+                    button("RESET TO DEFAULT", kActResetSound),
+                    button(m4 ? "SUPPRESSED PISTOL PAGE" : "M4A1-S PAGE", goTo(m4 ? kMenuSoundPistol : kMenuSoundRifle)),
+                    back};
+        }
         case kMenuMouse:
             return {{"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
                     {"SCOPED SENSITIVITY RATIO", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
@@ -3585,7 +3652,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"HIT SOUND", nullptr, &c.hitsound, 1, 0, 1, kOnOff},
                     {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
                     {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
-                    {"MUZZLE FLASH LIGHT", nullptr, &c.muzzle_light, 1, 0, 1, kOnOff},
+                    {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
                     back};
         case kMenuGameplay:
@@ -4520,6 +4587,8 @@ int main(int argc, char** argv) {
     if (!automated && SDL_InitSubSystem(SDL_INIT_AUDIO) && audio.init(std::clamp(cfg.volume, 0.0f, 1.0f), std::string(base ? base : "") + "assets/sounds")) {
         g.audio = &audio;
         std::fprintf(stderr, "sounds: %d replaced by recordings from assets, the rest synthesized\n", audio.loadedFromAssets());
+        audio.setSuppressorTone(false, cfg.snd_pistol);  // the sound lab's settings (config.cfg snd_*)
+        audio.setSuppressorTone(true, cfg.snd_m4);
     }
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
@@ -4646,10 +4715,19 @@ int main(int argc, char** argv) {
         if (row < 0 || row >= int(rows.size())) return;
         const MenuItem& it = rows[size_t(row)];
         g.hudDirty = true;
+        const bool soundLab = g_menu.screen == kMenuSoundPistol || g_menu.screen == kMenuSoundRifle;
+        const bool labM4 = g_menu.screen == kMenuSoundRifle;
+        auto labPlay = [&]() {  // rebuild the sound from the settings and play it as your own shot
+            if (!g.audio) return;
+            g.audio->setSuppressorTone(labM4, labM4 ? cfg.snd_m4 : cfg.snd_pistol);
+            const SuppressorTone& t = labM4 ? cfg.snd_m4 : cfg.snd_pistol;
+            g.audio->play(labM4 ? Sfx::SuppressedRifle : Sfx::SuppressedShot, t.volume, 0.0f, t.pitch);
+        };
         if (adjustMenu(cfg, it, dir, big)) {
-            sound(g, Sfx::UiClick, 0.35f, 0.0f, 1.15f);
+            if (!soundLab) sound(g, Sfx::UiClick, 0.35f, 0.0f, 1.15f);
             settingsChanged();
             saveConfig(cfgPath, cfg);
+            if (soundLab) labPlay();
             if (g_menu.screen == kMenuInventory) {  // a skin picked (or every skin unlocked / locked again)
                 if (it.i == &cfg.all_skins) {
                     validateEquips(g);
@@ -4686,6 +4764,13 @@ int main(int argc, char** argv) {
                 }
                 break;
             case kActSkipCase: g_case.start = g_uiTime - kCaseSpin; break;
+            case kActPlaySound: labPlay(); break;
+            case kActResetSound:
+                (labM4 ? cfg.snd_m4 : cfg.snd_pistol) = labM4 ? rifleToneDefaults() : pistolToneDefaults();
+                settingsChanged();
+                saveConfig(cfgPath, cfg);
+                labPlay();
+                break;
             case kActEquipNew:
                 if (g_case.item >= 0 && size_t(g_case.item) < g_inv.items.size()) {
                     const Item& it2 = g_inv.items[size_t(g_case.item)];
@@ -5317,7 +5402,8 @@ int main(int argc, char** argv) {
 
         // The muzzle light fades out over a few frames.
         if (!paused) g.flashLight *= std::exp(-float(dt) / 0.022f);
-        renderer.setFlash(g.flashPos, cfg.muzzle_light && g.flashLight > 0.02f ? g.flashLight : 0.0f);
+        const float flash = g.flashLight * std::clamp(cfg.muzzle_brightness, 0.0f, 1.0f);
+        renderer.setFlash(g.flashPos, flash > 0.01f ? flash : 0.0f);
 
         // Dummies at their interpolated positions; remember exactly what we drew for hit tests.
         dynamicBoxes.clear();

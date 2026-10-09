@@ -39,7 +39,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Ctrl | Crouch (crouch in the air = crouch-jump) |
 | Shift | Walk |
 | Mouse 1 | Fire |
-| R | Reload |
+| R | Reload (every gun reloads 20% faster than CS: the AK-47 in 1.92 s) |
 | 1 / 2 / 3 / 4 | Like CS: primary (a rifle, sniper, SMG or the Nova) / pistol (pistol, Dual Berettas or Deagle) / knife (faster movement) / grenade. **Press 4 again** to cycle smoke → flash → HE → molotov |
 | Q | Switch back to your previous weapon |
 | F | Inspect your weapon |
@@ -136,6 +136,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **The match:** 5 minutes (`dm_minutes`) against 10 bots (`dm_bots`, up to 16); results screen, then a new match.
 - **Spawns are anywhere on the map**, away from the bots and out of their sight, with every gun reloaded and 1 s of protection. Bots respawn 2–4 s after you kill them, out of your sight.
 - **A kill gives you +40 HP** (up to 100) **and 10 rounds** in your magazine (up to a full mag).
+- **The bots fight each other too** (Play: BOTS FIGHT EACH OTHER, on by default, `dm_bot_fights`): each fights whoever it sees nearest, bot or you, and the kill feed and scoreboard count their kills. They still come looking for you half the time, and respawn out of each other's sight.
+- **Skill variance** (Play: SKILL VARIANCE, every mode with bots, `skill_variance`): OFF, every bot plays exactly the skill you picked; SLIGHT, each bot is up to half a level better or worse (a HARD lobby has some nearly-EXPERT bots and some nearly-NORMAL ones); WIDE, up to a whole level. Each bot keeps its own for the whole match.
 - **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a 0.25–0.55 s reaction once they've turned to face you. Half the time they roam towards your part of the map. In a fight they use cover when there's some close by (shoot, duck behind it, peek again), else they jiggle (strafe a step, stop, shoot). They spawn out of sight of where you are and of where you'll be a moment later.
 
 ## Retakes (Play: MODE)
@@ -203,7 +205,7 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Damage direction:** when a bot hits you, a red arc round the crosshair points at where it came from (fades over a second), like CS.
 - **A helmet "tink"** when your headshot is stopped by a helmet instead of killing.
 - **The kill, Valorant-style:** the moment a bot dies it flashes bright white and holds still for a beat (~80 ms), then fades as it falls.
-- **Muzzle flash light:** every gunshot lights up the walls, floor and ceiling round the gun for a few frames, warm and fading out over ~400 units (yours, the bots' and other players'; suppressed guns barely). `muzzle_light`, Settings → Video + sound.
+- **Muzzle flash light:** every gunshot lights up the walls, floor and ceiling round the gun for a few frames, warm and fading out over ~400 units (yours, the bots' and other players'; suppressed guns barely). MUZZLE FLASH LIGHT in Settings → Video + sound sets how bright (`muzzle_brightness`, 0 = off, 1 = v0.14's; 0.35 by default).
 - **Kills you can see:** the dead fall over the way your bullet pushed them, faster and faster like a toppling body, slide a little, lie there for a few seconds and sink away. A **headshot kill knocks the helmet off** (CTs; like CS:GO): it flies along the shot, spinning, bounces once and lies there.
 
 ## Guns
@@ -261,6 +263,7 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
 - **The M4A1-S** is the same spy-film "thwip" with a rifle under it: made from the AR-15 recordings, more gas, a deeper thump in the low mids (not sub-bass), the bolt carrier slamming and a longer tail.
 - **Menu music:** "Menu Music" by wipics (CC0, an upbeat electronic loop) plays on the main menu and its pages, and fades out when a game starts (not in the pause menu). MENU MUSIC in Settings → Video + sound sets its volume (`music_volume`, 0 = off). It's decoded in the background, so startup isn't slower.
 - **Scoping in** has its own soft "chk".
+- **Sound lab** (Settings → SOUND LAB): tune the suppressed pistol and the M4A1-S yourself. Every change rebuilds the sound from its recording and plays it; fire the gun in a game to hear it for real. TONE (how much of the bang's top end is kept: higher is brighter and tinnier), TAIL (how long the bang lasts), THUMP and its pitch (the low "thwump"), PFFT (the gas spit), ZIP and its pitch (the movie whistle), SLIDE / BOLT RING, ROOM ECHO, VOLUME and PITCH (lower is deeper). RESET TO DEFAULT puts it back. Everything is saved in `config.cfg` as `snd_pistol_*` and `snd_m4_*`.
 - **Synthesized sounds** are made at startup (and stand in for any recording that's missing). To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV; `--dump-played-sounds <folder>` writes what the game really plays, recordings included.
 
 

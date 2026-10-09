@@ -173,7 +173,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     const BotTarget* chosen = nullptr;
     float bestDist = 1e30f;
     auto consider = [&](const BotTarget& t) {
-        if (!visible(t)) return;
+        if (t.id == s.self || !visible(t)) return;
         float dist = length(t.origin - d.pos) * (t.id == b.target ? 0.7f : 1.0f);  // stick with the current one
         if (dist < bestDist) { bestDist = dist; chosen = &t; }
     };
@@ -224,7 +224,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
         case 0:  // roam: walk to the goal if it has one, else a random spot (deathmatch: often near you)
             if (b.path.empty()) {
                 Vec3 dest = b.hasGoal ? b.goal : s.nav->roamPoint(botRand(rng), false);
-                if (!b.hasGoal && !s.targets && s.playerUp && botRand(rng) < 0.5f)
+                if (!b.hasGoal && (!s.targets || s.huntYou) && s.playerUp && botRand(rng) < 0.5f)
                     for (int k = 0; k < 8; ++k) {  // hunt: somewhere in your part of the map
                         Vec3 p = s.nav->roamPoint(botRand(rng), false);
                         if (length2d(p - s.playerOrigin) < 900.0f) { dest = p; break; }

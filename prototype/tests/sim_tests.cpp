@@ -274,6 +274,21 @@ void testBotSkills() {
         }
     }
     CHECK(wrong == 0 && botSkill(1).aimError == 1.0f, "%d", wrong);
+    // Skill variance: skills between the levels blend them, get steadily better, and hit the levels exactly.
+    int blendWrong = 0;
+    float lastAim = 1e9f, lastReact = 1e9f;
+    for (int k = 0; k <= 30; ++k) {
+        const BotSkill s = skillAt(float(k) * 0.1f);
+        blendWrong += !(s.aimError <= lastAim && s.reactMin <= lastReact);
+        lastAim = s.aimError;
+        lastReact = s.reactMin;
+    }
+    for (int l = 0; l < 4; ++l) blendWrong += skillAt(float(l)).aimError != botSkill(l).aimError;
+    const BotSkill hardMinus = skillAt(1.5f), hardPlus = skillAt(2.5f);
+    std::printf("  variance: HARD -0.5 aim error x%.2f, HARD +0.5 x%.2f (HARD x%.2f)\n", double(hardMinus.aimError),
+                double(hardPlus.aimError), double(botSkill(2).aimError));
+    CHECK(blendWrong == 0 && skillAt(-1).aimError == botSkill(0).aimError && skillAt(9).aimError == botSkill(3).aimError,
+          "blend %d", blendWrong);
 }
 
 // Fire timing: a held trigger keeps the exact cadence; taps and clicks, however fast or badly timed,
@@ -673,6 +688,48 @@ void testDustDeathmatch() {
                 double(ticks) * kTickDt, double(worstZ));
     // Off a ledge (the side of the pit ramp) it falls, so mid-fall frames sit up to ~20 units above the floor.
     CHECK(next >= path.size() && worstZ <= 24.0f, "arrived %d, worst z %.1f", int(next >= path.size()), double(worstZ));
+}
+
+// Deathmatch with the bots fighting each other: a bot picks another bot it can see (never itself), and still you
+// when you're the nearer one.
+void testBotsFightEachOther() {
+    std::printf("bots fight each other\n");
+    const NavGrid& nav = dustNav();
+    BotSenses sense;
+    sense.world = &dust();
+    sense.nav = &nav;
+    uint32_t rng = 99u;
+    Dummy a, b;
+    BotBrain ba, bb;
+    spawnDeathmatchBot(a, ba, dpt(-100, 900), rng);   // mid, looking up towards...
+    spawnDeathmatchBot(b, bb, dpt(-100, 1500), rng);  // ...another bot further up mid
+    a.yaw = 90;
+    std::vector<BotTarget> everyone = {{0, a.pos, a.pos + Vec3{0, 0, 64}}, {1, b.pos, b.pos + Vec3{0, 0, 64}}};
+    sense.targets = &everyone;
+    sense.self = 0;
+    sense.huntYou = true;
+    bool pickedOther = false, pickedSelf = false;
+    for (int t = 0; t < 64; ++t) {
+        sense.now = t * kTickDt;
+        everyone[0] = {0, a.pos, a.pos + Vec3{0, 0, 64}};
+        updateDeathmatchBot(a, ba, sense, rng);
+        pickedOther = pickedOther || ba.target == 1;
+        pickedSelf = pickedSelf || ba.target == 0;
+    }
+    // You, much closer: it turns on you instead.
+    sense.playerUp = true;
+    sense.playerOrigin = a.pos + Vec3{0, 200, 0};
+    sense.playerEye = sense.playerOrigin + Vec3{0, 0, kStandEye};
+    everyone.push_back({-1, sense.playerOrigin, sense.playerEye});
+    bool pickedYou = false;
+    for (int t = 64; t < 256 && !pickedYou; ++t) {
+        sense.now = t * kTickDt;
+        updateDeathmatchBot(a, ba, sense, rng);
+        pickedYou = ba.target == -1;
+    }
+    std::printf("  saw the other bot: %s, itself: %s, then you: %s\n", pickedOther ? "yes" : "no", pickedSelf ? "yes" : "no",
+                pickedYou ? "yes" : "no");
+    CHECK(pickedOther && !pickedSelf && pickedYou, "other %d self %d you %d", int(pickedOther), int(pickedSelf), int(pickedYou));
 }
 
 // Cover: the finder's spots really hide a bot (head and chest) from the threat and have a peek spot
@@ -1216,6 +1273,7 @@ int main() {
 
 
     testBotCover();
+    testBotsFightEachOther();
     testBotGoals();
     testMapGaps();
 

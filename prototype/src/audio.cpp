@@ -189,50 +189,43 @@ std::vector<float> suppressedShot(Rng& r) {
     return b;
 }
 
-// The suppressed pistol made from the pistol recording, when there is one: what a suppressor does to the
-// real shot. The crack and the top end go (a steep lowpass), the bang dies faster, and the synthesized
-// slide and "pfft" go on top.
-std::vector<float> suppressedFromRecording(const std::vector<float>& shot, Rng& r) {
+// The suppressed pistol and the M4A1-S, built from a shot of the unsuppressed gun (a recording, or the synthesized
+// one) the way a suppressor changes it, shaped by the sound lab's settings (config.h SuppressorTone): the
+// recording's crack and top end cut above `tone`, its bang dying over `tail` ms; then the low "thwump", the gas
+// "pfft", the falling movie "zip", the slide (or bolt carrier) ringing and some room.
+std::vector<float> suppressedFrom(const std::vector<float>& shot, const SuppressorTone& t, bool rifle, Rng& r) {
     float peak = 0;
     for (float v : shot) peak = std::max(peak, std::fabs(v));
-    if (peak <= 0) return suppressedShot(r);
-    size_t onset = 0;
-    while (onset < shot.size() && std::fabs(shot[onset]) < peak * 0.15f) ++onset;
-    onset = onset > 48 ? onset - 48 : 0;  // keep the first millisecond of the rise
-    auto b = buffer(0.32f);
-    for (size_t i = 0; i < b.size() && onset + i < shot.size(); ++i)
-        b[i] = shot[onset + i] / peak * std::exp(-float(i) / kRate / 0.06f);
-    lowpass(b, 2600);
-    lowpass(b, 3200);
-    highpass(b, 70);
+    auto b = buffer(rifle ? 0.45f : 0.32f);
+    if (peak > 0) {
+        size_t onset = 0;
+        while (onset < shot.size() && std::fabs(shot[onset]) < peak * 0.15f) ++onset;
+        onset = onset > 48 ? onset - 48 : 0;  // keep the first millisecond of the rise
+        const float tail = std::max(5.0f, t.tail) * 0.001f;
+        for (size_t i = 0; i < b.size() && onset + i < shot.size(); ++i)
+            b[i] = shot[onset + i] / peak * std::exp(-float(i) / kRate / tail);
+    }
+    lowpass(b, t.tone);
+    lowpass(b, t.tone * 1.25f);
+    highpass(b, rifle ? 80.0f : 70.0f);
     normalize(b, 1.0f);
-    addTone(b, 0, 0.25f, 130 * r.jitter(0.06f), 62, 0.03f);                    // body
-    addNoise(b, 0.0003f, 0.42f, 1500, 5500, 0.005f, r, 0.0002f);               // pfft
-    addTone(b, 0, 0.2f, 3400 * r.jitter(0.05f), 1500, 0.006f);                 // zip
-    addNoise(b, 0.012f * r.jitter(0.1f), 0.18f, 300, 1600, 0.006f, r, 0.0002f); // slide
-    addMetal(b, 0.013f, 0.09f, 2400 * r.jitter(0.06f), 0.012f, r);
-    addNoise(b, 0.05f * r.jitter(0.1f), 0.12f, 300, 1400, 0.005f, r, 0.0002f);
-    saturate(b, 1.5f);
-    addReflections(b, 35, 30, 4, 0.14f, 0.55f, 2500, r);
+    addTone(b, 0, t.thump, t.thumpHz * r.jitter(0.06f), t.thumpHz * 0.53f, rifle ? 0.04f : 0.03f);  // thwump
+    addNoise(b, 0.0003f, t.pfft, 1500, 5500, 0.005f, r, 0.0002f);                                    // pfft
+    addTone(b, 0, t.zip, t.zipHz * r.jitter(0.05f), t.zipHz * 0.44f, 0.006f);                        // zip
+    addNoise(b, 0.012f * r.jitter(0.1f), rifle ? 0.1f : 0.18f, 300, 1600, 0.006f, r, 0.0002f);       // slide back
+    addMetal(b, rifle ? 0.02f * r.jitter(0.1f) : 0.013f, t.slide, (rifle ? 1900.0f : 2400.0f) * r.jitter(0.06f),
+             rifle ? 0.02f : 0.012f, r);
+    if (!rifle) addNoise(b, 0.05f * r.jitter(0.1f), 0.12f, 300, 1400, 0.005f, r, 0.0002f);           // and home
+    highpass(b, 70);
+    saturate(b, rifle ? 1.8f : 1.5f);
+    if (t.room > 0) addReflections(b, rifle ? 45.0f : 35.0f, rifle ? 40.0f : 30.0f, rifle ? 5 : 4, t.room, 0.55f, 2500, r);
     fadeTail(b);
-    normalize(b, 0.8f);
-    return b;
-}
-
-// A sniper scoping in: a short, soft mechanical "chk" and a breath of air as the lens slides (not a click).
-std::vector<float> zoomSound(Rng& r) {
-    auto b = buffer(0.09f);
-    addNoise(b, 0, 0.6f, 400, 2600 * r.jitter(0.1f), 0.006f, r, 0.0004f);
-    addTone(b, 0, 0.25f, 520 * r.jitter(0.05f), 380, 0.008f);
-    addNoise(b, 0.012f, 0.3f, 900, 5000, 0.012f, r, 0.004f);
-    lowpass(b, 6000);
-    fadeTail(b);
-    normalize(b, 0.45f);
+    normalize(b, rifle ? 0.9f : 0.8f);
     return b;
 }
 
 // The M4A1-S: the same spy-film "thwip" on top, but a rifle underneath: more gas, a deeper thump, the bolt
-// carrier slamming, a longer tail. From the AR-15 recordings when there are some (suppressedRifleFrom).
+// carrier slamming, a longer tail. (Only a stand-in: the game builds it with suppressedFrom.)
 std::vector<float> suppressedRifle(Rng& r) {
     auto b = buffer(0.45f);
     addNoise(b, 0, 1.0f, 170, 1500 * r.jitter(0.08f), 0.034f * r.jitter(0.12f), r, 0.0005f);  // the thwump
@@ -250,32 +243,6 @@ std::vector<float> suppressedRifle(Rng& r) {
     return b;
 }
 
-std::vector<float> suppressedRifleFrom(const std::vector<float>& shot, Rng& r) {
-    float peak = 0;
-    for (float v : shot) peak = std::max(peak, std::fabs(v));
-    if (peak <= 0) return suppressedRifle(r);
-    size_t onset = 0;
-    while (onset < shot.size() && std::fabs(shot[onset]) < peak * 0.15f) ++onset;
-    onset = onset > 48 ? onset - 48 : 0;
-    auto b = buffer(0.45f);
-    for (size_t i = 0; i < b.size() && onset + i < shot.size(); ++i)
-        b[i] = shot[onset + i] / peak * std::exp(-float(i) / kRate / 0.085f);
-    lowpass(b, 2000);
-    lowpass(b, 2600);
-    highpass(b, 80);
-    normalize(b, 1.0f);
-    addTone(b, 0, 0.3f, 150 * r.jitter(0.06f), 80, 0.04f);                     // oomph
-    addNoise(b, 0.0003f, 0.38f, 1400, 5000, 0.006f, r, 0.0002f);               // pfft
-    addTone(b, 0, 0.13f, 3000 * r.jitter(0.05f), 1300, 0.007f);                // zip
-    addMetal(b, 0.02f * r.jitter(0.1f), 0.08f, 1900 * r.jitter(0.06f), 0.02f, r);  // bolt carrier
-    highpass(b, 70);
-    saturate(b, 1.8f);
-    addReflections(b, 45, 40, 5, 0.2f, 0.6f, 2500, r);
-    fadeTail(b);
-    normalize(b, 0.9f);
-    return b;
-}
-
 // A 12 gauge: a huge low blast and a long rolling echo (the recordings replace it).
 std::vector<float> shotgunShot(Rng& r) {
     auto b = buffer(1.2f);
@@ -287,6 +254,18 @@ std::vector<float> shotgunShot(Rng& r) {
     addReflections(b, 70, 80, 6, 0.3f, 0.65f, 3000, r);
     fadeTail(b);
     normalize(b, 0.98f);
+    return b;
+}
+
+// A sniper scoping in: a short, soft mechanical "chk" and a breath of air as the lens slides (not a click).
+std::vector<float> zoomSound(Rng& r) {
+    auto b = buffer(0.09f);
+    addNoise(b, 0, 0.6f, 400, 2600 * r.jitter(0.1f), 0.006f, r, 0.0004f);
+    addTone(b, 0, 0.25f, 520 * r.jitter(0.05f), 380, 0.008f);
+    addNoise(b, 0.012f, 0.3f, 900, 5000, 0.012f, r, 0.004f);
+    lowpass(b, 6000);
+    fadeTail(b);
+    normalize(b, 0.45f);
     return b;
 }
 
@@ -597,6 +576,7 @@ std::vector<float> loadRecording(const std::string& path) {
 struct SoundBank {
     std::vector<std::vector<float>> clips;
     std::vector<int> first, count;
+    std::vector<std::vector<float>> pistolBase, rifleBase;  // what the suppressed guns are built from
 };
 
 SoundBank synthesize() {
@@ -634,7 +614,8 @@ SoundBank synthesize() {
 // Every sound: synthesized, then recordings in assetDir swapped in: <name>_1.wav / .ogg, _2, ... Each is
 // levelled to the synthesized sound's peak, so the mix stays balanced however loud the file is. Without a
 // recording of its own, the suppressed pistol is made from the pistol's recordings.
-SoundBank loadBank(const std::string& assetDir, int& loaded) {
+SoundBank loadBank(const std::string& assetDir, int& loaded, const SuppressorTone& pistolTone = pistolToneDefaults(),
+                   const SuppressorTone& rifleTone = rifleToneDefaults()) {
     SoundBank bank = synthesize();
     loaded = 0;
     std::vector<std::vector<float>> pistolClips, rifleClips;
@@ -670,12 +651,9 @@ SoundBank loadBank(const std::string& assetDir, int& loaded) {
         if (s == size_t(Sfx::SuppressedRifle)) ownSuppressedRifle = true;
         replace(s, clips);
     }
-    if (!ownSuppressed && !pistolClips.empty()) {
-        Rng rng;
-        std::vector<std::vector<float>> clips;
-        for (const std::vector<float>& c : pistolClips) clips.push_back(suppressedFromRecording(c, rng));
-        replace(size_t(Sfx::SuppressedShot), clips);
-    }
+    // The suppressed guns are built from the unsuppressed shots: the pistol's, and the AR-15's (m4_shot_N, not a
+    // sound of its own) or else the rifle's; synthesized ones when there are no recordings. Unless the suppressed
+    // sound has a recording of its own.
     std::vector<std::vector<float>> m4;
     for (int k = 1; !assetDir.empty() && k <= 8; ++k) {
         std::vector<float> c = loadRecording(assetDir + "/m4_shot_" + std::to_string(k) + ".wav");
@@ -683,11 +661,23 @@ SoundBank loadBank(const std::string& assetDir, int& loaded) {
         m4.push_back(std::move(c));
     }
     if (m4.empty()) m4 = rifleClips;
-    if (!ownSuppressedRifle && !m4.empty()) {
+    auto synthOf = [&](Sfx s) {
+        std::vector<std::vector<float>> c;
+        for (int v = 0; v < bank.count[size_t(s)]; ++v) c.push_back(bank.clips[size_t(bank.first[size_t(s)] + v)]);
+        return c;
+    };
+    if (pistolClips.empty()) pistolClips = synthOf(Sfx::PistolShot);
+    if (m4.empty()) m4 = synthOf(Sfx::RifleShot);
+    if (!ownSuppressed) bank.pistolBase = pistolClips;
+    if (!ownSuppressedRifle) bank.rifleBase = m4;
+    for (int rifle = 0; rifle < 2; ++rifle) {
+        const std::vector<std::vector<float>>& base = rifle ? bank.rifleBase : bank.pistolBase;
+        if (base.empty()) continue;
         Rng rng;
         std::vector<std::vector<float>> clips;
-        for (int v = 0; v < 4; ++v) clips.push_back(suppressedRifleFrom(m4[size_t(v) % m4.size()], rng));
-        replace(size_t(Sfx::SuppressedRifle), clips);
+        for (int v = 0; v < 4; ++v)
+            clips.push_back(suppressedFrom(base[size_t(v) % base.size()], rifle ? rifleTone : pistolTone, rifle != 0, rng));
+        replace(size_t(rifle ? Sfx::SuppressedRifle : Sfx::SuppressedShot), clips);
     }
     return bank;
 }
@@ -717,6 +707,8 @@ bool Audio::dumpWavs(const std::string& dir, const std::string& assetDir) {
 bool Audio::init(float masterVolume, const std::string& assetDir) {
     master_ = masterVolume;
     SoundBank bank = loadBank(assetDir, loaded_);
+    pistolBase_ = std::move(bank.pistolBase);
+    rifleBase_ = std::move(bank.rifleBase);
     sounds_ = std::move(bank.clips);
     first_ = std::move(bank.first);
     count_ = std::move(bank.count);
@@ -735,6 +727,20 @@ void Audio::shutdown() {
     if (stream_) SDL_DestroyAudioStream(stream_);
     stream_ = nullptr;
     if (musicLoader_.joinable()) musicLoader_.join();
+}
+
+void Audio::setSuppressorTone(bool rifle, const SuppressorTone& t) {
+    const std::vector<std::vector<float>>& base = rifle ? rifleBase_ : pistolBase_;
+    if (base.empty() || sounds_.empty()) return;  // (it has a recording of its own)
+    const size_t s = size_t(rifle ? Sfx::SuppressedRifle : Sfx::SuppressedShot);
+    Rng rng;
+    std::vector<std::vector<float>> clips;
+    for (int v = 0; v < count_[s]; ++v) clips.push_back(suppressedFrom(base[size_t(v) % base.size()], t, rifle, rng));
+    std::lock_guard<std::mutex> lock(mutex_);  // the mixer holds it while it reads the sounds
+    const int lo = first_[s], hi = first_[s] + count_[s];
+    voices_.erase(std::remove_if(voices_.begin(), voices_.end(), [&](const Voice& v) { return v.sound >= lo && v.sound < hi; }),
+                  voices_.end());
+    for (int v = 0; v < count_[s]; ++v) sounds_[size_t(lo + v)] = std::move(clips[size_t(v)]);
 }
 
 void Audio::loadMusic(const std::string& path) {
@@ -824,14 +830,12 @@ void SDLCALL Audio::callback(void* user, SDL_AudioStream* stream, int additional
 }
 
 void Audio::mix(float* out, int frames) {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        for (const Voice& v : pending_) {
-            if (voices_.size() >= kMaxVoices) voices_.erase(voices_.begin());  // steal the oldest
-            voices_.push_back(v);
-        }
-        pending_.clear();
+    std::lock_guard<std::mutex> lock(mutex_);  // (also keeps the sound lab from swapping a sound mid-mix)
+    for (const Voice& v : pending_) {
+        if (voices_.size() >= kMaxVoices) voices_.erase(voices_.begin());  // steal the oldest
+        voices_.push_back(v);
     }
+    pending_.clear();
     std::fill(out, out + frames * 2, 0.0f);
     // The music, fading towards its target level (about a second from silent to full).
     if (musicReady_) {

@@ -24,7 +24,7 @@ const RecoilStep kRiflePattern[30] = {
 };
 
 const WeaponDef kRifle = {
-    "AK-47", true, 215.0f, 36.0f, 0.98f, 0.1f, 30, 2.4f,
+    "AK-47", true, 215.0f, 36.0f, 0.98f, 0.1f, 30, 1.92f,
     0.34f, 5.0f, 8.0f, 0.12f, kRiflePattern, 30, true, 24.0f, kWRifle, 1, 0.0f, false, true, 2700, 300,
 };
 
@@ -36,7 +36,7 @@ const RecoilStep kPistolPattern[12] = {
 
 // 30 damage: a headshot kills without a helmet up close (120) but not through one (93), like CS's starting pistols.
 const WeaponDef kPistol = {
-    "PISTOL", true, 240.0f, 30.0f, 0.91f, 0.15f, 12, 2.2f,
+    "PISTOL", true, 240.0f, 30.0f, 0.91f, 0.15f, 12, 1.76f,
     0.34f, 3.5f, 6.0f, 0.25f, kPistolPattern, 12, false, 0.0f, kWPistol, 1, 0.0f, false, false, 200, 300,
 };
 
@@ -44,7 +44,7 @@ const WeaponDef kPistol = {
 const RecoilStep kSniperPattern[2] = {{0.0f, 0.0f}, {2.2f, 0.0f}};
 
 const WeaponDef kSniper = {
-    "AWP", true, 200.0f, 115.0f, 0.99f, 1.46f, 5, 3.6f,
+    "AWP", true, 200.0f, 115.0f, 0.99f, 1.46f, 5, 2.88f,
     0.34f, 8.0f, 12.0f, 0.0f, kSniperPattern, 2, false, 40.0f, kWSniper, 1, 0.0f, false, true, 4750, 100,
     0.975f, true, 4.5f,  // a body shot kills through kevlar (112), like CS
 };
@@ -61,7 +61,7 @@ const RecoilStep kBerettasPattern[15] = {
     {0.30f, -0.12f}, {0.30f, 0.10f}, {0.25f, -0.10f},
 };
 const WeaponDef kBerettas = {
-    "DUAL BERETTAS", true, 240.0f, 32.0f, 0.79f, 0.12f, 30, 3.8f,
+    "DUAL BERETTAS", true, 240.0f, 32.0f, 0.79f, 0.12f, 30, 3.04f,
     0.34f, 3.5f, 6.0f, 0.20f, kBerettasPattern, 15, false, 6.0f, kWBerettas, 1, 0.0f, false, false, 300, 300,
 };
 
@@ -71,14 +71,14 @@ const RecoilStep kDeaglePattern[7] = {
     {0.00f, 0.00f}, {3.20f, 0.30f}, {3.00f, -0.35f}, {2.80f, 0.40f}, {2.60f, -0.40f}, {2.40f, 0.30f}, {2.20f, -0.30f},
 };
 const WeaponDef kDeagle = {
-    "DEAGLE", true, 230.0f, 63.0f, 0.95f, 0.225f, 7, 2.2f,
+    "DEAGLE", true, 230.0f, 63.0f, 0.95f, 0.225f, 7, 1.76f,
     0.34f, 6.0f, 9.0f, 0.60f, kDeaglePattern, 7, false, 20.0f, kWDeagle, 1, 0.0f, false, false, 700, 300,
 };
 
 // Nova: pump shotgun, 9 pellets of 26 in a fixed pattern, deadly close and weak far; loads shell by shell.
 const RecoilStep kNovaPattern[2] = {{0.0f, 0.0f}, {3.0f, 0.2f}};
 const WeaponDef kNova = {
-    "NOVA", true, 220.0f, 26.0f, 0.70f, 0.88f, 8, 0.5f,
+    "NOVA", true, 220.0f, 26.0f, 0.70f, 0.88f, 8, 0.4f,
     0.34f, 6.0f, 9.0f, 0.0f, kNovaPattern, 2, false, 0.0f, kWNova, 9, 2.7f, true, true, 1050, 900,
 };
 
@@ -88,7 +88,7 @@ const RecoilStep kXmPattern[7] = {
     {0.0f, 0.0f}, {1.9f, 0.15f}, {1.7f, -0.2f}, {1.6f, 0.2f}, {1.5f, -0.2f}, {1.4f, 0.15f}, {1.3f, -0.15f},
 };
 const WeaponDef kXm1014 = {
-    "XM1014", true, 215.0f, 20.0f, 0.70f, 0.35f, 7, 0.45f,
+    "XM1014", true, 215.0f, 20.0f, 0.70f, 0.35f, 7, 0.36f,
     0.34f, 6.0f, 9.0f, 0.0f, kXmPattern, 7, true, 0.0f, kWXm1014, 6, 2.9f, true, true, 2000, 900, 0.80f,
 };
 
@@ -101,7 +101,7 @@ const RecoilStep kMac10Pattern[30] = {
     {0.00f, 0.35f}, {0.05f, -0.30f}, {0.00f, -0.35f}, {0.05f, 0.25f}, {0.00f, 0.30f}, {0.05f, -0.20f},
 };
 const WeaponDef kMac10 = {
-    "MAC-10", true, 240.0f, 29.0f, 0.80f, 0.075f, 30, 2.6f,
+    "MAC-10", true, 240.0f, 29.0f, 0.80f, 0.075f, 30, 2.08f,
     0.34f, 5.0f, 8.0f, 0.15f, kMac10Pattern, 30, true, 10.0f, kWMac10, 1, 0.0f, false, true, 1050, 600,
 };
 
@@ -115,7 +115,7 @@ const RecoilStep kM4Pattern[20] = {
     {0.03f, 0.52f}, {0.03f, 0.46f},
 };
 const WeaponDef kM4A1S = {
-    "M4A1-S", true, 225.0f, 38.0f, 0.99f, 0.1f, 20, 3.1f,
+    "M4A1-S", true, 225.0f, 38.0f, 0.99f, 0.1f, 20, 2.48f,
     0.34f, 4.0f, 8.0f, 0.09f, kM4Pattern, 20, true, 24.0f, kWM4A1S, 1, 0.0f, false, true, 2900, 300, 0.70f,
 };
 
@@ -129,7 +129,7 @@ const RecoilStep kGalilPattern[35] = {
     {0.04f, 0.24f}, {0.00f, 0.30f}, {0.04f, -0.22f}, {0.00f, -0.26f}, {0.04f, 0.20f},
 };
 const WeaponDef kGalil = {
-    "GALIL AR", true, 215.0f, 30.0f, 0.98f, 0.09f, 35, 3.0f,
+    "GALIL AR", true, 215.0f, 30.0f, 0.98f, 0.09f, 35, 2.4f,
     0.34f, 5.0f, 8.0f, 0.12f, kGalilPattern, 35, true, 24.0f, kWGalil, 1, 0.0f, false, true, 1800, 300,
 };
 
@@ -137,7 +137,7 @@ const WeaponDef kGalil = {
 // shot doesn't; you run with it nearly as fast as with a knife.
 const RecoilStep kSsgPattern[2] = {{0.0f, 0.0f}, {1.6f, 0.0f}};
 const WeaponDef kSsg08 = {
-    "SSG 08", true, 230.0f, 88.0f, 0.98f, 1.25f, 10, 3.7f,
+    "SSG 08", true, 230.0f, 88.0f, 0.98f, 1.25f, 10, 2.96f,
     0.34f, 6.0f, 3.0f, 0.0f, kSsgPattern, 2, false, 30.0f, kWSsg08, 1, 0.0f, false, true, 1700, 300,
     0.85f, true, 3.0f,
 };
@@ -151,7 +151,7 @@ const RecoilStep kUmpPattern[25] = {
     {0.00f, -0.25f},
 };
 const WeaponDef kUmp45 = {
-    "UMP-45", true, 230.0f, 35.0f, 0.85f, 0.09f, 25, 3.5f,
+    "UMP-45", true, 230.0f, 35.0f, 0.85f, 0.09f, 25, 2.8f,
     0.34f, 5.0f, 8.0f, 0.15f, kUmpPattern, 25, true, 10.0f, kWUmp45, 1, 0.0f, false, true, 1200, 600, 0.65f,
 };
 

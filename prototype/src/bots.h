@@ -59,6 +59,8 @@ struct BotSenses {
     bool playerUp = false;    // alive, not noclipping, match running
     // Competitive: the enemies this bot may fight (its own team's view). Null = just you (the player).
     const std::vector<BotTarget>* targets = nullptr;
+    int self = -2;            // the bot being updated (it's left out of `targets`)
+    bool huntYou = false;     // deathmatch with bots fighting each other: still roams towards you half the time
     bool noiseFresh = false;  // you made a sound this tick (footstep, shot)
     Vec3 noisePos;
     float noiseRadius = 0;
@@ -86,6 +88,18 @@ inline const BotSkill& botSkill(int level) {
         {0.12f, 0.15f, 0.50f, 0.85f, 13, 0.40f, "EXPERT"},
     };
     return kSkills[level < 0 ? 0 : level > 3 ? 3 : level];
+}
+// A skill between the levels (skill variance: a "hard" bot at 2.4 aims a bit better than 2, one at 1.6 a bit
+// worse). Blends the two neighbouring levels; clamped to easy..expert.
+inline BotSkill skillAt(float level) {
+    level = level < 0 ? 0 : level > 3 ? 3 : level;
+    const int lo = int(level), hi = lo < 3 ? lo + 1 : 3;
+    const float t = level - float(lo);
+    const BotSkill &a = botSkill(lo), &b = botSkill(hi);
+    auto mix = [t](float x, float y) { return x + (y - x) * t; };
+    return {mix(a.reactMin, b.reactMin), mix(a.reactRange, b.reactRange), mix(a.aimError, b.aimError),
+            mix(a.fireScale, b.fireScale), int(mix(float(a.lagTicks), float(b.lagTicks)) + 0.5f),
+            mix(a.headChance, b.headChance), t < 0.5f ? a.name : b.name};
 }
 
 float botRand(uint32_t& state);  // 0..1, xorshift (bots only: the player's shots never use randomness)

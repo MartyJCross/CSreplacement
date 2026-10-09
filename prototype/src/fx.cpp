@@ -824,8 +824,9 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
         pitch += 6.0f;
         a.shell = k;
     } else if (gun && reloadT_ >= 0) {
-        float t = reloadT_, T = reloadTime_;
-        float env = ramp(t, 0.0f, 0.35f) * (1.0f - ramp(t, T - 0.45f, T - 0.1f));
+        // The keyframes are timed for a 2.4 s reload and stretched to this gun's (the envelope uses the real time).
+        const float T = reloadTime_, t = reloadT_ * 2.4f / std::max(T, 0.1f);
+        float env = ramp(reloadT_, 0.0f, std::min(0.35f, T * 0.2f)) * (1.0f - ramp(reloadT_, T - std::min(0.45f, T * 0.25f), T - 0.1f));
         roll -= 28.0f * env;
         pitch += 9.0f * env;
         pos.x -= 1.0f * env;
