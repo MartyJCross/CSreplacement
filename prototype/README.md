@@ -265,6 +265,29 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
 
 - **Synthesized sounds** are made at startup (and stand in for any recording that's missing). To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV; `--dump-played-sounds <folder>` writes what the game really plays, recordings included.
 
+## Hearing where things are
+
+Sounds come from where they are, the way two ears hear them (not a measured HRTF, but the same cues):
+- **Left and right:** the far ear hears it a fraction of a millisecond later (up to 0.65 ms) and duller, with the head in the way, as well as quieter.
+- **Behind you:** duller and a little quieter than in front.
+- **Above and below:** below is darker and a touch quieter, above brighter, when it's really on another level (catwalk over mid, the pit, the tunnels' stairs).
+- **Through walls:** muffled (most of the top end gone) and about 10 dB quieter, like CS. Two rays from your head to the sound decide how blocked it is.
+
+`crisp.exe --dump-spatial <folder>` renders a footstep from each direction to stereo WAVs. Measured: a step on your left reaches the right ear 0.67 ms later with 62% of its highs against 75%; behind 68%; above 79%; below 66%; through a wall 49% and 10 dB down.
+
+## Replays and the killcam
+
+- **Killcam:** when a bot kills you (deathmatch, competitive), you see the last 3 seconds through its eyes, with its shots and their sound. Space or a click skips it. In deathmatch you respawn when it ends. Settings → Gameplay → KILLCAM.
+- **Watch a replay:** pause menu → WATCH REPLAY. The last 2.5 minutes (competitive: from the start of the round that just finished) with everyone where they were. The game waits while you watch. Mouse 1 / Mouse 2 change whose eyes you see through (you, bots, other players); F flies a free camera (WASD + mouse, Shift slow, Space / Ctrl up and down); Left / Right jump 5 s; Up / Down change the speed (x0.25 to x4); Space or P pauses; Esc goes back to the pause menu.
+- Recorded 64 times a second into a ring (`replay.h`): about 10 MB for the last 2.5 minutes, no allocations once it's full.
+
+## Stats and rating
+
+Every finished deathmatch or competitive match against bots goes into your **career** (`stats.txt` next to the game):
+- **Rating:** like Elo against the bots. A bot level counts as a rating (easy 700, normal 950, hard 1200, expert 1450), so beating better bots earns more and losing to worse ones costs more. Competitive: a win is 1, a draw a half, a loss 0; deathmatch: your place by kills (1st of 9 is a win, last a loss). Ranks every 125: RECRUIT, PRIVATE, CORPORAL, SERGEANT, LIEUTENANT, CAPTAIN, MAJOR, COLONEL, GENERAL.
+- **The results screen** shows the change, e.g. +16 RATING 1046 CORPORAL.
+- **STATS** (main menu and pause menu): your rating and rank, a graph of it over your last 40 matches, totals (matches, wins, K/D, HS%, ADR) and your last matches with their result and rating change.
+
 ## Collaterals
 
 **A bullet that goes through walls goes through people too.** The AK-47, M4A1-S, Galil, AWP, SSG 08, Deagle, Berettas and SMGs pass through a body into whoever is behind (up to three in a line), losing some damage each time (a body counts as 8 units of wall): an AWP chest shot kills two in a row, an AK headshot through one head kills the next. The starting pistol and the shotguns stop in the first body. Your hit log says COLLAT. Tested in `sim_tests`.

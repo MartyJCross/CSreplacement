@@ -37,13 +37,21 @@ public:
     // pan: -1 left .. +1 right. pitch: playback-rate multiplier. Every play picks one of the sound's
     // variants (never the same one twice in a row) with a touch of random pitch and volume.
     void play(Sfx s, float gain = 1.0f, float pan = 0.0f, float pitch = 1.0f);
-    // Positional: stereo pan + distance falloff relative to the listener (eye position + yaw).
+    // Positional, relative to the listener (eye position + yaw): distance falloff, and where it is, the way ears
+    // hear it: the far ear a fraction of a millisecond later and duller (head shadow), from behind duller still,
+    // from below darker and from above brighter, and muffled through walls (the occlusion test, if set).
     void play3D(Sfx s, const Vec3& pos, const Vec3& listener, float listenerYawDeg, float maxDist, float gain = 1.0f,
                 float pitch = 1.0f);
+    // How blocked the way from the listener to a sound is, 0 (clear) .. 1 (behind walls). Called on the main
+    // thread from play3D.
+    using OcclusionFn = float (*)(const void* ctx, const Vec3& listener, const Vec3& source);
+    void setOcclusion(OcclusionFn fn, const void* ctx) { occlusion_ = fn; occlusionCtx_ = ctx; }
 
     // Dev aid: writes every synthesized sound (each variant) as a 16-bit WAV into `dir`; with `assetDir`,
     // what the game really plays (recordings swapped in).
     static bool dumpWavs(const std::string& dir, const std::string& assetDir = "");
+    // Dev aid: a footstep from each direction (and through a wall), rendered like play3D, as stereo WAVs.
+    static bool dumpSpatial(const std::string& dir, const std::string& assetDir = "");
     void setVolume(float v) { master_ = v; }
 
     // Music: an Ogg/WAV decoded on a background thread (startup isn't held up), then looped. setMusic() sets
@@ -56,9 +64,14 @@ private:
         int sound;
         double pos;
         float rate, gl, gr;
+        // 3D: each ear reads the sound `delay` samples late (the far ear: up to ~0.65 ms) and keeps `hi` of what's
+        // above the split frequency (`split`: the one-pole filter's coefficient). 2D sounds: no delay, hi = 1.
+        float delayL = 0, delayR = 0, split = 0, hiL = 1, hiR = 1;
+        float lpL = 0, lpR = 0;
     };
     static void SDLCALL callback(void* user, SDL_AudioStream* stream, int additional, int total);
     void mix(float* out, int frames);
+    static void mixVoice(Voice& v, const std::vector<float>& snd, float* out, int frames);
     float rand01();  // main-thread only (cosmetic variation)
 
     SDL_AudioStream* stream_ = nullptr;
@@ -76,5 +89,8 @@ private:
     float musicGain_ = 0;                // audio thread only
     size_t musicPos_ = 0;                // frames, audio thread only
     std::thread musicLoader_;
+    OcclusionFn occlusion_ = nullptr;
+    const void* occlusionCtx_ = nullptr;
+    void start(Sfx s, float gain, float pan, float pitch, float delayL, float delayR, float splitHz, float hiL, float hiR);
     uint32_t rng_ = 0x51ED270Bu;
 };

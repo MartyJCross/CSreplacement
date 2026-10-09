@@ -11,6 +11,8 @@
 
 #include "combat.h"
 #include "items.h"
+#include "stats.h"
+#include "replay.h"
 
 #include "bots.h"
 #include "movement.h"
@@ -1011,6 +1013,72 @@ void testNewGuns() {
           "scope %.1f %.1f %.1f (%d scoped guns)", double(exact), double(noscope), double(scoped), scopes);
 }
 
+// Career: beating bots raises your rating (more for better bots), losing lowers it, and it all saves and loads.
+void testCareer() {
+    std::printf("career\n");
+    Career c;
+    const int winHard = ratingChange(1000, 2, 1.0f), winEasy = ratingChange(1000, 0, 1.0f), loseHard = ratingChange(1000, 2, 0.0f);
+    const int loseEasy = ratingChange(1000, 0, 0.0f);
+    std::printf("  at 1000: beat HARD %+d, beat EASY %+d, lose to HARD %+d, lose to EASY %+d\n", winHard, winEasy, loseHard, loseEasy);
+    MatchRecord m;
+    m.mode = 3;
+    m.score = 1;
+    m.kills = 20;
+    m.deaths = 10;
+    m.hsKills = 9;
+    m.damage = 2100;
+    m.rounds = 22;
+    m.botLevel = 2;
+    m.when = "2026-10-09 12:00";
+    m.result = "WON 13-9";
+    c.add(m);
+    m.mode = 1;
+    m.score = 0.25f;
+    m.rounds = 0;
+    m.result = "7TH OF 9";
+    c.add(m);
+    const std::string path = "sim_tests_career.txt";
+    Career back;
+    const bool io = c.save(path) && back.load(path);
+    std::remove(path.c_str());
+    std::printf("  two matches: rating %d (best %d), %s, then %s; ranks %s / %s / %s\n", c.rating, c.best,
+                c.matches[0].result.c_str(), c.matches[1].result.c_str(), rankName(800), rankName(1000), rankName(1800));
+    CHECK(winHard > winEasy && winEasy > 0 && loseHard < 0 && loseEasy < loseHard && c.matches[0].ratingAfter > 1000 &&
+              io && back.rating == c.rating && back.matches.size() == 2 && back.matches[0].result == "WON 13-9" &&
+              back.matches[1].when == m.when && std::string(rankName(1800)) == "GENERAL" && c.wins() == 1,
+          "career");
+}
+
+// Replays: frames in, the moment between two frames comes out interpolated, old frames and shots fall out of the
+// ring once it's full, and the shots in a span come back.
+void testReplay() {
+    std::printf("replay\n");
+    Replay r;
+    const int total = int(Replay::kRate * Replay::kSeconds) + 640;  // 10 s more than it keeps
+    for (int k = 0; k < total; ++k) {
+        const double t = k / Replay::kRate;
+        ReplayFrame& f = r.next(t);
+        ReplayAgent a;
+        a.pos = {float(k) * 2.0f, 0, 0};
+        a.yaw = 170.0f + float(k % 2) * 20.0f;  // flips across 180: must turn the short way
+        f.agents.push_back(a);
+        if (k % 64 == 0) r.shot({t, a.pos, a.pos + Vec3{100, 0, 0}, 0, 0});
+    }
+    ReplayFrame out;
+    const double mid = (total - 2 + 0.5) / Replay::kRate;
+    const bool ok = r.sample(mid, out);
+    std::vector<ReplayShot> shots;
+    r.shotsBetween(r.end() - 10.0, r.end(), shots);
+    std::printf("  %zu frames kept (%.0f s), from %.1f s; between frames: x %.1f, yaw %.1f; %zu shots in the last 10 s\n",
+                r.frames(), r.end() - r.start(), r.start(), double(out.agents.empty() ? 0 : out.agents[0].pos.x),
+                double(out.agents.empty() ? 0 : out.agents[0].yaw), shots.size());
+    CHECK(ok && r.frames() == size_t(Replay::kRate * Replay::kSeconds) && std::fabs(r.start() - 10.0) < 0.02 &&
+              std::fabs(out.agents[0].pos.x - float(total - 2) * 2.0f - 1.0f) < 0.01f &&
+              (std::fabs(out.agents[0].yaw - 180.0f) < 0.01f || std::fabs(out.agents[0].yaw + 180.0f) < 0.01f) &&
+              shots.size() == 10,
+          "replay");
+}
+
 // Cases: 100,000 openings land on the CS odds, every rarity has skins, a case comes every N kills, and the
 // inventory file round-trips.
 void testCases() {
@@ -1296,6 +1364,8 @@ int main() {
     testCases();
 
 
+    testCareer();
+    testReplay();
     testBotCover();
     testBotsFightEachOther();
     testBotGoals();

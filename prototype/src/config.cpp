@@ -126,7 +126,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nfreeze_time " << c.freeze_time
         << "\nmate_skill " << c.mate_skill
         << "\nenemy_skill " << c.enemy_skill << "\nskill_variance " << c.skill_variance
-        << "\ndm_bot_fights " << c.dm_bot_fights << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
+        << "\ndm_bot_fights " << c.dm_bot_fights << "\nkillcam " << c.killcam << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
         << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\n";
     return bool(out);
 }
@@ -165,6 +165,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "muzzle_brightness") c.muzzle_brightness = v;
         else if (key == "skill_variance") i(c.skill_variance);
         else if (key == "dm_bot_fights") i(c.dm_bot_fights);
+        else if (key == "killcam") i(c.killcam);
 
         else if (key == "music_volume") c.music_volume = v;
         else if (key == "fullscreen") i(c.fullscreen);

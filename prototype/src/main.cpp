@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <ctime>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -20,6 +21,8 @@
 #include "fx.h"
 #include "gl.h"
 #include "items.h"
+#include "stats.h"
+#include "replay.h"
 #include "movement.h"
 #include "net.h"
 #include "upnp.h"
@@ -52,10 +55,13 @@ struct Options {
     bool throwSmoke = false, bots = false;       // --smoke [frame N: --throw-frame N], --bots (for screenshots)
     int throwFrame = 30;
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
-    bool benchRaw = false;                       // --bench-raw S: the same without glFinish (frames queue like play)
+    bool benchRaw = false;
+    std::string careerFile;                      // --career FILE: show this career (screenshots; never written)                       // --bench-raw S: the same without glFinish (frames queue like play)
     int inspectFrame = -1;                       // --inspect N: start an inspect on frame N (screenshots)
     int nadeType = 0;                            // --nade T: grenade type for --smoke (0 smoke .. 3 molotov)
     int dieFrame = -1;                           // --die N: you die on frame N (screenshots of death / spectating)
+    int dieBy = -2;                              // --killer I: bot I killed you (--die; shows the killcam)
+    int replayFrame = -1;                        // --replay-frame N: open the replay viewer on frame N
     int giveCases = 0;                           // --give-cases N: N cases to open (tests)
     int buyCat = -1;                             // --buy N: the buy wheel open on category N (0 = the categories)
     bool startCT = false;                        // --ct: competitive starts with you on CT (testing)
@@ -94,6 +100,10 @@ Options parseArgs(int argc, char** argv) {
             o.startCT = true;
         } else if (a == "--die") {
             o.dieFrame = std::atoi(next());
+        } else if (a == "--killer") {
+            o.dieBy = std::atoi(next());
+        } else if (a == "--replay-frame") {
+            o.replayFrame = std::atoi(next());
         } else if (a == "--give-cases") {
             o.giveCases = std::atoi(next());
         } else if (a == "--buy") {
@@ -101,6 +111,8 @@ Options parseArgs(int argc, char** argv) {
 
         } else if (a == "--inspect") {
             o.inspectFrame = std::atoi(next());
+        } else if (a == "--career") {
+            o.careerFile = next();
         } else if (a == "--bench" || a == "--bench-raw") {
             o.benchRaw = a == "--bench-raw";
             o.benchSeconds = float(std::atof(next()));
@@ -271,6 +283,7 @@ struct Game {
         int youScore = 0, themScore = 0, round = 0;
         int phase = 0;                      // 0 freeze/buy, 1 live, 2 round over, 3 match over
         double phaseEnd = 0, buyUntil = 0;
+        double roundStartAt = 0;  // (the replay viewer starts a round's replay here)
         int money = 800;
         std::vector<int> botMoney;
         std::vector<char> botRifle;         // that bot has a rifle (else a pistol)
@@ -348,6 +361,26 @@ struct Game {
     // Cosmetic: camera height offset that eases the view over stairs and stepped ramps.
     float stepSmooth = 0;
     float camRoll = 0;        // spray feedback: camera roll in degrees (around the crosshair)
+    // Replays (replay.h): the last few minutes, 64 frames a second, and every shot. `rv` is what's playing: the
+    // killcam (the last moments through your killer's eyes, while the game goes on) or the replay viewer (pause
+    // menu: the game waits; seek, speed, anyone's eyes or a free camera).
+    Replay replay;
+    struct ReplayView {
+        bool on = false, killcam = false, paused = false;
+        double t = 0, end = 0;   // the time playing; the killcam stops at `end`
+        float speed = 1;
+        int pov = -1;            // whose eyes: an agent (you = the last one), or -1: the free camera
+        Vec3 camPos;
+        float camYaw = 0, camPitch = 0;
+        double shotsDone = 0;    // the shots up to here have been played
+        int killer = -1;
+    } rv;
+    int killcamKiller = -1;      // a bot just killed you: its killcam starts at killcamAt
+    double killcamAt = -1;
+    bool killcamOn = true;       // (config killcam)
+    int replayTicks = 0;
+    size_t replayAgents = 0;
+    Effects replayFx;            // the replay's tracers (the live game's keep going under a killcam)
     Vec3 flashPos;            // muzzle light: where the last (brightest) shot was, and how bright it still is
     float flashLight = 0;
     float fovPunch = 0;       // shot thump: the view widens a touch for a moment (centre stays put)
@@ -639,6 +672,7 @@ void applyConfig(Game& g, const Config& cfg) {
     g.enemySkill = std::clamp(cfg.enemy_skill, 0, 3);  // next round
     g.skillVariance = std::clamp(cfg.skill_variance, 0, 2);
     g.dmBotFights = cfg.dm_bot_fights != 0;
+    g.killcamOn = cfg.killcam != 0;
     g.viewShake = cfg.view_shake != 0;
     // (knife and skins: the inventory, applySkins)
     g.hitSound = cfg.hitsound != 0;
@@ -704,6 +738,7 @@ Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
 
 // (Re)starts a deathmatch: fresh scores, everyone respawns.
 void startDeathmatch(Game& g) {
+    g.replay.clear();
     g.dmEnd = g.simTime + 60.0 * g.dmMinutes;
     g.dmOverUntil = -1;
     g.shots = g.hits = g.headshots = 0;
@@ -876,6 +911,11 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
     sound(g, Sfx::HitBody, 0.9f, 0.0f, 0.7f);
     g.hudDirty = true;
     if (!dies) return false;
+    if (attacker >= 0 && size_t(attacker) < g.dummies.size() && isBot(g, size_t(attacker)) && !g.online && g.killcamOn &&
+        g.mapId == 1 && (g.mode == 1 || g.mode == 3)) {
+        g.killcamKiller = attacker;  // the killcam starts a moment from now
+        g.killcamAt = g.simTime;
+    }
     g.zoom = g.resumeZoom = 0;  // dead: no scope left up (spectating, or the next life)
     g.resumeZoomAt = g.boltAt = -1;
     g.buyMenu = false;
@@ -899,7 +939,7 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
     }
     g.deaths++;
     g.hp = 100;
-    g.deadUntil = g.simTime + 1.2;
+    g.deadUntil = g.simTime + (g.killcamAt == g.simTime ? 4.3 : 1.2);  // (the killcam first: Space skips it)
     g.flashFull = g.flashEnd = 0;
     buildDamageReport(g);
     if ((g.mode == 1 || g.mode == 5) && g.mapId == 1) {
@@ -920,6 +960,111 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
 }
 
 // A bot that died: when (and whether) it comes back depends on the mode.
+// Starts the replay viewer (pause menu): the game waits while you watch.
+void startReplayViewer(Game& g) {
+    if (g.replay.empty()) return;
+    g.rv = Game::ReplayView{};
+    g.rv.on = true;
+    const double mark = g.replay.markTime();
+    g.rv.t = mark >= g.replay.start() && mark < g.replay.end() - 1.0 ? mark : g.replay.start();
+    g.rv.end = g.replay.end();
+    g.rv.pov = int(g.dummies.size());  // you
+    g.rv.shotsDone = g.rv.t;
+    g.replayFx = Effects{};
+}
+
+// Steps whatever's playing by dt (wall clock): the shots crossed are heard and their tracers drawn.
+void stepReplay(Game& g, double dt) {
+    if (g.killcamAt >= 0 && !g.rv.on && g.simTime >= g.killcamAt + 0.6) {  // the killcam: the last 3 s, its eyes
+        g.rv = Game::ReplayView{};
+        g.rv.on = g.rv.killcam = true;
+        g.rv.killer = g.rv.pov = g.killcamKiller;
+        g.rv.t = std::max(g.replay.start(), g.killcamAt - 3.0);
+        g.rv.end = g.killcamAt + 0.35;
+        g.rv.shotsDone = g.rv.t;
+        g.replayFx = Effects{};
+        g.killcamAt = -1;
+        g.hudDirty = true;
+    }
+    if (!g.rv.on) return;
+    if (!g.rv.paused) g.rv.t += dt * g.rv.speed;
+    if (!g.rv.killcam) g.rv.end = g.replay.end();
+    if (g.rv.t >= g.rv.end) {
+        g.rv.t = g.rv.end;
+        if (g.rv.killcam) {  // done: deathmatch respawns now, competitive goes back to spectating
+            g.rv.on = false;
+            if (g.deadUntil > g.simTime + 0.3 && g.deadUntil < 1e17) g.deadUntil = g.simTime + 0.3;
+            g.hudDirty = true;
+            return;
+        }
+        g.rv.paused = true;
+    }
+    g.replayFx.setGround(g.fx.ground());
+    g.replayFx.update(float(dt * g.rv.speed));
+    static std::vector<ReplayShot> shots;
+    if (g.rv.t > g.rv.shotsDone) {
+        g.replay.shotsBetween(g.rv.shotsDone, g.rv.t, shots);
+        ReplayFrame now;
+        const bool have = g.audio && g.replay.sample(g.rv.t, now);
+        Vec3 ear = g.rv.camPos;
+        float earYaw = g.rv.camYaw;
+        if (have && g.rv.pov >= 0 && size_t(g.rv.pov) < now.agents.size()) {
+            ear = now.agents[size_t(g.rv.pov)].pos + Vec3{0, 0, 64};
+            earYaw = now.agents[size_t(g.rv.pov)].yaw;
+        }
+        for (const ReplayShot& sh : shots) {
+            g.replayFx.tracer(sh.from, sh.to);
+            if (!have) continue;
+            const int w = sh.weapon;
+            const Sfx sfx = w == kWPistol ? Sfx::SuppressedShot : w == kWM4A1S ? Sfx::SuppressedRifle
+                            : w == kWNova || w == kWXm1014 ? Sfx::ShotgunShot : w == kWSniper || w == kWSsg08 ? Sfx::SniperShot
+                            : w == kWBerettas || w == kWDeagle ? Sfx::PistolShot : Sfx::RifleShot;
+            g.audio->play3D(sfx, sh.from, ear, earYaw, 4000.0f, sh.shooter == g.rv.pov ? 1.5f : 1.1f, gunshotPitch(w));
+        }
+    }
+    g.rv.shotsDone = g.rv.t;
+}
+
+// One replay frame: every dummy as drawn, then you. Every other tick (64 a second), on Dust, offline or online.
+void recordReplay(Game& g) {
+    if (g.mapId != 1 || (g.rv.on && !g.rv.killcam)) return;
+    if (++g.replayTicks & 1) return;
+    if (g.replayAgents != g.dummies.size() + 1) {  // the roster changed (a new match, players joining): start over
+        g.replay.clear();
+        g.replayAgents = g.dummies.size() + 1;
+    }
+    ReplayFrame& f = g.replay.next(g.simTime);
+    for (const Dummy& d : g.dummies) {
+        ReplayAgent a;
+        a.pos = d.pos;
+        a.hitDir = d.hitDir;
+        a.yaw = d.yaw;
+        a.pitch = d.pitch;
+        a.crouch = d.crouch;
+        a.deadFor = d.deadFor;
+        a.stepDist = d.stepDist;
+        a.weapon = d.weapon;
+        a.alive = d.alive();
+        a.friendly = d.friendly;
+        a.lostHelmet = d.lostHelmet;
+        f.agents.push_back(a);
+    }
+    ReplayAgent you;
+    you.pos = g.player.origin;
+    you.yaw = float(g.viewYaw);
+    you.pitch = float(g.viewPitch);
+    you.crouch = g.player.ducked ? 1.0f : 0.0f;
+    you.weapon = uint8_t(g.weapon->def->id);
+    you.alive = g.deadUntil < 0 && !(g.mode == 3 && g.comp.youDead);
+    f.agents.push_back(you);
+    for (const Game::Smoke& sm : g.smokes) f.smokes.push_back({sm.pos, sm.start});
+}
+
+// A shot for the replay (shooter: a dummy index, or -1 for you).
+void replayShot(Game& g, const Vec3& from, const Vec3& to, int shooter, int weapon) {
+    if (g.mapId == 1) g.replay.shot({g.simTime, from, to, shooter < 0 ? int(g.dummies.size()) : shooter, uint8_t(weapon)});
+}
+
 // A gunshot lights the walls round it for a moment (warm, about 400 units; fades in ~50 ms). One light at a
 // time: a brighter shot takes it over.
 void muzzleLight(Game& g, const Vec3& pos, float strength) {
@@ -1145,6 +1290,7 @@ void teamRadio(Game& g, int bot, const std::string& msg) {
 // A new round: everyone to their spawn, survivors keep their kit, bots buy and get their plan.
 void startCompRound(Game& g) {
     Game::Comp& c = g.comp;
+    c.roundStartAt = g.simTime;
     const bool halfTime = c.round == 12;
     if (halfTime) {  // swap sides: fresh economy
         c.youTeam = 1 - c.youTeam;
@@ -1391,7 +1537,10 @@ void startCompMatch(Game& g) {
 
 
 // The round is decided: money, MVP, score; then the next round or the end of the match.
+void recordMatch(Game& g, float score, const std::string& result);  // (your career, below)
+
 void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
+    g.replay.mark(g.comp.roundStartAt);  // the viewer starts at the round that just ended
     Game::Comp& c = g.comp;
     if (c.phase >= 2) return;
     if (!g_compLog.empty()) {
@@ -1445,6 +1594,11 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
     const bool over = c.youScore >= kCompRoundsToWin || c.themScore >= kCompRoundsToWin || c.round >= 24;
     c.phase = over ? 3 : 2;
     c.phaseEnd = g.simTime + (over ? 10.0 : 5.0);
+    if (over) {
+        const bool won = c.youScore > c.themScore, draw = c.youScore == c.themScore;
+        recordMatch(g, won ? 1.0f : draw ? 0.5f : 0.0f,
+                    std::string(won ? "WON " : draw ? "DRAW " : "LOST ") + std::to_string(c.youScore) + "-" + std::to_string(c.themScore));
+    }
     g.hudDirty = true;
 }
 
@@ -2288,6 +2442,59 @@ int g_caseKills = 25;     // config case_kills
 bool g_allSkins = false;  // config all_skins: every skin to pick from (testing)
 double g_uiTime = 0;      // real seconds (menus animate while the game is paused)
 
+// ---- Your career: finished matches against bots, your stats and rating (stats.h, stats.txt) ----
+Career g_career;
+std::string g_careerPath;    // empty in automated runs: tests never touch your stats
+std::string g_ratingNote;    // shown on the result screen: "+16 RATING   1046   CORPORAL"
+
+std::string nowText() {
+    const std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
+    return buf;
+}
+
+// A finished match against bots (offline deathmatch or competitive on Dust): your stats, how it went (0..1)
+// and the rating change, saved straight away.
+void recordMatch(Game& g, float score, const std::string& result) {
+    g_ratingNote.clear();
+    if (g.online || g.mapId != 1 || (g.mode != 1 && g.mode != 3)) return;
+    MatchRecord m;
+    m.mode = g.mode;
+    m.score = score;
+    m.kills = g.you.kills;
+    m.deaths = g.you.deaths;
+    m.assists = g.you.assists;
+    m.hsKills = g.you.hsKills;
+    m.damage = g.you.damage;
+    m.rounds = g.mode == 3 ? std::max(1, g.comp.round) : 0;
+    m.botLevel = float(g.enemySkill);
+    m.when = nowText();
+    m.result = result;
+    const MatchRecord& r = g_career.add(m);
+    if (!g_careerPath.empty()) g_career.save(g_careerPath);
+    char buf[96];
+    const int d = r.ratingAfter - r.ratingBefore;
+    std::snprintf(buf, sizeof(buf), "%s%d RATING   %d   %s", d >= 0 ? "+" : "", d, r.ratingAfter, rankName(r.ratingAfter));
+    g_ratingNote = buf;
+}
+
+// Deathmatch over: your place among everyone by kills (1st of 9 = 1.0, last = 0).
+void recordDeathmatch(Game& g) {
+    int above = 0;
+    for (const Game::Stats& b : g.botStats) above += b.kills > g.you.kills;
+    const int n = int(g.botStats.size()) + 1;
+    const char* suffix = above == 0 ? "ST" : above == 1 ? "ND" : above == 2 ? "RD" : "TH";
+    recordMatch(g, n > 1 ? 1.0f - float(above) / float(n - 1) : 1.0f,
+                std::to_string(above + 1) + suffix + " OF " + std::to_string(n));
+}
+
 void saveInventory() {
     if (!g_invPath.empty()) g_inv.save(g_invPath);
 }
@@ -2684,8 +2891,10 @@ void simTick(Game& g, const Options& opt) {
         bool anyKill = false;
         for (int k = 0; k < shotCount; ++k) {
             const ShotResult& r = pellets[k];
-            if (k == 0 || k % 3 == 0 || r.isCollat)  // (a collat: the tracer carries on to the next one)
+            if (k == 0 || k % 3 == 0 || r.isCollat) {  // (a collat: the tracer carries on to the next one)
                 g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
+                replayShot(g, g.lastRenderEye + anglesToForward(float(g.viewPitch), float(g.viewYaw)) * 20.0f, r.end, -1, wd.id);
+            }
             if (g.online && g.net.ready() && k > 0 && k % 3 == 0) g.net.sendFire(g.lastRenderEye, r.end, code);
             // A player (their game applies it), or a bot when you joined (the host's): tell them.
             if (g.online && g.net.ready() && r.dummyIndex >= 0 && !(netHost(g) && isBot(g, size_t(r.dummyIndex))))
@@ -3097,6 +3306,7 @@ void simTick(Game& g, const Options& opt) {
     if (g.mapId == 1 && g.mode == 1) {
         if (g.dmOverUntil < 0 && g.simTime >= g.dmEnd) {
             g.dmOverUntil = g.simTime + 8.0;  // results screen, then a new match
+            recordDeathmatch(g);
             g.hudDirty = true;
         } else if (g.dmOverUntil >= 0 && g.simTime >= g.dmOverUntil) {
             startDeathmatch(g);
@@ -3268,6 +3478,8 @@ void simTick(Game& g, const Options& opt) {
             }
     }
 
+    recordReplay(g);
+
     // ---- Bots shoot back ----
     Vec3 simEye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
     g.eyeHistory[g.histHead] = simEye;
@@ -3330,6 +3542,7 @@ void simTick(Game& g, const Options& opt) {
                 }
                 g.fx.tracer(head + dir * 20.0f, head + dir * (hitIt ? t : maxT));
                 muzzleLight(g, head + dir * 20.0f, rifle ? 0.9f : 0.2f);
+                replayShot(g, head + dir * 20.0f, head + dir * (hitIt ? t : maxT), int(i), rifle ? kWRifle : kWPistol);
                 nearMiss(head, dir, hitIt ? t : maxT);
                 if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * (hitIt ? t : maxT), rifle ? 0 : 1, int(i));
                 if (hitIt && !isBot(g, size_t(tgt))) {  // a player: their game takes it (and their armor)
@@ -3379,6 +3592,7 @@ void simTick(Game& g, const Options& opt) {
             }
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
             muzzleLight(g, head + dir * 20.0f, rifle ? 0.9f : 0.2f);
+            replayShot(g, head + dir * 20.0f, head + dir * bestT, int(i), rifle ? kWRifle : kWPistol);
             if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * bestT, rifle ? 0 : 1, int(i));
             if (!hit) nearMiss(head, dir, bestT);
 
@@ -3466,8 +3680,10 @@ enum MenuScreen {
     kMenuNone, kMenuMain, kMenuPause, kMenuPlay, kMenuSettings, kMenuControls,
     kMenuMouse, kMenuCrosshair, kMenuWeapon, kMenuVideo, kMenuGameplay,  // settings pages, in order
     kMenuInventory, kMenuCase,
+    kMenuStats,  // your career: rating, totals, recent matches
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
+                  kActReplay,
                   kActOpenCase, kActSkipCase, kActEquipNew, kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
 
@@ -3475,6 +3691,7 @@ constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button
 // kMenuMain before a game has started, kMenuPause once one has.
 struct MenuState { int screen = kMenuNone, sel = 0, root = kMenuMain; };
 MenuState g_menu;
+bool g_replayAvailable = false;  // the pause menu offers WATCH REPLAY (something's recorded, offline)
 
 const char* const kOnOff[] = {"OFF", "ON"};
 const uint32_t kCrosshairColors[] = {0x00FF00, 0xFFFF00, 0x00FFFF, 0xFFFFFF, 0xFF3030, 0xFF40FF};
@@ -3515,6 +3732,7 @@ const char* menuTitle(int screen) {
         case kMenuGameplay: return "GAMEPLAY";
         case kMenuInventory: return "INVENTORY";
         case kMenuCase: return "CASE";
+        case kMenuStats: return "STATS";
         default: return "";
     }
 }
@@ -3529,12 +3747,14 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
     switch (screen) {
         case kMenuMain:
             return {button("PLAY", goTo(kMenuPlay)), button("INVENTORY", goTo(kMenuInventory)),
-                    button("SETTINGS", goTo(kMenuSettings)), button("CONTROLS", goTo(kMenuControls)), button("QUIT", kActQuit)};
+                    button("STATS", goTo(kMenuStats)), button("SETTINGS", goTo(kMenuSettings)), button("CONTROLS", goTo(kMenuControls)), button("QUIT", kActQuit)};
         case kMenuPause: {
             std::vector<MenuItem> r = {button("RESUME", kActResume), button("CHANGE MODE OR MAP", goTo(kMenuPlay))};
             if (mode == 0) r.push_back(button("RESET POSITION", kActReset));
             if (mode == 4) r.push_back(button("RESTART ROUTE", kActReset));
-            r.insert(r.end(), {button("INVENTORY", goTo(kMenuInventory)), button("SETTINGS", goTo(kMenuSettings)),
+            if (g_replayAvailable) r.push_back(button(mode == 3 ? "WATCH REPLAY (FROM THIS ROUND)" : "WATCH REPLAY (LAST 2.5 MIN)", kActReplay));
+            r.insert(r.end(), {button("INVENTORY", goTo(kMenuInventory)), button("STATS", goTo(kMenuStats)),
+                               button("SETTINGS", goTo(kMenuSettings)),
                                button("CONTROLS", goTo(kMenuControls)), button("MAIN MENU", kActMainMenu),
                                button("QUIT", kActQuit)});
             return r;
@@ -3603,6 +3823,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     button("GAMEPLAY", goTo(kMenuGameplay)),
                     button("RELOAD CONFIG.CFG", kActReload), back};
         case kMenuControls: return {back};
+        case kMenuStats: return {back};
         case kMenuMouse:
             return {{"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
                     {"SCOPED SENSITIVITY RATIO", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
@@ -3638,6 +3859,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     back};
         case kMenuGameplay:
             return {{"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
+                    {"KILLCAM", nullptr, &c.killcam, 1, 0, 1, kOnOff},
                     {"GRENADE TRAJECTORY", nullptr, &c.nade_preview, 1, 0, 2, kPreviewNames},
                     {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
                     {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
@@ -3700,7 +3922,7 @@ MenuLayout menuLayout(int screen, size_t rows, int w, int h, int s) {
     const float panelH = L.rowH * (3.0f + float(rows) + 1.5f) + extra;
     L.x = float(w / 2) - L.w / 2;
     L.top = std::max(float(h) / 2 - panelH / 2, 16.0f * float(s));
-    if (screen == kMenuInventory || screen == kMenuCase) {  // on the left: the weapon's shown on the right
+    if (screen == kMenuInventory || screen == kMenuCase || screen == kMenuStats) {  // on the left: the weapon (or your stats) on the right
         L.x = 24.0f * float(s);
         if (screen == kMenuCase) L.top = std::max(float(h) * 0.5f, float(h) - panelH - 24.0f * float(s));
     }
@@ -4015,8 +4237,64 @@ void drawCaseHud(HudBatch& hud, int w, int h, int s) {
     }
 }
 
+// The STATS page (right of the menu): rating and rank, a graph of it, career totals, the last matches.
+void drawStatsPanel(HudBatch& hud, int w, int h, int s) {
+    const float fs = float(s), x = 24.0f * fs + 300.0f * fs + 30.0f * fs, y = 40.0f * fs;
+    const float pw = float(w) - x - 24.0f * fs, ph = float(h) - y - 70.0f * fs;
+    hud.rect(x, y, pw, ph, 0x0E1116E8);
+    const Career& c = g_career;
+    char line[160];
+    std::snprintf(line, sizeof(line), "%d", c.rating);
+    hud.text(x + 16.0f * fs, y + 14.0f * fs, line, 0xFFD060FF, s * 4);
+    const float rx = x + 16.0f * fs + hud.textWidth(line, s * 4) + 14.0f * fs;
+    hud.text(rx, y + 16.0f * fs, rankName(c.rating), 0xFFFFFFFF, s * 2);
+    std::snprintf(line, sizeof(line), "RATING (BEST %d)   NEXT RANK AT %d", c.best, std::max(825, (c.rating - 700) / 125 * 125 + 825));
+    hud.text(rx, y + 36.0f * fs, line, 0x909090FF);
+    float ty = y + 62.0f * fs;
+    if (c.matches.empty()) {
+        hud.text(x + 16.0f * fs, ty, "NO MATCHES YET: FINISH A DEATHMATCH OR A COMPETITIVE MATCH AGAINST BOTS.", 0xB0B0B0FF);
+        hud.text(x + 16.0f * fs, ty + 14.0f * fs, "BEAT BETTER BOTS FOR MORE RATING: EASY 700, NORMAL 950, HARD 1200, EXPERT 1450.", 0x808080FF);
+        return;
+    }
+    const int k = c.kills(), d = c.deaths();
+    std::snprintf(line, sizeof(line), "MATCHES %zu   WINS %d   K/D %.2f   HS %d%%   ADR %.0f", c.matches.size(), c.wins(),
+                  double(k) / double(std::max(1, d)), k ? c.hsKills() * 100 / k : 0, double(c.adr()));
+    hud.text(x + 16.0f * fs, ty, line, 0xFFFFFFFF);
+    ty += 20.0f * fs;
+    // The rating over the last 40 matches.
+    const size_t n = std::min<size_t>(c.matches.size(), 40), first = c.matches.size() - n;
+    const float gx = x + 16.0f * fs, gw = pw - 32.0f * fs, gh = 70.0f * fs;
+    hud.rect(gx, ty, gw, gh, 0x00000060);
+    int lo = c.matches[first].ratingBefore, hi = lo;
+    for (size_t i = first; i < c.matches.size(); ++i) { lo = std::min(lo, c.matches[i].ratingAfter); hi = std::max(hi, c.matches[i].ratingAfter); }
+    if (hi - lo < 40) { lo -= 20; hi += 20; }
+    auto py = [&](int r) { return ty + gh - 4.0f * fs - (gh - 8.0f * fs) * float(r - lo) / float(hi - lo); };
+    for (size_t i = first; i < c.matches.size(); ++i) {
+        const float x0 = gx + gw * float(i - first) / float(n), x1 = gx + gw * float(i - first + 1) / float(n);
+        const MatchRecord& m = c.matches[i];
+        hud.line(x0, py(m.ratingBefore), x1, py(m.ratingAfter), 2.0f * fs, m.ratingAfter >= m.ratingBefore ? 0x60E080FF : 0xFF6060FF);
+    }
+    std::snprintf(line, sizeof(line), "%d", hi);
+    hud.text(gx + 4.0f * fs, ty + 3.0f * fs, line, 0x707070FF);
+    std::snprintf(line, sizeof(line), "%d", lo);
+    hud.text(gx + 4.0f * fs, ty + gh - 12.0f * fs, line, 0x707070FF);
+    ty += gh + 14.0f * fs;
+    hud.text(x + 16.0f * fs, ty, "LAST MATCHES", 0xFFD060FF);
+    ty += 14.0f * fs;
+    for (size_t i = c.matches.size(); i-- > 0 && ty < y + ph - 14.0f * fs;) {
+        const MatchRecord& m = c.matches[i];
+        const int dr = m.ratingAfter - m.ratingBefore;
+        std::snprintf(line, sizeof(line), "%-16s %-12s %-11s %3d-%-3d HS %3d%%  ADR %3.0f   %s%d", m.when.c_str(),
+                      m.mode == 3 ? "COMPETITIVE" : "DEATHMATCH", m.result.c_str(), m.kills, m.deaths,
+                      m.kills ? m.hsKills * 100 / m.kills : 0, double(m.adr()), dr >= 0 ? "+" : "", dr);
+        hud.text(x + 16.0f * fs, ty, line, dr >= 0 ? 0xC8F0C8FF : 0xF0C8C8FF);
+        ty += 12.0f * fs;
+    }
+}
+
 // Over the menu on the inventory and case screens: the reel, the stage and your case count.
 void drawMenuExtras(HudBatch& hud, const Config& cfg, int w, int h, int s) {
+    if (g_menu.screen == kMenuStats) drawStatsPanel(hud, w, h, s);
     if (g_menu.screen != kMenuInventory && g_menu.screen != kMenuCase) return;
     if (g_menu.screen == kMenuCase) drawCaseHud(hud, w, h, s);
     const Stage st = showcaseStage(cfg, w, h);
@@ -4044,6 +4322,37 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
     const float lh = 10.0f * s;
     char buf[160];
+
+    if (g.rv.on) {  // a replay: its own HUD instead of the game's
+        const float cx = float(w / 2), cy = float(h / 2), fs = float(s);
+        const int you = int(g.dummies.size());
+        auto who = [&](int id) { return id == you ? std::string("YOU") : id >= 0 ? agentName(id) : std::string("FREE CAMERA"); };
+        hud.rect(cx - 1.0f * fs, cy - 1.0f * fs, 2.0f * fs, 2.0f * fs, 0xFFFFFFC0);  // where they aim
+        if (g.rv.killcam) {
+            const std::string title = "KILLCAM";
+            hud.rect(0, 0, float(w), 46.0f * fs, 0x000000A0);
+            hud.text(cx - hud.textWidth(title, s * 2) / 2, 8.0f * fs, title, 0xFF5A5AFF, s * 2);
+            const std::string by = who(g.rv.killer) + " KILLED YOU";
+            hud.text(cx - hud.textWidth(by) / 2, 30.0f * fs, by, 0xFFFFFFFF);
+            const char* skip = "SPACE OR CLICK TO SKIP";
+            hud.text(cx - hud.textWidth(skip) / 2, float(h) - 30.0f * fs, skip, 0xC0C0C0FF);
+            return;
+        }
+        const double t0 = g.replay.start(), t1 = std::max(g.replay.end(), t0 + 0.01);
+        const int at = int(g.rv.t - t0), len = int(t1 - t0);
+        std::snprintf(buf, sizeof(buf), "REPLAY   %d:%02d / %d:%02d   x%g%s   WATCHING: %s", at / 60, at % 60, len / 60, len % 60,
+                      double(g.rv.speed), g.rv.paused ? "   PAUSED" : "", who(g.rv.pov).c_str());
+        hud.rect(0, 0, float(w), 26.0f * fs, 0x000000A0);
+        hud.text(cx - hud.textWidth(buf) / 2, 8.0f * fs, buf, 0xFFD060FF);
+        const float bx = 40.0f * fs, bw = float(w) - 80.0f * fs, by = float(h) - 44.0f * fs;
+        hud.rect(bx, by, bw, 6.0f * fs, 0x000000C0);
+        hud.rect(bx, by, bw * float((g.rv.t - t0) / (t1 - t0)), 6.0f * fs, 0xFFD060FF);
+        const char* keys = g.rv.pov < 0
+            ? "WASD + MOUSE FLY (SHIFT SLOW, SPACE/CTRL UP/DOWN)   F BACK TO PLAYERS   LEFT/RIGHT -5/+5 S   UP/DOWN SPEED   P PAUSE   ESC EXIT"
+            : "MOUSE 1 / 2 NEXT / PREVIOUS PLAYER   F FREE CAMERA   LEFT/RIGHT -5/+5 S   UP/DOWN SPEED   SPACE PAUSE   ESC EXIT";
+        hud.text(cx - hud.textWidth(keys) / 2, by + 14.0f * fs, keys, 0xC0C0C0FF);
+        return;
+    }
 
     // Crosshair (CS-style: four lines with a gap), pixel-aligned at screen center.
     float cx = float(w / 2), cy = float(h / 2);
@@ -4314,7 +4623,10 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             hud.text(px, ry, line, col);
             ry += rowH;
         }
-        if (g.mode == 1 && g.dmOverUntil >= 0) hud.text(px, ry + rowH, "NEXT MATCH STARTS IN A FEW SECONDS", 0xA0A0A0FF);
+        if (g.mode == 1 && g.dmOverUntil >= 0) {
+            hud.text(px, ry + rowH, "NEXT MATCH STARTS IN A FEW SECONDS", 0xA0A0A0FF);
+            if (!g_ratingNote.empty()) hud.text(px, ry + rowH * 2.5f, g_ratingNote, 0xFFD060FF, s * 2);
+        }
     }
     // Damage report after you die (bottom-left, like the console in CS).
     if (g.simTime < g.reportUntil) {
@@ -4369,6 +4681,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             if (c.phase == 3) {
                 const char* m = c.youScore > c.themScore ? "YOU WON THE MATCH" : c.youScore < c.themScore ? "YOU LOST THE MATCH" : "DRAW";
                 hud.text(cx - hud.textWidth(m, s * 2) / 2, cy - 60.0f * s, m, 0xFFD060FF, s * 2);
+                if (!g_ratingNote.empty())
+                    hud.text(cx - hud.textWidth(g_ratingNote) / 2, cy - 36.0f * s, g_ratingNote, 0xFFFFFFFF);
             }
         }
         auto bar = [&](const char* label, float k) {
@@ -4489,6 +4803,10 @@ int main(int argc, char** argv) {
     g_compStartSide = opt.startCT ? 1 : 0;
     for (int i = 1; i + 1 < argc; ++i)
         if (std::string(argv[i]) == "--dump-sounds") return Audio::dumpWavs(argv[i + 1]) ? 0 : 1;
+        else if (std::string(argv[i]) == "--dump-spatial") {  // a footstep from each direction, as play3D hears it
+            const char* base = SDL_GetBasePath();
+            return Audio::dumpSpatial(argv[i + 1], std::string(base ? base : "") + "assets/sounds") ? 0 : 1;
+        }
         else if (std::string(argv[i]) == "--dump-played-sounds") {  // with the recordings in assets/sounds
             const char* base = SDL_GetBasePath();
             return Audio::dumpWavs(argv[i + 1], std::string(base ? base : "") + "assets/sounds") ? 0 : 1;
@@ -4568,12 +4886,29 @@ int main(int argc, char** argv) {
     if (!automated && SDL_InitSubSystem(SDL_INIT_AUDIO) && audio.init(std::clamp(cfg.volume, 0.0f, 1.0f), std::string(base ? base : "") + "assets/sounds")) {
         g.audio = &audio;
         std::fprintf(stderr, "sounds: %d replaced by recordings from assets, the rest synthesized\n", audio.loadedFromAssets());
+        // Sounds through walls are muffled: two rays from your head to the sound (low and high on it); each one a
+        // wall stops counts half.
+        audio.setOcclusion(
+            [](const void* ctx, const Vec3& from, const Vec3& to) {
+                const World& w = static_cast<const Game*>(ctx)->world;
+                float occ = 0;
+                for (float up : {12.0f, 50.0f})
+                    if (w.traceRay(from, to + Vec3{0, 0, up}).fraction < 0.98f) occ += 0.5f;
+                return occ;
+            },
+            &g);
     }
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     applyConfig(g, cfg);
     // Your skins and cases (inventory.txt next to the game).
     g_invPath = std::string(base ? base : "") + "inventory.txt";
+    if (!automated) {
+        g_careerPath = std::string(base ? base : "") + "stats.txt";
+        g_career.load(g_careerPath);
+    } else if (!opt.careerFile.empty()) {
+        g_career.load(opt.careerFile);
+    }
     g_inv.load(g_invPath);
     g_caseKills = std::clamp(cfg.case_kills, 1, 1000);
     g_allSkins = cfg.all_skins != 0;
@@ -4712,6 +5047,10 @@ int main(int argc, char** argv) {
         sound(g, Sfx::UiClick, 0.5f);
         switch (it.action) {
             case kActResume: setMenu(kMenuNone); break;
+            case kActReplay:
+                startReplayViewer(g);
+                if (g.rv.on) setMenu(kMenuNone);
+                break;
             case kActStart: startFromMenu(); break;
             case kActReset:
                 if (g.mode == 4 && g.mapId == 1) startPrefire(g);
@@ -5051,7 +5390,8 @@ int main(int argc, char** argv) {
     int frame = 0;
     double hitMarkerShownUntil = 0;
     std::vector<ModelDraw> modelDraws;
-    std::vector<ModelDraw> deadDraws;  // bodies falling over (each one model, so it can tilt)
+    std::vector<ModelDraw> deadDraws;
+    ReplayFrame replayNow;  // a replay: everyone at the moment playing (reused every frame)  // bodies falling over (each one model, so it can tilt)
 
     if (g.audio) g.audio->loadMusic(std::string(base ? base : "") + "assets/music/menu.ogg");  // (on a thread)
     GLsync frameFence = nullptr;  // low_latency: the last frame's GPU work
@@ -5096,7 +5436,12 @@ int main(int argc, char** argv) {
                     g.hudDirty = true;
                     break;
                 case SDL_EVENT_MOUSE_MOTION:
-                    if (!paused && g.buyMenu) {
+                    if (!paused && g.rv.on) {  // a replay: the mouse turns the free camera, nothing else
+                        if (g.rv.pov < 0 && !g.rv.killcam) {
+                            g.rv.camYaw = wrapDeg(g.rv.camYaw - float(e.motion.xrel) * cfg.sensitivity * cfg.m_yaw);
+                            g.rv.camPitch = std::clamp(g.rv.camPitch + float(e.motion.yrel) * cfg.sensitivity * cfg.m_pitch, -89.0f, 89.0f);
+                        }
+                    } else if (!paused && g.buyMenu) {
                         const float density = SDL_GetWindowPixelDensity(window);
                         g.buyMouseX = e.motion.x * density;
                         g.buyMouseY = e.motion.y * density;
@@ -5125,6 +5470,16 @@ int main(int argc, char** argv) {
                             g_menu.sel = r;
                             menuUse(r, left ? 1 : -1, false, left);
                         }
+                        break;
+                    }
+                    if (g.rv.on) {  // a replay: a click skips the killcam; in the viewer, whose eyes (next / previous)
+                        const int agents = int(replayNow.agents.size());
+                        if (g.rv.killcam) g.rv.t = g.rv.end;
+                        else if (agents > 0) {
+                            const int step = e.button.button == SDL_BUTTON_RIGHT ? agents - 1 : 1;
+                            g.rv.pov = ((g.rv.pov < 0 ? agents - 1 : g.rv.pov) + step) % agents;
+                        }
+                        g.hudDirty = true;
                         break;
                     }
                     if (g.buyMenu) {  // the buy wheel: left click picks, right click goes back
@@ -5167,6 +5522,39 @@ int main(int argc, char** argv) {
                         if (e.key.repeat && !(paused && arrow)) break;  // held arrows repeat in the menu
                     }
                     SDL_Scancode sc = e.key.scancode;
+                    if (g.rv.on && !paused) {  // a replay: its own keys (the game's are off)
+                        ReplayFrame& now = replayNow;
+                        const int agents = int(now.agents.size());
+                        if (g.rv.killcam) {
+                            if (sc == SDL_SCANCODE_SPACE || sc == SDL_SCANCODE_ESCAPE) g.rv.t = g.rv.end;  // skip
+                        } else if (sc == SDL_SCANCODE_ESCAPE) {
+                            g.rv.on = false;
+                            setMenu(kMenuPause);
+                        } else if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT) {
+                            g.rv.t = std::clamp(g.rv.t + (sc == SDL_SCANCODE_LEFT ? -5.0 : 5.0), g.replay.start(), g.replay.end());
+                            g.rv.shotsDone = g.rv.t;
+                            g.replayFx = Effects{};
+                            if (sc == SDL_SCANCODE_LEFT) g.rv.paused = false;
+                        } else if (sc == SDL_SCANCODE_UP) {
+                            g.rv.speed = std::min(4.0f, g.rv.speed * 2.0f);
+                        } else if (sc == SDL_SCANCODE_DOWN) {
+                            g.rv.speed = std::max(0.25f, g.rv.speed * 0.5f);
+                        } else if (sc == SDL_SCANCODE_P || (sc == SDL_SCANCODE_SPACE && g.rv.pov >= 0)) {
+                            g.rv.paused = !g.rv.paused;
+                        } else if (sc == SDL_SCANCODE_F && agents > 0) {  // free camera <-> back to someone's eyes
+                            if (g.rv.pov >= 0) {
+                                const ReplayAgent& a = now.agents[size_t(std::min(g.rv.pov, agents - 1))];
+                                g.rv.camPos = a.pos + Vec3{0, 0, 64};
+                                g.rv.camYaw = a.yaw;
+                                g.rv.camPitch = a.pitch;
+                                g.rv.pov = -1;
+                            } else {
+                                g.rv.pov = agents - 1;
+                            }
+                        }
+                        g.hudDirty = true;
+                        break;
+                    }
                     if (sc == SDL_SCANCODE_ESCAPE && g.buyMenu && !paused) {  // back to the categories, then shut
                         if (g.buyCategory > 0) g.buyCategory = 0;
                         else g.buyMenu = false;
@@ -5259,13 +5647,23 @@ int main(int argc, char** argv) {
         }
         pumpNet();
         g.inputBlocked = paused;
-        if (!paused || g.online) {  // online never pauses
+        const bool viewing = g.rv.on && !g.rv.killcam;  // the replay viewer: the game waits
+        if ((!paused || g.online) && !viewing) {  // online never pauses
 
             tickAcc += dt;
             while (tickAcc >= kTickDt) {
                 simTick(g, opt);
                 tickAcc -= kTickDt;
             }
+        }
+        if (!paused) stepReplay(g, dt);
+        g_replayAvailable = !g.online && g.mapId == 1 && g.replay.frames() > 64;
+        if (g.rv.on && !g.rv.killcam && g.rv.pov < 0 && !paused) {  // the free camera flies (Shift slow)
+            const bool* keys = SDL_GetKeyboardState(nullptr);
+            const Vec3 f = anglesToForward(g.rv.camPitch, g.rv.camYaw), r = yawToRight(g.rv.camYaw);
+            Vec3 move = f * float(keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S]) + r * float(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]) +
+                        Vec3{0, 0, float(keys[SDL_SCANCODE_SPACE] - keys[SDL_SCANCODE_LCTRL])};
+            g.rv.camPos += move * float(dt * (keys[SDL_SCANCODE_LSHIFT] ? 150.0 : 600.0));
         }
         const uint64_t tSim = SDL_GetPerformanceCounter();
         float alpha = float(tickAcc / kTickDt);
@@ -5285,8 +5683,9 @@ int main(int argc, char** argv) {
         }
         if (automated && frame == opt.dieFrame) {
             g.spawnProtectUntil = 0;
-            hurtPlayer(g, -2, 1000.0f, false, "TEST");
+            hurtPlayer(g, opt.dieBy, 1000.0f, false, "TEST");
         }
+        if (automated && frame == opt.replayFrame) startReplayViewer(g);
         if (automated && opt.bots && frame == 1) g.botsFire = true;
         if (automated && opt.menuScreen > 0 && frame == 60) {
             g_menu.root = opt.menuScreen == kMenuMain ? kMenuMain : kMenuPause;
@@ -5351,6 +5750,21 @@ int main(int argc, char** argv) {
             camPitch = d.prevPitch + (d.pitch - d.prevPitch) * alpha;
         }
 
+        // A replay: everyone as recorded, through someone's eyes (or the free camera).
+        const bool replayView = g.rv.on && g.replay.sample(g.rv.t, replayNow);
+        if (replayView) {
+            if (g.rv.pov >= 0 && size_t(g.rv.pov) < replayNow.agents.size()) {
+                const ReplayAgent& a = replayNow.agents[size_t(g.rv.pov)];
+                eye = a.pos + Vec3{0, 0, crouchZ(kStandEye, a.crouch)};
+                camYaw = a.yaw;
+                camPitch = a.pitch;
+            } else {
+                eye = g.rv.camPos;
+                camYaw = g.rv.camYaw;
+                camPitch = g.rv.camPitch;
+            }
+        }
+
         float aspect = pixH > 0 ? float(pixW) / float(pixH) : 1.0f;
         if (!paused) g.fovPunch *= std::exp(-float(dt) / 0.045f);
         const float thump = g.zoom == 0 ? 1.0f + 0.014f * g.fovPunch : 1.0f;  // shot thump: ~1.4% wider, 45 ms
@@ -5362,6 +5776,49 @@ int main(int argc, char** argv) {
         if (!paused) g.camRoll *= std::exp(-float(dt) / 0.07f);
         const Mat4 roll = rotationZ(g.camRoll);  // about the view axis: the crosshair stays put
         Mat4 viewProj = perspective(vfov, aspect, 2.0f, 16384.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
+
+        // A replay draws the recorded players (you among them), smokes and tracers instead of the live ones; it's
+        // all swapped back right after the world is drawn.
+        static std::vector<Dummy> replayDummies;
+        static std::vector<Game::Smoke> replaySmokes;
+        static std::vector<Game::Nade> noNades;
+        static std::vector<Game::Fire> noFires;
+        static std::vector<Vec3> keepRenderPos;
+        static std::vector<int> keepTeam;
+        const int keepSpec = g.spec;
+        const double keepTime = g.simTime;
+        if (replayView) {
+            replayDummies.resize(replayNow.agents.size());
+            for (size_t i = 0; i < replayNow.agents.size(); ++i) {
+                const ReplayAgent& a = replayNow.agents[i];
+                Dummy& x = replayDummies[i];
+                x = Dummy{};
+                x.pos = x.prevPos = a.pos;
+                x.yaw = x.prevYaw = x.shownYaw = a.yaw;
+                x.pitch = x.prevPitch = a.pitch;
+                x.crouch = x.prevCrouch = x.shownCrouch = a.crouch;
+                x.weapon = a.weapon;
+                x.respawnLeft = a.alive ? 0.0f : 1.0f;
+                x.deadFor = a.deadFor;
+                x.hitDir = a.hitDir;
+                x.friendly = false;
+                x.lostHelmet = a.lostHelmet;
+                x.stepDist = a.stepDist;
+            }
+            replaySmokes.clear();
+            for (const ReplayFrame::Smoke& sm : replayNow.smokes) replaySmokes.push_back({sm.pos, sm.start});
+            std::swap(g.dummies, replayDummies);
+            std::swap(g.smokes, replaySmokes);
+            std::swap(g.nades, noNades);
+            std::swap(g.fires, noFires);
+            std::swap(g.fx, g.replayFx);
+            keepRenderPos = g.lastDummyRenderPos;
+            g.lastDummyRenderPos.resize(g.dummies.size());
+            keepTeam = g.team;
+            if (g.mode == 3 && !g.team.empty()) g.team.push_back(g.comp.youTeam);  // you, in your colours
+            g.spec = g.rv.pov;  // (not their own body in front of their eyes)
+            g.simTime = replayNow.t;
+        }
 
         // The muzzle light fades out over a few frames.
         if (!paused) g.flashLight *= std::exp(-float(dt) / 0.022f);
@@ -5547,11 +6004,11 @@ int main(int argc, char** argv) {
                                                     p + Vec3{2.5f, 2.5f, crouchZ(85, crouch)}, 0x60ff90));
 
         }
-        g.lastRenderEye = eye;
+        if (!replayView) g.lastRenderEye = eye;
 
         // Cosmetic updates at frame rate.
         float fdt = float(dt);
-        g.fx.update(paused ? 0.0f : fdt);
+        if (!replayView) g.fx.update(paused ? 0.0f : fdt);
         g.fx.appendParticles(dynamicBoxes);
         for (const Game::Nade& n : g.nades) {
             const uint32_t nadeColor[Game::kNadeTypes] = {0x3b4a2f, 0xd6d8da, 0x4a5a2a, 0x7a4a1a};
@@ -5649,9 +6106,20 @@ int main(int argc, char** argv) {
         g.fx.appendTracers(modelDraws);
         for (const ModelDraw& md : modelDraws) renderer.drawModel(viewProj, md.model, md.boxes);
         for (const ModelDraw& md : deadDraws) renderer.drawModel(viewProj, md.model, md.boxes);
+        if (replayView) {  // back to the live game
+            std::swap(g.dummies, replayDummies);
+            std::swap(g.smokes, replaySmokes);
+            std::swap(g.nades, noNades);
+            std::swap(g.fires, noFires);
+            std::swap(g.fx, g.replayFx);
+            g.lastDummyRenderPos = keepRenderPos;
+            g.team = keepTeam;
+            g.spec = keepSpec;
+            g.simTime = keepTime;
+        }
 
         // First-person weapon: own FOV and fresh depth so it never clips into walls.
-        if (cfg.show_viewmodel && g.zoom == 0 && !spectating) {
+        if (cfg.show_viewmodel && g.zoom == 0 && !spectating && !replayView) {
             float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
             Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
             modelDraws.clear();

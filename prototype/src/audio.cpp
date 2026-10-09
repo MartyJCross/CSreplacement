@@ -621,6 +621,45 @@ SoundBank synthesize() {
 // Every sound: synthesized, then recordings in assetDir swapped in: <name>_1.wav / .ogg, _2, ... Each is
 // levelled to the synthesized sound's peak, so the mix stays balanced however loud the file is. Without a
 // recording of its own, the suppressed pistol is made from the pistol's recordings.
+// Where a sound is, as ears hear it (see Audio::play3D). `d` = source - listener, `occ` 0..1 how blocked.
+struct Spatial { float pan, delayL, delayR, splitHz, hiL, hiR, gain; };
+Spatial spatialize(const Vec3& d, float listenerYawDeg, float occ) {
+    const float flat = std::sqrt(d.x * d.x + d.y * d.y);
+    const float y = listenerYawDeg * kDegToRad;
+    const Vec3 right{std::sin(y), -std::cos(y), 0}, fwd{std::cos(y), std::sin(y), 0};
+    const float side = flat > 1e-3f ? dot(d, right) / flat : 0.0f;  // -1 left .. +1 right
+    const float front = flat > 1e-3f ? dot(d, fwd) / flat : 1.0f;   // -1 behind .. +1 ahead
+    const float elev = std::atan2(d.z, std::max(flat, 1.0f));        // radians, + = above
+    Spatial sp{side * 0.7f, 0, 0, 2200.0f, 1.0f, 1.0f, 1.0f};
+    // Between the ears: the far one hears it up to 0.65 ms later and duller (the head in the way).
+    const float itd = 0.00065f * kRate * std::fabs(side);
+    (side > 0 ? sp.delayL : sp.delayR) = itd;
+    sp.hiL = 1.0f - 0.55f * std::max(0.0f, side);
+    sp.hiR = 1.0f - 0.55f * std::max(0.0f, -side);
+    // Behind you: duller and a touch quieter (the ear flaps face forwards).
+    const float behind = std::max(0.0f, -front);
+    sp.hiL *= 1.0f - 0.35f * behind;
+    sp.hiR *= 1.0f - 0.35f * behind;
+    sp.gain *= 1.0f - 0.15f * behind;
+    // Above or below (only when it's really on another level): below is darker, above brighter.
+    if (std::fabs(d.z) > 40.0f) {
+        const float e = std::clamp(elev / 0.8f, -1.0f, 1.0f);
+        const float k = e < 0 ? 1.0f + 0.45f * e : 1.0f + 0.3f * e;
+        sp.hiL *= k;
+        sp.hiR *= k;
+        if (e < 0) sp.gain *= 1.0f + 0.1f * e;
+    }
+    // Through walls: muffled and quieter, like CS.
+    occ = std::clamp(occ, 0.0f, 1.0f);
+    if (occ > 0) {
+        sp.hiL *= 1.0f - 0.75f * occ;
+        sp.hiR *= 1.0f - 0.75f * occ;
+        sp.splitHz = 2200.0f - 1300.0f * occ;
+        sp.gain *= 1.0f - 0.3f * occ;
+    }
+    return sp;
+}
+
 SoundBank loadBank(const std::string& assetDir, int& loaded) {
     SoundBank bank = synthesize();
     loaded = 0;
@@ -694,6 +733,40 @@ bool Audio::dumpWavs(const std::string& dir, const std::string& assetDir) {
     return true;
 }
 
+// Dev aid: a footstep from ahead, left, right, behind, above, below and behind a wall, rendered the way play3D
+// would, as stereo WAVs (spatial_<where>.wav) so the cues can be measured.
+bool Audio::dumpSpatial(const std::string& dir, const std::string& assetDir) {
+    int loaded = 0;
+    SoundBank bank = loadBank(assetDir, loaded);
+    const std::vector<float>& snd = bank.clips[size_t(bank.first[size_t(Sfx::Footstep)])];
+    struct Case { const char* name; Vec3 d; float occ; };
+    const Case cases[] = {{"ahead", {300, 0, 0}, 0},  {"left", {0, 300, 0}, 0},    {"right", {0, -300, 0}, 0},
+                          {"behind", {-300, 0, 0}, 0}, {"above", {150, 0, 260}, 0}, {"below", {150, 0, -260}, 0},
+                          {"wall", {300, 0, 0}, 1}};
+    for (const Case& c : cases) {
+        const Spatial sp = spatialize(c.d, 0.0f, c.occ);
+        const float a = (std::clamp(sp.pan, -1.0f, 1.0f) + 1.0f) * kPi * 0.25f;
+        Voice v{0, 0.0, 1.0f, std::cos(a) * sp.gain * 1.4142f, std::sin(a) * sp.gain * 1.4142f};
+        v.delayL = sp.delayL;
+        v.delayR = sp.delayR;
+        v.split = lpCoef(sp.splitHz);
+        v.hiL = sp.hiL;
+        v.hiR = sp.hiR;
+        std::vector<float> out((snd.size() + 64) * 2, 0.0f);
+        mixVoice(v, snd, out.data(), int(out.size() / 2));
+        std::ofstream f(dir + "/spatial_" + c.name + ".wav", std::ios::binary);
+        if (!f) return false;
+        auto u32 = [&](uint32_t x) { f.write(reinterpret_cast<const char*>(&x), 4); };
+        auto u16 = [&](uint16_t x) { f.write(reinterpret_cast<const char*>(&x), 2); };
+        const uint32_t bytes = uint32_t(out.size() * 2);
+        f.write("RIFF", 4); u32(36 + bytes); f.write("WAVEfmt ", 8);
+        u32(16); u16(1); u16(2); u32(kRate); u32(kRate * 4); u16(4); u16(16);
+        f.write("data", 4); u32(bytes);
+        for (float x : out) u16(uint16_t(int16_t(std::clamp(x, -1.0f, 1.0f) * 32767.0f)));
+    }
+    return true;
+}
+
 bool Audio::init(float masterVolume, const std::string& assetDir) {
     master_ = masterVolume;
     SoundBank bank = loadBank(assetDir, loaded_);
@@ -761,7 +834,9 @@ float Audio::rand01() {
     return float(rng_ & 0xFFFFFF) / float(0x1000000);
 }
 
-void Audio::play(Sfx s, float gain, float pan, float pitch) {
+void Audio::play(Sfx s, float gain, float pan, float pitch) { start(s, gain, pan, pitch, 0, 0, 2000, 1, 1); }
+
+void Audio::start(Sfx s, float gain, float pan, float pitch, float delayL, float delayR, float splitHz, float hiL, float hiR) {
     if (!stream_ || gain <= 0.001f) return;
     // Pick a variant (not the one we just played) and nudge pitch +-2.5% and volume +-1 dB.
     size_t id = size_t(s);
@@ -773,23 +848,24 @@ void Audio::play(Sfx s, float gain, float pan, float pitch) {
     pan = std::clamp(pan, -1.0f, 1.0f);
     float a = (pan + 1.0f) * kPi * 0.25f;  // equal-power pan
     Voice voice{first_[id] + v, 0.0, pitch, std::cos(a) * gain * 1.4142f, std::sin(a) * gain * 1.4142f};
+    voice.delayL = delayL;
+    voice.delayR = delayR;
+    voice.split = lpCoef(splitHz);
+    voice.hiL = hiL;
+    voice.hiR = hiR;
     std::lock_guard<std::mutex> lock(mutex_);
     if (pending_.size() < kMaxVoices) pending_.push_back(voice);
 }
 
 void Audio::play3D(Sfx s, const Vec3& pos, const Vec3& listener, float listenerYawDeg, float maxDist, float gain,
                    float pitch) {
-    Vec3 d = pos - listener;
-    float dist = length(d);
+    const float dist = length(pos - listener);
     if (dist >= maxDist) return;
     float falloff = 1.0f - dist / maxDist;
     falloff *= falloff;
-    Vec3 dir = dist > 1e-3f ? d * (1.0f / dist) : Vec3{};
-    float y = listenerYawDeg * kDegToRad;
-    Vec3 right{std::sin(y), -std::cos(y), 0}, fwd{std::cos(y), std::sin(y), 0};
-    float pan = dot(dir, right);
-    float behind = dot(dir, fwd) < 0 ? 0.75f : 1.0f;  // crude front/back cue
-    play(s, gain * falloff * behind, pan, pitch);
+    const float occ = occlusion_ ? occlusion_(occlusionCtx_, listener, pos) : 0.0f;
+    const Spatial sp = spatialize(pos - listener, listenerYawDeg, occ);
+    start(s, gain * falloff * sp.gain, sp.pan, pitch, sp.delayL, sp.delayR, sp.splitHz, sp.hiL, sp.hiR);
 }
 
 void SDLCALL Audio::callback(void* user, SDL_AudioStream* stream, int additional, int) {
@@ -800,6 +876,31 @@ void SDLCALL Audio::callback(void* user, SDL_AudioStream* stream, int additional
         self->mix(self->mixBuf_.data(), n);
         SDL_PutAudioStreamData(stream, self->mixBuf_.data(), n * int(sizeof(float) * 2));
         frames -= n;
+    }
+}
+
+void Audio::mixVoice(Voice& v, const std::vector<float>& snd, float* out, int frames) {
+    const double last = double(snd.size() - 1);
+    auto at = [&](double p) {
+        if (p < 0 || p >= last) return 0.0f;
+        const size_t i0 = size_t(p);
+        const float f = float(p - double(i0));
+        return snd[i0] + (snd[i0 + 1] - snd[i0]) * f;
+    };
+    const bool plain = v.delayL == 0 && v.delayR == 0 && v.hiL == 1 && v.hiR == 1;
+    for (int i = 0; i < frames && v.pos < last + double(std::max(v.delayL, v.delayR)); ++i) {
+        if (plain) {
+            const float smp = at(v.pos);
+            out[i * 2] += smp * v.gl;
+            out[i * 2 + 1] += smp * v.gr;
+        } else {  // each ear: its own delay, and its highs kept by `hi` above the split
+            const float l = at(v.pos - double(v.delayL)), r = at(v.pos - double(v.delayR));
+            v.lpL += v.split * (l - v.lpL);
+            v.lpR += v.split * (r - v.lpR);
+            out[i * 2] += (v.lpL + (l - v.lpL) * v.hiL) * v.gl;
+            out[i * 2 + 1] += (v.lpR + (r - v.lpR) * v.hiR) * v.gr;
+        }
+        v.pos += v.rate;
     }
 }
 
@@ -822,20 +923,11 @@ void Audio::mix(float* out, int frames) {
             if (++musicPos_ >= len) musicPos_ = 0;
         }
     }
-    for (Voice& v : voices_) {
-        const std::vector<float>& snd = sounds_[size_t(v.sound)];
-        const double last = double(snd.size() - 1);
-        for (int i = 0; i < frames && v.pos < last; ++i) {
-            size_t i0 = size_t(v.pos);
-            float f = float(v.pos - double(i0));
-            float smp = snd[i0] + (snd[i0 + 1] - snd[i0]) * f;
-            out[i * 2] += smp * v.gl;
-            out[i * 2 + 1] += smp * v.gr;
-            v.pos += v.rate;
-        }
-    }
+    for (Voice& v : voices_) mixVoice(v, sounds_[size_t(v.sound)], out, frames);
     voices_.erase(std::remove_if(voices_.begin(), voices_.end(),
-                                 [&](const Voice& v) { return v.pos >= double(sounds_[size_t(v.sound)].size() - 1); }),
+                                 [&](const Voice& v) {
+                                     return v.pos >= double(sounds_[size_t(v.sound)].size() - 1) + double(std::max(v.delayL, v.delayR));
+                                 }),
                   voices_.end());
     for (int i = 0; i < frames * 2; ++i) out[i] = std::tanh(out[i] * master_);  // soft limiter
 }

@@ -41,6 +41,8 @@ prototype/
                           patterns, shotgun pellets (firePellets, random per shot), wallbangs, armor,
                           dummies + hitboxes (dummies have a yaw and a crouch; shots test in the dummy's model space
                           using shownYaw/shownCrouch), grenade throw/flight/prediction
+    stats.*               your career: MatchRecord, Career (rating: Elo vs bot level, ranks), stats.txt
+    replay.*              replays: Replay ring (64 Hz, 150 s) of ReplayFrame/ReplayAgent + ReplayShot; sample()
     items.*               skins (allSkins: 29 gun skins + 6 knives x 9 finishes), rarities and CS odds, rollCase,
                           Inventory (cases, kill progress, items, equipped; inventory.txt)
     nav.*                 NavGrid on the Dust grid: walkable/roamable cells, Dijkstra routes, followPath
@@ -222,6 +224,15 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Suppressed sounds** (audio.cpp `suppressedFrom`, `kUspS`, `kM4A1S`): built on the AK recording (owner: "the AK sounds SO good").
   The owner tuned them in v0.15's sound lab (removed in v0.16), then asked for a whispier pistol: keep the
   low "thump" (150-500 Hz) around 15%, the M4A1-S a little fuller.
+- **3D audio** (audio.cpp `spatialize`, `mixVoice`): per-voice ITD (far ear up to 0.65 ms late), head shadow,
+  behind/below darker, above brighter, occlusion (`Audio::setOcclusion`: two rays, muffled + -10 dB). Measure with
+  `--dump-spatial DIR`. 2D sounds (`play`) are untouched.
+- **Replays** (`Game::replay`, `rv`, `recordReplay` every other tick, `replayShot`, `stepReplay`, `startReplayViewer`):
+  the renderer swaps the recorded dummies/smokes/fx in for the world pass and restores them after. Killcam
+  (`killcam` config) from `hurtPlayer` when a bot kills you; the viewer from the pause menu (the sim waits).
+  Screenshot helpers: `--die N --killer I` (killcam), `--replay-frame N`.
+- **Stats** (`g_career`, `recordMatch`, `recordDeathmatch`; `kMenuStats`, `drawStatsPanel`): finished offline DM /
+  competitive matches vs bots; `--career FILE` shows a career in screenshots (never written).
 - **Collats** (combat.cpp traceShot): guns with penetration go through bodies (`kBodyThickness`), up to 3; `ShotResult::collat`, `collatResults` turns them into extra hits the game handles like any other.
 - **Reloads** are 20% faster than CS (owner, v0.15): the reload animation and sound cues stretch to `reloadTime`.
 - **Bots:** deathmatch bots fight each other (`dm_bot_fights`; `BotSenses::self/huntYou`, `everyone` targets);

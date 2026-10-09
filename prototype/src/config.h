@@ -54,6 +54,7 @@ struct Config {
     int enemy_skill = 2;       // enemy bots' skill, every mode (owner: normal was too easy)
     int skill_variance = 0;    // 0 every bot the same; 1 slight, 2 wide: each bot a little better or worse than the level
     int dm_bot_fights = 1;     // deathmatch: the bots fight each other too, not just you
+    int killcam = 1;           // when a bot kills you: replay the last moments through its eyes
     int nade_preview = 1;      // grenade trajectory preview: 0 off, 1 everywhere but competitive, 2 always
     std::string net_address = "127.0.0.1";  // online: the host to join (IP or name, optionally :port)
     std::string player_name = "PLAYER";      // online: your name

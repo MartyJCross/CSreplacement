@@ -103,6 +103,7 @@ public:
     void burst(const Vec3& pos, uint32_t color, float scale);  // grenade going off
     // Floor height under (x, y) for particles to land on (nullptr = flat floor at 0).
     void setGround(float (*groundAt)(float x, float y)) { ground_ = groundAt; }
+    float (*ground() const)(float, float) { return ground_; }
     void blood(const Vec3& pos, const Vec3& dir);
     void tracer(const Vec3& from, const Vec3& to);
     // A headshot kill: the helmet flies off along `dir`, spinning.
