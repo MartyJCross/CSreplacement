@@ -298,7 +298,9 @@ so a cut-off session can carry on; light testing, no benches while they use the 
 - [x] 4. Living main menu (`menuCamera`: high dolly shots over the CT spots, 11 s each, through black via
       `g_menuFade`; light veil + letterbox in drawMenu) and fades in from black (`g_fadeFrom`, `drawFadeIn`) on map
       load and competitive round start
-- [ ] 5. Map ambience (per-map loops) + room echo (reverb in tunnels/roofed areas)
+- [x] 5. Ambience (`ambienceBed` synthesized loops levelled to -33 dB RMS: Dust wind + birds, Harbor waves + gulls +
+      wind; `setAmbience`, config `ambience_volume`) and room echo (`Audio::Reverb`, Freeverb-lite on voices with
+      `wet`; UI cues dry via `dryCue`; `setRoom` from main: roofed cell = tunnel echo, street = short slap)
 - [ ] 6. Footsteps by surface (stone/sand, wood, metal)
 - [ ] 7. Viewmodel polish: smoother sway/bob, landing dip, strafe tilt
 - [ ] 8. Graphics presets (LOW/MEDIUM/HIGH set shadows, post, msaa)

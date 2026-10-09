@@ -70,6 +70,13 @@ public:
     void loadMusic(const std::string& path);
     void setMusic(float gain) { musicTarget_ = gain; }
 
+    // Ambience: a looping bed of the map's world (synthesized at init): 0 none, 1 Dust (wind, distant birds),
+    // 2 Harbor (waves, gulls, sea wind). Fades over about two seconds to `gain`; switching map crossfades.
+    void setAmbience(int which, float gain) { ambWhich_ = which; ambTarget_ = gain; }
+    // Room echo on game sounds (not the UI cues): `wet` how much (0 none .. ~0.5 a tunnel), `size` how long it
+    // rings (0 a street's slap .. 1 a big roofed hall). Eases there over a fraction of a second.
+    void setRoom(float wet, float size) { roomWet_ = wet; roomSize_ = size; }
+
 private:
     struct Voice {
         int sound;
@@ -79,7 +86,27 @@ private:
         // above the split frequency (`split`: the one-pole filter's coefficient). 2D sounds: no delay, hi = 1.
         float delayL = 0, delayR = 0, split = 0, hiL = 1, hiR = 1;
         float lpL = 0, lpR = 0;
+        bool wet = true;  // goes through the room echo (UI cues and your own ears' ringing don't)
     };
+    // The room echo (audio thread): Freeverb's shape, small: 4 damped combs and 2 allpasses per ear.
+    struct Reverb {
+        std::vector<float> comb[8], ap[4];
+        size_t ci[8] = {}, ai[4] = {};
+        float lp[8] = {};
+        float wet = 0, fb = 0.7f;  // eased towards the targets
+        void init();
+        void process(const float* in, float* out, int frames, float wetTarget, float fbTarget);
+    };
+    Reverb reverb_;
+    std::vector<float> wetBuf_, roomBuf_;
+    std::atomic<float> roomWet_{0.0f}, roomSize_{0.0f};
+    // Ambience loops (stereo, interleaved), made at init; which one plays, and how loud.
+    std::vector<float> amb_[3];
+    std::atomic<int> ambWhich_{0};
+    std::atomic<float> ambTarget_{0.0f};
+    int ambPlaying_ = 0;     // audio thread: the loop playing now (switches when faded out)
+    float ambGain_ = 0;
+    size_t ambPos_ = 0;
     static void SDLCALL callback(void* user, SDL_AudioStream* stream, int additional, int total);
     void mix(float* out, int frames);
     static void mixVoice(Voice& v, const std::vector<float>& snd, float* out, int frames);

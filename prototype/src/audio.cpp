@@ -614,6 +614,8 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
 // A recording -> 48 kHz mono float, or empty if it can't be read. WAV through SDL, Ogg through stb_vorbis.
+std::vector<float> ambienceBed(int which);  // (below, with the mixer)
+
 std::vector<float> loadRecording(const std::string& path) {
     std::vector<float> out;
     SDL_AudioSpec src{};
@@ -831,6 +833,18 @@ bool Audio::dumpWavs(const std::string& dir, const std::string& assetDir) {
             f.write("data", 4); u32(bytes);
             for (float x : clip) u16(uint16_t(int16_t(std::clamp(x, -1.0f, 1.0f) * 32767.0f)));
         }
+    for (int k = 1; k < 3; ++k) {  // the ambience beds, stereo
+        const std::vector<float> bed = ambienceBed(k);
+        std::ofstream f(dir + "/ambience_" + std::to_string(k) + ".wav", std::ios::binary);
+        if (!f) return false;
+        auto u32 = [&](uint32_t x) { f.write(reinterpret_cast<const char*>(&x), 4); };
+        auto u16 = [&](uint16_t x) { f.write(reinterpret_cast<const char*>(&x), 2); };
+        const uint32_t bytes = uint32_t(bed.size() * 2);
+        f.write("RIFF", 4); u32(36 + bytes); f.write("WAVEfmt ", 8);
+        u32(16); u16(1); u16(2); u32(kRate); u32(kRate * 4); u16(4); u16(16);
+        f.write("data", 4); u32(bytes);
+        for (float x : bed) u16(uint16_t(int16_t(std::clamp(x, -1.0f, 1.0f) * 32767.0f)));
+    }
     return true;
 }
 
@@ -868,6 +882,138 @@ bool Audio::dumpSpatial(const std::string& dir, const std::string& assetDir) {
     return true;
 }
 
+namespace {
+
+// Ambience beds (stereo, interleaved, seamless loops). Dust: wind in gusts and a distant bird now and then.
+// Harbor: slow waves on the quay, gulls, a sea wind.
+std::vector<float> ambienceBed(int which) {
+    constexpr float kLen = 24.0f, kXfade = 2.0f;
+    const size_t n = size_t((kLen + kXfade) * kRate);
+    std::vector<float> ch[2] = {std::vector<float>(n, 0.0f), std::vector<float>(n, 0.0f)};
+    Rng rng;
+    rng.s = 0x9E3779B9u + uint32_t(which) * 7919u;
+    for (int c = 0; c < 2; ++c) {  // wind: band-passed noise in slow gusts, each ear its own
+        float lo = 0, hi = 0, lo2 = 0;
+        const float aHi = lpCoef(which == 2 ? 520.0f : 700.0f), aLo = lpCoef(110.0f), aLo2 = lpCoef(60.0f);
+        const float ph = float(c) * 1.7f;
+        for (size_t i = 0; i < n; ++i) {
+            const float t = float(i) / kRate;
+            const float gust = 0.55f + 0.25f * std::sin(t * 0.43f + ph) + 0.2f * std::sin(t * 1.13f + ph * 2.1f);
+            const float x = rng.noise();
+            hi += aHi * (x - hi);
+            lo += aLo * (hi - lo);
+            lo2 += aLo2 * (lo - lo2);
+            ch[c][i] += (hi - lo) * gust * (which == 2 ? 0.05f : 0.07f) + (lo - lo2) * 0.02f;
+        }
+    }
+    if (which == 2) {  // waves: a low wash that swells every 6-9 s, and gulls
+        float lp = 0, lp2 = 0;
+        const float a = lpCoef(380.0f), a2 = lpCoef(70.0f);
+        for (size_t i = 0; i < n; ++i) {
+            const float t = float(i) / kRate;
+            const float sw = 0.5f + 0.5f * std::sin(t * 0.83f) * std::sin(t * 0.31f + 1.0f);
+            const float x = rng.noise();
+            lp += a * (x - lp);
+            lp2 += a2 * (lp - lp2);
+            const float v = (lp - lp2) * 0.22f * sw * sw;
+            ch[0][i] += v * 0.9f;
+            ch[1][i] += v * 1.1f;
+        }
+        for (float t0 = 2.5f; t0 < kLen - 1.0f; t0 += 6.0f + 3.0f * (rng.noise() * 0.5f + 0.5f)) {
+            const float pan = rng.noise() * 0.8f, amp = 0.010f + 0.006f * (rng.noise() * 0.5f + 0.5f);
+            for (int k = 0, cries = 2 + int((rng.noise() * 0.5f + 0.5f) * 2.0f); k < cries; ++k) {
+                const float start = t0 + float(k) * 0.42f, len = 0.34f;
+                float phase = 0;
+                for (size_t i = size_t(start * kRate); i < size_t((start + len) * kRate) && i < n; ++i) {
+                    const float u = (float(i) / kRate - start) / len;
+                    const float f = 1500.0f - 600.0f * u + 40.0f * std::sin(u * 60.0f);
+                    phase += 2.0f * kPi * f / kRate;
+                    const float env = std::sin(u * kPi) * (1.0f - 0.5f * u);
+                    const float v = (std::sin(phase) + 0.35f * std::sin(phase * 2.0f) + 0.15f * std::sin(phase * 3.0f)) * env * amp;
+                    ch[0][i] += v * (1.0f - pan) * 0.7f;
+                    ch[1][i] += v * (1.0f + pan) * 0.7f;
+                }
+            }
+        }
+    } else if (which == 1) {  // a distant bird: little rising chirps in twos and threes
+        for (float t0 = 1.5f; t0 < kLen - 1.0f; t0 += 3.0f + 4.0f * (rng.noise() * 0.5f + 0.5f)) {
+            const float pan = rng.noise() * 0.9f, base = 2600.0f + 900.0f * (rng.noise() * 0.5f + 0.5f);
+            for (int k = 0, chirps = 2 + int((rng.noise() * 0.5f + 0.5f) * 2.0f); k < chirps; ++k) {
+                const float start = t0 + float(k) * 0.13f, len = 0.07f;
+                float phase = 0;
+                for (size_t i = size_t(start * kRate); i < size_t((start + len) * kRate) && i < n; ++i) {
+                    const float u = (float(i) / kRate - start) / len;
+                    phase += 2.0f * kPi * (base + 1100.0f * u) / kRate;
+                    const float v = std::sin(phase) * std::sin(u * kPi) * 0.006f;
+                    ch[0][i] += v * (1.0f - pan);
+                    ch[1][i] += v * (1.0f + pan);
+                }
+            }
+        }
+    }
+    // Seamless: the extra tail fades into the start.
+    const size_t len = size_t(kLen * kRate), xf = n - len;
+    std::vector<float> out(len * 2);
+    for (size_t i = 0; i < len; ++i)
+        for (int c = 0; c < 2; ++c) {
+            float v = ch[c][i];
+            if (i < xf) {
+                const float k = float(i) / float(xf);
+                v = v * k + ch[c][len + i] * (1.0f - k);
+            }
+            out[i * 2 + size_t(c)] = v;
+        }
+    // Levelled: a quiet bed under the game (about -33 dB RMS, some 20 dB under a gunshot) at full ambience volume.
+    double sum = 0;
+    for (float v : out) sum += double(v) * double(v);
+    const float rms = float(std::sqrt(sum / double(std::max<size_t>(out.size(), 1))));
+    if (rms > 1e-6f)
+        for (float& v : out) v *= 0.022f / rms;
+    return out;
+}
+
+}  // namespace
+
+void Audio::Reverb::init() {
+    // Freeverb's tunings (at 44.1 kHz), scaled to 48 kHz; the right ear's lines 23 samples longer.
+    static const int kComb[4] = {1116, 1188, 1277, 1356}, kAp[2] = {556, 441};
+    for (int e = 0; e < 2; ++e) {
+        for (int k = 0; k < 4; ++k) comb[e * 4 + k].assign(size_t(float(kComb[k] + e * 23) * 48.0f / 44.1f), 0.0f);
+        for (int k = 0; k < 2; ++k) ap[e * 2 + k].assign(size_t(float(kAp[k] + e * 23) * 48.0f / 44.1f), 0.0f);
+    }
+}
+
+void Audio::Reverb::process(const float* in, float* out, int frames, float wetTarget, float fbTarget) {
+    constexpr float kDamp = 0.35f;
+    const float step = 1.0f / 9600.0f;  // ~0.2 s to ease all the way
+    for (int i = 0; i < frames; ++i) {
+        wet += std::clamp(wetTarget - wet, -step, step);
+        fb += std::clamp(fbTarget - fb, -step, step);
+        const float x = (in[i * 2] + in[i * 2 + 1]) * 0.5f * 0.12f;
+        for (int e = 0; e < 2; ++e) {
+            float y = 0;
+            for (int k = 0; k < 4; ++k) {
+                const int c = e * 4 + k;
+                std::vector<float>& b = comb[c];
+                const float o = b[ci[c]];
+                lp[c] = o * (1.0f - kDamp) + lp[c] * kDamp;
+                b[ci[c]] = x + lp[c] * fb;
+                if (++ci[c] >= b.size()) ci[c] = 0;
+                y += o;
+            }
+            for (int k = 0; k < 2; ++k) {
+                const int a = e * 2 + k;
+                std::vector<float>& b = ap[a];
+                const float o = b[ai[a]];
+                b[ai[a]] = y + o * 0.5f;
+                if (++ai[a] >= b.size()) ai[a] = 0;
+                y = o - y;
+            }
+            out[i * 2 + e] += y * wet;
+        }
+    }
+}
+
 bool Audio::init(float masterVolume, const std::string& assetDir) {
     master_ = masterVolume;
     SoundBank bank = loadBank(assetDir, loaded_);
@@ -878,6 +1024,9 @@ bool Audio::init(float masterVolume, const std::string& assetDir) {
     voices_.reserve(kMaxVoices);
     pending_.reserve(kMaxVoices);
     mixBuf_.resize(4096 * 2);
+    wetBuf_.resize(4096 * 2);
+    reverb_.init();
+    for (int k = 1; k < 3; ++k) amb_[k] = ambienceBed(k);
     SDL_AudioSpec spec{SDL_AUDIO_F32, 2, kRate};
     stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &Audio::callback, this);
     if (!stream_) return false;
@@ -937,6 +1086,19 @@ float Audio::rand01() {
 
 void Audio::play(Sfx s, float gain, float pan, float pitch) { start(s, gain, pan, pitch, 0, 0, 2000, 1, 1); }
 
+namespace {
+// Sounds that aren't in the world (the UI, the match's cues, your ears ringing): no room echo on them.
+bool dryCue(Sfx s) {
+    switch (s) {
+    case Sfx::UiClick: case Sfx::HitMarker: case Sfx::FlashRing: case Sfx::RoundStart: case Sfx::BombPlanted:
+    case Sfx::RoundWin: case Sfx::RoundLose: case Sfx::LowAmmo: case Sfx::LastRound:
+        return true;
+    default:
+        return false;
+    }
+}
+}  // namespace
+
 void Audio::start(Sfx s, float gain, float pan, float pitch, float delayL, float delayR, float splitHz, float hiL, float hiR) {
     if (!stream_ || gain <= 0.001f) return;
     // Pick a variant (not the one we just played) and nudge pitch +-2.5% and volume +-1 dB.
@@ -954,6 +1116,7 @@ void Audio::start(Sfx s, float gain, float pan, float pitch, float delayL, float
     voice.split = lpCoef(splitHz);
     voice.hiL = hiL;
     voice.hiR = hiR;
+    voice.wet = !dryCue(s);
     std::lock_guard<std::mutex> lock(mutex_);
     if (pending_.size() < kMaxVoices) pending_.push_back(voice);
 }
@@ -1029,8 +1192,29 @@ void Audio::mix(float* out, int frames) {
             if (++musicPos_ >= len) musicPos_ = 0;
         }
     }
+    // The map's ambience: fades to its level; a different map's bed fades the old one out first.
+    {
+        const int want = ambWhich_;
+        const float target = want == ambPlaying_ ? float(ambTarget_) : 0.0f, step = 1.0f / (2.0f * kRate);
+        for (int i = 0; i < frames; ++i) {
+            ambGain_ = ambGain_ < target ? std::min(target, ambGain_ + step) : std::max(target, ambGain_ - step);
+            const std::vector<float>& a = amb_[ambPlaying_];
+            if (ambGain_ <= 0.0f || a.empty()) continue;
+            out[i * 2] += a[ambPos_ * 2] * ambGain_;
+            out[i * 2 + 1] += a[ambPos_ * 2 + 1] * ambGain_;
+            if (++ambPos_ * 2 >= a.size()) ambPos_ = 0;
+        }
+        if (ambGain_ <= 0.0f && want != ambPlaying_ && want >= 0 && want < 3) {
+            ambPlaying_ = want;
+            ambPos_ = 0;
+        }
+    }
     if (int(voices_.size()) > peakVoices_) peakVoices_ = int(voices_.size());
-    for (Voice& v : voices_) mixVoice(v, sounds_[size_t(v.sound)], out, frames);
+    // Game sounds go through the room echo too; the UI's cues don't.
+    std::fill(wetBuf_.begin(), wetBuf_.begin() + frames * 2, 0.0f);
+    for (Voice& v : voices_) mixVoice(v, sounds_[size_t(v.sound)], v.wet ? wetBuf_.data() : out, frames);
+    for (int i = 0; i < frames * 2; ++i) out[i] += wetBuf_[size_t(i)];
+    reverb_.process(wetBuf_.data(), out, frames, roomWet_, 0.62f + 0.22f * std::clamp(float(roomSize_), 0.0f, 1.0f));
     voices_.erase(std::remove_if(voices_.begin(), voices_.end(),
                                  [&](const Voice& v) {
                                      return v.pos >= double(sounds_[size_t(v.sound)].size() - 1) + double(std::max(v.delayL, v.delayR));

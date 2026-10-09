@@ -70,6 +70,8 @@ zoom_sensitivity_ratio 1
 msaa 4
 // Sun shadows: 0 off, 1 on, 2 sharp (a bigger shadow map).
 shadows 2
+// The map's ambience: wind and distant birds on Dust, waves and gulls on Harbor (0 = off .. 1).
+ambience_volume 0.6
 // Post-processing: each map's colour grade and a soft vignette; with msaa 0 it smooths edges with FXAA instead
 // (much cheaper than MSAA on integrated graphics). Restart to apply.
 post_fx 1
@@ -125,7 +127,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\ncase_kills " << c.case_kills << "\nall_skins " << c.all_skins << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
-        << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\nshadows " << c.shadows << "\npost_fx " << c.post_fx << "\nmode " << c.mode
+        << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\nshadows " << c.shadows << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nfreeze_time " << c.freeze_time
@@ -210,6 +212,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "map") i(c.map);
         else if (key == "msaa") i(c.msaa);
         else if (key == "shadows") i(c.shadows);
+        else if (key == "ambience_volume") c.ambience_volume = v;
         else if (key == "post_fx") i(c.post_fx);
         else if (key == "dust_scale") i(c.dust_scale);
         else if (key == "depth_prepass") i(c.depth_prepass);

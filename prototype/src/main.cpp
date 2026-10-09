@@ -4587,6 +4587,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuVideo:
             return {{"VOLUME", &c.volume, nullptr, 0.05f, 0.0f, 1.0f},
                     {"MENU MUSIC", &c.music_volume, nullptr, 0.05f, 0.0f, 1.0f},
+                    {"AMBIENCE", &c.ambience_volume, nullptr, 0.05f, 0.0f, 1.0f},
                     {"HIT SOUND", nullptr, &c.hitsound, 1, 0, 1, kOnOff},
                     {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
                     {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
@@ -6527,8 +6528,24 @@ int main(int argc, char** argv) {
         g_uiTime += dt;
         if (g_menu.screen == kMenuCase) caseTick(g);
         // The soundtrack plays in the main menu and its pages (not the pause menu), and fades out in a game.
-        if (g.audio)
-            g.audio->setMusic(g_menu.screen != kMenuNone && g_menu.root == kMenuMain ? std::clamp(cfg.music_volume, 0.0f, 1.0f) * 0.7f : 0.0f);
+        if (g.audio) {
+            const bool mainMenu = g_menu.screen != kMenuNone && g_menu.root == kMenuMain;
+            g.audio->setMusic(mainMenu ? std::clamp(cfg.music_volume, 0.0f, 1.0f) * 0.7f : 0.0f);
+            // The world's sound: the map's ambience (quieter under a roof and under the menu's music), and the room
+            // echo of where you stand: a tunnel or a roofed hall rings, a street gives a short slap off the walls.
+            bool roofed = false;
+            if (g.mapId == 1) {
+                const MapGrid& m = townGrid();
+                int ci, cj;
+                roofed = m.cellAt(g.lastRenderEye.x, g.lastRenderEye.y, ci, cj) && m.walkable(ci, cj) &&
+                         m.ceiling[size_t(m.index(ci, cj))] < MapGrid::kOpenSky;
+            }
+            const float amb = std::clamp(cfg.ambience_volume, 0.0f, 1.0f) * (roofed ? 0.45f : 1.0f) * (mainMenu ? 0.5f : 1.0f);
+            g.audio->setAmbience(g.mapId == 1 ? 1 + townMap() : 0, amb);
+            if (g.mapId != 1) g.audio->setRoom(0.16f, 0.55f);
+            else if (roofed) g.audio->setRoom(0.34f, 0.8f);
+            else g.audio->setRoom(0.11f, 0.15f);
+        }
         if (bench) {  // a slow turn with the rifle firing on and off, like play
             g.viewYaw = wrapDeg(float(g.viewYaw) + float(dt) * 720.0f / opt.benchSeconds);
             g.fireHeld = std::fmod(benchStats.elapsed, 3.0) < 1.2;

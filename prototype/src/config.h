@@ -42,6 +42,7 @@ struct Config {
     int map = 0;               // 0 = the Lab, 1 = dust (Play screen)
     int dust_scale = 60;       // Dust's size in % of real Dust2 (50..100)
     int msaa = 4;              // anti-aliasing samples (0 = off); applies on restart
+    float ambience_volume = 0.6f;  // the map's ambience (wind, birds, waves, gulls); 0 = off
     int shadows = 2;           // sun shadows: 0 off, 1 on (2048 map), 2 sharp (4096)
     int post_fx = 1;           // 1 = post pass: colour grade, vignette, FXAA when msaa is 0 (applies on restart)
     int depth_prepass = 1;     // 1 = depth pre-pass (faster on most GPUs, identical image)
