@@ -19,7 +19,7 @@ constexpr int kNetMaxPlayers = 8;        // ids 0..7: the host is 0
 constexpr int kNetBots = 10;             // competitive: bot slots 8..17
 constexpr int kNetSlots = kNetMaxPlayers + kNetBots;
 constexpr uint16_t kNetDefaultPort = 27015;
-constexpr uint32_t kNetProtocol = 8;     // bump when messages change: other versions can't join
+constexpr uint32_t kNetProtocol = 10;     // bump when messages change: other versions can't join
 
 struct NetState {                        // one player, one tick
     uint8_t id = 0;
@@ -30,7 +30,7 @@ struct NetState {                        // one player, one tick
     uint8_t weapon = 0;                  // 0 rifle, 1 pistol, 2 knife, 3 grenade, 4 sniper
     uint8_t duck = 0;                    // crouch 0..255
 };
-constexpr uint8_t kNetAlive = 1, kNetArmor = 2, kNetHelmet = 4;
+constexpr uint8_t kNetAlive = 1, kNetArmor = 2, kNetHelmet = 4, kNetReload = 8, kNetDuck = 16;  // (kNetDuck: bots)
 
 // Competitive, host -> everyone, a few times a second: where the match is.
 struct NetMatch {
@@ -60,8 +60,17 @@ constexpr uint8_t kRoundHalf = 1, kRoundNewMatch = 2;
 
 struct NetBot { uint8_t id = 0; Vec3 pos; float yaw = 0, pitch = 0; uint8_t flags = 0, weapon = 0; };
 
+// The lobby, host -> everyone, while friends gather before the game: what's on and who's on which team.
+struct NetLobby {
+    uint8_t game = 0;                    // bit 0: 0 deathmatch, 1 competitive; bits 1+: the town map
+    float townScale = 0.6f;
+    uint8_t team[kNetMaxPlayers] = {};   // per player: 0 team A (the host's), 1 team B
+};
+constexpr uint8_t kNetLobbyOpen = 0x80;  // in the welcome's game byte: the host is in the lobby (not playing yet)
+
 struct NetEvent {
-    enum Type { Connected, Failed, Joined, Left, State, Fire, Hit, Death, Name, Nade, Bots, Match, Round, Plant, Defused } type;
+    enum Type { Connected, Failed, Joined, Left, State, Fire, Hit, Death, Name, Nade, Bots, Match, Round, Plant, Defused,
+                Drop, Pickup, Lobby, TeamPick, Start, Bye } type;
     uint8_t from = 0;                    // who it's about (Joined/Left/State/Fire/Nade/Plant), the shooter (Hit),
                                          // the victim (Death)
     uint8_t other = 0;                   // Hit: the victim; Death: the killer
@@ -79,6 +88,10 @@ struct NetEvent {
     NetBot bots[kNetBots];               // Bots
     NetMatch match;                      // Match
     NetRound round;                      // Round
+    uint32_t dropId = 0;                 // Drop, Pickup: which gun on the floor
+    float yaw = 0;                       // Drop: how it lies (a = where, weapon = which gun)
+    uint8_t ammo = 0;                    // Drop: rounds in it
+    NetLobby lobby;                      // Lobby (TeamPick: the team is `weapon`)
 };
 
 class Net {
@@ -102,6 +115,15 @@ public:
     void sendHit(uint8_t victim, float damage, uint8_t group, uint8_t weapon, int as = -1);
     void sendDeath(uint8_t victim, uint8_t killer, bool head, uint8_t weapon);  // clients: only their own
     void sendNade(int type, const Vec3& pos, const Vec3& vel, int as = -1);
+    // The lobby. Host: what's on (also for anyone who joins from now on: setGame) and who's where, then go. Clients:
+    // the team they'd like.
+    void setGame(uint8_t game, float townScale) { game_ = game; townScale_ = townScale; }
+    void sendLobby(const NetLobby& l);
+    void sendTeamPick(uint8_t team);
+    void sendStart();
+    // Guns on the floor: one was dropped (a death, a swap) / picked up. Everyone keeps the same list.
+    void sendDrop(uint32_t id, uint8_t weapon, const Vec3& pos, float yaw, uint8_t ammo);
+    void sendPickup(uint32_t id);
     // Host only (competitive):
     void sendBots(uint32_t tick, const NetBot* bots, int count);
     void sendMatch(const NetMatch& m);

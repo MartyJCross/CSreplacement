@@ -46,6 +46,10 @@ struct Options {
     bool spawnOverride = false;  // --spawn x y yaw
     float spawnX = 0, spawnY = 0, spawnYaw = 0;
     float autofireStart = -1, autofireEnd = -1;  // --autofire start end (sim seconds)
+    int call = -1;                               // --call N AT: competitive, make call N (PlayerCall) at AT s
+    int dropWeapon = -1;                         // --drop W: gun W lies on the floor in front of you (screenshots)
+    int roundsToWin = 0;                         // --rounds N: a competitive match is first to N (tests)
+    float callAt = 0;
     int windowW = 0, windowH = 0;                // --windowed W H
     int startWeapon = 0;                         // --weapon 1..14 (4 AWP, 5 grenade, 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10,
                                                  // 10 M4A1-S, 11 Galil AR, 12 SSG 08, 13 UMP-45, 14 XM1014)
@@ -66,6 +70,7 @@ struct Options {
     int buyCat = -1;                             // --buy N: the buy wheel open on category N (0 = the categories)
     bool startCT = false;                        // --ct: competitive starts with you on CT (testing)
     bool netHost = false;                        // --host: host an online game straight away
+    int lobbyStartFrame = -1;                    // --host-lobby F: host into the lobby, START at frame F (tests)
     std::string netJoin;                         // --join ADDR: join one
 };
 
@@ -81,6 +86,13 @@ Options parseArgs(int argc, char** argv) {
             o.spawnX = float(std::atof(next()));
             o.spawnY = float(std::atof(next()));
             o.spawnYaw = float(std::atof(next()));
+        } else if (a == "--rounds") {
+            o.roundsToWin = std::atoi(next());
+        } else if (a == "--drop") {
+            o.dropWeapon = std::atoi(next());
+        } else if (a == "--call") {
+            o.call = std::atoi(next());
+            o.callAt = float(std::atof(next()));
         } else if (a == "--autofire") {
             o.autofireStart = float(std::atof(next()));
             o.autofireEnd = float(std::atof(next()));
@@ -92,6 +104,9 @@ Options parseArgs(int argc, char** argv) {
             o.bots = true;
         } else if (a == "--nade") {
             o.nadeType = std::atoi(next());
+        } else if (a == "--host-lobby") {
+            o.netHost = true;
+            o.lobbyStartFrame = std::atoi(next());
         } else if (a == "--host") {
             o.netHost = true;
         } else if (a == "--join") {
@@ -151,6 +166,7 @@ struct Game {
     float buyMouseX = 0, buyMouseY = 0;  // buy wheel: the mouse (pixels; it's free while the wheel is open)
     WeaponState* lastWeapon = &guns[kWKnife];
     bool buyMenu = false;
+    bool callMenu = false;        // competitive: Z, your call for your team's bots
     float throwStrength = 1.0f;   // the next throw: 1 full, kNadeMedium, kNadeLob (see grenadeThrowVelocity)
     int nadeHold = 0;             // grenade out, pin pulled: buttons held so far (1 Mouse 1, 2 Mouse 2)
     bool zoomHeld = false;        // Mouse 2 is down
@@ -236,6 +252,13 @@ struct Game {
     std::vector<Nade> nades;
     std::vector<Smoke> smokes;
     bool throwLatch = false;
+    bool useLatch = false;        // E pressed: pick up the gun you're looking at
+    // Guns on the floor (dropped on death, or swapped for another): anyone can pick them up. Deathmatch and
+    // competitive; online everyone keeps the same list (sendDrop / sendPickup).
+    struct Drop { Vec3 pos; float yaw = 0; int weapon = 0; int ammo = 0; uint32_t id = 0; double at = 0; };
+    std::vector<Drop> drops;
+    std::vector<size_t> ramps;    // the map's smooth ramps (their boxes in world.solids): shadows lie on them
+    uint32_t nextDropId = 1;
 
     // Map + bot AI (Dust: hide behind cover, peek, hold, return).
     int mapId = 0;
@@ -330,6 +353,10 @@ struct Game {
         bool planted = false;
         const char* resultText = "";
         bool resultWin = false;
+        int lastWinner = 0;                 // the round that just ended: the side that won it
+        int mvp = -3, mvpKills = 0;         // its MVP (-1 you, a slot; -3 none) and their kills that round
+        const char* mvpWhy = "";            // "FOR PLANTING THE BOMB" / "FOR DEFUSING THE BOMB" / "" (most kills)
+        int plantedBy = -3, defusedBy = -3; // this round's bomb heroes
     } comp;
     std::vector<int> team;                  // per bot: 0 = T, 1 = CT (competitive)
 
@@ -344,7 +371,19 @@ struct Game {
     struct Stats { int kills = 0, deaths = 0, assists = 0, hsKills = 0, mvps = 0, roundKills = 0; float damage = 0; };
     Stats you;
     std::vector<Stats> botStats;
-    struct FeedEntry { std::string text; uint32_t color; double time; };
+    // A kill feed line: killer, the gun (an icon), headshot / wallbang, victim (-9: a plain text line).
+    struct FeedEntry {
+        std::string text;
+        uint32_t color;
+        double time;
+        int killer = -9, victim = -9, weapon = -1;
+        bool head = false, wall = false;
+    };
+    std::string killToast;        // "KILLED NAME" under the crosshair, for a moment
+    double killToastAt = -10;
+    bool killToastHead = false;
+    int cuePhase = -1;            // the match's sound cues: the phase and the bomb when last looked at
+    bool cuePlanted = false, cueRtResult = false;
     std::deque<FeedEntry> feed;
     std::vector<float> dmgGiven, dmgTaken;  // this life, per bot (the damage report when you die)
     std::vector<int> hitsGiven, hitsTaken;
@@ -478,6 +517,110 @@ void gunshot3D(Game& g, int w, const Vec3& at, const Vec3& ear, float earYaw, fl
     g.audio->play3D(far ? Sfx::RifleShotFar : gs.sfx, at, ear, earYaw, suppressedGun(w) ? 2200.0f : far ? 6500.0f : 4000.0f,
                     far ? gain * 1.2f : gain, gs.pitch);
 }
+
+// A gun as players hold it (and as it lies on the floor when dropped): boxes in the holder's space (x forward is
+// -x, up z, the grip about 47 units up), given to `part(min, max, colour)`.
+template <class Part>
+void gunModel(int weapon, Part&& part) {
+    switch (weapon) {
+        case kWPistol:  // pistol: a short slide between the hands, the suppressor out front
+            part({-17.5f, -1.0f, 47.0f}, {-11.0f, 1.0f, 49.6f}, 0x1e2024);
+            part({-23.5f, -0.7f, 47.4f}, {-17.5f, 0.7f, 49.2f}, 0x15171a);
+            part({-13.0f, -0.8f, 44.5f}, {-11.2f, 0.8f, 47.0f}, 0x26282c);
+            break;
+        case kWDeagle:  // a bigger, chunkier pistol
+            part({-19.0f, -1.3f, 47.0f}, {-10.8f, 1.3f, 50.4f}, 0x3a3d42);
+            part({-13.2f, -1.0f, 44.0f}, {-11.0f, 1.0f, 47.0f}, 0x26282c);
+            break;
+        case kWBerettas:  // a pistol in each hand
+            part({-17.5f, -12.6f, 47.0f}, {-11.5f, -10.8f, 49.4f}, 0x8a9098);
+            part({-19.5f, 10.8f, 47.0f}, {-13.5f, 12.6f, 49.4f}, 0x8a9098);
+            break;
+        case kWNova:  // a long pump shotgun
+            part({-17.0f, -1.5f, 45.5f}, {-6.6f, 1.5f, 49.5f}, 0x1e2024);
+            part({-33.0f, -0.7f, 47.0f}, {-17.0f, 0.7f, 48.6f}, 0x111214);
+            part({-24.0f, -1.2f, 45.2f}, {-17.0f, 1.2f, 47.2f}, 0x2a2c30);
+            break;
+        case kWXm1014:  // a long auto shotgun, the tube under the barrel
+            part({-17.0f, -1.5f, 45.5f}, {-6.6f, 1.5f, 49.5f}, 0x232528);
+            part({-34.0f, -0.7f, 47.4f}, {-17.0f, 0.7f, 48.8f}, 0x111214);
+            part({-31.0f, -0.8f, 45.8f}, {-17.0f, 0.8f, 47.4f}, 0x2a2c30);
+            break;
+        case kWMac10:  // a stubby box with a long mag
+            part({-17.0f, -1.6f, 46.0f}, {-9.0f, 1.6f, 50.0f}, 0x26282c);
+            part({-14.0f, -0.8f, 41.0f}, {-12.0f, 0.8f, 46.0f}, 0x1a1b1e);
+            break;
+        case kWKnife:  // knife
+            part({-14.0f, -0.6f, 46.5f}, {-11.0f, 0.6f, 48.5f}, 0x2a2420);
+            part({-21.0f, -0.25f, 46.8f}, {-14.0f, 0.25f, 48.2f}, 0xb8bcc2);
+            break;
+        case kWGrenade:  // grenade in the hand
+            part({-15.5f, -1.8f, 46.0f}, {-12.0f, 1.8f, 50.0f}, 0x3b4a2f);
+            break;
+        case kWSniper:  // sniper: long barrel, scope on top
+            part({-17.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x2c3326);
+
+            part({-36.0f, -0.6f, 47.2f}, {-17.0f, 0.6f, 48.4f}, 0x111214);
+            part({-15.0f, -1.0f, 49.5f}, {-8.0f, 1.0f, 51.5f}, 0x0e0f10);
+            break;
+        case kWM4A1S:  // black, a square handguard, a long suppressor
+            part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x18191c);
+            part({-21.0f, -1.6f, 45.8f}, {-14.0f, 1.6f, 49.4f}, 0x222327);
+            part({-24.0f, -0.5f, 47.3f}, {-21.0f, 0.5f, 48.3f}, 0x111214);
+            part({-33.0f, -1.0f, 46.8f}, {-24.0f, 1.0f, 48.8f}, 0x0e0f10);
+            part({-12.0f, -0.8f, 41.5f}, {-10.0f, 0.8f, 46.0f}, 0x111214);  // the mag
+            break;
+        case kWGalil:  // dark, a wooden handguard, a curved mag
+            part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x232528);
+            part({-21.0f, -1.5f, 45.8f}, {-15.0f, 1.5f, 48.8f}, 0x5a3c23);
+            part({-27.0f, -0.6f, 47.2f}, {-21.0f, 0.6f, 48.4f}, 0x111214);
+            part({-13.5f, -0.8f, 41.0f}, {-11.0f, 0.8f, 46.0f}, 0x18191c);
+            break;
+        case kWSsg08:  // a slim bolt gun, a small scope
+            part({-16.0f, -1.2f, 46.2f}, {-6.6f, 1.2f, 49.0f}, 0x2a2c30);
+            part({-33.0f, -0.5f, 47.3f}, {-16.0f, 0.5f, 48.3f}, 0x111214);
+            part({-14.0f, -0.8f, 49.0f}, {-9.0f, 0.8f, 50.6f}, 0x0e0f10);
+            break;
+        case kWUmp45:  // a boxy SMG, a straight mag
+            part({-18.0f, -1.6f, 45.8f}, {-8.0f, 1.6f, 49.8f}, 0x232528);
+            part({-21.0f, -0.6f, 47.2f}, {-18.0f, 0.6f, 48.4f}, 0x111214);
+            part({-15.0f, -0.9f, 40.0f}, {-13.0f, 0.9f, 45.8f}, 0x18191c);
+            break;
+        default:  // the AK-47
+            part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x1e2024);
+            part({-27.0f, -0.6f, 47.2f}, {-16.0f, 0.6f, 48.4f}, 0x111214);
+            break;
+    }
+}
+
+// A gun's side view as a small flat silhouette (kill feed, buy wheel), muzzle to the right, `ht` pixels tall from
+// the top at y. Returns its width.
+float drawGunIcon(HudBatch& hud, int weapon, float x, float y, float ht, uint32_t col) {
+    float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+    gunModel(weapon, [&](Vec3 mn, Vec3 mx, uint32_t) {
+        x0 = std::min(x0, -mx.x);
+        x1 = std::max(x1, -mn.x);
+        z0 = std::min(z0, mn.z);
+        z1 = std::max(z1, mx.z);
+    });
+    if (x1 <= x0) return 0;
+    const float k = ht / std::max(z1 - z0, 7.0f);
+    gunModel(weapon, [&](Vec3 mn, Vec3 mx, uint32_t) {
+        hud.rect(x + (-mx.x - x0) * k, y + (z1 - mx.z) * k, std::max(1.0f, (mx.x - mn.x) * k), std::max(1.0f, (mx.z - mn.z) * k), col);
+    });
+    return (x1 - x0) * k;
+}
+
+// A small skull (a headshot in the kill feed), `sz` wide.
+void drawSkull(HudBatch& hud, float x, float y, float sz, uint32_t col) {
+    hud.rect(x, y, sz, sz * 0.72f, col);
+    hud.rect(x + sz * 0.22f, y + sz * 0.72f, sz * 0.56f, sz * 0.26f, col);
+    hud.rect(x + sz * 0.16f, y + sz * 0.28f, sz * 0.24f, sz * 0.22f, 0x101216FF);
+    hud.rect(x + sz * 0.60f, y + sz * 0.28f, sz * 0.24f, sz * 0.22f, 0x101216FF);
+}
+
+// Team colours, like CS: Terrorists gold, Counter-Terrorists blue.
+constexpr uint32_t kTeamColor[2] = {0xE8B85AFF, 0x78ACFFFF};
 
 // The view model for a weapon id (and back).
 ViewWeapon viewWeaponFor(int id) {
@@ -628,11 +771,19 @@ void recordDamage(Game& g, int attacker, int victim, float amount, bool head, co
         const uint8_t code = netWeaponCode(weapon);
         addMoney(g, attacker, code == kWGrenade ? 300 : weaponDef(code).killReward);
     }
-    std::string t = agentName(attacker) + "  [" + weapon + "]  " + agentName(victim);
-    if (head) t += "  HS";
-    if (wallbang) t += "  WALLBANG";
-    g.feed.push_back({t, attacker < 0 ? 0xFFFFFFu : victim < 0 ? 0xFF6060u : 0xB4B4B4u, g.simTime});
+    Game::FeedEntry fe{agentName(attacker) + "  [" + weapon + "]  " + agentName(victim), 0xB4B4B4u, g.simTime};
+    fe.killer = attacker;
+    fe.victim = victim;
+    fe.weapon = netWeaponCode(weapon);
+    fe.head = head;
+    fe.wall = wallbang;
+    g.feed.push_back(fe);
     while (g.feed.size() > 5) g.feed.pop_front();
+    if (attacker == -1 && victim >= 0) {  // you got one: say so under the crosshair
+        g.killToast = agentName(victim);
+        g.killToastAt = g.simTime;
+        g.killToastHead = head;
+    }
 }
 
 // When you die: who you damaged and who damaged you this life (CS prints this in the console).
@@ -811,6 +962,7 @@ void startPrefire(Game& g) {
     g.nades.clear();
     g.smokes.clear();
     g.fires.clear();
+    g.drops.clear();
     g.hudDirty = true;
 }
 
@@ -921,6 +1073,68 @@ void endRetakeRound(Game& g, bool won, const char* why) {
 
 // You take damage from `attacker` (bot id, or -2 for your own grenade / the world). Returns true if
 // it killed you: you respawn per the mode's rules.
+// The match's sound cues, in every game (hosting or not): "go" when freeze time ends, the alarm when the bomb goes
+// down, a sting when the round ends (won or lost); retakes: the sting too.
+void matchCues(Game& g) {
+    const Game::Comp& c = g.comp;
+    if (g.mode == 3 && g.mapId == 1) {
+        if (g.cuePhase >= 0 && c.phase != g.cuePhase) {
+            if (c.phase == 1 && g.cuePhase == 0) sound(g, Sfx::RoundStart, 0.8f);
+            if (c.phase >= 2 && g.cuePhase <= 1) sound(g, c.resultWin ? Sfx::RoundWin : Sfx::RoundLose, 0.8f);
+        }
+        if (c.planted && !g.cuePlanted && c.phase == 1) sound(g, Sfx::BombPlanted, 0.9f);
+        g.cuePhase = c.phase;
+        g.cuePlanted = c.planted;
+    }
+    if (g.mode == 2 && g.mapId == 1) {
+        const bool result = g.rtResultUntil >= 0;
+        if (result && !g.cueRtResult) sound(g, g.rtResultWin ? Sfx::RoundWin : Sfx::RoundLose, 0.8f);
+        g.cueRtResult = result;
+    }
+}
+
+// A bullet hole where a shot hit the map (Dust, Harbor): a pale chip round a dark hole, coloured by what it hit,
+// flat against the surface. They fade away after ~28 s (the shader shrinks them; makeBulletHole).
+void bulletHole(Game& g, const Vec3& at, const Vec3& normal, int box) {
+    const uint8_t mat = box >= 0 && size_t(box) < g.world.solids.size() ? g.world.solids[size_t(box)].material : kMatStone;
+    const uint32_t chip = mat == kMatWood ? 0x9a7a52 : mat == kMatMetal ? 0xb4b8bd : 0xcdbb95;
+    const uint32_t hole = mat == kMatWood ? 0x22170e : mat == kMatMetal ? 0x34373b : 0x2a251f;
+    // Flat along the surface's main axis.
+    const Vec3 an{std::fabs(normal.x), std::fabs(normal.y), std::fabs(normal.z)};
+    auto flat = [&](float r, float thick) {
+        return Vec3{an.x >= an.y && an.x >= an.z ? thick : r, an.y > an.x && an.y >= an.z ? thick : r, an.z > an.x && an.z > an.y ? thick : r};
+    };
+    const float t = float(g.simTime);
+    const Vec3 hc = flat(1.7f, 0.15f), hh = flat(0.85f, 0.15f);
+    g.pendingDecals.push_back(makeBulletHole(at + normal * 0.25f - hc, at + normal * 0.25f + hc, chip, t));
+    g.pendingDecals.push_back(makeBulletHole(at + normal * 0.5f - hh, at + normal * 0.5f + hh, hole, t));
+}
+
+// ---- Guns on the floor ----
+bool dropsOn(const Game& g) { return g.mapId == 1 && (g.mode == 1 || g.mode == 3 || g.mode == 5); }
+
+// Gun `weapon` (with `ammo` in it) falls where someone was standing (to the floor below, if they were in the air).
+void dropGun(Game& g, int weapon, int ammo, const Vec3& at, float yaw) {
+    if (weapon < 0 || weapon >= kWeaponCount || !weaponDef(weapon).canFire || !dropsOn(g)) return;
+    const Vec3 from = at + Vec3{0, 0, 8}, to = at - Vec3{0, 0, 400};
+    const TraceResult tr = g.world.traceBox(from, to, Vec3{-3, -3, 0}, Vec3{3, 3, 2});  // (a box trace: ramps too)
+    Game::Drop d;
+    d.pos = from + (to - from) * tr.fraction;
+    d.yaw = yaw + 70.0f;  // lying across where they faced
+    d.weapon = weapon;
+    d.ammo = ammo;
+    d.at = g.simTime;
+    d.id = g.online ? (uint32_t(g.net.myId() + 1) << 24) | g.nextDropId++ : g.nextDropId++;
+    g.drops.push_back(d);
+    if (g.drops.size() > 24) g.drops.erase(g.drops.begin());
+    if (g.online && g.net.ready()) g.net.sendDrop(d.id, uint8_t(weapon), d.pos, d.yaw, uint8_t(std::clamp(ammo, 0, 255)));
+}
+
+void removeDrop(Game& g, size_t k) {
+    if (g.online && g.net.ready()) g.net.sendPickup(g.drops[k].id);
+    g.drops.erase(g.drops.begin() + long(k));
+}
+
 bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon) {
     if (g.deadUntil >= 0 || g.noclip || g.simTime < g.spawnProtectUntil || dmg <= 0) return false;
     const bool dies = g.hp - dmg <= 0;
@@ -939,6 +1153,12 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
         g.mapId == 1 && (g.mode == 1 || g.mode == 3)) {
         g.killcamKiller = attacker;  // the killcam starts a moment from now
         g.killcamAt = g.simTime;
+    }
+    if (dropsOn(g)) {  // your gun falls where you die (competitive: the primary if you had one, else the pistol)
+        const bool comp = g.mode == 3;
+        const WeaponState* w = comp ? (g.comp.ownPrimary >= 0 ? &weaponState(g, g.comp.ownPrimary) : g.secondary) : g.primary;
+        dropGun(g, w->def->id, w->ammo, g.player.origin, float(g.viewYaw));
+        if (comp) g.comp.ownPrimary = -1;
     }
     g.zoom = g.resumeZoom = 0;  // dead: no scope left up (spectating, or the next life)
     g.resumeZoomAt = g.boltAt = -1;
@@ -1103,6 +1323,10 @@ void knockHelmet(Game& g, size_t i, const Vec3& dir) {
 
 void botDied(Game& g, size_t i) {
     Dummy& d = g.dummies[i];
+    if (dropsOn(g) && isBot(g, i) && !netClient(g)) {  // its gun falls where it died (bots don't count rounds: full)
+        const int w = g.mode == 3 && i < g.comp.botGun.size() ? int(g.comp.botGun[i]) : int(d.weapon);
+        dropGun(g, w, w >= 0 && w < kWeaponCount ? weaponDef(w).magSize : 0, d.pos, d.yaw);
+    }
     if (g.botsFire || g.mapId == 1) d.respawnLeft = 2.0f + rnd(g) * 2.0f;  // no insta-respawn when they fight back
     if (g.mode >= 2) d.respawnLeft = 1e9f;  // retakes, competitive, prefire: dead for the round
 }
@@ -1231,6 +1455,7 @@ void buildRadar(Game& g) {
 
 // ---- Competitive ----
 constexpr int kCompRoundsToWin = 13;
+int g_roundsToWin = kCompRoundsToWin;  // (tests: --rounds N ends a match sooner)
 constexpr double kCompBuyTime = 20.0, kCompRoundTime = 115.0, kCompPlantTime = 3.2;  // (freeze: Game::freezeTime)
 
 int teamOf(const Game& g, int id) { return id < 0 ? g.comp.youTeam : g.team[size_t(id)]; }
@@ -1246,7 +1471,11 @@ int nextTeammate(const Game& g, int from, int dir) {
     return -1;
 }
 
-int& moneyOf(Game& g, int id) { return id < 0 ? g.comp.money : g.comp.botMoney[size_t(id)]; }
+int& moneyOf(Game& g, int id) {
+    static int nobody = 0;  // (someone this game doesn't keep money for)
+    if (id >= 0 && size_t(id) >= g.comp.botMoney.size()) return nobody = 0;
+    return id < 0 ? g.comp.money : g.comp.botMoney[size_t(id)];
+}
 void addMoney(Game& g, int id, int amount) { moneyOf(g, id) = std::clamp(moneyOf(g, id) + amount, 0, 16000); }
 
 std::string g_compLog;  // automated runs: one line per competitive round (testing)
@@ -1537,6 +1766,7 @@ void startCompRound(Game& g) {
         if (!g_compLog.empty()) std::ofstream(g_compLog, std::ios::app) << "  play: " << call << "\n";
     }
     c.planted = false;
+    c.plantedBy = c.defusedBy = -3;
     c.planter = c.defuser = -3;
     c.plantStart = c.botDefuseStart = -1;
     g.bombActive = false;
@@ -1544,6 +1774,7 @@ void startCompRound(Game& g) {
     g.nades.clear();
     g.smokes.clear();
     g.fires.clear();
+    g.drops.clear();
     g.flashFull = g.flashEnd = 0;
     for (Game::Stats& st : g.botStats) st.roundKills = 0;
     g.you.roundKills = 0;
@@ -1619,11 +1850,18 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
     auto pay = [&](int id) { addMoney(g, id, sidePay[teamOf(g, id)]); };
     pay(-1);
     for (size_t i = 0; i < g.dummies.size(); ++i) pay(int(i));
-    // MVP: the winning side's top fragger this round.
+    // MVP, like CS: whoever the bomb's ending was down to (the planter of a bomb that went off, the defuser), else the
+    // winning side's top fragger this round.
     int mvp = -2, best = -1;
     if (teamOf(g, -1) == winner) { mvp = -1; best = g.you.roundKills; }
     for (size_t i = 0; i < g.dummies.size(); ++i)
         if (g.team[i] == winner && g.botStats[i].roundKills > best) { best = g.botStats[i].roundKills; mvp = int(i); }
+    c.mvpWhy = "";
+    if (std::strcmp(why, "THE BOMB EXPLODED") == 0 && c.plantedBy >= -1) { mvp = c.plantedBy; c.mvpWhy = "FOR PLANTING THE BOMB"; }
+    if (std::strcmp(why, "THE BOMB HAS BEEN DEFUSED") == 0 && c.defusedBy >= -1) { mvp = c.defusedBy; c.mvpWhy = "FOR DEFUSING THE BOMB"; }
+    c.mvp = mvp >= -1 ? mvp : -3;
+    c.mvpKills = mvp >= -1 ? statsOf(g, mvp).roundKills : 0;
+    c.lastWinner = winner;
     if (mvp >= -1) statsOf(g, mvp).mvps++;
     if (netHost(g)) {  // everyone: who won, why, their pay and the MVP
         NetRound r;
@@ -1640,9 +1878,9 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
     c.resultWin = winner == c.youTeam;
     c.resultText = why;
     c.round++;
-    const bool over = c.youScore >= kCompRoundsToWin || c.themScore >= kCompRoundsToWin || c.round >= 24;
+    const bool over = c.youScore >= g_roundsToWin || c.themScore >= g_roundsToWin || c.round >= 24;
     c.phase = over ? 3 : 2;
-    c.phaseEnd = g.simTime + (over ? 10.0 : 5.0);
+    c.phaseEnd = g.simTime + (over ? 15.0 : 7.0);  // like CS: a moment for the result (the match: the final scores)
     if (over) {
         const bool won = c.youScore > c.themScore, draw = c.youScore == c.themScore;
         recordMatch(g, won ? 1.0f : draw ? 0.5f : 0.0f,
@@ -1656,13 +1894,18 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
 // Competitive: during buy time in your spawn, for money. Everywhere else: guns for free, any time.
 struct BuyEntry { const char* name; int weapon; int gear; int price; };  // a gun (WeaponId) or gear (0..7)
 enum BuyCategory { kCatPistols = 1, kCatShotguns, kCatSmgs, kCatRifles, kCatSnipers, kCatGear, kCatGrenades };
-std::vector<BuyEntry> buyEntries(int category) {
+// `side`: competitive, the side you're on (0 T, 1 CT): like CS the rifles are by side (the AK and the Galil for Ts,
+// the M4A1-S for CTs); -1 everywhere else (any gun).
+std::vector<BuyEntry> buyEntries(int category, int side = -1) {
     auto gun = [](int id) { return BuyEntry{weaponDef(id).name, id, -1, weaponDef(id).price}; };
     switch (category) {
         case kCatPistols: return {gun(kWPistol), gun(kWBerettas), gun(kWDeagle)};
         case kCatShotguns: return {gun(kWNova), gun(kWXm1014)};
         case kCatSmgs: return {gun(kWMac10), gun(kWUmp45)};
-        case kCatRifles: return {gun(kWGalil), gun(kWRifle), gun(kWM4A1S)};
+        case kCatRifles:
+            if (side == 0) return {gun(kWGalil), gun(kWRifle)};
+            if (side == 1) return {gun(kWM4A1S)};
+            return {gun(kWGalil), gun(kWRifle), gun(kWM4A1S)};
         case kCatSnipers: return {gun(kWSsg08), gun(kWSniper)};
         case kCatGear: return {{"KEVLAR", -1, 0, 650}, {"KEVLAR + HELMET", -1, 1, 1000}, {"DEFUSE KIT (CT)", -1, 2, 400}};
         case kCatGrenades: return {{"SMOKE", -1, 3, 300}, {"FLASHBANG", -1, 4, 200}, {"HE GRENADE", -1, 5, 300}, {"MOLOTOV", -1, 6, 400}};
@@ -1671,9 +1914,14 @@ std::vector<BuyEntry> buyEntries(int category) {
 }
 const char* const kBuyCategories[] = {"PISTOLS", "SHOTGUNS", "SMGS", "RIFLES", "SNIPERS", "GEAR", "GRENADES"};
 
+// The side your buy menu is for: competitive, your side; else -1 (everything).
+int buySide(const Game& g) { return g.mode == 3 && g.mapId == 1 ? g.comp.youTeam : -1; }
+// The rifle a full buy gets you: the AK on T, the M4A1-S on CT (outside competitive: the AK).
+int fullBuyRifle(const Game& g) { return buySide(g) == 1 ? kWM4A1S : kWRifle; }
+
 // Where gun `id` sits in a buy category (-1 if it isn't there).
-int buyIndexOf(int category, int id) {
-    const std::vector<BuyEntry> e = buyEntries(category);
+int buyIndexOf(int category, int id, int side = -1) {
+    const std::vector<BuyEntry> e = buyEntries(category, side);
     for (size_t k = 0; k < e.size(); ++k)
         if (e[k].weapon == id) return int(k);
     return -1;
@@ -1716,7 +1964,7 @@ int buyPrice(const Game& g, const BuyEntry& e) {
 // Buys entry `item` (0-based) of the open category. Returns a message for the hit log.
 const char* compBuy(Game& g, int category, int item) {
     Game::Comp& c = g.comp;
-    const std::vector<BuyEntry> entries = buyEntries(category);
+    const std::vector<BuyEntry> entries = buyEntries(category, buySide(g));
     if (item < 0 || item >= int(entries.size())) return "";
     const BuyEntry& e = entries[size_t(item)];
     if (buyOwned(g, e)) return "CAN'T CARRY MORE";
@@ -1735,6 +1983,75 @@ const char* compBuy(Game& g, int category, int item) {
         default: c.nades[e.gear - 3]++; break;
     }
     return e.name;
+}
+
+// You pick up gun k from the floor: the gun you had in that slot (if any) goes down in its place, with its rounds.
+void pickUp(Game& g, size_t k) {
+    const Game::Drop dr = g.drops[k];
+    removeDrop(g, k);
+    Game::Comp& c = g.comp;
+    const bool comp = g.mode == 3 && g.mapId == 1;
+    const WeaponDef& def = weaponDef(dr.weapon);
+    const WeaponState* old = def.primary ? (comp ? (c.ownPrimary >= 0 ? &weaponState(g, c.ownPrimary) : nullptr) : g.primary)
+                                         : g.secondary;
+    if (old && old->def->id != dr.weapon) dropGun(g, old->def->id, old->ammo, g.player.origin, float(g.viewYaw));
+    if (def.primary && comp) c.ownPrimary = dr.weapon;
+    takeGun(g, dr.weapon);
+    weaponState(g, dr.weapon).ammo = std::clamp(dr.ammo, 0, def.magSize);
+    pushHitLog(g, std::string("PICKED UP ") + def.name, 0xffd060);
+}
+
+// The gun on the floor you're looking at, within reach (-1: none).
+int aimedDrop(const Game& g) {
+    const Vec3 eye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)};
+    const Vec3 look = anglesToForward(float(g.viewPitch), float(g.viewYaw));
+    int best = -1;
+    float bestCos = std::cos(22.0f * kDegToRad);
+    for (size_t k = 0; k < g.drops.size(); ++k) {
+        const Vec3 to = g.drops[k].pos - eye;
+        const float dist = length(to);
+        if (length2d(g.drops[k].pos - g.player.origin) > 110.0f || dist < 1.0f) continue;
+        const float cs = dot(to * (1.0f / dist), look);
+        if (cs > bestCos) { bestCos = cs; best = int(k); }
+    }
+    return best;
+}
+
+// Every tick: guns on the floor. Deathmatch: they're gone after 20 s. Competitive: with no primary you take one you
+// walk over; E takes the one you look at (swapping); a bot with only a pistol takes a better gun it walks over.
+void dropsTick(Game& g) {
+    if (g.drops.empty()) { g.useLatch = false; return; }
+    const bool comp = g.mode == 3 && g.mapId == 1;
+    Game::Comp& c = g.comp;
+    if (!comp)
+        for (size_t k = 0; k < g.drops.size();)
+            if (g.simTime - g.drops[k].at > 20.0) g.drops.erase(g.drops.begin() + long(k));  // (each game: same clock)
+            else ++k;
+    const bool alive = g.deadUntil < 0 && !g.noclip && !(comp && c.youDead);
+    auto near = [](const Vec3& a, const Vec3& b) { return length2d(a - b) < 40.0f && std::fabs(a.z - b.z) < 48.0f; };
+    if (alive && comp && c.ownPrimary < 0)
+        for (size_t k = 0; k < g.drops.size(); ++k)
+            if (weaponDef(g.drops[k].weapon).primary && near(g.player.origin, g.drops[k].pos)) { pickUp(g, k); break; }
+    if (g.useLatch && alive && g.defuseStart < 0 && c.planter != -1) {
+        const int k = aimedDrop(g);
+        if (k >= 0) pickUp(g, size_t(k));
+    }
+    g.useLatch = false;
+    if (comp && !netClient(g))
+        for (size_t i = 0; i < g.dummies.size() && i < c.botGun.size(); ++i) {
+            Dummy& d = g.dummies[i];
+            if (!isBot(g, i) || !d.alive() || weaponDef(c.botGun[i]).primary) continue;
+            for (size_t k = 0; k < g.drops.size(); ++k)
+                if (weaponDef(g.drops[k].weapon).primary && near(d.pos, g.drops[k].pos)) {
+                    c.botGun[i] = uint8_t(g.drops[k].weapon);
+                    d.weapon = c.botGun[i];
+                    removeDrop(g, k);
+                    if (!g_compLog.empty())
+                        std::ofstream(g_compLog, std::ios::app) << "  bot " << i << " picked up " << weaponDef(d.weapon).name
+                                                                << " t=" << int(g.simTime) << "s" << char(10);
+                    break;
+                }
+        }
 }
 
 // Sends a bot somewhere (unless it's already on its way there). `h`: a hold spot to take there, facing
@@ -1788,11 +2105,113 @@ bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
     return true;
 }
 
+// ---- Your calls (Z, competitive): the bots on your team play what you say. ----
+// T: go or rush a site now, play slow (a late execute), save. CT: stack a site, back to the default setup, rotate to
+// a site, save.
+enum PlayerCall { kCallGoA, kCallGoB, kCallRushA, kCallRushB, kCallSlow, kCallTSave,
+                  kCallStackA, kCallStackB, kCallSetup, kCallRotateA, kCallRotateB, kCallCtSave };
+const char* const kCallNames[] = {"GO A", "GO B", "RUSH A", "RUSH B", "PLAY SLOW", "SAVE",
+                                  "STACK A", "STACK B", "DEFAULT SETUP", "ROTATE A", "ROTATE B", "SAVE"};
+// The six calls your side has (the first of them, in PlayerCall).
+int firstCall(const Game& g) { return g.comp.youTeam == 0 ? kCallGoA : kCallStackA; }
+// Can you call now: competitive, the round on (or freeze time), and the bots are this game's (offline, or hosting).
+bool canCall(const Game& g) {
+    return g.mode == 3 && g.mapId == 1 && g.comp.phase <= 1 && !netClient(g);
+}
+
+void playerCall(Game& g, int call) {
+    Game::Comp& c = g.comp;
+    if (!canCall(g)) return;
+    const int side = c.youTeam;
+    const double now = g.simTime, live = c.phase == 0 ? c.phaseEnd : now;  // (a call in freeze time: once it's over)
+    pushHitLog(g, std::string("YOU: ") + kCallNames[call], 0x90e0a0);
+    int answer = -1;  // a teammate says it back
+    auto mates = [&](auto&& f) {
+        int k = 0;
+        for (size_t i = 0; i < g.dummies.size(); ++i)
+            if (isBot(g, i) && g.dummies[i].alive() && g.team[i] == side) {
+                if (answer < 0) answer = int(i);
+                f(i, k++);
+            }
+    };
+    const std::vector<RetakeSite>& sites = townRetakeSites();
+    switch (call) {
+        case kCallGoA: case kCallGoB: case kCallRushA: case kCallRushB: {
+            // The Ts head for the site's way in and execute straight away (a rush: no waiting for each other).
+            const int site = call == kCallGoB || call == kCallRushB ? 1 : 0;
+            const bool rush = call == kCallRushA || call == kCallRushB;
+            const auto& stages = townTactics().stages;
+            c.siteTarget = site;
+            c.route = site == 1 ? 2 : (c.route == 1 ? 1 : 0);
+            c.play = rush ? kPlayRush : kPlayExecute;
+            c.rush = rush;
+            c.fakeRoute = -1;
+            c.stages.assign(1, townPoint(stages[c.route][0], stages[c.route][1]));
+            c.stagePoint = c.stages[0];
+            std::fill(c.stageOf.begin(), c.stageOf.end(), 0);
+            std::fill(c.faker.begin(), c.faker.end(), char(0));
+            c.throws.clear();
+            c.executing = c.sent = c.rotated = false;
+            c.executeAt = rush ? now : live;
+            mates([&](size_t i, int k) {
+                if (c.saving.size() > i) c.saving[i] = 0;
+                Vec3 p = c.stagePoint + Vec3{float(k % 3 - 1) * 48.0f, float(k / 3) * 48.0f, 0};
+                sendBot(g, i, g.nav.standable(p) ? p : c.stagePoint, true);
+            });
+            break;
+        }
+        case kCallSlow:  // hold the map, execute late (the clock still sends them with 45 s left)
+            c.play = kPlayDefault;
+            if (!c.executing) c.executeAt = std::max(c.executeAt, (c.phase == 0 ? c.phaseEnd + kCompRoundTime : c.phaseEnd) - 50.0);
+            break;
+        case kCallStackA: case kCallStackB: case kCallSetup: {
+            // CTs: three on the called site, one mid, one on the other; or the default one-mid-short-long-two-B.
+            static const int stackA[5] = {kCtA, kCtShort, kCtLong, kCtA, kCtMid};
+            static const int stackB[5] = {kCtB, kCtB, kCtB, kCtMid, kCtLong};
+            static const int setup[5] = {kCtMid, kCtShort, kCtLong, kCtB, kCtB};
+            const int* roles = call == kCallStackA ? stackA : call == kCallStackB ? stackB : setup;
+            c.pushers.clear();
+            c.pushBack.clear();
+            c.pushUntil = -1;
+            int used[kCtRoles] = {};
+            mates([&](size_t i, int k) {
+                if (c.saving.size() > i) c.saving[i] = 0;
+                const int role = roles[k % 5];
+                const std::vector<RetakeSpot>& spots = townCtSpots(role);
+                const RetakeSpot& h = spots[size_t(used[role]++ + c.round) % spots.size()];
+                sendBot(g, i, townPoint(h.x, h.y), true, &h);
+            });
+            break;
+        }
+        case kCallRotateA: case kCallRotateB: {  // everyone onto that site's holding spots
+            const RetakeSite& site = sites[call == kCallRotateB ? 1 : 0];
+            c.pushers.clear();
+            c.pushUntil = -1;
+            mates([&](size_t i, int k) {
+                if (c.saving.size() > i) c.saving[i] = 0;
+                const RetakeSpot& h = site.holds[size_t(k) % site.holds.size()];
+                sendBot(g, i, townPoint(h.x, h.y), true, &h);
+            });
+            break;
+        }
+        default:  // save: everyone back to spawn, guns kept for next round
+            mates([&](size_t i, int k) {
+                if (c.saving.size() > i) c.saving[i] = 1;
+                const std::vector<Vec3>& home = townTeamSpawns(side);
+                sendBot(g, i, home[size_t(k) % home.size()], true);
+            });
+            break;
+    }
+    if (answer >= 0) teamRadio(g, answer, "ROGER");
+    if (!g_compLog.empty()) std::ofstream(g_compLog, std::ios::app) << "  you called: " << kCallNames[call] << "\n";
+}
+
 // The bomb goes down at `at` (a bot, you, or online a player who planted it): 40 s, and the CTs retake.
 void compPlanted(Game& g, const Vec3& at) {
     Game::Comp& c = g.comp;
     const std::vector<RetakeSite>& sites = townRetakeSites();
     c.planted = true;
+    c.plantedBy = c.planter != -3 ? c.planter : c.carrier;  // (a bot, you, or online the player who carried it)
     c.carrier = c.planter = -3;
     g.bombActive = true;
     g.bombPos = at;
@@ -1953,6 +2372,13 @@ void compTick(Game& g) {
     if (late && !c.executing) c.executeAt = now;
     for (size_t i = 0; i < g.dummies.size(); ++i)
         g.bots[i].urgent = g.team[i] == 0 ? (late || (c.executing && int(i) == c.carrier)) : c.planted;
+    // Planting or defusing: the bot kneels (crouched: its hitboxes too, like CS) with its hands down.
+    for (size_t i = 0; i < g.dummies.size(); ++i) {
+        Dummy& d = g.dummies[i];
+        if (!isBot(g, i)) continue;
+        d.busy = d.alive() && (c.planter == int(i) || c.defuser == int(i));
+        d.crouch = std::clamp(d.crouch + (d.busy ? 1.0f : -1.0f) * 5.0f * kTickDt, 0.0f, 1.0f);
+    }
     // Saving: a bot whose round is lost (no time left to plant or to defuse, or alone against three) runs back to its
     // spawn and keeps its gun for the next round, like CS players - if the gun is worth keeping.
     {
@@ -2177,6 +2603,7 @@ void compTick(Game& g) {
         if (c.youTeam == 1 && youAlive(g) && youDefuse(g)) {  // you defuse with E
             g.bombActive = false;
             g.defuseStart = -1;
+            c.defusedBy = -1;
             endCompRound(g, 1, "THE BOMB HAS BEEN DEFUSED", true);
             return;
         }
@@ -2205,6 +2632,7 @@ void compTick(Game& g) {
             }
         } else if (now - c.botDefuseStart >= 5.0) {
             g.bombActive = false;
+            c.defusedBy = c.defuser;
             endCompRound(g, 1, "THE BOMB HAS BEEN DEFUSED", true);
             return;
         }
@@ -2305,6 +2733,8 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     if (r.flags & kRoundNewMatch) {
         resetRecord(g);
         c = Game::Comp{};
+        c.botMoney.assign(g.dummies.size(), 0);  // (kill rewards are counted for everyone)
+        c.botGun.assign(g.dummies.size(), uint8_t(kWPistol));
         c.youDead = true;
     }
     if (r.flags & kRoundHalf) {  // swapped sides: everyone starts over
@@ -2334,6 +2764,7 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     g.nades.clear();
     g.smokes.clear();
     g.fires.clear();
+    g.drops.clear();
     g.flashFull = g.flashEnd = 0;
     for (Game::Stats& st : g.botStats) st.roundKills = 0;
     g.you.roundKills = 0;
@@ -2363,9 +2794,17 @@ void netCompRoundEnd(Game& g, const NetRound& r) {
     if (g.netTeam[g.net.myId()] >= 0) c.money = std::clamp(c.money + int(r.pay[c.youTeam]), 0, 16000);
     c.resultWin = r.winnerSide == c.youTeam;
     c.resultText = kRoundWhy[std::min<int>(r.why, 4)];
+    c.lastWinner = r.winnerSide & 1;
+    c.mvp = -3;
+    c.mvpKills = 0;
+    c.mvpWhy = r.why == 3 ? "FOR PLANTING THE BOMB" : r.why == 4 ? "FOR DEFUSING THE BOMB" : "";
     if (r.mvp < kNetSlots) {
         const int mvp = netToLocal(g, r.mvp);
-        if (mvp < 0 || size_t(mvp) < g.botStats.size()) statsOf(g, mvp).mvps++;
+        if (mvp < 0 || size_t(mvp) < g.botStats.size()) {
+            statsOf(g, mvp).mvps++;
+            c.mvp = mvp;
+            c.mvpKills = statsOf(g, mvp).roundKills;
+        }
     }
     if (r.why == 4) g.bombActive = false;  // defused
     c.phase = 2;
@@ -2465,6 +2904,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.nades.clear();
     g.smokes.clear();
     g.fires.clear();
+    g.drops.clear();
     g.flashFull = g.flashEnd = 0;
     g.hp = 100;
     g.deadUntil = g.dmOverUntil = g.rtResultUntil = g.pf.resultUntil = -1;  // no result screen left over from another mode
@@ -2475,12 +2915,16 @@ void loadMap(Game& g, Renderer& r, int id) {
         statics.push_back(makeBox(b.mins, b.maxs, b.color, true));
         if (id == 1) {
             static const uint8_t kSurface[5] = {240, 224, 208, 0, 236};  // stone, wood, metal, plain, paving
-            statics.back().rgba[3] = kSurface[std::min<int>(b.material, 4)];
+            statics.back().rgba[3] = b.material >= kMatShade ? uint8_t(30 + (b.material - kMatShade))  // contact shadows
+                                                             : kSurface[std::min<int>(b.material, 4)];
         }
         statics.back().slope[0] = float(b.slope);
         statics.back().slope[1] = b.lowZ;
     };
     for (const Box& b : g.world.solids) addStatic(b);
+    g.ramps.clear();
+    for (size_t q = 0; q < g.world.solids.size(); ++q)
+        if (g.world.solids[q].slope != kFlat) g.ramps.push_back(q);
     for (const Box& b : g.world.decor) addStatic(b);
     r.setStaticBoxes(statics);
     r.clearDecals();
@@ -2920,6 +3364,13 @@ void simTick(Game& g, const Options& opt) {
     }
 
     bool autofire = opt.autofireStart >= 0 && g.simTime >= opt.autofireStart && g.simTime < opt.autofireEnd;
+    if (opt.call >= 0 && g.simTime >= double(opt.callAt) && g.simTime - kTickDt < double(opt.callAt)) playerCall(g, opt.call);
+    if (opt.dropWeapon >= 0 && g.drops.empty() && g.simTime < 0.5) {
+        const float y = float(g.viewYaw) * kDegToRad;
+        dropGun(g, opt.dropWeapon, 20, g.player.origin + Vec3{std::cos(y), std::sin(y), 0} * 260.0f, float(g.viewYaw) + 30.0f);
+    }
+    dropsTick(g);
+    matchCues(g);
     // Semi-auto weapons fire once per click; automatic ones keep firing while held.
     bool wantFire = ((wd.automatic && g.fireHeld) || g.fireLatch || autofire) && g.deadUntil < 0;  // not while dead
     if (g.fireLatch && wd.canFire && (ws.ammo == 0 || ws.reloadEndTime >= 0)) sound(g, Sfx::DryFire, 0.6f);
@@ -2968,6 +3419,10 @@ void simTick(Game& g, const Options& opt) {
         // Your own gun: loud (the mixer soft-limits). The Berettas fire left, right.
         const GunSound gs = gunSound(wd.id);
         sound(g, gs.sfx, gs.gain, wd.id == kWBerettas ? ((g.shots & 1) ? -0.15f : 0.15f) : 0.0f, gs.pitch);
+        // The magazine talks: a light tick on each of the last quarter's shots, a ping on the last one.
+        if (ws.ammo == 0 && wd.magSize > 1) sound(g, Sfx::LastRound, 0.55f);
+        else if (wd.magSize >= 7 && ws.ammo <= wd.magSize / 4)
+            sound(g, Sfx::LowAmmo, 0.35f, 0.0f, 1.0f + 0.03f * float(wd.magSize / 4 - ws.ammo));
         if (wd.id == kWSniper) g.boltAt = g.simTime + 0.55;
         else if (wd.id == kWSsg08) g.boltAt = g.simTime + 0.47;
         else if (wd.id == kWNova) g.boltAt = g.simTime + 0.3;  // the pump
@@ -3067,8 +3522,10 @@ void simTick(Game& g, const Options& opt) {
                     g.drillTtkSum += g.lastTtk;
                     g.drillKills++;
                 }
+            } else if (r.hitWorld && g.mapId == 1) {
+                bulletHole(g, r.end, r.normal, r.worldBox);
             } else if (r.hitWorld) {
-                // Decal color follows the spray index (yellow first shot -> red late spray).
+                // The Lab: a marker whose colour follows the spray index (yellow first shot -> red late spray).
                 float t = float(r.sprayIndex) / float(std::max(1, wd.patternLen - 1));
                 uint32_t col = lerpColor(0xffe650, 0xe02828, t);
                 float hs = 1.4f * std::clamp(r.distance / 700.0f, 1.0f, 3.0f);  // readable far away too
@@ -3076,6 +3533,7 @@ void simTick(Game& g, const Options& opt) {
                 g.pendingDecals.push_back(makeBox(c - h, c + h, col, false));
             }
             for (int p = 0; p < r.penCount; ++p) {
+                if (g.mapId == 1) { bulletHole(g, r.penEntry[p], r.penNormal[p], -1); continue; }
                 Vec3 h{1.4f, 1.4f, 1.4f}, c = r.penEntry[p] + r.penNormal[p] * 0.6f;
                 g.pendingDecals.push_back(makeBox(c - h, c + h, 0xffe650, false));
             }
@@ -3195,6 +3653,7 @@ void simTick(Game& g, const Options& opt) {
             d.pitch = pitch;
             d.weapon = a->weapon;
             d.hp = 1e6f;
+            if (a->flags & kNetReload) d.reloadUntil = g.simTime + 0.15;  // (shown reloading)
             if (id >= kNetMaxPlayers) {  // a bot's kit (its gun is weapon)
                 d.armor = (a->flags & kNetArmor) ? 100.0f : 0.0f;
                 d.helmet = (a->flags & kNetHelmet) != 0;
@@ -3207,7 +3666,7 @@ void simTick(Game& g, const Options& opt) {
             me.pos = g.player.origin;
             me.yaw = float(g.viewYaw);
             me.pitch = float(g.viewPitch);
-            me.flags = uint8_t(g.deadUntil < 0 ? kNetAlive : 0);
+            me.flags = uint8_t((g.deadUntil < 0 ? kNetAlive : 0) | (g.weapon->reloadEndTime >= 0 ? kNetReload : 0));
             me.weapon = uint8_t(g.weapon->def->id);
             me.duck = uint8_t(std::lround(std::clamp(g.player.duckAmount, 0.0f, 1.0f) * 255.0f));
             g.net.sendState(me);
@@ -3223,7 +3682,8 @@ void simTick(Game& g, const Options& opt) {
                 b.id = uint8_t(i);
                 b.pos = d.pos;
                 b.yaw = d.yaw;
-                b.flags = uint8_t((d.alive() ? kNetAlive : 0) | (d.armor > 0 ? kNetArmor : 0) | (d.helmet ? kNetHelmet : 0));
+                b.flags = uint8_t((d.alive() ? kNetAlive : 0) | (d.armor > 0 ? kNetArmor : 0) | (d.helmet ? kNetHelmet : 0) |
+                                  (g.simTime < d.reloadUntil ? kNetReload : 0) | (d.crouch > 0.5f ? kNetDuck : 0));
                 b.pitch = d.pitch;
                 b.weapon = d.weapon;
             }
@@ -3539,6 +3999,8 @@ void simTick(Game& g, const Options& opt) {
             if (g.mode == 1 && needsSpawn(d, b)) {
                 spawnDeathmatchBot(d, b, pickDmSpawn(g, false, i), g.rng);
                 d.weapon = uint8_t(deathmatchBotGun(rnd(g)));  // a new gun every life, like CS deathmatch
+                d.mag = -1;
+                d.reloadUntil = -1;
             }
             sense.self = int(i);
             if (g.mode == 3) {
@@ -3550,6 +4012,13 @@ void simTick(Game& g, const Options& opt) {
                 sense.noiseFresh = sense.noiseFresh && g.team[i] != g.noiseSide;  // only enemies react to a noise
             }
             updateDeathmatchBot(d, b, sense, g.rng);
+            {  // a bot that's out of a fight with under a third of a magazine left reloads
+                const WeaponDef& wd2 = weaponDef(weaponDef(d.weapon).canFire ? int(d.weapon) : int(kWRifle));
+                if (!b.sees && d.mag >= 0 && d.mag < wd2.magSize / 3 && g.simTime - d.shotAt > 2.0 && g.simTime > d.reloadUntil) {
+                    d.mag = wd2.magSize;
+                    d.reloadUntil = g.simTime + (wd2.shellReload ? wd2.reloadTime * float(wd2.magSize) : wd2.reloadTime);
+                }
+            }
             {  // where it looks up or down (seen when you spectate it): at whoever it's fighting, else level
                 float want = 0;
                 if (b.sees && b.target >= -1) {
@@ -3633,7 +4102,15 @@ void simTick(Game& g, const Options& opt) {
             // Its gun: damage (falling off with range), armor penetration, fire rate, pellets, sound, all as the gun.
             const int gun = weaponDef(d.weapon).canFire ? int(d.weapon) : int(kWRifle);
             const WeaponDef& gd = weaponDef(gun);
+            Dummy& shooter = g.dummies[i];
+            if (g.simTime < shooter.reloadUntil) continue;  // reloading: no shots, like CS
             g.botCooldown[i] = (botShotGap(gun) + rnd(g) * 0.16f) * sk.fireScale;
+            if (shooter.mag < 0 || shooter.mag > gd.magSize) shooter.mag = gd.magSize;
+            if (--shooter.mag <= 0) {  // the last round: a reload (a shotgun's shell by shell)
+                shooter.mag = gd.magSize;
+                shooter.reloadUntil = g.simTime + (gd.shellReload ? gd.reloadTime * float(gd.magSize) : gd.reloadTime);
+            }
+            shooter.shotAt = g.simTime;
             // A shotgun's pellets spread at random around the aim (bots may use randomness; you don't).
             auto pelletDir = [&](const Vec3& dir, int k) {
                 if (k == 0 || gd.pelletSpread <= 0) return dir;
@@ -3666,6 +4143,8 @@ void simTick(Game& g, const Options& opt) {
                         if (g.online) g.net.sendFire(head + dir * 20.0f, end, uint8_t(gun), int(i));
                     }
                     nearMiss(head, dir, hitIt ? t : maxT);
+                    if (!hitIt && wt.fraction < 1.0f && g.mapId == 1 && length(head + dir * maxT - simEye) < 2500.0f)
+                        bulletHole(g, head + dir * maxT, wt.normal, wt.box);
                     if (!hitIt) continue;
                     const float dmg = damageAt(gd, t) * hitGroupDamageScale(grp);
                     total += dmg;
@@ -3722,7 +4201,11 @@ void simTick(Game& g, const Options& opt) {
                     replayShot(g, head + dir * 20.0f, head + dir * bestT, int(i), gun);
                     if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * bestT, uint8_t(gun), int(i));
                 }
-                if (!hit) { nearMiss(head, dir, bestT); continue; }
+                if (!hit) {
+                    nearMiss(head, dir, bestT);
+                    if (wt.fraction < 1.0f && g.mapId == 1 && bestT >= maxT - 0.01f) bulletHole(g, head + dir * maxT, wt.normal, wt.box);
+                    continue;
+                }
                 const HitGroup grp = hit == 2 ? kHead : kChest;
                 dmg += armoredDamage(damageAt(gd, bestT) * hitGroupDamageScale(grp), grp, yourArmor, yourHelmet, gd.armorRatio);
                 if (hit == 2) headHit = true;
@@ -3807,9 +4290,10 @@ enum MenuScreen {
     kMenuMouse, kMenuCrosshair, kMenuWeapon, kMenuVideo, kMenuGameplay,  // settings pages, in order
     kMenuInventory, kMenuCase,
     kMenuStats,  // your career: rating, totals, recent matches
+    kMenuLobby,  // online: friends gather here before the host starts the game
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
-                  kActReplay,
+                  kActReplay, kActLobbyTeam, kActLobbyStart, kActInfo,  // kActInfo: a line of text (does nothing)
                   kActOpenCase, kActSkipCase, kActEquipNew, kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
 
@@ -3833,12 +4317,26 @@ const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
 const char* const kNetGameNames[] = {"DEATHMATCH", "COMPETITIVE"};
+const char* const kTownMapNames[] = {"DUST", "HARBOR"};
+
+// ---- The online lobby: hosting opens it, friends who join land in it, the host starts the game from it. ----
+struct LobbyState {
+    bool on = false, host = false;
+    int game = 0;            // what the host picked: 0 deathmatch, 1 competitive
+    int map = 0;             // the town map: 0 Dust, 1 Harbor
+    float scale = 0.6f;      // Dust's size
+    int team[kNetMaxPlayers] = {};  // per player: 0 team A (the host's), 1 team B
+    int me = 0;              // your player id
+    std::string lines[3];    // (the menu's rows: who's where, the host's game)
+};
+LobbyState g_lobby;
+int g_lobbyMapSel = 0;       // the host's MAP row
 const char* const kNetTeamNames[] = {"SPLIT BETWEEN THE SIDES", "ALL ON ONE SIDE VS BOTS"};
 const char* const kControls[][2] = {
     {"W A S D", "MOVE"}, {"SPACE / WHEEL", "JUMP (HOLD TO BUNNY HOP)"}, {"CTRL", "CROUCH"}, {"SHIFT", "WALK"},
     {"MOUSE 1", "FIRE / THROW"}, {"MOUSE 2", "SCOPE / LOB A GRENADE"}, {"R", "RELOAD"},
     {"1  2  3", "PRIMARY, PISTOL, KNIFE"}, {"4", "GRENADES (AGAIN: NEXT ONE)"}, {"G", "QUICK THROW"},
-    {"Q", "LAST WEAPON"}, {"F", "INSPECT"}, {"B", "BUY MENU"}, {"E", "PLANT / DEFUSE"}, {"TAB", "SCORES"},
+    {"Q", "LAST WEAPON"}, {"F", "INSPECT"}, {"B", "BUY MENU"}, {"Z", "CALL (TELL YOUR BOTS)"}, {"E", "PLANT / DEFUSE / PICK UP"}, {"TAB", "SCORES"},
     {"V", "NOCLIP"}, {"C", "CLEAR BULLET HOLES"}, {"ALT + ENTER", "FULLSCREEN"}, {"ESC", "MENU"},
 };
 constexpr size_t kControlLines = sizeof(kControls) / sizeof(kControls[0]);
@@ -3858,6 +4356,7 @@ const char* menuTitle(int screen) {
         case kMenuInventory: return "INVENTORY";
         case kMenuCase: return "CASE";
         case kMenuStats: return "STATS";
+        case kMenuLobby: return g_lobby.host ? "LOBBY - HOSTING" : "LOBBY";
         default: return "";
     }
 }
@@ -3882,6 +4381,44 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                                button("SETTINGS", goTo(kMenuSettings)),
                                button("CONTROLS", goTo(kMenuControls)), button("MAIN MENU", kActMainMenu),
                                button("QUIT", kActQuit)});
+            return r;
+        }
+        case kMenuLobby: {  // who's here and on which team; the host sets the game up and starts it
+            std::vector<MenuItem> r;
+            LobbyState& L = g_lobby;
+            const bool comp = (L.host ? c.net_game : L.game) == 1;
+            if (L.host) {
+                r.push_back({"GAME", nullptr, &c.net_game, 1, 0, 1, kNetGameNames});
+                r.push_back({"MAP", nullptr, &g_lobbyMapSel, 1, 0, 1, kTownMapNames});
+                if (g_lobbyMapSel == 0) r.push_back({"DUST SIZE", nullptr, &c.dust_scale, 5, 50, 100});
+                if (comp) {
+                    r.push_back({"TEAMMATES (PLAYERS + BOTS)", nullptr, &c.comp_mates, 1, 0, 4});
+                    r.push_back({"ENEMIES (PLAYERS + BOTS)", nullptr, &c.comp_enemies, 1, 1, 5});
+                    r.push_back({"YOUR TEAM'S BOTS", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
+                    r.push_back({"OTHER TEAM'S BOTS", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                    r.push_back({"FREEZE TIME (BUY), SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
+                }
+            } else {
+                L.lines[2] = std::string("THE HOST'S GAME: ") + (comp ? "COMPETITIVE" : "DEATHMATCH") + " ON " + kTownMapNames[L.map & 1];
+                r.push_back(button(L.lines[2].c_str(), kActInfo));
+            }
+            std::string sides[2];
+            for (int id = 0; id < kNetMaxPlayers; ++id) {
+                const std::string& n = g_playerNames[id];
+                if (n.empty()) continue;
+                std::string& line = sides[comp ? L.team[id] & 1 : 0];
+                line += (line.empty() ? "" : ", ") + n + (id == L.me ? " (YOU)" : "");
+            }
+            L.lines[0] = std::string(comp ? "TEAM A: " : "PLAYERS: ") + (sides[0].empty() ? "-" : sides[0]);
+            L.lines[1] = std::string("TEAM B: ") + (sides[1].empty() ? "-" : sides[1]);
+            r.push_back(button(L.lines[0].c_str(), kActInfo));
+            if (comp) {
+                r.push_back(button(L.lines[1].c_str(), kActInfo));
+                r.push_back(button("SWITCH TEAM", kActLobbyTeam));
+            }
+            if (L.host) r.push_back(button("START", kActLobbyStart));
+            else r.push_back(button("WAITING FOR THE HOST TO START...", kActInfo));
+            r.push_back(button("LEAVE", kActMainMenu));
             return r;
         }
         case kMenuPlay: {
@@ -4097,7 +4634,7 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
         const float y = L.rowsY + float(k) * L.rowH;
         const bool sel = int(k) == g_menu.sel;
         if (sel) hud.rect(L.x - 6 * fs, y - 3 * fs, L.w + 12 * fs, L.rowH, 0x3A5F9AC0);
-        const uint32_t col = sel ? 0xFFFFFFFF : it.action == kActStart ? 0x80FF80FF : 0xC8C8C8FF;
+        const uint32_t col = sel ? 0xFFFFFFFF : it.action == kActStart || it.action == kActLobbyStart ? 0x80FF80FF : 0xC8C8C8FF;
         hud.text(L.x, y, it.name, col);
         std::string v;
         if (it.action >= kActGoto) {
@@ -4132,7 +4669,7 @@ BuyWheel buyWheel(int w, int h, int s) { return {float(w) * 0.5f, float(h) * 0.4
 
 int buySlotCount(const Game& g) {
     const bool comp = g.mode == 3 && g.mapId == 1;
-    return g.buyCategory == 0 ? (comp ? kCatGrenades : kCatSnipers) : int(buyEntries(g.buyCategory).size());
+    return g.buyCategory == 0 ? (comp ? kCatGrenades : kCatSnipers) : int(buyEntries(g.buyCategory, buySide(g)).size());
 }
 
 // The full-buy buttons under the wheel: x, y, width, height of button k (0 rifle, 1 sniper).
@@ -4163,22 +4700,26 @@ int buySlotAt(const Game& g, int w, int h, int s, float mx, float my) {
     return int((a + span * 0.5f) / span) % n;
 }
 
-// Buys everything a full round needs: the gun (rifle or sniper), kevlar and helmet, a kit on CT, then
-// smoke, flash, HE and molotov while the money lasts. Outside competitive: just the gun.
+// Buys everything a full round needs: the gun (the side's rifle - AK-47 or M4A1-S - or the AWP), kevlar and
+// helmet, a kit on CT, then smoke, two flashbangs, HE and molotov while the money lasts. Outside competitive: just
+// the gun.
 const char* fullBuy(Game& g, bool sniper) {
     g.buyCategory = 0;
     g.buyMenu = false;
+    const int gun = sniper ? kWSniper : fullBuyRifle(g);
     if (!(g.mode == 3 && g.mapId == 1)) {
-        takeGun(g, sniper ? kWSniper : kWRifle);
-        return weaponDef(sniper ? kWSniper : kWRifle).name;
+        takeGun(g, gun);
+        return weaponDef(gun).name;
     }
     const int before = g.comp.money;
     const int cat = sniper ? kCatSnipers : kCatRifles;
-    compBuy(g, cat, buyIndexOf(cat, sniper ? kWSniper : kWRifle));
+    compBuy(g, cat, buyIndexOf(cat, gun, buySide(g)));
     compBuy(g, kCatGear, 1);
     if (g.comp.youTeam == 1) compBuy(g, kCatGear, 2);
-    for (int k = 0; k < 4; ++k) compBuy(g, kCatGrenades, k);
-    return g.comp.money < before ? (sniper ? "FULL BUY: AWP" : "FULL BUY: AK-47") : "NOT ENOUGH MONEY";
+    for (int k : {0, 1, 1, 2, 3}) compBuy(g, kCatGrenades, k);  // smoke, flash, flash, HE, molotov
+    static std::string done;
+    done = std::string("FULL BUY: ") + weaponDef(gun).name;
+    return g.comp.money < before ? done.c_str() : "NOT ENOUGH MONEY";
 }
 
 // Picks slot `slot` of the wheel (a wedge, the centre, a full buy). Returns a message for the hit log.
@@ -4196,7 +4737,7 @@ const char* buyPick(Game& g, int slot) {
         return "";
     }
     if (comp) return compBuy(g, g.buyCategory, slot);
-    const std::vector<BuyEntry> entries = buyEntries(g.buyCategory);
+    const std::vector<BuyEntry> entries = buyEntries(g.buyCategory, buySide(g));
     if (entries[size_t(slot)].weapon < 0) return "";
     takeGun(g, entries[size_t(slot)].weapon);
     g.buyMenu = false;
@@ -4210,7 +4751,7 @@ void drawBuyWheel(HudBatch& hud, const Game& g, int w, int h, int s) {
     const BuyWheel wh = buyWheel(w, h, s);
     const float fs = float(s);
     const int n = buySlotCount(g), hover = buySlotAt(g, w, h, s, g.buyMouseX, g.buyMouseY);
-    const std::vector<BuyEntry> entries = buyEntries(g.buyCategory);
+    const std::vector<BuyEntry> entries = buyEntries(g.buyCategory, buySide(g));
     hud.rect(0, 0, float(w), float(h), 0x00000060);  // dim the game a little
     const float span = 2.0f * kPi / float(std::max(n, 1)), gap = 0.012f;
     auto at = [&](float a, float r) { return std::pair<float, float>{wh.cx + std::sin(a) * r, wh.cy - std::cos(a) * r}; };
@@ -4237,8 +4778,17 @@ void drawBuyWheel(HudBatch& hud, const Game& g, int w, int h, int s) {
                 hud.quad(ox0, oy0, rx0, ry0, rx1, ry1, ox1, oy1, 0xFFD060FF);
             }
         }
-        // Its label at the middle of the wedge: the key, the name, and (competitive) the price.
+        // Its label at the middle of the wedge: the gun (or the category's), the key, the name, and (competitive) the price.
         auto [lx, ly] = at(float(k) * span, (wh.r0 + wh.r1) * 0.5f);
+        {
+            static const int kCatIcon[7] = {kWDeagle, kWNova, kWMac10, kWRifle, kWSniper, -1, kWGrenade};
+            const int icon = g.buyCategory == 0 ? kCatIcon[k % 7] : entries[size_t(k)].weapon;
+            if (icon >= 0) {
+                HudBatch probe;
+                const float iw = drawGunIcon(probe, icon, 0, 0, 9.0f * fs, 0);
+                drawGunIcon(hud, icon, lx - iw * 0.5f, ly - 30.0f * fs, 9.0f * fs, have ? 0x80C080FF : broke ? 0xA06060FF : 0xD8D8D8FF);
+            }
+        }
         std::string name = g.buyCategory == 0 ? kBuyCategories[k] : entries[size_t(k)].name;
         const std::string key = std::to_string(k + 1);
         hud.text(lx - hud.textWidth(key) * 0.5f, ly - 16.0f * fs, key, 0xA0A0A0FF);
@@ -4269,7 +4819,7 @@ void drawBuyWheel(HudBatch& hud, const Game& g, int w, int h, int s) {
             const bool on = hover == (k == 0 ? kBuyFullRifle : kBuyFullSniper);
             hud.rect(x, y, bw, bh, on ? 0x3A5F9AF0 : 0x15181CE8);
             hud.rect(x, y + bh - 2.0f * fs, bw, 2.0f * fs, 0xFFD060FF);
-            const char* t = k == 0 ? "8  FULL BUY: AK-47" : "9  FULL BUY: AWP";
+            const std::string t = k == 0 ? std::string("8  FULL BUY: ") + weaponDef(fullBuyRifle(g)).name : "9  FULL BUY: AWP";
             hud.text(x + (bw - hud.textWidth(t)) * 0.5f, y + 7.0f * fs, t, 0xFFFFFFFF);
         }
     }
@@ -4446,6 +4996,9 @@ void drawMenuExtras(HudBatch& hud, const Config& cfg, int w, int h, int s) {
     }
 }
 
+void drawNetNotice(HudBatch& hud, int w, int h, int s);
+void drawHostAddress(HudBatch& hud, const Game& g, int w, int s);
+
 void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats& st, int w, int h) {
     hud.clear();
     int s = hudScale(cfg, h);
@@ -4453,6 +5006,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (g_menu.screen != kMenuNone && g_menu.root == kMenuMain) {  // main menu: no game HUD behind it
         drawMenu(hud, cfg, g.mode, w, h, s);
         drawMenuExtras(hud, cfg, w, h, s);
+        if (g_menu.screen == kMenuLobby && g_lobby.host) drawHostAddress(hud, g, w, s);
+        drawNetNotice(hud, w, h, s);
         return;
     }
     const float lh = 10.0f * s;
@@ -4666,7 +5221,10 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             hud.text(cx - hud.textWidth(dead, s * 3) / 2, cy - 60.0f * s, dead, 0xFF4040FF, s * 3);
         }
     }
-    if (g.mapId == 1 && g.callout[0]) hud.text(cx - hud.textWidth(g.callout, s * 2) / 2, 12.0f * s, g.callout, 0xFFFFFFD0, s * 2);
+    if (g.mapId == 1 && g.callout[0]) {  // where you are (competitive: under the score bar)
+        const float cyOut = g.mode == 3 ? (g.comp.phase == 0 ? 50.0f : 38.0f) * float(s) : 12.0f * float(s);
+        hud.text(cx - hud.textWidth(g.callout, g.mode == 3 ? s : s * 2) / 2, cyOut, g.callout, 0xFFFFFFD0, g.mode == 3 ? s : s * 2);
+    }
     if (g.netJoining) {
         const char* c = "CONNECTING...";
         hud.text(cx - hud.textWidth(c, s * 2) / 2, cy - 60.0f * s, c, 0xFFD060FF, s * 2);
@@ -4706,15 +5264,17 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             hud.text(cx - hud.textWidth(buf, s * 2) / 2, cy - 60.0f * s, buf, 0xFFFFFFFF, s * 2);
         }
     }
-    if (g.mapId == 1 && g.mode != 0 && g.mode != 4 && (g.showScores || g.dmOverUntil >= 0)) {
+    if (g.mapId == 1 && g.mode != 0 && g.mode != 4 && (g.showScores || g.dmOverUntil >= 0 || (g.mode == 3 && g.comp.phase == 3))) {
         // Scoreboard (Tab), and the results screen at the end of a deathmatch. Sorted by kills.
         // ADR = damage per round (retakes) or per life (deathmatch).
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
         float rowH = 11.0f * s, panelW = 76.0f * 6 * s, panelH = rowH * float(g.bots.size() + 7);
-        float px = cx - panelW / 2, py = cy - panelH / 2 - 40.0f * s;
+        float px = cx - panelW / 2, py = g.mode == 3 && g.comp.phase == 3 ? 150.0f * s : cy - panelH / 2 - 40.0f * s;
         hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
         if (g.mode == 1 && g.dmOverUntil >= 0) std::snprintf(buf, sizeof(buf), "MATCH OVER");
         else if (g.mode == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   %d:%02d LEFT", left / 60, left % 60);
+        else if (g.mode == 3 && g.comp.phase == 3) std::snprintf(buf, sizeof(buf), "FINAL SCORE   YOU %d : %d THEM", g.comp.youScore,
+                                                                 g.comp.themScore);
         else if (g.mode == 3) std::snprintf(buf, sizeof(buf), "COMPETITIVE   YOU %d : %d THEM   ROUND %d", g.comp.youScore,
                                             g.comp.themScore, g.comp.round + 1);
         else if (g.mode == 5) std::snprintf(buf, sizeof(buf), "ONLINE DEATHMATCH");
@@ -4799,30 +5359,105 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             hud.text(cx - hud.textWidth(g.rtResultText, s * 3) / 2, cy - 90.0f * s, g.rtResultText, col, s * 3);
         }
     }
+    if (g.simTime - g.killToastAt < 1.8 && !g.killToast.empty()) {  // "KILLED NAME" under the crosshair
+        const float age = float(g.simTime - g.killToastAt), fs = float(s);
+        const uint32_t a = uint32_t(255.0f * std::clamp(1.0f - (age - 1.2f) / 0.6f, 0.0f, 1.0f));
+        const std::string t = "KILLED " + g.killToast + (g.killToastHead ? "  HEADSHOT" : "");
+        const float tw = hud.textWidth(t) + 14.0f * fs, ty = cy + 64.0f * fs;
+        hud.rect(cx - tw / 2, ty - 4 * fs, tw, 15 * fs, 0x10121600u | (a * 3 / 4));
+        hud.rect(cx - tw / 2, ty - 4 * fs, 2 * fs, 15 * fs, 0xD0383800u | a);
+        hud.text(cx - tw / 2 + 9 * fs, ty, t, (g.killToastHead ? 0xFFD060FFu : 0xFFFFFFFFu) & (0xFFFFFF00u | a));
+    }
     if (g.mapId == 1 && g.mode == 3) {
         const Game::Comp& c = g.comp;
+        const float fs = float(s);
         int alive[2] = {0, 0};
         for (size_t i = 0; i < g.dummies.size(); ++i) alive[g.team[i]] += g.dummies[i].alive();
         if (!c.youDead) alive[c.youTeam]++;
         const double clockEnd = c.planted && g.bombActive ? g.bombExplodeAt : c.phaseEnd;
         int left = int(std::max(0.0, clockEnd - g.simTime));
-        const char* side = c.youTeam == 0 ? "T" : "CT";
-        if (c.phase == 0)
-            std::snprintf(buf, sizeof(buf), "YOU %d : %d THEM   BUY TIME 0:%02d   YOU ARE %s   B TO BUY", c.youScore,
-                          c.themScore, left, side);
-        else
-            std::snprintf(buf, sizeof(buf), "YOU %d : %d THEM   %s%d:%02d   %d V %d   YOU ARE %s", c.youScore, c.themScore,
-                          c.planted ? "BOMB " : "", left / 60, left % 60, alive[c.youTeam], alive[1 - c.youTeam], side);
-        hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, c.planted ? 0xFF8060FF : 0xFFFFFFFF);
-        if (c.phase >= 2) {
-            uint32_t col = c.resultWin ? 0x60FF60FF : 0xFF5050FF;
-            hud.text(cx - hud.textWidth(c.resultText, s * 3) / 2, cy - 90.0f * s, c.resultText, col, s * 3);
-            if (c.phase == 3) {
-                const char* m = c.youScore > c.themScore ? "YOU WON THE MATCH" : c.youScore < c.themScore ? "YOU LOST THE MATCH" : "DRAW";
-                hud.text(cx - hud.textWidth(m, s * 2) / 2, cy - 60.0f * s, m, 0xFFD060FF, s * 2);
-                if (!g_ratingNote.empty())
-                    hud.text(cx - hud.textWidth(g_ratingNote) / 2, cy - 36.0f * s, g_ratingNote, 0xFFFFFFFF);
+        // The CS bar at the top: the clock in the middle (the bomb, once it's planted), each side's score beside it,
+        // and a figure per player - yours on the left - dimmed once they're dead.
+        {
+            const float boxW = 58 * fs, boxH = 24 * fs, top = 6 * fs, scoreW = 30 * fs;
+            const int mine = c.youTeam, theirs = 1 - c.youTeam;
+            hud.rect(cx - boxW / 2, top, boxW, boxH, 0x101216E0);
+            if (c.planted && g.bombActive) {  // the bomb, blinking with the beeps
+                const bool on = std::fmod(g.simTime, 0.5) < 0.25;
+                hud.rect(cx - 9 * fs, top + 6 * fs, 18 * fs, 12 * fs, on ? 0xE03030FF : 0x701818FF);
+                hud.rect(cx - 6 * fs, top + 8 * fs, 12 * fs, 3 * fs, 0x202020FF);
+            } else {
+                std::snprintf(buf, sizeof(buf), "%d:%02d", left / 60, left % 60);
+                const uint32_t col = c.phase == 0 ? 0xFFD060FF : left <= 10 && c.phase == 1 ? 0xFF6050FF : 0xFFFFFFFF;
+                hud.text(cx - hud.textWidth(buf, s * 2) / 2, top + 5 * fs, buf, col, s * 2);
             }
+            for (int k = 0; k < 2; ++k) {  // the two scores: yours left, theirs right
+                const int side = k == 0 ? mine : theirs, score = k == 0 ? c.youScore : c.themScore;
+                const float bx = k == 0 ? cx - boxW / 2 - scoreW - 2 * fs : cx + boxW / 2 + 2 * fs;
+                hud.rect(bx, top, scoreW, boxH, 0x101216E0);
+                hud.rect(bx, top + boxH - 2 * fs, scoreW, 2 * fs, kTeamColor[side]);
+                const std::string sc = std::to_string(score);
+                hud.text(bx + (scoreW - hud.textWidth(sc, s * 2)) / 2, top + 5 * fs, sc, kTeamColor[side], s * 2);
+            }
+            // The players: you first on your side, then everyone else on each side (online: who's playing).
+            auto figure = [&](float fx, bool up, int side) {
+                const uint32_t col = up ? kTeamColor[side] : 0x50505090;
+                hud.rect(fx + 2 * fs, top + 3 * fs, 5 * fs, 5 * fs, col);
+                hud.rect(fx, top + 9 * fs, 9 * fs, 12 * fs, col);
+            };
+            for (int k = 0; k < 2; ++k) {
+                const int side = k == 0 ? mine : theirs;
+                std::vector<bool> ups;
+                if (k == 0) ups.push_back(!c.youDead);
+                for (size_t i = 0; i < g.dummies.size() && i < g.team.size(); ++i) {
+                    if (g.team[i] != side || (g.online && (int(i) >= kNetSlots || g.netTeam[i] < 0 || int(i) == g.net.myId())))
+                        continue;
+                    ups.push_back(g.dummies[i].alive());
+                }
+                for (size_t q = 0; q < ups.size(); ++q) {
+                    const float step = 12 * fs, fx = k == 0 ? cx - boxW / 2 - scoreW - 4 * fs - float(q + 1) * step
+                                                            : cx + boxW / 2 + scoreW + 4 * fs + float(q) * step + 3 * fs;
+                    figure(fx, ups[q], side);
+                }
+            }
+            const char* under = c.phase == 0 ? (c.youTeam == 0 ? "BUY TIME   YOU ARE T   B: BUY   Z: CALL"
+                                                                : "BUY TIME   YOU ARE CT   B: BUY   Z: CALL")
+                                             : nullptr;
+            if (under) hud.text(cx - hud.textWidth(under) / 2, top + boxH + 5 * fs, under, 0xFFD060D0);
+        }
+        // The round's result: a band across the screen in the winners' colour, why, and the MVP.
+        if (c.phase == 2) {
+            const int win = c.lastWinner & 1;
+            const float by = cy - 120 * fs, bh = 64 * fs;
+            hud.rect(0, by, float(w), bh, 0x0C0E12D8);
+            hud.rect(0, by, float(w), 3 * fs, kTeamColor[win]);
+            hud.rect(0, by + bh - 3 * fs, float(w), 3 * fs, kTeamColor[win]);
+            const char* title = win == 0 ? "TERRORISTS WIN" : "COUNTER-TERRORISTS WIN";
+            hud.text(cx - hud.textWidth(title, s * 3) / 2, by + 9 * fs, title, kTeamColor[win], s * 3);
+            hud.text(cx - hud.textWidth(c.resultText) / 2, by + 36 * fs, c.resultText, 0xE0E0E0FF);
+            if (c.mvp >= -1) {
+                std::string mvp = "MVP: " + agentName(c.mvp) + " ";
+                if (c.mvpWhy[0]) mvp += c.mvpWhy;
+                else mvp += "(" + std::to_string(c.mvpKills) + (c.mvpKills == 1 ? " KILL)" : " KILLS)");
+                hud.text(cx - hud.textWidth(mvp) / 2, by + 48 * fs, mvp, 0xFFD060FF);
+            }
+        }
+        // The match is over: victory or defeat, the score, your line, the rating; the final scoreboard below.
+        if (c.phase == 3) {
+            const bool won = c.youScore > c.themScore, draw = c.youScore == c.themScore;
+            const float by = 44 * fs, bh = 78 * fs;
+            const uint32_t col = draw ? 0xE0E0E0FF : won ? 0x70E070FF : 0xFF5A5AFF;
+            hud.rect(0, by, float(w), bh, 0x0C0E12E8);
+            hud.rect(0, by + bh - 3 * fs, float(w), 3 * fs, col);
+            const char* title = draw ? "DRAW" : won ? "VICTORY" : "DEFEAT";
+            hud.text(cx - hud.textWidth(title, s * 4) / 2, by + 6 * fs, title, col, s * 4);
+            std::snprintf(buf, sizeof(buf), "%d : %d", c.youScore, c.themScore);
+            hud.text(cx - hud.textWidth(buf, s * 2) / 2, by + 40 * fs, buf, 0xFFFFFFFF, s * 2);
+            const Game::Stats& me = g.you;
+            std::snprintf(buf, sizeof(buf), "YOU   %d KILLS   %d DEATHS   %d ASSISTS   ADR %.0f   HS %d%%   %d MVP", me.kills, me.deaths,
+                          me.assists, double(me.damage) / std::max(1, c.round), me.kills ? me.hsKills * 100 / me.kills : 0, me.mvps);
+            hud.text(cx - hud.textWidth(buf) / 2, by + 60 * fs, buf, 0xE0E0E0FF);
+            if (!g_ratingNote.empty()) hud.text(cx - hud.textWidth(g_ratingNote) / 2, by + bh + 6 * fs, g_ratingNote, 0xFFD060FF);
         }
         auto bar = [&](const char* label, float k) {
             float bw = 160.0f * s;
@@ -4848,12 +5483,26 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             hud.rect(cx - tw / 2 - 8.0f * s, float(h) - 68.0f * s, tw + 16.0f * s, 16.0f * s, 0x101216C0);
             hud.text(cx - tw / 2, float(h) - 64.0f * s, spec, 0xFFFFFFFF);
         }
-        char kit[96];
-        std::snprintf(kit, sizeof(kit), "ARMOR %d%s   $%d%s%s", int(c.armor), c.helmet ? "+H" : "", c.money,
-                      c.kit ? "   KIT" : "", c.carrier == -1 ? "   C4" : "");
-        hud.text(16.0f * s, float(h) - 36.0f * s, kit, 0x80FF80FF);
+        // Bottom left, like CS: your money above your health, armor beside it, then the kit and the C4 if you have them.
+        if (!c.youDead) {
+            const std::string money = "$" + std::to_string(c.money);
+            hud.text(16 * fs, float(h) - 46 * fs, money, 0x7CE07CFF, s * 2);
+            float ax = 16 * fs + hud.textWidth("HP 100", s * 2) + 16 * fs;
+            std::snprintf(buf, sizeof(buf), "ARMOR %d%s", int(c.armor), c.helmet ? "+H" : "");
+            hud.text(ax, float(h) - 24 * fs, buf, c.armor > 0 ? 0xD8D8D8FF : 0x808080FF, s * 2);
+            ax += hud.textWidth(buf, s * 2) + 14 * fs;
+            if (c.kit) { hud.text(ax, float(h) - 24 * fs, "KIT", 0x78ACFFFF, s * 2); ax += hud.textWidth("KIT", s * 2) + 10 * fs; }
+            if (c.carrier == -1) hud.text(ax, float(h) - 24 * fs, "C4", 0xFF8060FF, s * 2);
+        }
     }
     if (g.buyMenu) drawBuyWheel(hud, g, w, h, s);
+    if (g.callMenu && canCall(g)) {  // your calls: a small panel on the left, like CS's radio
+        const float fs = float(s), px = 16.0f * fs, y0 = float(h) * 0.38f, rowH = 13.0f * fs;
+        hud.rect(px - 6 * fs, y0 - 18 * fs, 150 * fs, rowH * 6 + 26 * fs, 0x0E1014E0);
+        hud.text(px, y0 - 13 * fs, g.comp.youTeam == 0 ? "CALL (T)" : "CALL (CT)", 0xFFD060FF);
+        for (int k = 0; k < 6; ++k)
+            hud.text(px, y0 + float(k) * rowH, std::to_string(k + 1) + "  " + kCallNames[firstCall(g) + k], 0xFFFFFFFF);
+    }
     if (g.kzState == 2 || g.kzLast >= 0) {
         if (g.kzState == 2) std::snprintf(buf, sizeof(buf), "KZ %.2f", g.simTime - g.kzStart);
         else std::snprintf(buf, sizeof(buf), "KZ LAST %.3f   BEST %.3f", g.kzLast, g.kzBest);
@@ -4869,10 +5518,47 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     float ry = 10.0f * s;
     for (const Game::FeedEntry& e : g.feed) {
         if (g.simTime - e.time > 6.0) continue;
-        float tw = hud.textWidth(e.text);
-        hud.rect(float(w) - tw - 18.0f * s, ry - 2.0f * s, tw + 12.0f * s, lh, 0x101216B0);
-        hud.text(float(w) - tw - 12.0f * s, ry, e.text, (e.color << 8) | 0xFF);
-        ry += lh + 2.0f * s;
+        if (e.killer == -9) {  // a plain line (your own grenade)
+            float tw = hud.textWidth(e.text);
+            hud.rect(float(w) - tw - 18.0f * s, ry - 2.0f * s, tw + 12.0f * s, lh, 0x101216B0);
+            hud.text(float(w) - tw - 12.0f * s, ry, e.text, (e.color << 8) | 0xFF);
+            ry += lh + 2.0f * s;
+            continue;
+        }
+        // Killer, the gun, headshot, wallbang, victim - names in their team's colour (yours white elsewhere); a
+        // kill you were in has a red edge, like CS.
+        const float fs = float(s), sp = 5.0f * fs, iconH = 8.0f * fs;
+        const bool teams = g.mode == 3 && g.team.size() == g.dummies.size();
+        auto colorOf = [&](int id) {
+            if (teams && (id < 0 || size_t(id) < g.team.size())) return kTeamColor[teamOf(g, id) & 1];
+            return id == -1 ? 0xFFFFFFFFu : 0xC8C8C8FFu;
+        };
+        const std::string kn = agentName(e.killer), vn = agentName(e.victim);
+        float iconW = 0;
+        {
+            HudBatch probe;  // (measure the icon)
+            iconW = drawGunIcon(probe, e.weapon, 0, 0, iconH, 0);
+        }
+        const float total = hud.textWidth(kn) + sp + iconW + (e.head ? sp + iconH : 0) + (e.wall ? sp + 3 * fs : 0) + sp +
+                            hud.textWidth(vn);
+        float fx = float(w) - total - 12.0f * fs;
+        const float top = ry - 3.0f * fs, bh = lh + 2.0f * fs;
+        hud.rect(fx - 6 * fs, top, total + 12 * fs, bh, 0x101216C8);
+        if (e.killer == -1 || e.victim == -1) {  // you were in it
+            const uint32_t edge = 0xD03838FF;
+            hud.rect(fx - 6 * fs, top, total + 12 * fs, 1.5f * fs, edge);
+            hud.rect(fx - 6 * fs, top + bh - 1.5f * fs, total + 12 * fs, 1.5f * fs, edge);
+            hud.rect(fx - 6 * fs, top, 1.5f * fs, bh, edge);
+            hud.rect(fx + total + 4.5f * fs, top, 1.5f * fs, bh, edge);
+        }
+        hud.text(fx, ry, kn, colorOf(e.killer));
+        fx += hud.textWidth(kn) + sp;
+        fx += drawGunIcon(hud, e.weapon, fx, ry - 0.5f * fs, iconH, 0xF0F0F0FF);
+        if (e.head) { fx += sp; drawSkull(hud, fx, ry - 0.5f * fs, iconH, 0xF0F0F0FF); fx += iconH; }
+        if (e.wall) { fx += sp; hud.rect(fx, ry - 1.0f * fs, 3 * fs, iconH + 1 * fs, 0xB09070FF); fx += 3 * fs; }
+        fx += sp;
+        hud.text(fx, ry, vn, colorOf(e.victim));
+        ry += bh + 2.0f * fs;
     }
     ry += lh * 0.5f;
     for (const HitLogEntry& e : g.hitLog) {
@@ -4903,9 +5589,33 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
 
     if (g_menu.screen != kMenuNone) drawMenu(hud, cfg, g.mode, w, h, s);
     drawMenuExtras(hud, cfg, w, h, s);
-    if (g_menu.screen != kMenuNone && g.mapId == 1 && g.online && g.net.isHost()) {
-        // Hosting, with the menu open: the address to give friends, once the router has (or hasn't) opened the
-        // port. Over the menu, at the top (never during play).
+    if (g_menu.screen != kMenuNone && g.mapId == 1 && g.online && g.net.isHost()) drawHostAddress(hud, g, w, s);
+    drawNetNotice(hud, w, h, s);
+}
+
+// Online: something to tell you about the connection (a join that failed and why, reconnecting), for a while.
+std::string g_netNotice, g_netNotice2;
+double g_netNoticeUntil = -1;  // (wall clock, seconds)
+void netNotice(const std::string& a, const std::string& b = "", double seconds = 8.0) {
+    g_netNotice = a;
+    g_netNotice2 = b;
+    g_netNoticeUntil = double(SDL_GetTicks()) / 1000.0 + seconds;
+}
+void drawNetNotice(HudBatch& hud, int w, int h, int s) {
+    if (double(SDL_GetTicks()) / 1000.0 > g_netNoticeUntil) return;
+    const float fs = float(s), cx = float(w) * 0.5f, y = float(h) * 0.16f;
+    const float tw = std::max(hud.textWidth(g_netNotice, s * 2), hud.textWidth(g_netNotice2)) + 24 * fs;
+    hud.rect(cx - tw / 2, y - 8 * fs, tw, (g_netNotice2.empty() ? 30 : 44) * fs, 0x101216F0);
+    hud.rect(cx - tw / 2, y - 8 * fs, tw, 2 * fs, 0xFF8060FF);
+    hud.text(cx - hud.textWidth(g_netNotice, s * 2) / 2, y, g_netNotice, 0xFFD060FF, s * 2);
+    if (!g_netNotice2.empty()) hud.text(cx - hud.textWidth(g_netNotice2) / 2, y + 22 * fs, g_netNotice2, 0xE0E0E0FF);
+}
+
+// Hosting, with a menu open: the address to give friends, once the router has (or hasn't) opened the port. At
+// the top (never during play).
+void drawHostAddress(HudBatch& hud, const Game& g, int w, int s) {
+    {
+        const float cx = float(w / 2);
         const PortStatus ps = g.ports.status();
         const std::string port = g.netPort == kNetDefaultPort ? "" : ":" + std::to_string(g.netPort);
         std::string a, b;
@@ -5012,6 +5722,7 @@ int main(int argc, char** argv) {
 
     const bool bench = opt.benchSeconds > 0;
     const bool automated = !opt.screenshotPath.empty() || bench;
+    if (opt.roundsToWin > 0) g_roundsToWin = opt.roundsToWin;
     if (automated) g_compLog = std::string(SDL_GetBasePath() ? SDL_GetBasePath() : "") + "comp_log.txt";
     // Benchmark: where each frame's time goes (CPU sections + GPU via glFinish), written to bench.txt.
     struct BenchStats {
@@ -5101,8 +5812,24 @@ int main(int argc, char** argv) {
         g.ports.close();
         g.netJoining = false;
         g.online = false;
+        g_lobby.on = false;
         for (std::string& n : g_playerNames) n.clear();
     };
+    // Online: into the lobby (hosting it, or just joined one).
+    auto openLobby = [&](bool host) {
+        g_lobby = LobbyState{};
+        g_lobby.on = true;
+        g_lobby.host = host;
+        g_lobby.me = g.net.myId();
+        g_lobbyMapSel = townMap();
+        g_playerNames[size_t(std::max(0, g.net.myId()))] = Net::cleanName(cfg.player_name);
+        g_menu.root = kMenuMain;
+        setMenu(kMenuLobby);
+    };
+    // A dropped connection (not the host closing the game): try to join again for 30 s.
+    struct Reconnect { bool on = false; std::string address; uint16_t port = 0; double next = 0, until = 0; };
+    Reconnect reconnect;
+    bool hostClosed = false;
     // "host:port" -> host, port (no colon: the port stays as it was).
     auto splitAddress = [](std::string& address, uint16_t& port) {
         const size_t colon = address.rfind(':');
@@ -5132,9 +5859,24 @@ int main(int argc, char** argv) {
             resetPosition(g);
         }
     };
+    // The lobby's START (the host): everyone in the lobby goes in, on the teams they picked.
+    auto startLobbyGame = [&]() {
+        setTownMap(g_lobbyMapSel & 1);
+        if (g_lobbyMapSel == 0) setDustScale(float(cfg.dust_scale) / 100.0f);
+        for (int id = 0; id < kNetMaxPlayers; ++id) g.netTeam[id] = g.net.connected(id) ? g_lobby.team[id] & 1 : -1;
+        g.net.setGame(uint8_t((cfg.net_game == 1 ? 1 : 0) | (g_lobbyMapSel & 1) << 1), townScale());  // late joiners: straight in
+        g.net.sendStart();
+        g_lobby.on = false;
+        applyConfig(g, cfg);
+        goOnline(cfg.net_game == 1 ? 1 : 0);
+        pushHitLog(g, "GAME STARTED", 0x80ff80);
+    };
     auto menuBack = [&]() {
         const int from = g_menu.screen;
-        if (from == kMenuCase) {
+        if (from == kMenuLobby) {  // leaving the lobby: offline again
+            leaveOnline();
+            setMenu(kMenuMain);
+        } else if (from == kMenuCase) {
             setMenu(kMenuInventory);
         } else if (from >= kMenuMouse && from <= kMenuGameplay) {
             setMenu(kMenuSettings);
@@ -5243,16 +5985,14 @@ int main(int argc, char** argv) {
                 std::string err;
                 const uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
                 g.net.setName(cfg.player_name);
-                if (g.net.host(port, float(cfg.dust_scale) / 100.0f, uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1), err)) {
+                if (g.net.host(port, float(cfg.dust_scale) / 100.0f,
+                               uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1 | kNetLobbyOpen), err)) {
                     g.netPort = port;
                     g.ports.open(port);  // ask the router, in the background
                     g_playerNames[0] = Net::cleanName(cfg.player_name);
-                    goOnline(cfg.net_game == 1 ? 1 : 0);
-                    char msg[64];
-                    std::snprintf(msg, sizeof(msg), "HOSTING ON PORT %d", int(port));
-                    pushHitLog(g, msg, 0x80ff80);
+                    openLobby(true);  // friends join you here; you start the game when everyone's in
                 } else {
-                    pushHitLog(g, err, 0xff6060);
+                    netNotice("COULDN'T HOST", err);
                 }
                 break;
             }
@@ -5264,12 +6004,21 @@ int main(int argc, char** argv) {
                 splitAddress(address, port);
                 if (g.net.join(address, port, err)) {
                     g.netJoining = true;
-                    setMenu(kMenuNone);
+                    hostClosed = false;
+                    reconnect = Reconnect{};
+                    reconnect.address = address;
+                    reconnect.port = port;
+                    netNotice("CONNECTING TO " + address + ":" + std::to_string(port) + "...", "", 7.0);
                 } else {
-                    pushHitLog(g, err, 0xff6060);
+                    netNotice("COULDN'T JOIN", err);
                 }
                 break;
             }
+            case kActLobbyTeam:  // the other team (the host decides; it tells everyone)
+                if (g_lobby.host) g_lobby.team[0] ^= 1;
+                else g.net.sendTeamPick(uint8_t(1 - (g_lobby.team[std::max(0, g.net.myId())] & 1)));
+                break;
+            case kActLobbyStart: startLobbyGame(); break;
             default: if (it.action >= kActGoto) setMenu(it.action - kActGoto); break;
         }
     };
@@ -5299,11 +6048,21 @@ int main(int argc, char** argv) {
             switch (ev.type) {
                 case NetEvent::Connected:
                     g.netJoining = false;
+                    reconnect.on = false;
+                    g_netNoticeUntil = -1;
                     if (int(std::lround(ev.townScale * 100.0f)) != cfg.dust_scale) {  // the host's map size
                         cfg.dust_scale = int(std::lround(ev.townScale * 100.0f));
                         setDustScale(ev.townScale);
                     }
-                    setTownMap(ev.game >> 1);  // the host's map
+                    setTownMap((ev.game >> 1) & 0x3F);  // the host's map
+                    if (ev.game & kNetLobbyOpen) {  // they haven't started yet: wait in the lobby
+                        openLobby(false);
+                        g_lobby.game = ev.game & 1;
+                        g_lobby.map = (ev.game >> 1) & 0x3F;
+                        g_lobby.scale = ev.townScale;
+                        if (automated) std::fprintf(stderr, "net: in the lobby as player %d%c", g.net.myId() + 1, 10);
+                        break;
+                    }
                     goOnline(ev.game & 1);
                     pushHitLog(g, (ev.game & 1) == 1 ? "CONNECTED - YOU'RE IN FROM THE NEXT ROUND" : "CONNECTED", 0x80ff80);
                     if (automated)
@@ -5312,11 +6071,20 @@ int main(int argc, char** argv) {
                     break;
                 case NetEvent::Failed:
                     g.netJoining = false;
-                    pushHitLog(g, ev.text.empty() ? "COULDN'T CONNECT TO " + cfg.net_address : ev.text, 0xff6060);
+                    if (reconnect.on) break;  // (still trying: another go in a moment)
+                    if (!ev.text.empty()) netNotice("COULDN'T JOIN", ev.text);
+                    else netNotice("NO ANSWER FROM " + cfg.net_address,
+                                   "CHECK THE ADDRESS AND PORT, AND THAT THEY'RE HOSTING. OVER THE INTERNET: ZEROTIER OR A FORWARDED PORT");
                     if (automated) std::fprintf(stderr, "net: couldn't connect %s\n", ev.text.c_str());
                     break;
                 case NetEvent::Joined:  // (announced once their name arrives)
                     if (automated) std::fprintf(stderr, "net: player %d joined\n", ev.from + 1);
+                    if (g_lobby.on && g_lobby.host && ev.from < kNetMaxPlayers) {  // into the lobby: the smaller team
+                        int count[2] = {0, 0};
+                        for (int id = 0; id < kNetMaxPlayers; ++id)
+                            if (id != ev.from && (id == 0 || g.net.connected(id))) count[g_lobby.team[id] & 1]++;
+                        g_lobby.team[ev.from] = cfg.net_teams ? 0 : count[1] < count[0] ? 1 : 0;
+                    }
                     if (netHost(g) && comp && g.mapId == 1) {  // competitive: who's playing now (they're in next round)
                         NetRound r;
                         r.kind = 2;
@@ -5340,10 +6108,21 @@ int main(int argc, char** argv) {
                     break;
                 case NetEvent::Left:
                     if (ev.from == 0 && !g.net.isHost()) {  // the host is gone: back to an offline map
-                        const bool wasOnline = g.online;
+                        const bool wasOnline = g.online, wasLobby = g_lobby.on;
                         leaveOnline();
-                        pushHitLog(g, "THE HOST LEFT", 0xff6060);
                         if (wasOnline) { g.mode = 0; loadMap(g, renderer, 0); g.botsFire = false; }
+                        if (hostClosed) {
+                            netNotice("THE HOST CLOSED THE GAME");
+                        } else if ((wasOnline || wasLobby) && !reconnect.address.empty()) {  // dropped: try to get back in
+                            reconnect.on = true;
+                            reconnect.next = double(SDL_GetTicks()) / 1000.0 + 2.0;
+                            reconnect.until = reconnect.next + 30.0;
+                            netNotice("CONNECTION LOST - RECONNECTING...", "", 34.0);
+                        } else {
+                            netNotice("THE HOST LEFT");
+                        }
+                        g_menu.root = kMenuMain;
+                        setMenu(kMenuMain);
                     } else if (ev.from < kNetMaxPlayers) {
                         g.remotes[ev.from].present = false;
                         if (ev.from < g.dummies.size() && ev.from != g.net.myId()) {  // gone: out of the round too
@@ -5378,6 +6157,7 @@ int main(int argc, char** argv) {
                         st.pitch = b.pitch;
                         st.flags = b.flags;
                         st.weapon = b.weapon;
+                        st.duck = (b.flags & kNetDuck) ? 255 : 0;
                         rm.latest = std::max(rm.latest, ev.tick);
                     }
                     break;
@@ -5399,11 +6179,14 @@ int main(int argc, char** argv) {
                     if (netHost(g) && comp && g.mapId == 1 && g.comp.planted && g.bombActive && g.comp.phase == 1 &&
                         ev.from < g.team.size() && g.team[ev.from] == 1 && g.dummies[ev.from].alive()) {
                         g.bombActive = false;
+                        g.comp.defusedBy = int(ev.from);
                         endCompRound(g, 1, "THE BOMB HAS BEEN DEFUSED", true);
                     }
                     break;
                 case NetEvent::Fire: {
                     if (!inGame) break;
+                    if (const int who = netToLocal(g, ev.from); who >= 0 && size_t(who) < g.dummies.size())
+                        g.dummies[size_t(who)].shotAt = g.simTime;
                     if (g.audio) {
                         gunshot3D(g, ev.weapon, ev.a, g.lastRenderEye, float(g.viewYaw));
                         // Close past your head: you hear it go by.
@@ -5418,6 +6201,48 @@ int main(int argc, char** argv) {
                         makeNoise(g, ev.a, 2200.0f, g.team[ev.from]);  // your bots hear the other players' shots
                     break;
                 }
+                case NetEvent::Bye:  // the host is closing the game on purpose (no reconnecting)
+                    hostClosed = true;
+                    break;
+                case NetEvent::Lobby:  // what the host has set up, and who's on which team
+                    if (!g_lobby.on || g_lobby.host) break;
+                    g_lobby.game = ev.lobby.game & 1;
+                    g_lobby.map = (ev.lobby.game >> 1) & 0x3F;
+                    g_lobby.scale = ev.lobby.townScale;
+                    for (int id = 0; id < kNetMaxPlayers; ++id) g_lobby.team[id] = ev.lobby.team[id] & 1;
+                    g.hudDirty = true;
+                    break;
+                case NetEvent::TeamPick:  // (hosting) a player wants the other team
+                    if (g_lobby.on && g_lobby.host && ev.from < kNetMaxPlayers) g_lobby.team[ev.from] = ev.weapon & 1;
+                    break;
+                case NetEvent::Start:  // the host started the game from the lobby: in we go
+                    if (!g_lobby.on || g_lobby.host) break;
+                    setTownMap(g_lobby.map & 1);
+                    if (int(std::lround(g_lobby.scale * 100.0f)) != cfg.dust_scale) {
+                        cfg.dust_scale = int(std::lround(g_lobby.scale * 100.0f));
+                        setDustScale(g_lobby.scale);
+                    }
+                    g_lobby.on = false;
+                    goOnline(g_lobby.game);
+                    if (automated) std::fprintf(stderr, "net: the host started the game%c", 10);
+                    break;
+                case NetEvent::Drop: {  // a gun fell somewhere (someone died, or swapped it)
+                    if (!inGame) break;
+                    Game::Drop d;
+                    d.pos = ev.a;
+                    d.yaw = ev.yaw;
+                    d.weapon = ev.weapon < kWeaponCount ? ev.weapon : int(kWRifle);
+                    d.ammo = ev.ammo;
+                    d.id = ev.dropId;
+                    d.at = g.simTime;
+                    g.drops.push_back(d);
+                    if (g.drops.size() > 24) g.drops.erase(g.drops.begin());
+                    break;
+                }
+                case NetEvent::Pickup:
+                    for (size_t k = 0; k < g.drops.size(); ++k)
+                        if (g.drops[k].id == ev.dropId) { g.drops.erase(g.drops.begin() + long(k)); break; }
+                    break;
                 case NetEvent::Nade:  // someone threw: it flies here exactly as it does for them
                     if (!inGame) break;
                     g.nades.push_back({ev.a, ev.b, ev.weapon, 0, netToLocal(g, ev.from)});
@@ -5498,10 +6323,12 @@ int main(int argc, char** argv) {
         std::string netErr;
         g.net.setName(cfg.player_name);
         g.netPort = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
-        if (g.net.host(g.netPort, float(cfg.dust_scale) / 100.0f, uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1), netErr)) {
+        const uint8_t lobbyBit = opt.lobbyStartFrame >= 0 ? kNetLobbyOpen : 0;
+        if (g.net.host(g.netPort, float(cfg.dust_scale) / 100.0f, uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1 | lobbyBit), netErr)) {
             g.ports.open(g.netPort);  // like the menu's HOST: ask the router
             g_playerNames[0] = Net::cleanName(cfg.player_name);
-            goOnline(cfg.net_game == 1 ? 1 : 0);
+            if (lobbyBit) openLobby(true);
+            else goOnline(cfg.net_game == 1 ? 1 : 0);
         }
         else std::fprintf(stderr, "net: %s\n", netErr.c_str());
     } else if (!opt.netJoin.empty()) {
@@ -5526,6 +6353,7 @@ int main(int argc, char** argv) {
     double hitMarkerShownUntil = 0;
     std::vector<ModelDraw> modelDraws;
     std::vector<ModelDraw> deadDraws;
+    std::vector<ModelDraw> dropDraws;  // guns on the floor (kept between frames: no allocations)
     ReplayFrame replayNow;  // a replay: everyone at the moment playing (reused every frame)  // bodies falling over (each one model, so it can tilt)
 
     if (g.audio) g.audio->loadMusic(std::string(base ? base : "") + "assets/music/menu.ogg");  // (on a thread)
@@ -5725,6 +6553,17 @@ int main(int argc, char** argv) {
                             g.hudDirty = true;
                         } else if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
+                        else if (sc == SDL_SCANCODE_E) g.useLatch = true;
+                        else if (g.callMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_6) {  // your call
+                            playerCall(g, firstCall(g) + int(sc - SDL_SCANCODE_1));
+                            g.callMenu = false;
+                            g.hudDirty = true;
+                        }
+                        else if (sc == SDL_SCANCODE_Z && canCall(g)) {
+                            g.callMenu = !g.callMenu;
+                            g.buyMenu = false;
+                            g.hudDirty = true;
+                        }
                         else if (g.buyMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) {  // the buy wheel
                             const int k = int(sc - SDL_SCANCODE_1) + 1;
                             const int slot = g.buyCategory == 0 && k == 8 ? kBuyFullRifle
@@ -5744,6 +6583,7 @@ int main(int argc, char** argv) {
                             const bool canBuy = !comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
                                                           length2d(g.player.origin - g.spawn) < 700.0f);
                             if (canBuy) {
+                                g.callMenu = false;
                                 g.buyMenu = !g.buyMenu;
                                 g.buyCategory = 0;
                                 if (g.buyMenu) {  // the cursor starts in the middle of the wheel
@@ -5781,6 +6621,36 @@ int main(int argc, char** argv) {
             if (SDL_GetWindowRelativeMouseMode(window) != capture) SDL_SetWindowRelativeMouseMode(window, capture);
         }
         pumpNet();
+        if (opt.lobbyStartFrame >= 0 && frame == opt.lobbyStartFrame && g_lobby.on && g_lobby.host) {
+            std::fprintf(stderr, "net: lobby start with %d player(s)%c", g.net.players(), 10);
+            startLobbyGame();
+        }
+        if (g_lobby.on && g_lobby.host && g.net.isHost()) {  // the lobby, twice a second: what's on and who's where
+            static double nextLobby = 0;
+            const double now = double(SDL_GetTicks()) / 1000.0;
+            if (now >= nextLobby) {
+                nextLobby = now + 0.5;
+                NetLobby l;
+                l.game = uint8_t((cfg.net_game == 1 ? 1 : 0) | (g_lobbyMapSel & 1) << 1);
+                l.townScale = g_lobbyMapSel == 0 ? float(cfg.dust_scale) / 100.0f : townScale();
+                for (int id = 0; id < kNetMaxPlayers; ++id) l.team[id] = uint8_t(g_lobby.team[id] & 1);
+                g.net.sendLobby(l);
+                g.net.setGame(uint8_t(l.game | kNetLobbyOpen), l.townScale);  // (for anyone who joins now)
+                g.hudDirty = true;
+            }
+        }
+        if (reconnect.on && !g.net.active() && !g.netJoining) {  // dropped: another go every few seconds
+            const double now = double(SDL_GetTicks()) / 1000.0;
+            if (now > reconnect.until) {
+                reconnect.on = false;
+                netNotice("COULDN'T RECONNECT", "THE HOST MAY HAVE CLOSED THE GAME - JOIN AGAIN FROM PLAY, ONLINE");
+            } else if (now >= reconnect.next) {
+                std::string why;
+                g.net.setName(cfg.player_name);
+                if (g.net.join(reconnect.address, reconnect.port, why)) g.netJoining = true;
+                reconnect.next = now + 4.0;
+            }
+        }
         g.inputBlocked = paused;
         const bool viewing = g.rv.on && !g.rv.killcam;  // the replay viewer: the game waits
         if ((!paused || g.online) && !viewing) {  // online never pauses
@@ -5978,7 +6848,24 @@ int main(int argc, char** argv) {
             // The dead fall over the way the killing shot pushed them (backwards if we don't know), like a
             // ragdoll: they tip faster and faster, slide a little, lie there, then sink away. Cosmetic: the dead
             // can't be hit. The whole body is then one model, so it can tilt.
-            const float squash = 1.0f;
+            // Animation (cosmetic; everything stays inside the hitboxes): the gun kicks back when they fire, comes down
+            // and in while they reload, hands go down while they plant or defuse (they kneel: their crouch), the legs
+            // tuck in the air and the body dips for a moment when they land.
+            Dummy& anim = g.dummies[i];
+            float above = 0;
+            if (g.mapId == 1 && d.alive()) {
+                const float fz = townGrid().floorAt(p.x, p.y);
+                if (fz > MapGrid::kNoFloor) above = std::max(0.0f, p.z - fz);
+            }
+            const bool inAir = above > 12.0f;
+            if (!inAir && anim.air > 12.0f) anim.landedAt = g.simTime;
+            anim.air = above;
+            const float kick = std::clamp(1.0f - float(g.simTime - d.shotAt) / 0.09f, 0.0f, 1.0f);
+            const bool reloading = g.simTime < d.reloadUntil && d.alive();
+            const float landing = std::clamp(1.0f - float(g.simTime - d.landedAt) / 0.18f, 0.0f, 1.0f);
+            const Vec3 armOff = d.busy ? Vec3{-1.0f, 0, -6.0f} : reloading ? Vec3{2.0f, 0, -4.0f} : Vec3{1.6f * kick, 0, 0.5f * kick};
+            const float tuck = inAir ? 8.0f : 0.0f;
+            const float squash = d.alive() ? 1.0f - 0.06f * landing : 1.0f;
             float killFlash = 0;
             ModelDraw* body = nullptr;
             if (!d.alive()) {
@@ -6026,9 +6913,9 @@ int main(int argc, char** argv) {
                 const float swing = speed > 60.0f && d.alive() ? std::sin(d.stepDist / 76.0f * kPi) * 1.0f : 0.0f;
                 for (int side = -1; side <= 1; side += 2) {
                     const float y0 = side < 0 ? -7.4f : 1.0f, y1 = side < 0 ? -1.0f : 7.4f, dx = swing * float(side);
-                    part({-3.6f + dx, y0, 6.0f}, {3.6f + dx, y1, 34.0f}, hit(pants, kLegs));
-                    part({-3.6f + dx, y0 - 0.2f, 0.0f}, {3.6f + dx, y1 + 0.2f, 6.0f}, hit(boot, kLegs));
-                    part({-4.0f + dx, y0 + 1.0f, 16.0f}, {-3.4f + dx, y1 - 1.0f, 21.0f}, hit(gear, kLegs));  // knee pad
+                    part({-3.6f + dx, y0, 6.0f + tuck}, {3.6f + dx, y1, 34.0f}, hit(pants, kLegs));
+                    part({-3.6f + dx, y0 - 0.2f, tuck}, {3.6f + dx, y1 + 0.2f, 6.0f + tuck}, hit(boot, kLegs));
+                    part({-4.0f + dx, y0 + 1.0f, 16.0f + tuck * 0.5f}, {-3.4f + dx, y1 - 1.0f, 21.0f + tuck * 0.5f}, hit(gear, kLegs));  // knee pad
                 }
                 // Hips and belt, then the shirt.
                 part({-5.6f, -8.6f, 34.0f}, {5.6f, 8.6f, 38.5f}, hit(pants, kStomach));
@@ -6046,11 +6933,11 @@ int main(int argc, char** argv) {
                 part({5.8f, -6.0f, 47.0f}, {6.5f, 6.0f, 56.0f}, hit(gear, kChest));    // pack
                 // Arms: sleeves to the elbow, forearms, gloves on the gun (right at the grip, left on the handguard).
                 part({-6.0f, -12.8f, 50.0f}, {1.0f, -10.2f, 56.5f}, hit(shirt, kChest));
-                part({-12.0f, -13.2f, 45.5f}, {-6.0f, -10.4f, 50.5f}, hit(shirt, kChest));
-                part({-13.0f, -13.4f, 45.5f}, {-10.0f, -10.2f, 49.5f}, hit(glove, kChest));
+                part(Vec3{-12.0f, -13.2f, 45.5f} + armOff, Vec3{-6.0f, -10.4f, 50.5f} + armOff, hit(shirt, kChest));
+                part(Vec3{-13.0f, -13.4f, 45.5f} + armOff, Vec3{-10.0f, -10.2f, 49.5f} + armOff, hit(glove, kChest));
                 part({-6.0f, 10.2f, 50.0f}, {1.0f, 12.8f, 56.5f}, hit(shirt, kChest));
-                part({-14.0f, 10.4f, 45.5f}, {-6.0f, 13.2f, 50.5f}, hit(shirt, kChest));
-                part({-15.0f, 10.2f, 45.5f}, {-12.0f, 13.4f, 49.5f}, hit(glove, kChest));
+                part(Vec3{-14.0f, 10.4f, 45.5f} + armOff, Vec3{-6.0f, 13.2f, 50.5f} + armOff, hit(shirt, kChest));
+                part(Vec3{-15.0f, 10.2f, 45.5f} + armOff, Vec3{-12.0f, 13.4f, 49.5f} + armOff, hit(glove, kChest));
                 // The head: CTs a face under a helmet with goggles; Ts a balaclava with an eye slit and a beanie.
                 if (isT) {
                     part({-4.3f, -4.2f, 59.2f}, {4.3f, 4.2f, 67.0f}, hit(0x2a2622, kHead));
@@ -6068,75 +6955,45 @@ int main(int argc, char** argv) {
                     part({-4.3f, 4.25f, 63.0f}, {4.3f, 4.5f, 64.4f}, hit(0x1a1a1a, kHead));
                 }
             }
-            // What they hold (weapons are the one thing allowed outside the hitboxes, like CS).
-            switch (d.weapon) {
-                case kWPistol:  // pistol: a short slide between the hands, the suppressor out front
-                    part({-17.5f, -1.0f, 47.0f}, {-11.0f, 1.0f, 49.6f}, 0x1e2024);
-                    part({-23.5f, -0.7f, 47.4f}, {-17.5f, 0.7f, 49.2f}, 0x15171a);
-                    part({-13.0f, -0.8f, 44.5f}, {-11.2f, 0.8f, 47.0f}, 0x26282c);
-                    break;
-                case kWDeagle:  // a bigger, chunkier pistol
-                    part({-19.0f, -1.3f, 47.0f}, {-10.8f, 1.3f, 50.4f}, 0x3a3d42);
-                    part({-13.2f, -1.0f, 44.0f}, {-11.0f, 1.0f, 47.0f}, 0x26282c);
-                    break;
-                case kWBerettas:  // a pistol in each hand
-                    part({-17.5f, -12.6f, 47.0f}, {-11.5f, -10.8f, 49.4f}, 0x8a9098);
-                    part({-19.5f, 10.8f, 47.0f}, {-13.5f, 12.6f, 49.4f}, 0x8a9098);
-                    break;
-                case kWNova:  // a long pump shotgun
-                    part({-17.0f, -1.5f, 45.5f}, {-6.6f, 1.5f, 49.5f}, 0x1e2024);
-                    part({-33.0f, -0.7f, 47.0f}, {-17.0f, 0.7f, 48.6f}, 0x111214);
-                    part({-24.0f, -1.2f, 45.2f}, {-17.0f, 1.2f, 47.2f}, 0x2a2c30);
-                    break;
-                case kWXm1014:  // a long auto shotgun, the tube under the barrel
-                    part({-17.0f, -1.5f, 45.5f}, {-6.6f, 1.5f, 49.5f}, 0x232528);
-                    part({-34.0f, -0.7f, 47.4f}, {-17.0f, 0.7f, 48.8f}, 0x111214);
-                    part({-31.0f, -0.8f, 45.8f}, {-17.0f, 0.8f, 47.4f}, 0x2a2c30);
-                    break;
-                case kWMac10:  // a stubby box with a long mag
-                    part({-17.0f, -1.6f, 46.0f}, {-9.0f, 1.6f, 50.0f}, 0x26282c);
-                    part({-14.0f, -0.8f, 41.0f}, {-12.0f, 0.8f, 46.0f}, 0x1a1b1e);
-                    break;
-                case kWKnife:  // knife
-                    part({-14.0f, -0.6f, 46.5f}, {-11.0f, 0.6f, 48.5f}, 0x2a2420);
-                    part({-21.0f, -0.25f, 46.8f}, {-14.0f, 0.25f, 48.2f}, 0xb8bcc2);
-                    break;
-                case kWGrenade:  // grenade in the hand
-                    part({-15.5f, -1.8f, 46.0f}, {-12.0f, 1.8f, 50.0f}, 0x3b4a2f);
-                    break;
-                case kWSniper:  // sniper: long barrel, scope on top
-                    part({-17.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x2c3326);
-
-                    part({-36.0f, -0.6f, 47.2f}, {-17.0f, 0.6f, 48.4f}, 0x111214);
-                    part({-15.0f, -1.0f, 49.5f}, {-8.0f, 1.0f, 51.5f}, 0x0e0f10);
-                    break;
-                case kWM4A1S:  // black, a square handguard, a long suppressor
-                    part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x18191c);
-                    part({-21.0f, -1.6f, 45.8f}, {-14.0f, 1.6f, 49.4f}, 0x222327);
-                    part({-24.0f, -0.5f, 47.3f}, {-21.0f, 0.5f, 48.3f}, 0x111214);
-                    part({-33.0f, -1.0f, 46.8f}, {-24.0f, 1.0f, 48.8f}, 0x0e0f10);
-                    part({-12.0f, -0.8f, 41.5f}, {-10.0f, 0.8f, 46.0f}, 0x111214);  // the mag
-                    break;
-                case kWGalil:  // dark, a wooden handguard, a curved mag
-                    part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x232528);
-                    part({-21.0f, -1.5f, 45.8f}, {-15.0f, 1.5f, 48.8f}, 0x5a3c23);
-                    part({-27.0f, -0.6f, 47.2f}, {-21.0f, 0.6f, 48.4f}, 0x111214);
-                    part({-13.5f, -0.8f, 41.0f}, {-11.0f, 0.8f, 46.0f}, 0x18191c);
-                    break;
-                case kWSsg08:  // a slim bolt gun, a small scope
-                    part({-16.0f, -1.2f, 46.2f}, {-6.6f, 1.2f, 49.0f}, 0x2a2c30);
-                    part({-33.0f, -0.5f, 47.3f}, {-16.0f, 0.5f, 48.3f}, 0x111214);
-                    part({-14.0f, -0.8f, 49.0f}, {-9.0f, 0.8f, 50.6f}, 0x0e0f10);
-                    break;
-                case kWUmp45:  // a boxy SMG, a straight mag
-                    part({-18.0f, -1.6f, 45.8f}, {-8.0f, 1.6f, 49.8f}, 0x232528);
-                    part({-21.0f, -0.6f, 47.2f}, {-18.0f, 0.6f, 48.4f}, 0x111214);
-                    part({-15.0f, -0.9f, 40.0f}, {-13.0f, 0.9f, 45.8f}, 0x18191c);
-                    break;
-                default:  // the AK-47
-                    part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x1e2024);
-                    part({-27.0f, -0.6f, 47.2f}, {-16.0f, 0.6f, 48.4f}, 0x111214);
-                    break;
+            // What they hold (weapons are the one thing allowed outside the hitboxes, like CS), moving with the hands;
+            // a flash at the muzzle as it fires (a small one on the suppressed guns). Planting or defusing: put away.
+            if (!d.busy) {
+                float muzzle = 0;
+                gunModel(d.weapon, [&](Vec3 mn, Vec3 mx, uint32_t c) {
+                    muzzle = std::min(muzzle, mn.x);
+                    part(mn + armOff, mx + armOff, c);
+                });
+                if (kick > 0.5f && d.alive() && weaponDef(d.weapon).canFire && !body) {
+                    const float r = suppressedGun(d.weapon) ? 0.8f : 2.2f;
+                    const Vec3 c = Vec3{muzzle - r - 0.5f, 0, 48.0f} * ms + armOff * ms;
+                    const Vec3 mn{c.x - r, c.y - r, crouchZ(c.z - r, crouch)}, mx{c.x + r, c.y + r, crouchZ(c.z + r, crouch)};
+                    dynamicBoxes.push_back(makeEmissive(p + mn, p + mx, 0xffe0a0));
+                    yawBox(dynamicBoxes.back(), p, turn);
+                }
+            }
+            if (d.alive() && g.mapId == 1) {  // a soft shadow on the floor under them (following a ramp)
+                uint32_t floorCol;
+                bool paved, flatFloor;
+                if (townFloorAt(p, floorCol, paved, flatFloor)) {
+                    const float r = 15.0f * ms;
+                    if (flatFloor) {
+                        dynamicBoxes.push_back(makeBlobShadow(Vec3{p.x, p.y, townGrid().floorAt(p.x, p.y)}, r, floorCol, paved));
+                    } else {
+                        for (size_t q : g.ramps) {
+                            const Box& rb = g.world.solids[q];
+                            if (p.x < rb.mins.x || p.x > rb.maxs.x || p.y < rb.mins.y || p.y > rb.maxs.y) continue;
+                            Box blob{{p.x - r, p.y - r, 0}, {p.x + r, p.y + r, 1}, floorCol};
+                            layOnRamp(blob, rb, 0.2f);
+                            BoxInstance bi = makeBlobShadow(Vec3{p.x, p.y, 0}, r, floorCol, paved);
+                            bi.mins[2] = blob.mins.z;
+                            bi.maxs[2] = blob.maxs.z;
+                            bi.slope[0] = float(blob.slope);
+                            bi.slope[1] = blob.lowZ;
+                            dynamicBoxes.push_back(bi);
+                            break;
+                        }
+                    }
+                }
             }
             if (d.friendly && d.alive())  // teammate marker floating over their head (cosmetic, not hittable)
                 dynamicBoxes.push_back(makeEmissive(p + Vec3{-2.5f, -2.5f, crouchZ(80 * ms, crouch)},
@@ -6144,6 +7001,18 @@ int main(int argc, char** argv) {
 
         }
         if (!replayView) g.lastRenderEye = eye;
+        // Guns on the floor: the held model, lying on its side.
+        dropDraws.resize(replayView ? 0 : g.drops.size());
+        for (size_t k = 0; k < dropDraws.size(); ++k) {
+            const Game::Drop& dr = g.drops[k];
+            const float y = dr.yaw * kDegToRad, ms = modelScale();
+            const Vec3 ax{std::cos(y), std::sin(y), 0}, ay{0, 0, 1}, az{std::sin(y), -std::cos(y), 0};
+            const Vec3 centre = Vec3{-18.0f, 0.0f, 47.5f} * ms;
+            ModelDraw& md = dropDraws[k];
+            md.model = fromBasis(ax, ay, az, dr.pos + Vec3{0, 0, 1.8f} - (ax * centre.x + ay * centre.y + az * centre.z));
+            md.boxes.clear();
+            gunModel(dr.weapon, [&](Vec3 mn, Vec3 mx, uint32_t c) { md.boxes.push_back(makeBox(mn * ms, mx * ms, c, false)); });
+        }
 
         // Cosmetic updates at frame rate.
         float fdt = float(dt);
@@ -6235,6 +7104,7 @@ int main(int argc, char** argv) {
 
         const uint64_t tScene = SDL_GetPerformanceCounter();
         renderer.beginFrame(pixW, pixH);
+        renderer.setTime(float(replayView ? keepTime : g.simTime));
         renderer.drawBoxes(viewProj, eye, dynamicBoxes);
         {  // the sky behind it (the camera roll is a degree or so: ignored here)
             const float ty = std::tan(vfov * 0.5f), tx = ty * aspect;
@@ -6245,6 +7115,7 @@ int main(int argc, char** argv) {
         g.fx.appendTracers(modelDraws);
         for (const ModelDraw& md : modelDraws) renderer.drawModel(viewProj, md.model, md.boxes);
         for (const ModelDraw& md : deadDraws) renderer.drawModel(viewProj, md.model, md.boxes);
+        for (const ModelDraw& md : dropDraws) renderer.drawModel(viewProj, md.model, md.boxes);
         if (replayView) {  // back to the live game
             std::swap(g.dummies, replayDummies);
             std::swap(g.smokes, replaySmokes);

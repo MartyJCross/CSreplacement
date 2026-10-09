@@ -6,6 +6,10 @@
 
 // plain: decor only, no surface; paving: stone floors on the sites (plays and shoots like stone, looks paved)
 enum Material : uint8_t { kMatStone = 0, kMatWood = 1, kMatMetal = 2, kMatPlain = 3, kMatPaving = 4 };
+// Decor only: a contact shadow lying on the floor along the foot of a wall or a prop, darker towards it. Its
+// material is kMatShade + 2 * (the side the wall is on: 0 -x, 1 +x, 2 -y, 3 +y) + (1 on paving), and its colour the
+// floor's (the shader shades it as that floor, then darkens it).
+constexpr uint8_t kMatShade = 8;
 
 // A box, or a ramp (wedge): the same footprint, but its top slopes from lowZ at one edge up to
 // maxs.z at the opposite edge.
@@ -18,6 +22,12 @@ struct Box {
     uint8_t slope = kFlat;         // which way the top rises (ramps)
     float lowZ = 0;                // ramps: top height at the low edge
 };
+
+// The top of ramp `b` at (x, y) (clamped to its footprint).
+float rampTopAt(const Box& b, float x, float y);
+// Lays `b` (a thin decor box on the floor) on ramp `ramp`: it becomes a wedge whose top follows the ramp's surface,
+// `lift` units above it.
+void layOnRamp(Box& b, const Box& ramp, float lift);
 
 // The (outward) planes of a ramp, as n.p <= d. Six of them: four sides, bottom, and the slope.
 struct Plane { Vec3 n; float d; };
@@ -96,6 +106,8 @@ bool setDustScale(float scale);
 float townScale();
 const MapGrid& townGrid();
 const char* townCallout(const Vec3& p);  // area name under p ("" in walls)
+// The floor under p: its colour, whether it's paved (the sites) and whether it's flat (not a ramp). False in walls.
+bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat);
 struct MapSpawn { Vec3 pos; float yaw; };
 MapSpawn townSpawn();
 // A point given in real-Dust2 coordinates, at the map's current scale, on the floor.

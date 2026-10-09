@@ -12,7 +12,8 @@ namespace {
 
 // Messages: a type byte, then fixed little-endian fields. Channel 0 unreliable (states: a lost one
 // is replaced by the next tick's), channel 1 reliable (everything else).
-enum Msg : uint8_t { kWelcome = 1, kState, kFire, kHit, kDeath, kLeave, kName, kNade, kBots, kMatch, kRound, kPlant, kDefused };
+enum Msg : uint8_t { kWelcome = 1, kState, kFire, kHit, kDeath, kLeave, kName, kNade, kBots, kMatch, kRound, kPlant, kDefused,
+                    kDrop, kPickup, kLobby, kTeamPick, kStart, kBye };
 // Why the host turned a connection away (the disconnect's data).
 enum Reject : uint32_t { kRejectFull = 1, kRejectVersion = 2 };
 
@@ -144,6 +145,12 @@ bool Net::join(const std::string& address, uint16_t port, std::string& err) {
 }
 
 void Net::stop() {
+    if (host_ && isHost_) {  // tell everyone the host is closing the game (not a dropped connection)
+        Writer w(kBye);
+        w.u8(0);
+        broadcastExcept(-1, w.b, true);
+        enet_host_flush(H(host_));
+    }
     if (host_) {
         if (server_) enet_peer_disconnect_now(P(server_), 0);
         for (void*& p : peers_)
@@ -431,6 +438,46 @@ void Net::handle(const uint8_t* data, size_t len, int fromPeer, std::vector<NetE
             ev.type = NetEvent::Defused;
             ev.from = uint8_t(fromPeer);
             break;
+        case kLobby:
+            if (fromClient) return;
+            ev.type = NetEvent::Lobby;
+            ev.lobby.game = r.u8();
+            ev.lobby.townScale = r.f32();
+            for (uint8_t& t : ev.lobby.team) t = r.u8() & 1;
+            if (!r.ok) return;
+            break;
+        case kTeamPick:  // (clients -> host)
+            if (!fromClient) return;
+            ev.type = NetEvent::TeamPick;
+            ev.from = uint8_t(fromPeer);
+            r.u8();
+            ev.weapon = r.u8() & 1;
+            if (!r.ok) return;
+            break;
+        case kStart:
+            if (fromClient) return;
+            ev.type = NetEvent::Start;
+            break;
+        case kBye:
+            if (fromClient) return;
+            ev.type = NetEvent::Bye;
+            break;
+        case kDrop:
+            ev.type = NetEvent::Drop;
+            ev.dropId = r.u32();
+            ev.weapon = r.u8();
+            ev.a = r.vec();
+            ev.yaw = r.f32();
+            ev.ammo = r.u8();
+            if (!r.ok) return;
+            if (fromClient) broadcastExcept(fromPeer, std::vector<uint8_t>(data, data + len), true);
+            break;
+        case kPickup:
+            ev.type = NetEvent::Pickup;
+            ev.dropId = r.u32();
+            if (!r.ok) return;
+            if (fromClient) broadcastExcept(fromPeer, std::vector<uint8_t>(data, data + len), true);
+            break;
         default:
             return;
     }
@@ -516,6 +563,49 @@ void Net::sendNade(int type, const Vec3& pos, const Vec3& vel, int as) {
     w.u8(uint8_t(type));
     w.vec(pos);
     w.vec(vel);
+    send(w.b, true);
+}
+
+void Net::sendLobby(const NetLobby& l) {
+    if (!isHost_) return;
+    Writer w(kLobby);
+    w.u8(l.game);
+    w.f32(l.townScale);
+    for (uint8_t t : l.team) w.u8(t);
+    broadcastExcept(-1, w.b, true);
+}
+
+void Net::sendTeamPick(uint8_t team) {
+    if (!ready() || isHost_) return;
+    Writer w(kTeamPick);
+    w.u8(uint8_t(myId_));
+    w.u8(team);
+    sendTo(server_, w.b, true);
+}
+
+void Net::sendStart() {
+    if (!isHost_) return;
+    Writer w(kStart);
+    w.u8(0);
+    broadcastExcept(-1, w.b, true);
+    enet_host_flush(H(host_));
+}
+
+void Net::sendDrop(uint32_t id, uint8_t weapon, const Vec3& pos, float yaw, uint8_t ammo) {
+    if (!ready()) return;
+    Writer w(kDrop);
+    w.u32(id);
+    w.u8(weapon);
+    w.vec(pos);
+    w.f32(yaw);
+    w.u8(ammo);
+    send(w.b, true);
+}
+
+void Net::sendPickup(uint32_t id) {
+    if (!ready()) return;
+    Writer w(kPickup);
+    w.u32(id);
     send(w.b, true);
 }
 

@@ -16,6 +16,11 @@ struct BoxInstance {
 
 BoxInstance makeBox(const Vec3& mins, const Vec3& maxs, uint32_t rgb, bool grid);
 BoxInstance makeEmissive(const Vec3& mins, const Vec3& maxs, uint32_t rgb);
+// A bullet hole (a decal) made at game time `t`: it shrinks away after ~28 s (alpha 16 marks it, the time rides in
+// slope[1]).
+BoxInstance makeBulletHole(const Vec3& mins, const Vec3& maxs, uint32_t rgb, float t);
+// A soft round shadow on the floor under someone: `floorRgb` the floor's colour, `paved` the sites' paving.
+BoxInstance makeBlobShadow(const Vec3& centre, float radius, uint32_t floorRgb, bool paved);
 // A skin-painted part (alpha 64): drawn with the model's PaintParams pattern; `shade` (grey) darkens it a
 // little for grips and furniture so the parts still read apart.
 BoxInstance makePainted(const Vec3& mins, const Vec3& maxs, uint8_t shade = 255);
@@ -64,6 +69,8 @@ public:
     // Ring buffer of impact decals that persists between frames (updated only when it changes).
     void addDecal(const BoxInstance& b);
     void clearDecals();
+    // The game's clock (seconds), for bullet holes that fade (see makeBulletHole).
+    void setTime(float t) { time_ = t; }
 
     void beginFrame(int width, int height);
     void drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vector<BoxInstance>& dynamicBoxes);
@@ -98,7 +105,8 @@ private:
     void cullStatic(const Mat4& viewProj, const Vec3& eye);
     void uploadDynamic(const std::vector<BoxInstance>& boxes, int n);
     int uViewProj_ = -1, uModel_ = -1, uEye_ = -1, uScreen_ = -1, uFont_ = -1;
-    int uFlash_ = -1;
+    int uFlash_ = -1, uTime_ = -1, uDepthTime_ = -1;
+    float time_ = 0;
     int uPaint_ = -1, uPA_ = -1, uPB_ = -1, uPC_ = -1, uPaintMisc_ = -1, uPaintZ_ = -1;
     void setPaint(const PaintParams* p);
 

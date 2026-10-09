@@ -273,6 +273,17 @@ Competitive: host runs `compTick`/bots/`netRoster`, sends `NetRound`, `NetMatch`
 `compClientTick`. The welcome carries map size and (game byte: bit 0 game, bits 1+ map) the town map.
 `kNetProtocol` (8) must match. Test with two copies in separate folders: `crisp --host` and `crisp --join 127.0.0.1`.
 
+**v0.22 polish** (main.cpp unless noted): `matchCues` (Sfx RoundStart/BombPlanted/RoundWin/RoundLose), round banner +
+MVP (`Comp::mvp/mvpWhy/plantedBy/defusedBy`), match-end screen (phase 3, 15 s; `--rounds N` ends matches sooner for
+tests), CS top bar (`kTeamColor`), kill feed icons (`FeedEntry` killer/victim/weapon, `drawGunIcon` from `gunModel`,
+`drawSkull`), kill toast, LowAmmo/LastRound sounds, side rifles (`buyEntries(cat, side)`, `buySide`, `fullBuyRifle`),
+2 flashes in full buys, drops (`Game::Drop`, `dropGun`, `pickUp`, `dropsTick`, E = `useLatch`; net kDrop/kPickup;
+`--drop W`), calls (`playerCall`, Z, `--call N AT`), bullet holes (`bulletHole`, `makeBulletHole`: alpha 16, shrink
+in the VS by `uTime`), contact shadows (world.cpp: decor with `kMatShade`, alpha 30..37; blobs `makeBlobShadow` 46..49;
+`layOnRamp`, sheets in the VS), animation (Dummy `shotAt/reloadUntil/mag/busy/air/landedAt`; bots reload; net flags
+kNetReload/kNetDuck), lobby (`kMenuLobby`, `LobbyState g_lobby`, net kLobby/kTeamPick/kStart/kBye, `kNetLobbyOpen`
+in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
+
 ## 8. Roadmap
 
 Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competitive bots (CT utility, post-plant,

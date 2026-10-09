@@ -130,6 +130,33 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## What's new in v0.22 (polish)
+
+- **Round flow:** a CS-style bar at the top (the clock, or the bomb once it's planted; each side's score; a figure per
+  player, dimmed when dead); a round-end banner in the winners' colour with the reason and the **MVP** (most kills, or
+  the planter / defuser when the bomb decided it); 7 s before the next round; a **match-end screen** (VICTORY /
+  DEFEAT, the score, your line, your rating change, the final scoreboard). Sounds: "go" when freeze time ends, an
+  alarm when the bomb is planted, a sting for a round won or lost.
+- **Kill feed with icons:** killer and victim in their team's colour, the gun as a small silhouette, a skull for a
+  headshot; your kills and deaths have a red edge. **"KILLED NAME"** shows under the crosshair when you get one.
+- **Your magazine talks:** a light tick on each of the last quarter's shots, a ping on the last round.
+- **Money and armor** bottom left, like CS ($, HP, ARMOR, KIT, C4).
+- **Rifles by side** in competitive: the AK-47 (and Galil) for T, the M4A1-S for CT; the full buy picks your side's
+  rifle. **Full buys get two flashbangs.**
+- **Weapon drops:** guns fall where people die (yours and the bots'). With no primary you pick one up by walking over
+  it; **E** swaps for the gun you're looking at. Bots with only a pistol grab rifles they walk over. Deathmatch drops
+  vanish after 20 s; online everyone sees the same guns on the floor.
+- **Calls (Z):** tell your bots the plan. T: GO A, GO B, RUSH A, RUSH B, PLAY SLOW, SAVE. CT: STACK A, STACK B,
+  DEFAULT SETUP, ROTATE A, ROTATE B, SAVE. A teammate answers ROGER.
+- **A lived-in world:** bullet holes on every wall (a pale chip round a dark hole, by material; bots' too) that fade
+  after ~25 s; soft contact shadows where walls meet the floor and round every prop; a soft shadow under every
+  player; all following the ramps.
+- **Player animation:** guns kick and flash when enemies fire, come down while they reload (bots now reload: a
+  window to push), hands go down and they kneel while planting or defusing, legs tuck in the air, a dip on landing.
+- **Online lobby:** HOST opens a lobby; friends who join land in it, pick their team (SWITCH TEAM), and the host sets
+  the game, map and bots and presses START. A dropped connection reconnects by itself for 30 s; a failed join says
+  why (no answer, different version, full) in a box at the top.
+
 ## Competitive 5v5 (Play: MODE)
 
 You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap after 12 rounds (with a fresh economy), and a new match starts after the result.

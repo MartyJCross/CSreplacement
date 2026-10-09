@@ -536,6 +536,72 @@ std::vector<float> uiClick(Rng& r) {  // fallback menu click
     return b;
 }
 
+// ---- The match's cues and the magazine's ----
+
+// A soft struck-bell note: a sine with a little of its 2nd and 3rd harmonics, decaying.
+void addChime(std::vector<float>& b, float t0, float amp, float hz, float tau) {
+    addTone(b, t0, amp, hz, hz, tau);
+    addTone(b, t0, amp * 0.3f, hz * 2.0f, hz * 2.0f, tau * 0.6f);
+    addTone(b, t0, amp * 0.12f, hz * 3.0f, hz * 3.0f, tau * 0.4f);
+}
+
+std::vector<float> roundStart(Rng&) {  // "go": two quick rising notes
+    auto b = buffer(0.7f);
+    addChime(b, 0.0f, 0.6f, 880.0f, 0.16f);
+    addChime(b, 0.11f, 0.7f, 1318.5f, 0.28f);
+    fadeTail(b);
+    normalize(b, 0.4f);
+    return b;
+}
+
+std::vector<float> bombPlanted(Rng&) {  // an alarm: three low two-tone pulses, a little gritty
+    auto b = buffer(1.0f);
+    for (int k = 0; k < 3; ++k) {
+        addTone(b, 0.28f * float(k), 0.6f, 660.0f, 660.0f, 0.08f);
+        addTone(b, 0.28f * float(k) + 0.12f, 0.6f, 523.0f, 523.0f, 0.09f);
+    }
+    saturate(b, 1.6f);
+    lowpass(b, 3200.0f);
+    fadeTail(b);
+    normalize(b, 0.45f);
+    return b;
+}
+
+std::vector<float> roundWin(Rng&) {  // a rising major arpeggio
+    auto b = buffer(1.3f);
+    const float notes[4] = {523.25f, 659.25f, 783.99f, 1046.5f};
+    for (int k = 0; k < 4; ++k) addChime(b, 0.085f * float(k), 0.5f, notes[k], k == 3 ? 0.45f : 0.22f);
+    fadeTail(b);
+    normalize(b, 0.4f);
+    return b;
+}
+
+std::vector<float> roundLose(Rng&) {  // a falling minor one, darker
+    auto b = buffer(1.2f);
+    const float notes[3] = {659.25f, 523.25f, 440.0f};
+    for (int k = 0; k < 3; ++k) addChime(b, 0.14f * float(k), 0.5f, notes[k], k == 2 ? 0.45f : 0.2f);
+    lowpass(b, 2500.0f);
+    fadeTail(b);
+    normalize(b, 0.38f);
+    return b;
+}
+
+std::vector<float> lowAmmo(Rng& r) {  // a light, high tick
+    auto b = buffer(0.06f);
+    addMetal(b, 0, 0.5f, 3400.0f * r.jitter(0.05f), 0.006f, r);
+    fadeTail(b);
+    normalize(b, 0.25f);
+    return b;
+}
+
+std::vector<float> lastRound(Rng& r) {  // the last round: a bright ping
+    auto b = buffer(0.35f);
+    addMetal(b, 0, 0.8f, 2500.0f * r.jitter(0.03f), 0.07f, r);
+    fadeTail(b);
+    normalize(b, 0.4f);
+    return b;
+}
+
 // Every sound's file name (dumps, and recordings in assets/sounds: <name>_<n>.wav or .ogg).
 const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", "bolt", "draw", "footstep",
                                  "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
@@ -543,7 +609,8 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
                                  "explosion", "fire", "bomb_beep", "defuse", "impact_stone", "impact_wood",
                                  "impact_metal", "helmet_hit", "whiz", "ui_click", "suppressed_shot", "zoom",
                                  "suppressed_rifle", "shotgun_shot", "galil_shot", "mac10_shot", "ump_shot",
-                                 "ssg_shot", "xm_shot", "deagle_shot", "berettas_shot"};
+                                 "ssg_shot", "xm_shot", "deagle_shot", "berettas_shot", "round_start", "bomb_planted",
+                                 "round_win", "round_lose", "low_ammo", "last_round"};
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
 // A recording -> 48 kHz mono float, or empty if it can't be read. WAV through SDL, Ogg through stb_vorbis.
@@ -605,6 +672,9 @@ SoundBank synthesize() {
         {Sfx::GalilShot, rifleShot, 1},  {Sfx::Mac10Shot, rifleShot, 1},  {Sfx::UmpShot, rifleShot, 1},
         {Sfx::SsgShot, sniperShot, 1},   {Sfx::XmShot, shotgunShot, 1},   {Sfx::DeagleShot, pistolShot, 1},
         {Sfx::BerettasShot, pistolShot, 1},
+        {Sfx::RoundStart, roundStart, 1},        {Sfx::BombPlanted, bombPlanted, 1},
+        {Sfx::RoundWin, roundWin, 1},            {Sfx::RoundLose, roundLose, 1},
+        {Sfx::LowAmmo, lowAmmo, 2},              {Sfx::LastRound, lastRound, 2},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;

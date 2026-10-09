@@ -526,6 +526,46 @@ const char* townCallout(const Vec3& p) {
     return a >= 0 ? town().areas[a].name : "";
 }
 
+float rampTopAt(const Box& b, float x, float y) {
+    float t;
+    switch (b.slope) {
+        case kRisePosX: t = (x - b.mins.x) / (b.maxs.x - b.mins.x); break;
+        case kRiseNegX: t = (b.maxs.x - x) / (b.maxs.x - b.mins.x); break;
+        case kRisePosY: t = (y - b.mins.y) / (b.maxs.y - b.mins.y); break;
+        case kRiseNegY: t = (b.maxs.y - y) / (b.maxs.y - b.mins.y); break;
+        default: return b.maxs.z;
+    }
+    return b.lowZ + (b.maxs.z - b.lowZ) * std::clamp(t, 0.0f, 1.0f);
+}
+
+void layOnRamp(Box& b, const Box& ramp, float lift) {
+    const float cx = (b.mins.x + b.maxs.x) * 0.5f, cy = (b.mins.y + b.maxs.y) * 0.5f;
+    float lowX = cx, lowY = cy, highX = cx, highY = cy;  // the middle of its low and high edges along the rise
+    switch (ramp.slope) {
+        case kRisePosX: lowX = b.mins.x; highX = b.maxs.x; break;
+        case kRiseNegX: lowX = b.maxs.x; highX = b.mins.x; break;
+        case kRisePosY: lowY = b.mins.y; highY = b.maxs.y; break;
+        case kRiseNegY: lowY = b.maxs.y; highY = b.mins.y; break;
+        default: return;
+    }
+    b.slope = ramp.slope;
+    b.lowZ = rampTopAt(ramp, lowX, lowY) + lift;
+    b.maxs.z = rampTopAt(ramp, highX, highY) + lift;
+    b.mins.z = std::min(b.lowZ, b.maxs.z) - 2.0f;
+}
+
+bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat) {
+    const MapGrid& m = townGrid();
+    int i, j;
+    if (!m.cellAt(p.x, p.y, i, j)) return false;
+    const int a = m.area[size_t(m.index(i, j))];
+    if (a < 0) return false;
+    color = town().areas[a].color;
+    paved = color == kDSite || color == kHSite;
+    flat = town().areas[a].axis == 0;
+    return true;
+}
+
 Vec3 townPoint(float x, float y) {
     float s = townScale();
     return {x * s, y * s, townGrid().floorAt(x * s, y * s)};
@@ -822,6 +862,7 @@ World buildTown() {
     // Ramps: a ramp area that kept its whole rectangle becomes one smooth wedge (its cells are left out
     // of the stepped floors below). The grid keeps its steps for the bots' navigation.
     std::vector<char> smooth(n, 0);
+    std::vector<size_t> ramps;  // (their boxes in w.solids)
     const TownDef& td = town();
     for (int a = 0; a < td.count; ++a) {
         const DustArea& d = td.areas[a];
@@ -846,6 +887,7 @@ World buildTown() {
         b.slope = d.axis == 'x' ? (zB > zA ? kRisePosX : kRiseNegX) : (zB > zA ? kRisePosY : kRiseNegY);
         b.lowZ = std::min(zA, zB);
         b.maxs.z = std::max(zA, zB);
+        ramps.push_back(w.solids.size());
         w.solids.push_back(b);
         for (int j = j0; j <= j1; ++j)
             for (int i = i0; i <= i1; ++i) smooth[size_t(m.index(i, j))] = 1;
@@ -908,11 +950,27 @@ World buildTown() {
         return h ^ (h >> 16);
     };
     const uint32_t shutterCols[3] = {0x3f6f9a, 0x4f7d5a, 0x8a5a3a}, awningCols[3] = {0xa8443a, 0x3f6f9a, 0xc9a35a};
+    // The smooth ramp whose footprint holds point (x, y), if any.
+    auto rampAt = [&](float x, float y) -> const Box* {
+        for (size_t q : ramps) {
+            const Box& r = w.solids[q];
+            if (x >= r.mins.x && x <= r.maxs.x && y >= r.mins.y && y <= r.maxs.y) return &r;
+        }
+        return nullptr;
+    };
+    // The ramp under a strip along wall face k of `line` from a0 to a1 (its middle, a cell out from the wall).
+    auto rampUnder = [&](float a0, float a1, int k, int line) -> const Box* {
+        const float f = k == 0 ? X(line + 1) : k == 1 ? X(line) : k == 2 ? Y(line + 1) : Y(line);
+        const float out = (k == 0 || k == 2) ? 12.0f : -12.0f, mid = (a0 + a1) * 0.5f;
+        return k < 2 ? rampAt(f + out, mid) : rampAt(mid, f + out);
+    };
     for (int k = 0; k < 4; ++k) {
         const int lines = k < 2 ? m.w : m.h, len = k < 2 ? m.h : m.w;
         const size_t cells = static_cast<size_t>(len);
         std::vector<char> facing(cells, 0), open(cells, 0);
         std::vector<float> fz(cells, 0.0f), tp(cells, 0.0f), skirt(cells, 0.0f);
+        std::vector<uint32_t> floorCol(cells, 0);
+        std::vector<int> floorArea(cells, -1);
         for (int line = 0; line < lines; ++line) {
             for (int a = 0; a < len; ++a) {
                 const int i = k < 2 ? line : a, j = k < 2 ? a : line, ni = i + di[k], nj = j + dj[k];
@@ -924,6 +982,8 @@ World buildTown() {
                 tp[size_t(a)] = top[c];
                 open[size_t(a)] = m.ceiling[nc] >= MapGrid::kOpenSky;
                 skirt[size_t(a)] = td.areas[m.area[nc]].axis == 0 ? m.floor[nc] : MapGrid::kNoFloor;
+                floorCol[size_t(a)] = td.areas[m.area[nc]].color;
+                floorArea[size_t(a)] = m.area[nc];
             }
             auto along = [&](int a) { return k < 2 ? Y(a) : X(a); };
             // Trim: runs of cells with the same heights become one box each.
@@ -931,11 +991,19 @@ World buildTown() {
                 if (!facing[size_t(a)]) { ++a; continue; }
                 int b = a + 1;
                 while (b < len && facing[size_t(b)] && tp[size_t(b)] == tp[size_t(a)] && skirt[size_t(b)] == skirt[size_t(a)] &&
-                       open[size_t(b)] == open[size_t(a)])
+                       open[size_t(b)] == open[size_t(a)] && floorArea[size_t(b)] == floorArea[size_t(a)])
                     ++b;
                 if (open[size_t(a)]) faceBox(k, line, along(a), along(b), 0, 5, tp[size_t(a)] - 12, tp[size_t(a)], kDTrimLight, kMatStone);
-                if (skirt[size_t(a)] > MapGrid::kNoFloor)
+                if (skirt[size_t(a)] > MapGrid::kNoFloor) {
                     faceBox(k, line, along(a), along(b), 0, 3, skirt[size_t(a)] - 4, skirt[size_t(a)] + 12, kDTrimDark, kMatStone);
+                    // The corner where the wall meets the floor: a contact shadow on the floor along its foot.
+                    const bool paved = floorCol[size_t(a)] == kDSite || floorCol[size_t(a)] == kHSite;
+                    faceBox(k, line, along(a), along(b), 0, 24, skirt[size_t(a)] - 1, skirt[size_t(a)] + 0.15f, floorCol[size_t(a)],
+                            uint8_t(kMatShade + 2 * k + (paved ? 1 : 0)));
+                } else if (const Box* r = rampUnder(along(a), along(b), k, line)) {  // on a ramp: the strip follows it
+                    faceBox(k, line, along(a), along(b), 0, 24, 0, 1, floorCol[size_t(a)], uint8_t(kMatShade + 2 * k));
+                    layOnRamp(w.decor.back(), *r, 0.15f);
+                }
                 a = b;
             }
             // Features need three facing cells in a row at one height, open to the sky.
@@ -977,6 +1045,7 @@ World buildTown() {
     // Props, standing on the floor under their centre. Crates keep their real size wherever the map's
     // scale puts them; `anchored` ones are placed relative to a point that scales (a wall edge).
     const float sc = townScale();
+    const size_t propsFrom = w.solids.size();
     // Crates and doors are wood (hollow footsteps, easy to shoot through); the container and car metal.
     auto materialOf = [](uint32_t color) -> uint8_t {
         return color == kDCrate || color == kDWood ? kMatWood
@@ -1097,6 +1166,30 @@ World buildTown() {
     anchored(-2300, 3150, 2, -58, 58, -2, 56, kDCrate);    // back plat
     anchored(-2200, 1300, 0, 0, 48, 48, 48, kDCrate);      // upper tunnels
     barrel(-1200, 1240, 0, -30);                            // lower tunnels
+    }
+    // Each prop standing on a flat floor gets a contact shadow round its foot (a stacked crate's top one doesn't).
+    for (size_t q = propsFrom, end = w.solids.size(); q < end; ++q) {
+        const Box b = w.solids[q];
+        const float cx = (b.mins.x + b.maxs.x) * 0.5f, cy = (b.mins.y + b.maxs.y) * 0.5f;
+        int ci, cj;
+        if (!m.cellAt(cx, cy, ci, cj)) continue;
+        const int area = m.area[size_t(m.index(ci, cj))];
+        if (area < 0) continue;
+        const Box* ramp = td.areas[area].axis != 0 ? rampAt(cx, cy) : nullptr;
+        if (td.areas[area].axis != 0 && !ramp) continue;  // (a stepped ramp)
+        if (!ramp && std::fabs(b.mins.z - m.floorAt(cx, cy)) > 1.0f) continue;  // a crate on a crate
+        if (ramp && b.mins.z > rampTopAt(*ramp, cx, cy) + 8.0f) continue;
+        const uint32_t col = td.areas[area].color;
+        const uint8_t paved = col == kDSite || col == kHSite ? 1 : 0;
+        const float z0 = b.mins.z - 1, z1 = b.mins.z + 0.15f, wd = 16;
+        const Box strips[4] = {{{b.maxs.x, b.mins.y, z0}, {b.maxs.x + wd, b.maxs.y, z1}, col, uint8_t(kMatShade + 0 + paved)},
+                               {{b.mins.x - wd, b.mins.y, z0}, {b.mins.x, b.maxs.y, z1}, col, uint8_t(kMatShade + 2 + paved)},
+                               {{b.mins.x, b.maxs.y, z0}, {b.maxs.x, b.maxs.y + wd, z1}, col, uint8_t(kMatShade + 4 + paved)},
+                               {{b.mins.x, b.mins.y - wd, z0}, {b.maxs.x, b.mins.y, z1}, col, uint8_t(kMatShade + 6 + paved)}};
+        for (const Box& st : strips) {
+            w.decor.push_back(st);
+            if (ramp) layOnRamp(w.decor.back(), *ramp, 0.15f);
+        }
     }
     {
         // Doorways (long, B and mid doors): a wooden frame at both ends (a jamb up each side, a lintel under

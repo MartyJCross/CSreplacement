@@ -17,6 +17,7 @@ layout(location = 5) in vec3 iRot;  // pivot xy + yaw (radians)
 layout(location = 6) in vec2 iSlope;  // ramps: rise direction (1 +x, 2 -x, 3 +y, 4 -y) and the low edge's top
 uniform mat4 uViewProj;
 uniform mat4 uModel;
+uniform float uTime;  // the game's clock: bullet holes shrink away once they're old
 out vec3 vWorld;
 out vec3 vLocal;            // the model's own space (skins are painted in it, so they stick to the gun)
 flat out vec3 vLocalN;
@@ -29,11 +30,19 @@ invariant gl_Position;  // the depth pre-pass and the colour pass must agree exa
 void main() {
     vec3 p = iMin + aPos * (iMax - iMin);
     vec3 n = aNormal;
+    if (iColor.a > 0.05 && iColor.a < 0.08) {  // a bullet hole (alpha 16): 25 s, then it shrinks away over 3 s
+        float k = clamp((28.0 - (uTime - iSlope.y)) / 3.0, 0.0, 1.0);
+        vec3 c = (iMin + iMax) * 0.5;
+        p = c + (p - c) * k;
+    }
+    // Shadows on the floor (alpha 30..49) are flat sheets: no sides to catch the light.
+    bool sheet = iColor.a > 0.115 && iColor.a < 0.195;
+    if (sheet) p.z = iMax.z;
     if (iSlope.x > 0.5) {
         // Ramp: lower the top corners along the rise; the top face gets the slope's normal.
         int dir = int(iSlope.x + 0.5);
         float t = dir == 1 ? aPos.x : dir == 2 ? 1.0 - aPos.x : dir == 3 ? aPos.y : 1.0 - aPos.y;
-        if (aPos.z > 0.5) p.z = mix(iSlope.y, iMax.z, t);
+        if (aPos.z > 0.5 || sheet) p.z = mix(iSlope.y, iMax.z, t);
         if (aNormal.z > 0.5) {
             float run = dir <= 2 ? iMax.x - iMin.x : iMax.y - iMin.y, k = (iMax.z - iSlope.y) / run;
             n = normalize(dir == 1 ? vec3(-k, 0, 1) : dir == 2 ? vec3(k, 0, 1) : dir == 3 ? vec3(0, -k, 1) : vec3(0, k, 1));
@@ -208,6 +217,22 @@ void main() {
     vec3 n = vNormal;
     vec3 c = vLit;
     float a = vColor.a;
+    // Shadows on the floor, shaded as the floor they lie on, then darkened: contact strips along the foot of walls
+    // and props (alpha 30..45: the side the wall is on, paving or not), and round blobs under people (46..49).
+    float ao = 1.0;
+    int code = int(a * 255.0 + 0.5);
+    if (code >= 30 && code <= 45) {
+        int k = (code - 30) / 2;
+        vec3 span = max(vMax - vMin, vec3(0.01));
+        float t = k == 0 ? (vWorld.x - vMin.x) / span.x : k == 1 ? (vMax.x - vWorld.x) / span.x
+                : k == 2 ? (vWorld.y - vMin.y) / span.y : (vMax.y - vWorld.y) / span.y;
+        ao = mix(0.6, 1.0, smoothstep(0.0, 1.0, clamp(t, 0.0, 1.0)));
+        a = ((code - 30) & 1) == 1 ? 0.925 : 0.94;
+    } else if (code >= 46 && code <= 49) {
+        vec2 ctr = (vMin.xy + vMax.xy) * 0.5, rad = max((vMax.xy - vMin.xy) * 0.5, vec2(0.01));
+        ao = mix(0.55, 1.0, smoothstep(0.2, 1.0, length((vWorld.xy - ctr) / rad)));
+        a = code >= 48 ? 0.925 : 0.94;
+    }
     bool top = abs(n.z) > 0.5;
     vec2 uv = top ? vWorld.xy : (abs(n.x) > 0.5 ? vWorld.yz : vWorld.xz);
     if (a > 0.97) {
@@ -265,6 +290,7 @@ void main() {
             c *= (0.88 + 0.16 * rib) * (1.0 - 0.18 * frame);
         }
     }
+    c *= ao;
     c = flashLit(c);
     float d = length(vWorld - uEye);
     c = mix(c, vec3(0.80, 0.84, 0.87), clamp(d / 9000.0, 0.0, 0.30));  // haze: the horizon colour
@@ -429,6 +455,19 @@ BoxInstance makeEmissive(const Vec3& mins, const Vec3& maxs, uint32_t rgb) {
     return b;
 }
 
+BoxInstance makeBulletHole(const Vec3& mins, const Vec3& maxs, uint32_t rgb, float t) {
+    BoxInstance b = makeBox(mins, maxs, rgb, false);
+    b.rgba[3] = 16;
+    b.slope[1] = t;
+    return b;
+}
+
+BoxInstance makeBlobShadow(const Vec3& centre, float radius, uint32_t floorRgb, bool paved) {
+    BoxInstance b = makeBox(centre - Vec3{radius, radius, 1.0f}, centre + Vec3{radius, radius, 0.2f}, floorRgb, false);
+    b.rgba[3] = paved ? 48 : 46;
+    return b;
+}
+
 BoxInstance makePainted(const Vec3& mins, const Vec3& maxs, uint8_t shade) {
     BoxInstance b = makeBox(mins, maxs, (uint32_t(shade) << 16) | (uint32_t(shade) << 8) | shade, false);
     b.rgba[3] = 64;
@@ -498,6 +537,7 @@ bool Renderer::init(std::string& err) {
     if (!depthProgram_) return false;
     uDepthViewProj_ = glGetUniformLocation(depthProgram_, "uViewProj");
     uDepthModel_ = glGetUniformLocation(depthProgram_, "uModel");
+    uDepthTime_ = glGetUniformLocation(depthProgram_, "uTime");
     hudProgram_ = compileProgram(kHudVS, kHudFS, err);
     if (!hudProgram_) return false;
     skyProgram_ = compileProgram(kSkyVS, kSkyFS, err);
@@ -520,6 +560,7 @@ bool Renderer::init(std::string& err) {
     uModel_ = glGetUniformLocation(boxProgram_, "uModel");
     uEye_ = glGetUniformLocation(boxProgram_, "uEye");
     uFlash_ = glGetUniformLocation(boxProgram_, "uFlash");
+    uTime_ = glGetUniformLocation(boxProgram_, "uTime");
     uScreen_ = glGetUniformLocation(hudProgram_, "uScreen");
     uFont_ = glGetUniformLocation(hudProgram_, "uFont");
 
@@ -665,6 +706,7 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
         glUseProgram(depthProgram_);
         glUniformMatrix4fv(uDepthViewProj_, 1, GL_FALSE, viewProj.m);
         glUniformMatrix4fv(uDepthModel_, 1, GL_FALSE, id.m);
+        glUniform1f(uDepthTime_, time_);
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
         drawAll();
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -674,6 +716,7 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE, viewProj.m);
     glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
     glUniform3f(uEye_, eye.x, eye.y, eye.z);
+    glUniform1f(uTime_, time_);
     setPaint(nullptr);
     drawAll();
     glDepthMask(GL_TRUE);

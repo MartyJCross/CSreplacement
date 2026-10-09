@@ -111,6 +111,14 @@ struct Dummy {
     // headshot kill knocks the helmet off.
     Vec3 hitDir;
     bool lostHelmet = false;
+    // Bots: rounds left in the magazine (-1: not counted yet, a full one) and reloading until (no shots meanwhile).
+    int mag = -1;
+    double reloadUntil = -1;
+    // Animation (cosmetic): when they last fired (the gun kicks), planting or defusing (kneeling, hands down), how high
+    // their feet were off the floor last frame and when they last landed.
+    double shotAt = -10, landedAt = -10;
+    bool busy = false;
+    float air = 0;
     bool alive() const { return respawnLeft <= 0; }
 };
 

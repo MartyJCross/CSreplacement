@@ -126,6 +126,7 @@ typedef struct __GLsync* GLsync;
     X(void, UseProgram, (GLuint p))                                                                  \
     X(GLint, GetUniformLocation, (GLuint p, const GLchar* name))                                     \
     X(void, Uniform1i, (GLint loc, GLint v))                                                         \
+    X(void, Uniform1f, (GLint loc, GLfloat v))                                                       \
     X(void, Uniform2f, (GLint loc, GLfloat a, GLfloat b))                                            \
     X(void, Uniform3f, (GLint loc, GLfloat a, GLfloat b, GLfloat c))                                 \
     X(void, Uniform4f, (GLint loc, GLfloat a, GLfloat b, GLfloat c, GLfloat d))                      \

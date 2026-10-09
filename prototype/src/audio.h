@@ -26,6 +26,8 @@ enum class Sfx {
     ShotgunShot,                            // the Nova
     // Every other gun its own recording (without one: a shared sound, pitched; see loadBank).
     GalilShot, Mac10Shot, UmpShot, SsgShot, XmShot, DeagleShot, BerettasShot,
+    RoundStart, BombPlanted, RoundWin, RoundLose,  // the match's cues: "go", the alarm, the stings
+    LowAmmo, LastRound,                     // your magazine: nearly empty (a tick), the last round (a ping)
     Count
 };
 
