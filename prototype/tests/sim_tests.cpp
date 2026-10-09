@@ -1216,6 +1216,79 @@ void testBotGoals() {
     CHECK(failed == 0, "%d bots stopped short", failed);
 }
 
+// No mid fights from spawn (owner, many times): on both maps no T staging point and no CT spot or early push is in
+// mid, no route there from the spawns crosses mid, and the CT who holds mid can't be seen from mid (it watches the
+// doors from back in CT mid). Checked at three Dust sizes.
+bool midArea(const char* name) {
+    static const char* const kMid[] = {"MID", "TOP MID", "MID DOORS", "CATWALK", "MARKET"};
+    for (const char* m : kMid)
+        if (std::strcmp(name, m) == 0) return true;
+    return false;
+}
+void testNoMidFights() {
+    std::printf("no mid fights from spawn\n");
+    const float keep = townScale();
+    int bad = 0;
+    for (int town = 0; town < 2; ++town)
+        for (float sc : {0.6f, 0.8f, 0.95f}) {
+            if (town == 1 && sc != 0.6f) continue;  // (Harbor has one size)
+            setTownMap(town);
+            setDustScale(sc);
+            const World w = buildTown();
+            NavGrid nav;
+            nav.build(townGrid(), w, townSpawn().pos);
+            nav.setAvoid(townMidCells());  // (as competitive does)
+            const TownTactics& tac = townTactics();
+            std::vector<Vec3> path;
+            auto midCells = [&](const Vec3& from, const Vec3& to) {
+                Vec3 goal = to;
+                if (!nav.findPath(from, goal, path)) {
+                    Vec3 alt;
+                    if (!nav.nearestRoamable(goal, 6, alt) || !nav.findPath(from, alt, path)) return -1;
+                }
+                int n = 0;
+                for (const Vec3& c : path) n += midArea(townCallout(c));
+                return n;
+            };
+            auto report = [&](const char* what, const Vec3& from, const Vec3& to) {
+                const int n = midCells(from, to);
+                if (n != 0) {
+                    ++bad;
+                    std::printf("    %s %.0f%%: %s to %s (%s) %s\n", townMapName(town), double(sc * 100), what, townCallout(from), townCallout(to),
+                                n < 0 ? "no route" : (std::to_string(n) + " cells in mid").c_str());
+                }
+            };
+            for (int k = 0; k < 5; ++k)
+                for (const Vec3& sp : townTeamSpawns(0)) report("T stage", sp, townPoint(tac.stages[k][0], tac.stages[k][1]));
+            for (int role = 0; role < kCtRoles; ++role)
+                for (const RetakeSpot& h : townCtSpots(role))
+                    for (const Vec3& sp : townTeamSpawns(1)) report("CT spot", sp, townPoint(h.x, h.y));
+            for (int k : {0, 2})
+                for (const Vec3& sp : townTeamSpawns(1)) report("CT push", sp, townPoint(tac.pushes[k].x, tac.pushes[k].y));
+            // The mid holder: out of sight of everyone in mid.
+            const MapGrid& m = townGrid();
+            for (const RetakeSpot& h : townCtSpots(kCtMid)) {
+                const Vec3 eye = townPoint(h.x, h.y) + Vec3{0, 0, 64};
+                int seen = 0;
+                for (int j = 0; j < m.h; ++j)
+                    for (int i = 0; i < m.w; ++i) {
+                        const Vec3 c = m.center(i, j);
+                        if (!m.walkable(i, j) || !midArea(townCallout(c)) || std::strcmp(townCallout(c), "CATWALK") == 0) continue;
+                        if (w.traceRay(c + Vec3{0, 0, 64}, eye).fraction >= 1.0f) ++seen;
+                    }
+                if (seen) {
+                    ++bad;
+                    std::printf("    %s %.0f%%: the CT mid spot (%.0f, %.0f) is seen from %d mid cells\n", townMapName(town), double(sc * 100),
+                                double(h.x), double(h.y), seen);
+                }
+            }
+        }
+    setTownMap(0);
+    setDustScale(keep);
+    std::printf("  stages, CT spots, pushes and their routes checked on both maps: %d go into mid\n", bad);
+    CHECK(bad == 0, "%d plans or routes go into mid", bad);
+}
+
 // Fire: a bot caught in a molotov steps out within a second (holding an angle or walking through), and one walking
 // to a goal past the fire waits at its edge instead of burning.
 void testBotFire() {
@@ -1682,6 +1755,7 @@ int main() {
     testDustSightlines();
     testBotArsenal();
     testBotFire();
+    testNoMidFights();
     testHarbor();
     testReplay();
     testBotCover();

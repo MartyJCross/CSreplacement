@@ -106,6 +106,10 @@ bool setDustScale(float scale);
 float townScale();
 const MapGrid& townGrid();
 const char* townCallout(const Vec3& p);  // area name under p ("" in walls)
+// Mid (Dust: mid, top mid, mid doors, catwalk; Harbor: mid, mid doors, the market): where the competitive bots don't
+// go from spawn (owner: no mid fights). townMidCells: per grid cell, 1 in mid (for NavGrid::setAvoid).
+bool townMidArea(const Vec3& p);
+std::vector<uint8_t> townMidCells();
 // The floor under p: its colour, whether it's paved (the sites) and whether it's flat (not a ramp). False in walls.
 bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat);
 struct MapSpawn { Vec3 pos; float yaw; };

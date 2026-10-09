@@ -314,6 +314,11 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             break;
         case 2:  // fighting: from cover if it has some, else jiggle (strafe a step, stop and shoot, like CS bots)
             if (b.hasCover) {
+                // Out with someone in its sights and not badly hurt: it stays out and shoots for a burst (up to 1.4 s)
+                // instead of ducking back on a timer and dancing out of step with them, never shooting.
+                if (b.inCover) b.exposed = 0;
+                else if (b.sees) b.exposed += kTickDt;
+                if (!b.inCover && b.sees && d.hp >= 45.0f && b.exposed < 1.4f) b.coverTimer = std::max(b.coverTimer, 0.1f);
                 if ((b.coverTimer -= kTickDt) <= 0) {
                     b.inCover = !b.inCover;
                     if (b.inCover) b.firstShots = false;

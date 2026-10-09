@@ -15,6 +15,9 @@ public:
     bool ready() const { return grid_ != nullptr; }
     // Shortest route from `from` to `to` as cell centres on the floor (first = start cell).
     bool findPath(const Vec3& from, const Vec3& to, std::vector<Vec3>& out) const;
+    // Cells routes go round when there's another way (they still go in if that's where they're going): per grid
+    // cell, 1 to avoid. Empty: none.
+    void setAvoid(std::vector<uint8_t> cells) { avoid_ = std::move(cells); }
     // True if a standing player fits in the cell under p.
     bool standable(const Vec3& p) const;
     bool roamable(const Vec3& p) const;
@@ -34,6 +37,7 @@ private:
     const MapGrid* grid_ = nullptr;
     std::vector<uint8_t> clear_, edge_;  // edge_: next to a wall or ledge (paths keep off it)
     std::vector<uint8_t> roam_;          // reachable from the seed and back
+    std::vector<uint8_t> avoid_;         // setAvoid
     std::vector<int> roamCells_, openCells_;  // roamable cells; roamable cells away from edges
     // Scratch space reused between searches, so pathfinding doesn't allocate after warm-up.
     mutable std::vector<float> dist_;

@@ -1736,7 +1736,7 @@ void startCompRound(Game& g) {
         const Push pushes[3] = {{kCtLong, tac.pushes[0], tac.pushCalls[0]},
                                 {kCtMid, tac.pushes[1], tac.pushCalls[1]},
                                 {kCtB, tac.pushes[2], tac.pushCalls[2]}};
-        const Push& p = pushes[size_t(rnd(g) * 3.0f) % 3];
+        const Push& p = pushes[rnd(g) < 0.5f ? 0 : 2];  // long or B: never into mid (no mid fights from spawn)
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             if (ctRole[i] != p.role) continue;
             BotBrain& b = g.bots[i];
@@ -2372,6 +2372,33 @@ void compTick(Game& g) {
     if (late && !c.executing) c.executeAt = now;
     for (size_t i = 0; i < g.dummies.size(); ++i)
         g.bots[i].urgent = g.team[i] == 0 ? (late || (c.executing && int(i) == c.carrier)) : c.planted;
+    if (!g_compLog.empty()) {  // automated runs: a bot that dies in mid before the execute (MID DEATH; there should be none)
+        static std::vector<char> wasAlive;
+        wasAlive.resize(g.dummies.size(), 0);
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            const bool up = g.dummies[i].alive();
+            if (wasAlive[i] && !up && !c.executing && !c.planted && townMidArea(g.dummies[i].pos))
+                std::ofstream(g_compLog, std::ios::app) << "  MID DEATH bot " << i << " (" << (g.team[i] == 0 ? "T" : "CT") << ") at "
+                                                        << townCallout(g.dummies[i].pos) << " t=" << int(now) << "s" << char(10);
+            wasAlive[i] = up;
+        }
+    }
+    // No mid fights from spawn (owner): until the execute (or a plant) a bot doesn't go looking for someone in mid; it
+    // goes back to its spot instead.
+    if (!c.executing && !c.planted)
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            BotBrain& b = g.bots[i];
+            if (!isBot(g, i) || !g.dummies[i].alive() || b.state != 3 || !townMidArea(b.lastSeen)) continue;
+            b.path.clear();
+            if (b.hasHome) {
+                b.goal = b.home;
+                b.hasGoal = true;
+                b.state = 0;
+            } else {
+                b.state = 1;
+                b.timer = 1.0f;
+            }
+        }
     // Planting or defusing: the bot kneels (crouched: its hitboxes too, like CS) with its hands down.
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         Dummy& d = g.dummies[i];
@@ -2929,6 +2956,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     r.setStaticBoxes(statics);
     r.clearDecals();
     if (id == 1) g.nav.build(townGrid(), g.world, townSpawn().pos);
+    if (id == 1 && g.mode == 3) g.nav.setAvoid(townMidCells());  // competitive: no mid fights from spawn (owner)
     if (id == 1) buildRadar(g);
     g.spottedUntil.assign(g.dummies.size(), -1.0);
     if (id == 1)  // particles land on Dust's floors (which aren't all at height 0)
@@ -4087,8 +4115,38 @@ void simTick(Game& g, const Options& opt) {
             const int tgt = comp || dmFights ? g.bots[i].target : -1;  // competitive, deathmatch: whoever it's fighting
             if (comp && (tgt < -1 || (tgt == -1 && !youAlive(g)) || g.comp.phase != 1)) los = false;
             if (dmFights && (tgt < -1 || (tgt == -1 && (g.deadUntil >= 0 || g.noclip)))) los = false;
-            if (!los) {  // reaction time only starts over once it loses sight (a jiggle doesn't reset it)
-                if (!(g.mode != 0 && g.mapId == 1 && g.bots[i].sees && d.alive())) g.botSeen[i] = 0;
+            if (!g_compLog.empty()) {  // automated runs: a bot that sees its enemy for 2.5 s in all without a shot (STALL)
+                static std::vector<double> seeFrom, lastShotAt, sawFor;
+                static std::vector<int> logged;
+                seeFrom.resize(g.dummies.size(), -1);
+                lastShotAt.resize(g.dummies.size(), -100);
+                logged.resize(g.dummies.size(), 0);
+                sawFor.resize(g.dummies.size(), 0);
+                const BotBrain& pb = g.bots[i];
+                if (!(pb.state == 2 && d.alive())) { seeFrom[i] = -1; logged[i] = 0; sawFor[i] = 0; }
+                else {
+                    if (seeFrom[i] < 0) seeFrom[i] = g.simTime;
+                    const double since = g.simTime - std::max(seeFrom[i], lastShotAt[i]);
+                    if (pb.sees) sawFor[i] += kTickDt;
+                    if (sawFor[i] > 2.5 && !logged[i]) {
+                        logged[i] = 1;
+                        char info[300];
+                        std::snprintf(info, sizeof(info), "  STALL bot %zu fighting %d for %.1fs no shot: los %d sees %d aimed %d strafing %d cover %d/%d tgt %d seen %.2f react %.2f cd %.2f reload %d state %d urgent %d%c",
+                                      i, pb.coverFor, since, int(los), int(pb.sees), int(pb.aimed), int(pb.strafing), int(pb.hasCover), int(pb.inCover), tgt,
+                                      double(g.botSeen[i]), double(g.botReact[i]), double(g.botCooldown[i]), int(g.simTime < d.reloadUntil), pb.state, int(pb.urgent), 10);
+                        std::ofstream(g_compLog, std::ios::app) << info;
+                    }
+                }
+                if (los && g.botSeen[i] + kTickDt >= g.botReact[i] && g.botCooldown[i] - kTickDt <= 0) {
+                    lastShotAt[i] = g.simTime;
+                    sawFor[i] = 0;
+                }
+            }
+            g.botCooldown[i] -= kTickDt;  // (the gun's pace runs whether or not it's aiming)
+            if (!los) {  // reaction time only starts over once it has lost sight for a while (a jiggle or a peek out of
+                         // cover at someone it just saw is pre-aimed, like a player's)
+                if (!(g.mode != 0 && g.mapId == 1 && g.bots[i].sees && d.alive()) && g.simTime - g.bots[i].lastSawAt > 1.2)
+                    g.botSeen[i] = 0;
                 continue;
             }
             // Skill: your competitive teammates use theirs, every other bot the enemy skill (give or take its own
@@ -4097,7 +4155,6 @@ void simTick(Game& g, const Options& opt) {
             if (g.botSeen[i] == 0)  // human-ish reaction time, a bit slower after a quiet spell (see BotBrain::surprise)
                 g.botReact[i] = sk.reactMin + rnd(g) * sk.reactRange + (g.mapId == 1 ? 0.2f * g.bots[i].surprise : 0.0f);
             g.botSeen[i] += kTickDt;
-            g.botCooldown[i] -= kTickDt;
             if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
             // Its gun: damage (falling off with range), armor penetration, fire rate, pellets, sound, all as the gun.
             const int gun = weaponDef(d.weapon).canFire ? int(d.weapon) : int(kWRifle);

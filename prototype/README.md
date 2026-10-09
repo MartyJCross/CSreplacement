@@ -130,6 +130,19 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## v0.22.1: no mid fights, bots that shoot
+
+- **Competitive bots don't take a mid fight from spawn.** No T plan stages in mid any more (A goes long in one or two
+  waves, B through tunnels in one or two), the CT holding mid watches the way out of mid doors from beside them where
+  nobody in mid can see him, CTs never push mid, routes go round mid when there's another way, and before the
+  execute no bot goes looking for someone in mid. Tested (testNoMidFights: every plan and route on both maps, and
+  that the mid CT can't be seen from mid) and measured: automated matches on both sides, no bot died in mid before
+  the execute.
+- **No more jiggling at each other without shooting.** A bot out of cover with an enemy in its sights stays out for
+  a burst (it used to duck back on a timer, out of step with the other one), a re-peek on someone it just saw needs
+  no new reaction time, and the gun's fire rate keeps counting while it moves. Measured: fights where a bot saw its
+  enemy for 2.5 s without firing went from dozens a match to none.
+
 ## What's new in v0.22 (polish)
 
 - **Round flow:** a CS-style bar at the top (the clock, or the bomb once it's planted; each side's score; a figure per

@@ -298,6 +298,12 @@ practice tools (grenade lineups, spray-pattern overlay, CS-style console), a thi
 - They test by playing: feel, sound and look are their verdicts. Say clearly what only they can judge.
 - They get frustrated when the same thing misses twice ("man..."): **research first, measure, then change**, and
   explain the why in one or two sentences.
+- **NO MID FIGHTS FROM SPAWN** (asked many times; fixed for real in v0.22.1): competitive bots never stage in, push into,
+  route through or chase into mid before the execute (`townMidArea`, `townMidCells` + `NavGrid::setAvoid`, T stages
+  off mid, CT mid spots out of sight of mid). `testNoMidFights` and the automated-run log ("MID DEATH", must stay 0)
+  guard it. Never add a plan, spot or push in mid again.
+- Bots must shoot when they see someone: automated runs log "STALL" (a bot that saw its enemy 2.5 s without firing;
+  must stay 0).
 - Standing preferences: CS:GO feel above all; no tagging slowdown; guns only when they ask; no gimmicks (rejected
   "import CS crosshair codes"); the exact Dust2 copy is fine for personal testing; bhop off by default (they play with
   it on); reloads 20% faster than CS; model size 120%; muzzle light on walls only at 0.45; killcam skips on a click

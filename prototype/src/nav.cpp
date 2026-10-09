@@ -151,6 +151,7 @@ bool NavGrid::findPath(const Vec3& from, const Vec3& to, std::vector<Vec3>& out)
                     continue;
                 int nb = m.index(i + di, j + dj);
                 float nd = dist_[size_t(c)] + (di && dj ? 1.4142f : 1.0f) + float(edge_[size_t(nb)]);
+                if (!avoid_.empty() && avoid_[size_t(nb)]) nd += 12.0f;  // round it if there's another way
                 if (nd < dist_[size_t(nb)]) {
                     dist_[size_t(nb)] = nd;
                     prev_[size_t(nb)] = c;

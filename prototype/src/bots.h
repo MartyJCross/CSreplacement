@@ -43,6 +43,7 @@ struct BotBrain {
     // Its spot (an anchor's angle, the execute's hold): after a chase or a fight it walks back here
     // instead of standing wherever the chase ended.
     Vec3 home;
+    float exposed = 0;        // out of cover with someone in its sights: for how long (it ducks after a burst)
     Vec3 fireExit;            // in a fire: where it's stepping out to
     bool hasFireExit = false;
     bool hasHome = false;
