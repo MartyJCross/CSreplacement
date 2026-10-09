@@ -329,6 +329,8 @@ float armoredDamage(float damage, HitGroup group, float armor, bool helmet, floa
     return damage * ratio;
 }
 
+float damageAt(const WeaponDef& w, float dist) { return w.damage * std::pow(w.rangeModifier, dist / 500.0f); }
+
 void updateDummy(Dummy& d, float dt) {
     d.prevPos = d.pos;
     d.prevYaw = d.yaw;

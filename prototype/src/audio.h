@@ -23,7 +23,9 @@ enum class Sfx {
     SuppressedShot,                         // the starting pistol's silencer: a muted "thwip" and the slide
     Zoom,                                   // a sniper scoping in: a soft mechanical "chk"
     SuppressedRifle,                        // the M4A1-S: the movie "thwip" with a rifle's punch
-    ShotgunShot,                            // the Nova and the XM1014
+    ShotgunShot,                            // the Nova
+    // Every other gun its own recording (without one: a shared sound, pitched; see loadBank).
+    GalilShot, Mac10Shot, UmpShot, SsgShot, XmShot, DeagleShot, BerettasShot,
     Count
 };
 
@@ -53,6 +55,13 @@ public:
     // Dev aid: a footstep from each direction (and through a wall), rendered like play3D, as stereo WAVs.
     static bool dumpSpatial(const std::string& dir, const std::string& assetDir = "");
     void setVolume(float v) { master_ = v; }
+    // How busy the mixer thread is: the share of real time it spends mixing (0.01 = 1% of one core), and the most
+    // voices it has mixed at once. For --bench.
+    double mixLoad() const {
+        const double audio = double(mixedFrames_.load()) / 48000.0;
+        return audio > 0 ? double(mixTicks_.load()) / double(SDL_GetPerformanceFrequency()) / audio : 0.0;
+    }
+    int peakVoices() const { return peakVoices_.load(); }
 
     // Music: an Ogg/WAV decoded on a background thread (startup isn't held up), then looped. setMusic() sets
     // the level it fades to over about a second (0 = silent; it keeps its place while silent).
@@ -82,6 +91,8 @@ private:
     std::vector<float> mixBuf_;
     std::mutex mutex_;
     std::atomic<float> master_{0.6f};
+    std::atomic<uint64_t> mixTicks_{0}, mixedFrames_{0};
+    std::atomic<int> peakVoices_{0};
     int loaded_ = 0;  // sounds replaced by recordings from assets/
     std::vector<float> music_;           // stereo, interleaved, 48 kHz (written by the loader thread)
     std::atomic<bool> musicReady_{false};

@@ -1,6 +1,7 @@
 #include "nav.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include "movement.h"
 
 void NavGrid::build(const MapGrid& grid, const World& world, const Vec3& seed) {
@@ -125,15 +126,21 @@ bool NavGrid::findPath(const Vec3& from, const Vec3& to, std::vector<Vec3>& out)
     heap_.clear();
     auto cmp = [](const std::pair<float, int>& a, const std::pair<float, int>& b) { return a.first > b.first; };
     const int start = m.index(si, sj), goal = m.index(ti, tj);
+    // A*: the cells nearest the goal first. The estimate (straight and diagonal steps, no detours, no edge
+    // cost) never overshoots, so the route is still the shortest - it just looks at far fewer cells.
+    auto estimate = [&](int c) {
+        const float dx = float(std::abs(c % m.w - ti)), dy = float(std::abs(c / m.w - tj));
+        return std::max(dx, dy) + 0.4142f * std::min(dx, dy);
+    };
     dist_[size_t(start)] = 0;
-    heap_.push_back({0.0f, start});
+    heap_.push_back({estimate(start), start});
     bool found = false;
     while (!heap_.empty()) {
         std::pop_heap(heap_.begin(), heap_.end(), cmp);
         std::pair<float, int> it = heap_.back();
         heap_.pop_back();
         int c = it.second, i = c % m.w, j = c / m.w;
-        if (it.first > dist_[size_t(c)]) continue;
+        if (it.first > dist_[size_t(c)] + estimate(c) + 1e-3f) continue;  // (a stale entry)
         if (c == goal) { found = true; break; }
         for (int dj = -1; dj <= 1; ++dj)
             for (int di = -1; di <= 1; ++di) {
@@ -147,7 +154,7 @@ bool NavGrid::findPath(const Vec3& from, const Vec3& to, std::vector<Vec3>& out)
                 if (nd < dist_[size_t(nb)]) {
                     dist_[size_t(nb)] = nd;
                     prev_[size_t(nb)] = c;
-                    heap_.push_back({nd, nb});
+                    heap_.push_back({nd + estimate(nb), nb});
                     std::push_heap(heap_.begin(), heap_.end(), cmp);
                 }
             }

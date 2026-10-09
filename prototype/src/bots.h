@@ -43,6 +43,8 @@ struct BotBrain {
     // Its spot (an anchor's angle, the execute's hold): after a chase or a fight it walks back here
     // instead of standing wherever the chase ended.
     Vec3 home;
+    Vec3 fireExit;            // in a fire: where it's stepping out to
+    bool hasFireExit = false;
     bool hasHome = false;
 
 };
@@ -67,6 +69,9 @@ struct BotSenses {
     // Optional extra sight blocker (smoke): returns true if the segment a->b is blocked.
     bool (*blocked)(const void* ctx, const Vec3& a, const Vec3& b) = nullptr;
     const void* blockCtx = nullptr;
+    // Fires (molotovs) on the ground: a bot steps straight out of one and waits at its edge till it burns out.
+    const std::vector<Vec3>* fires = nullptr;
+    float fireRadius = 110.0f;
 };
 
 constexpr float kBotRunSpeed = 215.0f;  // rifle run speed
@@ -122,3 +127,18 @@ bool findCover(const BotSenses& s, const Vec3& around, const Vec3& threatEye, fl
 
 // Advances one placed, living deathmatch bot by one tick (moves d.pos, turns d.yaw, sets b.sees / b.aimed).
 void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rng);
+
+// ---- What bots carry: the whole arsenal ----
+// Competitive buying works like a CS team: the team calls the round's buy from its money, then each bot buys for
+// its role (0 = the team's AWPer; T rifles the AK, CT the M4A1-S; forces get SMGs, shotguns, the Galil, the
+// scout). Deathmatch bots get a random gun each life. All in the sim, so the tests check it.
+enum BuyRound { kBuyPistol, kBuyEco, kBuyForce, kBuyFull };
+// `avgMoney` per bot on the team; `pistolRound` the first round of a half; `mustWin` no next round to save for.
+BuyRound teamBuyRound(int avgMoney, bool pistolRound, bool mustWin);
+struct BotBuy { int gun; bool armor, helmet; int spent; };
+// One bot's buy: `side` 0 T / 1 CT; `gun` what it already holds (a gun it kept from last round, else its pistol).
+BotBuy botBuy(BuyRound round, int money, int side, int role, int gun, bool armor, bool helmet);
+int deathmatchBotGun(float r01);  // weighted like CS deathmatch: rifles mostly, some AWPs, SMGs, shotguns, Deagles
+// Seconds between a bot's trigger pulls with gun `w` (before skill): taps and short bursts, never faster than the
+// gun fires.
+float botShotGap(int w);

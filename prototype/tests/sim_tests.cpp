@@ -1216,6 +1216,57 @@ void testBotGoals() {
     CHECK(failed == 0, "%d bots stopped short", failed);
 }
 
+// Fire: a bot caught in a molotov steps out within a second (holding an angle or walking through), and one walking
+// to a goal past the fire waits at its edge instead of burning.
+void testBotFire() {
+    std::printf("bots and fire\n");
+    const NavGrid& nav = dustNav();
+    BotSenses sense;
+    sense.world = &dust();
+    sense.nav = &nav;
+    std::vector<Vec3> fires;
+    sense.fires = &fires;
+    const float radius = 110.0f;
+    sense.fireRadius = radius;
+    int slow = 0, burnt = 0, tried = 0;
+    float worst = 0;
+    for (const RetakeSite& site : townRetakeSites())
+        for (const RetakeSpot& h : site.holds) {
+            const Vec3 at = dpt(h.x, h.y);
+            uint32_t rng = 7u;
+            Dummy d;
+            BotBrain b;
+            spawnDeathmatchBot(d, b, at, rng);
+            b.state = 1;
+            b.holdOnly = true;
+            fires.assign(1, at + Vec3{20, 10, 0});  // the molotov lands at its feet
+            int t = 0;
+            for (; t < kTickRate * 2 && length2d(d.pos - fires[0]) < radius; ++t) {
+                sense.now = double(t) * kTickDt;
+                d.prevPos = d.pos;
+                updateDeathmatchBot(d, b, sense, rng);
+            }
+            ++tried;
+            worst = std::max(worst, float(t) * kTickDt);
+            if (length2d(d.pos - fires[0]) < radius) {
+                ++slow;
+                std::printf("    stuck in the fire at hold (%.0f, %.0f): now (%.0f, %.0f, %.0f), %.0f from its centre\n", double(h.x),
+                            double(h.y), double(d.pos.x), double(d.pos.y), double(d.pos.z), double(length2d(d.pos - fires[0])));
+            }
+            // Then it stays out while the fire burns (6 s), however it wants to go back.
+            for (int k = 0; k < kTickRate * 6; ++k) {
+                sense.now = double(t + k) * kTickDt;
+                d.prevPos = d.pos;
+                updateDeathmatchBot(d, b, sense, rng);
+                if (length2d(d.pos - fires[0]) < radius - 4.0f) { ++burnt; break; }
+            }
+        }
+    std::printf("  %d bots set on fire at their spot: out in %.2f s at worst; %d stayed in, %d walked back in\n", tried,
+                double(worst), slow, burnt);
+    CHECK(slow == 0 && worst < 1.0f, "%d bots didn't get out of the fire within 2 s", slow);
+    CHECK(burnt == 0, "%d bots walked back into the fire", burnt);
+}
+
 // No holes: from standing eye height anywhere you can walk, every ray at or below the horizon hits the map
 // (a floor, a wall, a roof) - none slips out between boxes.
 void testMapGaps() {
@@ -1374,6 +1425,92 @@ void testHarbor() {
         CHECK(found && secs >= l.minS && secs <= l.maxS, "harbor %s -> %s: %.1f s", l.a, l.b, double(secs));
     }
     setTownMap(0);
+}
+
+// Bots use the whole arsenal: the team's buy call, each role's buy (AWPer, rifles by side, force guns), kept guns,
+// deathmatch picks, fire cadence by gun and damage falloff.
+void testBotArsenal() {
+    std::printf("bot arsenal (buys, cadence, falloff)\n");
+    CHECK(teamBuyRound(800, true, false) == kBuyPistol, "pistol round");
+    CHECK(teamBuyRound(1500, false, false) == kBuyEco, "a poor team saves");
+    CHECK(teamBuyRound(1500, false, true) == kBuyForce, "no next round: force");
+    CHECK(teamBuyRound(3000, false, false) == kBuyForce, "a half-rich team forces");
+    CHECK(teamBuyRound(4500, false, false) == kBuyFull, "a rich team buys");
+    auto show = [](const char* what, const BotBuy& b) {
+        std::printf("  %-28s %-13s %s%s  $%d\n", what, weaponDef(b.gun).name, b.armor ? "kevlar" : "", b.helmet ? "+helmet" : "",
+                    b.spent);
+    };
+    BotBuy b = botBuy(kBuyFull, 6000, 0, 0, kWPistol, false, false);
+    show("T AWPer, $6000", b);
+    CHECK(b.gun == kWSniper && b.armor && b.helmet && b.spent == 5750, "the AWPer buys the AWP and full armor");
+    b = botBuy(kBuyFull, 4000, 0, 1, kWPistol, false, false);
+    show("T rifler, $4000", b);
+    CHECK(b.gun == kWRifle && b.helmet && b.spent == 3700, "a T buys the AK and full armor");
+    b = botBuy(kBuyFull, 4000, 1, 2, kWPistol, false, false);
+    show("CT rifler, $4000", b);
+    CHECK(b.gun == kWM4A1S && b.helmet && b.spent == 3900, "a CT buys the M4A1-S and full armor");
+    b = botBuy(kBuyFull, 4000, 1, 0, kWPistol, false, false);
+    show("CT AWPer, $4000 (short)", b);
+    CHECK(b.gun == kWM4A1S, "an AWPer short of money rifles up");
+    b = botBuy(kBuyForce, 2600, 0, 1, kWPistol, false, false);
+    show("T force, $2600", b);
+    CHECK(b.gun == kWGalil && b.armor && b.spent == 2450, "a T force buys a Galil and kevlar");
+    b = botBuy(kBuyForce, 2000, 1, 4, kWPistol, false, false);
+    show("CT force role 4, $2000", b);
+    CHECK(b.gun == kWUmp45 && b.armor, "a CT who can't afford the XM takes the UMP");
+    b = botBuy(kBuyForce, 2700, 1, 4, kWPistol, false, false);
+    CHECK(b.gun == kWXm1014, "the CT shotgunner buys the XM1014 when it can");
+    b = botBuy(kBuyForce, 2400, 0, 0, kWPistol, false, false);
+    show("T force AWPer, $2400", b);
+    CHECK(b.gun == kWSsg08, "the AWPer forces with the scout");
+    b = botBuy(kBuyEco, 1300, 0, 2, kWPistol, false, false);
+    CHECK(b.spent == 0 && b.gun == kWPistol, "eco: save");
+    b = botBuy(kBuyEco, 1500, 1, 1, kWPistol, false, false);
+    CHECK(b.gun == kWDeagle, "eco: one Deagle");
+    b = botBuy(kBuyEco, 6000, 0, 2, kWPistol, false, false);
+    CHECK(b.gun == kWRifle, "a rich bot buys even on an eco");
+    b = botBuy(kBuyPistol, 800, 0, 1, kWPistol, false, false);
+    CHECK(b.gun == kWDeagle && b.spent == 700, "pistol round: a Deagle");
+    b = botBuy(kBuyPistol, 800, 0, 2, kWPistol, false, false);
+    CHECK(b.gun == kWPistol && b.armor && b.spent == 650, "pistol round: kevlar");
+    b = botBuy(kBuyEco, 1200, 1, 3, kWSniper, true, false);
+    CHECK(b.gun == kWSniper && b.helmet && b.spent == 350, "a kept AWP stays, the helmet gets bought");
+    b = botBuy(kBuyFull, 5000, 1, 2, kWUmp45, true, true);
+    CHECK(b.gun == kWM4A1S && b.spent == 2900, "a kept UMP gets swapped for the M4A1-S on a full buy");
+    b = botBuy(kBuyFull, 7000, 1, 0, kWM4A1S, true, true);
+    CHECK(b.gun == kWSniper, "the AWPer swaps a kept rifle for the AWP when rich");
+    b = botBuy(kBuyFull, 2000, 0, 2, kWGalil, true, true);
+    CHECK(b.gun == kWGalil && b.spent == 0, "a kept Galil stays when it can't afford better");
+    // Never more than it has, always a gun that fires.
+    int bad = 0;
+    for (int r = 0; r < 4; ++r)
+        for (int money = 0; money <= 9000; money += 150)
+            for (int side = 0; side < 2; ++side)
+                for (int role = 0; role < 5; ++role) {
+                    const BotBuy x = botBuy(BuyRound(r), money, side, role, kWPistol, false, false);
+                    if (x.spent > money || x.spent < 0 || !weaponDef(x.gun).canFire) ++bad;
+                }
+    CHECK(bad == 0, "%d buys overspent or picked a gun that can't fire", bad);
+    // Deathmatch: rifles mostly, every pick a real gun, the AWP among them.
+    int counts[kWeaponCount] = {};
+    for (int k = 0; k < 1000; ++k) counts[deathmatchBotGun((float(k) + 0.5f) / 1000.0f)]++;
+    std::printf("  deathmatch picks /1000: AK %d, M4A1-S %d, AWP %d, Deagle %d, MAC-10 %d, XM1014 %d\n", counts[kWRifle],
+                counts[kWM4A1S], counts[kWSniper], counts[kWDeagle], counts[kWMac10], counts[kWXm1014]);
+    CHECK(counts[kWRifle] + counts[kWM4A1S] > 450 && counts[kWSniper] > 40, "mostly rifles, some AWPs");
+    CHECK(counts[kWKnife] == 0 && counts[kWGrenade] == 0 && counts[kWPistol] == 0, "only real guns");
+    // Cadence: never faster than the gun, bolt guns at their own pace, SMGs faster than rifles.
+    for (int w = 0; w < kWeaponCount; ++w)
+        if (weaponDef(w).canFire) CHECK(botShotGap(w) >= weaponDef(w).fireInterval, "%s fires faster than it can", weaponDef(w).name);
+    CHECK(botShotGap(kWSniper) >= 1.46f && botShotGap(kWMac10) < botShotGap(kWRifle), "bolt guns slow, SMGs fast");
+    std::printf("  shot gaps: AK %.2f, MAC-10 %.2f, AWP %.2f, Nova %.2f, Deagle %.2f s\n", double(botShotGap(kWRifle)),
+                double(botShotGap(kWMac10)), double(botShotGap(kWSniper)), double(botShotGap(kWNova)), double(botShotGap(kWDeagle)));
+    // Damage by range: the AK barely drops, the Nova's pellets halve by 1000 units.
+    CHECK(std::fabs(damageAt(weaponDef(kWRifle), 0) - 36.0f) < 0.01f, "AK point blank 36");
+    const float nova = damageAt(weaponDef(kWNova), 1000.0f);
+    std::printf("  AK at 1000u %.1f, Nova pellet at 1000u %.1f\n", double(damageAt(weaponDef(kWRifle), 1000.0f)), double(nova));
+    CHECK(nova < 13.5f && nova > 12.0f, "Nova pellet at 1000u %.1f", double(nova));
+    CHECK(armoredDamage(damageAt(weaponDef(kWSniper), 2000.0f), kChest, 100, true, weaponDef(kWSniper).armorRatio) >= 100.0f,
+          "a bot's AWP body shot kills through kevlar at 2000u");
 }
 
 // Dust's walls hold at every size: from mid and CT mid you can't see A site (short's wall), and nowhere in CT mid
@@ -1543,6 +1680,8 @@ int main() {
 
     testCareer();
     testDustSightlines();
+    testBotArsenal();
+    testBotFire();
     testHarbor();
     testReplay();
     testBotCover();

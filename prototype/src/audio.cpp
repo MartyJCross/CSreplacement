@@ -542,7 +542,8 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
                                  "hit_marker", "footstep_wood", "footstep_metal", "flash_bang", "flash_ring",
                                  "explosion", "fire", "bomb_beep", "defuse", "impact_stone", "impact_wood",
                                  "impact_metal", "helmet_hit", "whiz", "ui_click", "suppressed_shot", "zoom",
-                                 "suppressed_rifle", "shotgun_shot"};
+                                 "suppressed_rifle", "shotgun_shot", "galil_shot", "mac10_shot", "ump_shot",
+                                 "ssg_shot", "xm_shot", "deagle_shot", "berettas_shot"};
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
 // A recording -> 48 kHz mono float, or empty if it can't be read. WAV through SDL, Ogg through stb_vorbis.
@@ -600,6 +601,10 @@ SoundBank synthesize() {
         {Sfx::Whiz, whiz, 3},                    {Sfx::UiClick, uiClick, 1},
         {Sfx::SuppressedShot, suppressedShot, 4},  {Sfx::Zoom, zoomSound, 2},
         {Sfx::SuppressedRifle, suppressedRifle, 4}, {Sfx::ShotgunShot, shotgunShot, 3},
+        // (the guns' own sounds: replaced by their recordings, or by a shared sound pitched: kGunFallbacks)
+        {Sfx::GalilShot, rifleShot, 1},  {Sfx::Mac10Shot, rifleShot, 1},  {Sfx::UmpShot, rifleShot, 1},
+        {Sfx::SsgShot, sniperShot, 1},   {Sfx::XmShot, shotgunShot, 1},   {Sfx::DeagleShot, pistolShot, 1},
+        {Sfx::BerettasShot, pistolShot, 1},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -656,11 +661,32 @@ Spatial spatialize(const Vec3& d, float listenerYawDeg, float occ) {
     return sp;
 }
 
+// A gun without its own recording sounds like a shared one at another pitch (lower = heavier).
+struct GunFallback { Sfx sfx, from; float pitch; };
+constexpr GunFallback kGunFallbacks[] = {
+    {Sfx::GalilShot, Sfx::RifleShot, 1.04f}, {Sfx::Mac10Shot, Sfx::RifleShot, 1.22f},
+    {Sfx::UmpShot, Sfx::RifleShot, 0.9f},    {Sfx::SsgShot, Sfx::SniperShot, 1.18f},
+    {Sfx::XmShot, Sfx::ShotgunShot, 1.06f},  {Sfx::DeagleShot, Sfx::PistolShot, 0.82f},
+    {Sfx::BerettasShot, Sfx::PistolShot, 1.1f},
+};
+
+std::vector<float> repitched(const std::vector<float>& x, float pitch) {
+    std::vector<float> out(x.empty() ? 0 : size_t(float(x.size() - 1) / pitch) + 1);
+    for (size_t i = 0; i < out.size(); ++i) {
+        const float at = float(i) * pitch;
+        const size_t k = std::min(size_t(at), x.size() - 1);
+        const float f = at - float(k);
+        out[i] = k + 1 < x.size() ? x[k] * (1 - f) + x[k + 1] * f : x[k];
+    }
+    return out;
+}
+
 SoundBank loadBank(const std::string& assetDir, int& loaded) {
     SoundBank bank = synthesize();
     loaded = 0;
     std::vector<std::vector<float>> rifleClips;
     bool ownSuppressed = false, ownSuppressedRifle = false;
+    std::vector<char> own(size_t(Sfx::Count), 0);
     auto replace = [&](size_t s, std::vector<std::vector<float>>& clips) {
         float synthPeak = 0;
         for (int v = 0; v < bank.count[s]; ++v)
@@ -689,7 +715,16 @@ SoundBank loadBank(const std::string& assetDir, int& loaded) {
         if (s == size_t(Sfx::RifleShot)) rifleClips = clips;
         if (s == size_t(Sfx::SuppressedShot)) ownSuppressed = true;
         if (s == size_t(Sfx::SuppressedRifle)) ownSuppressedRifle = true;
+        own[s] = 1;
         replace(s, clips);
+    }
+    for (const GunFallback& f : kGunFallbacks) {
+        if (own[size_t(f.sfx)]) continue;
+        const size_t from = size_t(f.from);
+        bank.first[size_t(f.sfx)] = int(bank.clips.size());
+        bank.count[size_t(f.sfx)] = bank.count[from];
+        for (int v = 0; v < bank.count[from]; ++v)
+            bank.clips.push_back(repitched(bank.clips[size_t(bank.first[from] + v)], f.pitch));
     }
     // The suppressed guns are built on the AK-47's recordings (the synthesized rifle if there are none), unless
     // they have recordings of their own.
@@ -869,7 +904,10 @@ void SDLCALL Audio::callback(void* user, SDL_AudioStream* stream, int additional
     int frames = additional / int(sizeof(float) * 2);
     while (frames > 0) {
         int n = std::min(frames, int(self->mixBuf_.size() / 2));
+        const uint64_t t0 = SDL_GetPerformanceCounter();
         self->mix(self->mixBuf_.data(), n);
+        self->mixTicks_ += SDL_GetPerformanceCounter() - t0;
+        self->mixedFrames_ += uint64_t(n);
         SDL_PutAudioStreamData(stream, self->mixBuf_.data(), n * int(sizeof(float) * 2));
         frames -= n;
     }
@@ -901,12 +939,14 @@ void Audio::mixVoice(Voice& v, const std::vector<float>& snd, float* out, int fr
 }
 
 void Audio::mix(float* out, int frames) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (const Voice& v : pending_) {
-        if (voices_.size() >= kMaxVoices) voices_.erase(voices_.begin());  // steal the oldest
-        voices_.push_back(v);
+    {  // only the hand-over is locked: a sound played on the game thread never waits for a whole mix
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const Voice& v : pending_) {
+            if (voices_.size() >= kMaxVoices) voices_.erase(voices_.begin());  // steal the oldest
+            voices_.push_back(v);
+        }
+        pending_.clear();
     }
-    pending_.clear();
     std::fill(out, out + frames * 2, 0.0f);
     // The music, fading towards its target level (about a second from silent to full).
     if (musicReady_) {
@@ -919,6 +959,7 @@ void Audio::mix(float* out, int frames) {
             if (++musicPos_ >= len) musicPos_ = 0;
         }
     }
+    if (int(voices_.size()) > peakVoices_) peakVoices_ = int(voices_.size());
     for (Voice& v : voices_) mixVoice(v, sounds_[size_t(v.sound)], out, frames);
     voices_.erase(std::remove_if(voices_.begin(), voices_.end(),
                                  [&](const Voice& v) {

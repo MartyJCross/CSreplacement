@@ -121,6 +121,13 @@ They fly like CS:GO: thrown at 675 u/s (a lob is 30% of that) about 10° above w
 - lighting worked out per face instead of per pixel
 - `msaa 0` gives ~275 FPS if you'd rather have frames than smooth edges
 
+`bench.txt` also says how busy the **sound mixer** is (it runs on its own thread; the bench plays the sounds):
+about 0.6% of one core with ~24 voices at once, 3D audio included. The v0.21 check on the owner's laptop (1080p,
+MSAA 2, Dust at 95%, deathmatch with 7 bots): ~200 FPS average, GPU-bound (~2.8 ms of GPU per frame against
+~0.15 ms of game simulation). The muzzle light and the 120% player models cost nothing measurable. Bots find their
+routes with A* now: the slowest single simulation tick went from ~5 ms to ~2 ms (fewer 1% low dips), and a sound
+played never waits on the mixer.
+
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
 ## Competitive 5v5 (Play: MODE)
@@ -136,7 +143,20 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Spawns:** both teams spread over their spawn, you at the front, and nobody is in sight of the other team's spawn when the round starts (the long mid-doors sightline is kept clear; tested).
 - **Names:** the bots have ordinary first names (a different set every match), in the kill feed, scoreboard, radio and when you spectate them.
 - **Plays:** each round the Ts pick one and a teammate calls it on the radio: **EXECUTE** A or B (gather, then go together), **RUSH** (no waiting), **SPLIT A** (long and short at once) or **SPLIT B** (tunnels and through mid doors), a **FAKE** (two throw utility at one site, the team hits the other a few seconds later), or a **DEFAULT** (spread over long, mid, tunnels and short for map control, then a late execute). Now and then a CT **pushes** for an early pick (long, mid or B tunnels) and falls back to its spot after about 20 s or when the Ts go.
-- **The bots:** Ts gather at their play's staging points, then execute together after 14 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant (it doesn't hide, chase or stop for anyone far away: it fights its way through and gets straight back on its way), the rest take the site's angles. With 45 s left and no plant, every T commits to the site. You choose the teams (Play: TEAMMATES 0-4, ENEMIES 1-5) and how good the bots are (TEAMMATE SKILL, ENEMY SKILL: easy, normal, hard, expert; hard is the default for enemies). Skill sets reaction time (0.45-0.85 s easy down to 0.12-0.27 s expert), aim error, fire rate, how far behind your movement they aim and how often they go for the head (never on normal, 40% on expert); the other modes use BOT SKILL. CTs play a default setup (one mid, one short, one long, two B; now and then one heavier on A or B), each from one of a few spots so it's never quite the same, mostly holding their angle and stepping back behind cover now and then; once Ts show up on a site, the far CTs rotate, and after a plant they all retake, in a hurry. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). Teammates trade: when one is in a fight, the others nearby look that way. A bot that's been holding an empty angle for a while reacts a little slower to the first enemy (up to 0.2 s), so a good peek is rewarded. They fight each other, not just you, buy rifles and armor when they can afford them, and play pistol rounds with pistols. Your bullets pass through your teammates (no friendly fire).
+- **The bots:** Ts gather at their play's staging points, then execute together after 14 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant (it doesn't hide, chase or stop for anyone far away: it fights its way through and gets straight back on its way), the rest take the site's angles. With 45 s left and no plant, every T commits to the site. You choose the teams (Play: TEAMMATES 0-4, ENEMIES 1-5) and how good the bots are (TEAMMATE SKILL, ENEMY SKILL: easy, normal, hard, expert; hard is the default for enemies). Skill sets reaction time (0.45-0.85 s easy down to 0.12-0.27 s expert), aim error, fire rate, how far behind your movement they aim and how often they go for the head (never on normal, 40% on expert); the other modes use BOT SKILL. CTs play a default setup (one mid, one short, one long, two B; now and then one heavier on A or B), each from one of a few spots so it's never quite the same, mostly holding their angle and stepping back behind cover now and then; once Ts show up on a site, the far CTs rotate, and after a plant they all retake, in a hurry. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). Teammates trade: when one is in a fight, the others nearby look that way. A bot that's been holding an empty angle for a while reacts a little slower to the first enemy (up to 0.2 s), so a good peek is rewarded. They fight each other, not just you. Your bullets pass through your teammates (no friendly fire).
+- **Bots buy like a CS team, the whole arsenal.** Each side calls the round from its bots' money: a **pistol round**
+  (kevlar mostly, one Deagle, one pair of Berettas), an **eco** (save; one bot gambles on a Deagle), a **force**
+  (kevlar and a Galil, MAC-10, UMP-45, Nova or XM1014, the scout for the AWPer) or a **full buy** (rifles and full
+  armor: the AK-47 on T, the M4A1-S on CT, and the team's AWPer an AWP when it can afford one). With no next round
+  to save for (the last round of a half, the other side on match point) they force. A gun a bot survives with, it
+  keeps (and swaps for a better one on a full buy). Every gun shoots as itself: its damage and falloff, armor
+  penetration, fire rate, pellets, sound and model. `comp_log.txt` (automated runs) lists every buy.
+- **CT utility:** on a full buy each CT carries a molotov, on a force an HE; when the Ts execute, a CT who sees them
+  coming throws it at them (into the way they come), then fights. Bots step out of fire and wait at its edge.
+- **Post-plant:** the Ts leave the bomb (the planter too) for the site's holding spots, each watching a way the CTs
+  come in; the ones elsewhere come over. When they hear the defuse start, they rush the bomb.
+- **Saving:** a bot whose round is lost (no time to reach the bomb and defuse, no time to plant, or alone against
+  three) runs back to its spawn to keep its rifle or AWP for the next round ("SAVING MY AK-47" on your team's radio).
 - **When you die** you watch through a living teammate's eyes until the next round, looking where they look (up and down too: players online, bots at whoever they fight): **Mouse 1 / Mouse 2** next / previous teammate, **Space** to fly free (and back). If the one you watch dies, it moves on to the next. The dead can't shoot. Your scope goes down when you die.
 - **Bots don't freeze:** a bot sent to a spot it can't reach (in a wall or a prop at some map sizes) goes to the nearest one it can; after a chase or a fight, a bot with a spot of its own walks back to it (tested: every competitive spot reached from both spawns).
 - **Teammate radio:** your side's bots call out in the top-right feed (green): ENEMY SPOTTED: LONG A, GOING B, THEY'RE ON A, ROTATING, PLANTING THE BOMB, DEFUSING.
@@ -149,6 +169,9 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **A kill gives you +40 HP** (up to 100) **and 10 rounds** in your magazine (up to a full mag).
 - **The bots fight each other too** (Play: BOTS FIGHT EACH OTHER, on by default, `dm_bot_fights`): each fights whoever it sees nearest, bot or you, and the kill feed and scoreboard count their kills. They still come looking for you half the time, and respawn out of each other's sight.
 - **Skill variance** (Play: SKILL VARIANCE, every mode with bots, `skill_variance`): OFF, every bot plays exactly the skill you picked; SLIGHT, each bot is up to half a level better or worse (a HARD lobby has some nearly-EXPERT bots and some nearly-NORMAL ones); WIDE, up to a whole level. Each bot keeps its own for the whole match.
+- **Each bot gets a new gun every life**, like CS deathmatch: mostly AK-47s and M4A1-Ss, some AWPs, Galils, scouts,
+  MAC-10s, UMP-45s, shotguns and Deagles, each with its own damage (falling off with range), armor penetration, fire
+  rate, sound and model. The shotguns fire pellets. You count as wearing kevlar and a helmet, like CS deathmatch.
 - **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a 0.25–0.55 s reaction once they've turned to face you. Half the time they roam towards your part of the map. In a fight they use cover when there's some close by (shoot, duck behind it, peek again), else they jiggle (strafe a step, stop, shoot). They spawn out of sight of where you are and of where you'll be a moment later.
 
 ## Retakes (Play: MODE)
@@ -270,7 +293,13 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
 - **Volume** is `volume` in `config.cfg` (0..1).
-- **Each gun sounds like itself:** the shared recordings pitched per gun (the UMP-45 a slow thump, the SSG 08 a smaller bang than the AWP). The **shotguns** are real 12 gauge recordings (a Benelli Nova, a Winchester Model 12, a Charles Daly).
+- **Every gun has its own recording**, from the nearest real gun in the CC0 library: the AK-47 an AK-47, the
+  **Galil AR** an SKS (the same 7.62 round, a carbine), the **MAC-10** a PPSh (a fast, sharp SMG), the **UMP-45** a
+  Carl Gustav M45 (a slower SMG), the **AWP** big bolt-action rifles, the **SSG 08** a Savage 10 and a Marlin
+  (lighter), the **Nova** a Benelli Nova and a Winchester Model 12, the **XM1014** a Charles Daly and a Mossberg, the
+  **Deagle** a .38 revolver and a 1911 (a boom, a touch deeper), the **Dual Berettas** 9 mm / .380 pistols. Measured:
+  the MAC-10 and UMP-45 are bright (centroid ~1.5-1.7 kHz), the Galil fuller like the AK, the shotguns and scout
+  short and punchy. Without the files each falls back to a shared sound, pitched.
 - **The suppressed guns sound the way a suppressor really changes a shot.** A gunshot's energy is mostly the muzzle blast, below 500 Hz, and that is the one part a suppressor takes away; what's left is the high "fizzle" of gas leaving the can, the bullet's crack if it's supersonic (the M4A1-S's 5.56, not the pistol's .45), and the action cycling. So they're built from only the top of the AK recording (its blast cut), a short breathy fizzle, the crack for the M4A1-S, and the action as two dull clacks: about 1% of each below 500 Hz (v0.19's was 42%), the body a mid-range "pop", nothing that rings. Short: the pistol ~50 ms, the M4A1-S ~95 ms.
 
 - **Menu music:** "Menu Music" by wipics (CC0, an upbeat electronic loop) plays on the main menu and its pages, and fades out when a game starts (not in the pause menu). MENU MUSIC in Settings → Video + sound sets its volume (`music_volume`, 0 = off). It's decoded in the background, so startup isn't slower.
@@ -307,7 +336,7 @@ Every finished deathmatch or competitive match against bots goes into your **car
 
 ## Bots, smokes, wallbangs, KZ
 
-- **Bots shoot back (Play: practice).** Any dummy that can see you reacts after a random 0.25–0.55 s and fires every 0.22–0.38 s, with about 0.8° of random aim error. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. Smokes block their vision.
+- **Bots shoot back (Play: practice).** Any dummy that can see you reacts after a random 0.25–0.55 s and fires every 0.22–0.38 s (with an AK-47; other guns at their own pace), with about 0.8° of random aim error. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. Smokes block their vision.
 - **Grenades:** see Grenades above (smoke, flash, HE, molotov).
 - **Wallbangs:**
   - rifle and sniper bullets go through thin walls (rifle 24 units, sniper 40) and lose damage; the pistol can't

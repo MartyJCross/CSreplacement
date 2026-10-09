@@ -127,11 +127,19 @@ def sounds():
     os.makedirs(d, exist_ok=True)
     lib = os.path.join(SRC, 'sounds', 'opengameart', 'firearm-library', 'Prepared SFX Library')
     made = {}
-    for name, folders, length, count in (('rifle_shot', ['AK-47'], 0.9, 6),
-                                         ('pistol_shot', ['1911', 'Walther PPQ'], 0.75, 4),
-                                         ('sniper_shot', ['Tikka', 'Mosin Nagant'], 1.4, 3),
-                                         ('shotgun_shot', ['Nova', 'Model 12', 'CD'], 1.1, 4),
-                                         ('m4_shot', ['AR-15'], 0.9, 4)):  # the M4A1-S is made from these
+    # Each gun its own recording, the nearest real gun in the library (same action and a similar cartridge).
+    for name, folders, length, count in (('rifle_shot', ['AK-47'], 0.9, 6),                     # AK-47
+                                         ('pistol_shot', ['1911', 'Walther PPQ'], 0.75, 4),      # (fallback)
+                                         ('sniper_shot', ['Tikka', 'Mosin Nagant'], 1.4, 3),     # AWP
+                                         ('shotgun_shot', ['Nova', 'Model 12'], 1.1, 4),         # Nova (pump)
+                                         ('m4_shot', ['AR-15'], 0.9, 4),  # (kept; the M4A1-S is built on the AK)
+                                         ('galil_shot', ['SKS'], 0.9, 4),           # Galil: 7.62 carbine
+                                         ('mac10_shot', ['PPSh'], 0.75, 4),         # MAC-10: a fast, sharp SMG
+                                         ('ump_shot', ['Carl Gustav M45'], 0.8, 4),  # UMP-45: a slower SMG
+                                         ('ssg_shot', ['Savage 10 .300 Blackout', 'Marlin 336'], 1.2, 3),  # SSG 08: light bolt gun
+                                         ('xm_shot', ['CD', 'Mossberg'], 1.1, 4),   # XM1014
+                                         ('deagle_shot', ['Smith & Wesson 642', '1911'], 0.8, 4),  # Deagle: a boom
+                                         ('berettas_shot', ['Walther PPQ', 'Bersa'], 0.7, 4)):  # 9 mm / .380
         files = [f for fo in folders for f in sorted(glob.glob(os.path.join(lib, fo, '*.wav')))]
         shots = cut_shots(files, length)[:count]
         for old in glob.glob(os.path.join(d, f'{name}_*.wav')):  # the game loads _1, _2... until one is missing
@@ -205,9 +213,11 @@ old_sandstone_02 (sandstone), clay_plaster (plaster), dense_sand (sand), red_san
 brown_planks_03 (planks), painted_metal_shutter (shutter), metal_plate_02 (plate).
 
 **Sounds**
-- *The Free Firearm Sound Library* (opengameart.org/content/the-free-firearm-sound-library): rifle, pistol,
-  sniper, shotgun (Benelli Nova, Winchester Model 12, Charles Daly) and AR-15 shots (the M4A1-S is made from
-  these), and distant shots, cut into single shots.
+- *The Free Firearm Sound Library* (opengameart.org/content/the-free-firearm-sound-library), cut into single
+  shots, one real gun per game gun: AK-47 (AK-47, and the suppressed guns are built on it), Galil (Norinco SKS),
+  MAC-10 (PPSh), UMP-45 (Carl Gustav M45), AWP (Tikka T3, Mosin Nagant), SSG 08 (Savage 10, Marlin 336), Nova
+  (Benelli Nova, Winchester Model 12), XM1014 (Charles Daly, Mossberg 190), Deagle (Smith & Wesson 642, 1911), Dual
+  Berettas (Walther PPQ, Bersa), pistol (1911, Walther PPQ), AR-15, and distant shots.
 - Fantozzi's footsteps (opengameart.org/content/fantozzis-footsteps-grasssand-stone): footsteps.
 - Kenney (kenney.nl): Impact Sounds (impacts, wooden footsteps), Interface Sounds (menu clicks).
 

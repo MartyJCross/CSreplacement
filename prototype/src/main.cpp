@@ -287,7 +287,11 @@ struct Game {
         double roundStartAt = 0;  // (the replay viewer starts a round's replay here)
         int money = 800;
         std::vector<int> botMoney;
-        std::vector<char> botRifle;         // that bot has a rifle (else a pistol)
+        std::vector<uint8_t> botGun;        // the gun each bot holds (a WeaponId; kWPistol when it has no primary)
+        std::vector<int> ctNade;            // a CT bot's utility for the execute (molotov / HE), -1 none
+        std::vector<double> nadeTry;        // (when it may next try to find a throw)
+        std::vector<char> saving;           // a bot whose round is lost: back to spawn to keep its gun
+        bool defuseHeard = false;           // the Ts heard the defuse start and came for it
         int lossStreak[2] = {0, 0};
         float armor = 0;
         bool helmet = false, kit = false, youDead = false;
@@ -444,19 +448,35 @@ bool isBot(const Game& g, size_t i) { return !g.online || i >= size_t(kNetMaxPla
 int netToLocal(const Game& g, int id) { return id == g.net.myId() ? -1 : id; }
 uint8_t localToNet(const Game& g, int id) { return uint8_t(id < 0 ? g.net.myId() : id); }
 
-// Each gun's shot is one of the shared recordings, pitched: lower is heavier.
-float gunshotPitch(int id) {
+// Each gun's shot: its own recording (assets/sounds; without one, a shared sound pitched: audio.cpp), the pitch it
+// plays at, and how loud your own is.
+struct GunSound { Sfx sfx; float pitch, gain; };
+GunSound gunSound(int id) {
     switch (id) {
-        case kWDeagle: return 0.72f;
-        case kWNova: return 0.82f;
-        case kWMac10: return 1.22f;
-        case kWBerettas: return 1.1f;
-        case kWXm1014: return 1.06f;  // a little snappier than the Nova
-        case kWGalil: return 1.04f;
-        case kWUmp45: return 0.9f;   // a slow, thumpy .45
-        case kWSsg08: return 1.18f;  // a smaller bang than the AWP
-        default: return 1.0f;
+        case kWPistol: return {Sfx::SuppressedShot, 1.08f, 1.3f};
+        case kWM4A1S: return {Sfx::SuppressedRifle, 0.96f, 1.3f};
+        case kWSniper: return {Sfx::SniperShot, 1.0f, 1.9f};
+        case kWSsg08: return {Sfx::SsgShot, 1.0f, 1.7f};
+        case kWNova: return {Sfx::ShotgunShot, 1.0f, 1.9f};
+        case kWXm1014: return {Sfx::XmShot, 1.0f, 1.8f};
+        case kWDeagle: return {Sfx::DeagleShot, 0.88f, 1.9f};  // a revolver's boom, a touch deeper
+        case kWBerettas: return {Sfx::BerettasShot, 1.0f, 1.45f};
+        case kWMac10: return {Sfx::Mac10Shot, 1.0f, 1.6f};
+        case kWUmp45: return {Sfx::UmpShot, 1.0f, 1.6f};
+        case kWGalil: return {Sfx::GalilShot, 1.0f, 1.8f};
+        default: return {Sfx::RifleShot, 1.0f, 1.8f};
     }
+}
+bool suppressedGun(int id) { return id == kWPistol || id == kWM4A1S; }
+
+// Someone else's shot, heard at `ear`: far away a gunshot is mostly echo (muffled, no crack); the suppressed guns
+// don't carry that far.
+void gunshot3D(Game& g, int w, const Vec3& at, const Vec3& ear, float earYaw, float gain = 1.1f) {
+    if (!g.audio) return;
+    const GunSound gs = gunSound(w);
+    const bool far = !suppressedGun(w) && length(at - ear) > 1400.0f;
+    g.audio->play3D(far ? Sfx::RifleShotFar : gs.sfx, at, ear, earYaw, suppressedGun(w) ? 2200.0f : far ? 6500.0f : 4000.0f,
+                    far ? gain * 1.2f : gain, gs.pitch);
 }
 
 // The view model for a weapon id (and back).
@@ -1018,12 +1038,7 @@ void stepReplay(Game& g, double dt) {
         }
         for (const ReplayShot& sh : shots) {
             g.replayFx.tracer(sh.from, sh.to);
-            if (!have) continue;
-            const int w = sh.weapon;
-            const Sfx sfx = w == kWPistol ? Sfx::SuppressedShot : w == kWM4A1S ? Sfx::SuppressedRifle
-                            : w == kWNova || w == kWXm1014 ? Sfx::ShotgunShot : w == kWSniper || w == kWSsg08 ? Sfx::SniperShot
-                            : w == kWBerettas || w == kWDeagle ? Sfx::PistolShot : Sfx::RifleShot;
-            g.audio->play3D(sfx, sh.from, ear, earYaw, 4000.0f, sh.shooter == g.rv.pov ? 1.5f : 1.1f, gunshotPitch(w));
+            if (have) gunshot3D(g, sh.weapon, sh.from, ear, earYaw, sh.shooter == g.rv.pov ? 1.5f : 1.1f);
         }
     }
     g.rv.shotsDone = g.rv.t;
@@ -1234,16 +1249,47 @@ int nextTeammate(const Game& g, int from, int dir) {
 int& moneyOf(Game& g, int id) { return id < 0 ? g.comp.money : g.comp.botMoney[size_t(id)]; }
 void addMoney(Game& g, int id, int amount) { moneyOf(g, id) = std::clamp(moneyOf(g, id) + amount, 0, 16000); }
 
-// Bots buy at the start of a round: a rifle and armor when they can afford it, else they save.
+std::string g_compLog;  // automated runs: one line per competitive round (testing)
+
+// Bots buy at the start of a round like a CS team: each side calls the round (pistol, eco, force, full buy) from
+// its bots' money, then every bot buys for its role (botBuy: the first is the AWPer). A gun it survived with, it
+// keeps.
 void compBotsBuy(Game& g) {
+    Game::Comp& c = g.comp;
+    BuyRound call[2];
+    for (int side = 0; side < 2; ++side) {
+        int sum = 0, n = 0;
+        for (size_t i = 0; i < g.dummies.size(); ++i)
+            if (isBot(g, i) && g.dummies[i].alive() && g.team[i] == side) { sum += c.botMoney[i]; ++n; }
+        const int other = side == c.youTeam ? c.themScore : c.youScore;  // 12: their match point
+        const bool lastOfHalf = c.round == 11 || c.round == 23;
+        call[side] = teamBuyRound(n ? sum / n : 0, c.round == 0 || c.round == 12, lastOfHalf || other == 12);
+    }
+    int role[2] = {0, 0};
+    std::string bought[2];
+    c.ctNade.assign(g.dummies.size(), -1);
+    c.nadeTry.assign(g.dummies.size(), 0.0);
+    c.saving.assign(g.dummies.size(), 0);
+    c.defuseHeard = false;
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         Dummy& d = g.dummies[i];
         if (!isBot(g, i) || !d.alive()) continue;
-        int& m = g.comp.botMoney[i];
-        if (!g.comp.botRifle[i] && m >= 2700 + 650) { g.comp.botRifle[i] = 1; m -= 2700; }
-        if (d.armor <= 0 && m >= 1000 && g.comp.botRifle[i]) { d.armor = 100; d.helmet = true; m -= 1000; }
-        else if (d.armor <= 0 && m >= 650) { d.armor = 100; m -= 650; }
-        d.weapon = g.comp.botRifle[i] ? 0 : 1;  // (what you see them holding)
+        const int side = g.team[i];
+        const BotBuy b = botBuy(call[side], c.botMoney[i], side, role[side]++, c.botGun[i], d.armor > 0, d.helmet);
+        c.botMoney[i] -= b.spent;
+        c.botGun[i] = uint8_t(b.gun);
+        if (b.armor && d.armor <= 0) d.armor = 100;
+        d.helmet = b.helmet;
+        d.weapon = uint8_t(b.gun);  // what it holds (and you see)
+        // CTs with money to spare carry something for the execute: a molotov on a full buy, an HE on a force.
+        if (side == 1 && call[side] == kBuyFull && c.botMoney[i] >= 400) { c.ctNade[i] = Game::kMolotov; c.botMoney[i] -= 400; }
+        else if (side == 1 && call[side] == kBuyForce && c.botMoney[i] >= 300) { c.ctNade[i] = Game::kHeNade; c.botMoney[i] -= 300; }
+        bought[side] += std::string(bought[side].empty() ? "" : ", ") + weaponDef(b.gun).name;
+    }
+    if (!g_compLog.empty()) {
+        const char* const kCall[] = {"pistol", "eco", "force", "full buy"};
+        std::ofstream(g_compLog, std::ios::app) << "  T " << kCall[call[0]] << ": " << bought[0] << " | CT "
+                                                << kCall[call[1]] << ": " << bought[1] << "\n";
     }
 }
 
@@ -1279,8 +1325,6 @@ uint8_t roundWhyCode(const char* why) {
     return 2;
 }
 
-std::string g_compLog;  // automated runs: one line per competitive round (testing)
-
 // The T side's plays (Comp::play): a plain execute, a rush, a split of A or B, a fake, a default (map control,
 // then a late execute).
 enum CompPlay { kPlayExecute, kPlayRush, kPlaySplitA, kPlaySplitB, kPlayFake, kPlayDefault };
@@ -1301,7 +1345,7 @@ void startCompRound(Game& g) {
         for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = 1 - g.team[i];
         c.money = 800;
         std::fill(c.botMoney.begin(), c.botMoney.end(), 800);
-        std::fill(c.botRifle.begin(), c.botRifle.end(), char(0));
+        std::fill(c.botGun.begin(), c.botGun.end(), uint8_t(kWPistol));
         for (Dummy& d : g.dummies) { d.armor = 0; d.helmet = false; d.respawnLeft = 1.0f; }
         c.youDead = true;  // treat everyone as freshly respawned (no carried kit)
         c.lossStreak[0] = c.lossStreak[1] = 0;
@@ -1340,7 +1384,7 @@ void startCompRound(Game& g) {
         const bool died = !d.alive();
         const float armor = died ? 0.0f : d.armor;
         const bool helmet = !died && d.helmet;
-        if (died) g.comp.botRifle[i] = 0;
+        if (died) g.comp.botGun[i] = kWPistol;
         const int spot = slot[side]++;
         const Vec3 sp = townTeamSpawns(side)[size_t(spot) % 5];
         if (!isBot(g, i)) {  // another player: alive at their spawn (their game puts them there and keeps their kit)
@@ -1533,7 +1577,7 @@ void startCompMatch(Game& g) {
     g.team.assign(g.dummies.size(), 0);
     for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = int(i) < g.compMates ? c.youTeam : 1 - c.youTeam;
     c.botMoney.assign(g.dummies.size(), 800);
-    c.botRifle.assign(g.dummies.size(), 0);
+    c.botGun.assign(g.dummies.size(), uint8_t(kWPistol));
     c.youDead = true;
     resetRecord(g);
     for (Dummy& d : g.dummies) d.respawnLeft = 1.0f;  // "died": no kit to carry over
@@ -1763,8 +1807,16 @@ void compPlanted(Game& g, const Vec3& at) {
     const RetakeSite& s = sites[size_t(c.siteTarget)];
     int k = 0;
     for (size_t i = 0; i < g.dummies.size(); ++i) {  // CT bots: retake the site
-        if (!g.dummies[i].alive() || g.team[i] != 1 || !isBot(g, i)) continue;
+        if (!g.dummies[i].alive() || g.team[i] != 1 || !isBot(g, i) || (i < c.saving.size() && c.saving[i])) continue;
         const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
+        sendBot(g, i, townPoint(h.x, h.y), true, &h);
+    }
+    // T bots: post-plant. Off the bomb (the planter too) and onto the site's holding spots, each watching a way
+    // the CTs come in; the ones elsewhere come over.
+    int t = int(s.holds.size()) - 1;
+    for (size_t i = 0; i < g.dummies.size(); ++i) {
+        if (!g.dummies[i].alive() || g.team[i] != 0 || !isBot(g, i) || g.bots[i].state == 2) continue;
+        const RetakeSpot& h = s.holds[size_t(t-- + int(s.holds.size()) * 4) % s.holds.size()];
         sendBot(g, i, townPoint(h.x, h.y), true, &h);
     }
     g.hudDirty = true;
@@ -1901,6 +1953,58 @@ void compTick(Game& g) {
     if (late && !c.executing) c.executeAt = now;
     for (size_t i = 0; i < g.dummies.size(); ++i)
         g.bots[i].urgent = g.team[i] == 0 ? (late || (c.executing && int(i) == c.carrier)) : c.planted;
+    // Saving: a bot whose round is lost (no time left to plant or to defuse, or alone against three) runs back to its
+    // spawn and keeps its gun for the next round, like CS players - if the gun is worth keeping.
+    {
+        int alive[2] = {0, 0};
+        for (size_t i = 0; i < g.dummies.size(); ++i) alive[g.team[i]] += g.dummies[i].alive();
+        if (youAlive(g)) alive[c.youTeam]++;
+        const double left = (c.planted ? g.bombExplodeAt : c.phaseEnd) - now;
+        // Ts: how long the bomb needs to get onto a site and go down.
+        float bombTrip = c.carrier >= -2 ? 1e9f : 0.0f;  // (nobody has it: no call)
+        const Vec3 bombAt = c.carrier >= 0 ? g.dummies[size_t(c.carrier)].pos : c.carrier == -1 ? g.player.origin : c.dropped;
+        if (c.carrier >= -2)
+            for (const RetakeSite& site : sites)
+                bombTrip = std::min(bombTrip, length2d(bombAt - townPoint(site.bombX, site.bombY)) / kBotRunSpeed * 1.3f + float(kCompPlantTime));
+        for (size_t i = 0; i < g.dummies.size(); ++i) {
+            if (!g.dummies[i].alive() || !isBot(g, i) || i >= c.saving.size() || c.saving[i]) continue;
+            if (weaponDef(c.botGun[i]).price < 1700) continue;  // a pistol or an SMG: play it out
+            const int side = g.team[i];
+            bool lost = alive[side] == 1 && alive[1 - side] >= 3 && left < 50.0;
+            if (side == 0 && !c.planted) lost = lost || bombTrip > float(left);
+            if (side == 1 && c.planted)  // can't reach the bomb and defuse in time
+                lost = lost || length2d(g.dummies[i].pos - g.bombPos) / kBotRunSpeed * 1.2f + 5.0f > float(left);
+            if (!lost || int(i) == c.carrier || int(i) == c.planter || int(i) == c.defuser) continue;
+            c.saving[i] = 1;
+            const std::vector<Vec3>& home = townTeamSpawns(side);
+            sendBot(g, i, home[i % home.size()], true);
+            radio(int(i), "SAVING MY " + std::string(weaponDef(c.botGun[i]).name));
+            if (!g_compLog.empty())
+                std::ofstream(g_compLog, std::ios::app) << "  " << (side == 0 ? "T" : "CT") << " bot " << i << " saves its "
+                                                        << weaponDef(c.botGun[i]).name << " t=" << int(now) << "s\n";
+        }
+        for (size_t i = 0; i < g.dummies.size() && i < c.saving.size(); ++i)
+            if (c.saving[i]) g.bots[i].urgent = false;
+    }
+    // CT utility: once the Ts are coming onto a site, a CT who sees them throws its molotov or HE at them (into the
+    // way they come), then fights.
+    if (c.executing && !c.planted)
+        for (size_t i = 0; i < g.dummies.size() && i < c.ctNade.size(); ++i) {
+            const BotBrain& b = g.bots[i];
+            if (c.ctNade[i] < 0 || !g.dummies[i].alive() || !isBot(g, i) || g.team[i] != 1 || !b.sees || now < c.nadeTry[i]) continue;
+            const Vec3 at = b.target >= 0 && size_t(b.target) < g.dummies.size() ? g.dummies[size_t(b.target)].pos
+                            : b.target == -1 ? g.player.origin : b.lastSeen;
+            const float dist = length2d(at - g.dummies[i].pos);
+            c.nadeTry[i] = now + 0.5;
+            if (dist < 350.0f || dist > 1300.0f) continue;  // too close to throw at, or too far to reach
+            if (!botThrow(g, i, c.ctNade[i], at)) continue;
+            if (!g_compLog.empty())
+                std::ofstream(g_compLog, std::ios::app) << "  CT bot " << i << " threw a "
+                                                        << (c.ctNade[i] == Game::kMolotov ? "molotov" : "HE") << " at the execute t="
+                                                        << int(now) << "s\n";
+            radio(int(i), c.ctNade[i] == Game::kMolotov ? "MOLLY OUT" : "HE OUT");
+            c.ctNade[i] = -1;
+        }
     // Utility for a way in (`route`): a smoke to cut the defenders' view, then a flash over where they hold,
     // thrown by the two T bots nearest that way's staging point (fakers only, or everyone but the fakers).
     auto siteUtility = [&](int route, bool byFakers) {
@@ -2086,6 +2190,7 @@ void compTick(Game& g) {
             float best = 1e30f;
             for (size_t i = 0; i < g.dummies.size(); ++i) {
                 if (!g.dummies[i].alive() || !isBot(g, i) || g.team[i] != 1 || g.bots[i].state == 2) continue;
+                if (i < c.saving.size() && c.saving[i]) continue;
                 float dd = length2d(g.dummies[i].pos - g.bombPos);
 
                 if (dd < best) { best = dd; nearest = int(i); }
@@ -2102,6 +2207,18 @@ void compTick(Game& g) {
             g.bombActive = false;
             endCompRound(g, 1, "THE BOMB HAS BEEN DEFUSED", true);
             return;
+        }
+        // The Ts hear the defuse start (a bot's, or yours) and come for the bomb.
+        const bool defusing = c.defuser >= 0 || (c.youTeam == 1 && g.defuseStart >= 0);
+        if (defusing && !c.defuseHeard) {
+            c.defuseHeard = true;
+            for (size_t i = 0; i < g.dummies.size(); ++i)
+                if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && g.bots[i].state != 2 &&
+                    !(i < c.saving.size() && c.saving[i]) && length2d(g.dummies[i].pos - g.bombPos) < 2000.0f)
+                    sendBot(g, i, g.bombPos, false);
+            radio(firstAlive(0), "THEY'RE DEFUSING");
+        } else if (!defusing) {
+            c.defuseHeard = false;
         }
     }
     // Automated runs: a bot that hasn't moved for 8 s while it has somewhere to be (or is chasing a lead) is
@@ -2292,7 +2409,7 @@ void startNetCompClient(Game& g) {
     c.youDead = true;
     g.team.assign(g.dummies.size(), 0);
     c.botMoney.assign(g.dummies.size(), 0);
-    c.botRifle.assign(g.dummies.size(), 0);
+    c.botGun.assign(g.dummies.size(), uint8_t(kWPistol));
     for (int& t : g.netTeam) t = -1;
     for (Dummy& d : g.dummies) {
         d = Dummy{};
@@ -2848,32 +2965,12 @@ void simTick(Game& g, const Options& opt) {
             g.resumeZoomAt = g.simTime + wd.fireInterval - 0.12;
             g.zoom = 0;
         }
-        if (wd.id == kWSniper) {
-            sound(g, Sfx::SniperShot, 1.9f);  // your own gun: loud (the mixer soft-limits)
-            g.boltAt = g.simTime + 0.55;
-        } else if (wd.id == kWNova) {
-            sound(g, Sfx::ShotgunShot, 1.9f);  // a 12 gauge
-            g.boltAt = g.simTime + 0.3;        // the pump
-        } else if (wd.id == kWXm1014) {
-            sound(g, Sfx::ShotgunShot, 1.8f, 0.0f, gunshotPitch(wd.id));
-        } else if (wd.id == kWM4A1S) {
-            sound(g, Sfx::SuppressedRifle, 1.3f, 0.0f, 0.96f);
-        } else if (wd.id == kWDeagle) {
-            sound(g, Sfx::PistolShot, 1.9f, 0.0f, 0.72f);  // heavy
-        } else if (wd.id == kWMac10) {
-            sound(g, Sfx::RifleShot, 1.6f, 0.0f, 1.22f);   // light and fast
-        } else if (wd.id == kWBerettas) {
-            sound(g, Sfx::PistolShot, 1.45f, (g.shots & 1) ? -0.15f : 0.15f, 1.1f);  // left, right
-        } else if (wd.id == kWPistol) {
-            sound(g, Sfx::SuppressedShot, 1.3f, 0.0f, 1.08f);
-        } else if (wd.id == kWSsg08) {
-            sound(g, Sfx::SniperShot, 1.7f, 0.0f, gunshotPitch(wd.id));  // lighter and sharper than the AWP
-            g.boltAt = g.simTime + 0.47;
-        } else if (wd.id == kWGalil || wd.id == kWUmp45) {
-            sound(g, Sfx::RifleShot, wd.id == kWUmp45 ? 1.6f : 1.8f, 0.0f, gunshotPitch(wd.id));
-        } else {
-            sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 1.5f : 1.8f);
-        }
+        // Your own gun: loud (the mixer soft-limits). The Berettas fire left, right.
+        const GunSound gs = gunSound(wd.id);
+        sound(g, gs.sfx, gs.gain, wd.id == kWBerettas ? ((g.shots & 1) ? -0.15f : 0.15f) : 0.0f, gs.pitch);
+        if (wd.id == kWSniper) g.boltAt = g.simTime + 0.55;
+        else if (wd.id == kWSsg08) g.boltAt = g.simTime + 0.47;
+        else if (wd.id == kWNova) g.boltAt = g.simTime + 0.3;  // the pump
         g.vm.onShot(ws.shotCounter * 2654435761u);
         // Spray feedback (cosmetic): a camera roll that builds through the spray, and brass flying out.
         float wob = float((ws.shotCounter * 2246822519u) >> 16 & 0xFFFF) / 65535.0f - 0.5f;
@@ -3409,6 +3506,11 @@ void simTick(Game& g, const Options& opt) {
             return smokeBlocks(*static_cast<const Game*>(ctx), a, b);
         };
         sense.blockCtx = &g;
+        static std::vector<Vec3> fireSpots;
+        fireSpots.clear();
+        for (const Game::Fire& f : g.fires) fireSpots.push_back(f.pos);
+        sense.fires = &fireSpots;
+        sense.fireRadius = kFireRadius;
         // Competitive: each side fights the other side's bots, and you if you're on the other side. Deathmatch
         // (with dm_bot_fights): everyone fights everyone, and the bots still come looking for you half the time.
         std::vector<BotTarget> enemiesOf[2], everyone;
@@ -3434,7 +3536,10 @@ void simTick(Game& g, const Options& opt) {
             Dummy& d = g.dummies[i];
             BotBrain& b = g.bots[i];
             if (!d.alive() || !isBot(g, i)) { b.state = -1; b.sees = b.aimed = false; continue; }
-            if (g.mode == 1 && needsSpawn(d, b)) spawnDeathmatchBot(d, b, pickDmSpawn(g, false, i), g.rng);
+            if (g.mode == 1 && needsSpawn(d, b)) {
+                spawnDeathmatchBot(d, b, pickDmSpawn(g, false, i), g.rng);
+                d.weapon = uint8_t(deathmatchBotGun(rnd(g)));  // a new gun every life, like CS deathmatch
+            }
             sense.self = int(i);
             if (g.mode == 3) {
                 if (g.comp.phase != 1 || g.comp.planter == int(i) || g.comp.defuser == int(i)) {
@@ -3525,48 +3630,65 @@ void simTick(Game& g, const Options& opt) {
             g.botSeen[i] += kTickDt;
             g.botCooldown[i] -= kTickDt;
             if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
-            const bool rifle = !comp || g.comp.botRifle[i];
-            g.botCooldown[i] = ((rifle ? 0.22f : 0.32f) + rnd(g) * 0.16f) * sk.fireScale;
+            // Its gun: damage (falling off with range), armor penetration, fire rate, pellets, sound, all as the gun.
+            const int gun = weaponDef(d.weapon).canFire ? int(d.weapon) : int(kWRifle);
+            const WeaponDef& gd = weaponDef(gun);
+            g.botCooldown[i] = (botShotGap(gun) + rnd(g) * 0.16f) * sk.fireScale;
+            // A shotgun's pellets spread at random around the aim (bots may use randomness; you don't).
+            auto pelletDir = [&](const Vec3& dir, int k) {
+                if (k == 0 || gd.pelletSpread <= 0) return dir;
+                const Vec3 side = normalize(cross(dir, Vec3{0, 0, 1})), up = cross(side, dir);
+                const float a = rnd(g) * 6.2831853f, r = std::sqrt(rnd(g)) * gd.pelletSpread * kDegToRad;
+                return normalize(dir + side * (std::cos(a) * r) + up * (std::sin(a) * r));
+            };
+            gunshot3D(g, gun, d.pos, simEye, float(g.viewYaw), tgt >= 0 ? 1.0f : 1.1f);
             if (tgt >= 0) {  // competitive: shooting another bot (online: or another player)
                 const Dummy& v = g.dummies[size_t(tgt)];
                 Vec3 aim = v.pos + Vec3{0, 0, crouchZ((rnd(g) < sk.headChance ? 63.0f : 50.0f) * modelScale(), v.crouch)};  // head or chest
                 float err = length(aim - head) * 0.014f * sk.aimError;
                 aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 1.5f * err};
-                Vec3 dir = normalize(aim - head);
-                TraceResult wt = g.world.traceRay(head, head + dir * 5000.0f);
-                float maxT = wt.fraction * 5000.0f, t = maxT;
-                HitGroup grp = kChest;
-                bool hitIt = rayHitsDummy(v.pos, v.yaw, v.crouch, head, dir, maxT, t, grp) && !smokeBlocks(g, head, head + dir * t);
-                if (g.audio) {
-                    bool far = length(d.pos - simEye) > 1400.0f;
-                    if (!rifle)  // the starting pistol, suppressed
-                        g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.0f, 1.08f);
-                    else
-                        g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
-                                        far ? 6500.0f : 4000.0f, far ? 1.15f : 0.95f);
+                const Vec3 aimDir = normalize(aim - head);
+                float total = 0;  // damage before armor (players apply their own), and after (bots)
+                float armored = 0;
+                bool headHit = false, any = false;
+                HitGroup worst = kChest;
+                for (int k = 0; k < gd.pellets; ++k) {
+                    const Vec3 dir = pelletDir(aimDir, k);
+                    TraceResult wt = g.world.traceRay(head, head + dir * 5000.0f);
+                    float maxT = wt.fraction * 5000.0f, t = maxT;
+                    HitGroup grp = kChest;
+                    const bool hitIt = rayHitsDummy(v.pos, v.yaw, v.crouch, head, dir, maxT, t, grp) && !smokeBlocks(g, head, head + dir * t);
+                    const Vec3 end = head + dir * (hitIt ? t : maxT);
+                    g.fx.tracer(head + dir * 20.0f, end);
+                    if (k == 0) {
+                        muzzleLight(g, head + dir * 20.0f, suppressedGun(gun) ? 0.2f : 0.9f);
+                        replayShot(g, head + dir * 20.0f, end, int(i), gun);
+                        if (g.online) g.net.sendFire(head + dir * 20.0f, end, uint8_t(gun), int(i));
+                    }
+                    nearMiss(head, dir, hitIt ? t : maxT);
+                    if (!hitIt) continue;
+                    const float dmg = damageAt(gd, t) * hitGroupDamageScale(grp);
+                    total += dmg;
+                    armored += armoredDamage(dmg, grp, v.armor, v.helmet, gd.armorRatio);
+                    if (grp == kHead) headHit = true;
+                    if (!any || grp == kHead) worst = grp;
+                    any = true;
                 }
-                g.fx.tracer(head + dir * 20.0f, head + dir * (hitIt ? t : maxT));
-                muzzleLight(g, head + dir * 20.0f, rifle ? 0.9f : 0.2f);
-                replayShot(g, head + dir * 20.0f, head + dir * (hitIt ? t : maxT), int(i), rifle ? kWRifle : kWPistol);
-                nearMiss(head, dir, hitIt ? t : maxT);
-                if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * (hitIt ? t : maxT), rifle ? 0 : 1, int(i));
-                if (hitIt && !isBot(g, size_t(tgt))) {  // a player: their game takes it (and their armor)
-                    g.net.sendHit(uint8_t(tgt), (rifle ? 36.0f : 25.0f) * hitGroupDamageScale(grp), uint8_t(grp), rifle ? 0 : 1, int(i));
+                if (!any) continue;
+                if (!isBot(g, size_t(tgt))) {  // a player: their game takes it (and their armor)
+                    g.net.sendHit(uint8_t(tgt), total, uint8_t(worst), uint8_t(gun), int(i));
                     continue;
                 }
-                if (hitIt) {
-                    Dummy& vm = g.dummies[size_t(tgt)];
-                    float base = (rifle ? 36.0f : 25.0f) * hitGroupDamageScale(grp);
-                    float dmg = armoredDamage(base, grp, vm.armor, vm.helmet), applied = std::min(dmg, vm.hp);
-                    vm.hp -= dmg;
-                    vm.flash[grp] = 0.15f;
-                    vm.hitDir = dir;
-                    const bool kill = vm.hp <= 0;
-                    if (kill && grp == kHead) knockHelmet(g, size_t(tgt), dir);
-                    recordDamage(g, int(i), tgt, applied, grp == kHead, weaponDef(rifle ? kWRifle : kWPistol).name, false, kill);
-                    if (kill) { vm.respawnLeft = 1.0f; botDied(g, size_t(tgt)); }
-                    else { g.bots[size_t(tgt)].alertUntil = g.simTime + 2.0; g.bots[size_t(tgt)].lastSeen = d.pos; }
-                }
+                Dummy& vm = g.dummies[size_t(tgt)];
+                const float applied = std::min(armored, vm.hp);
+                vm.hp -= armored;
+                vm.flash[worst] = 0.15f;
+                vm.hitDir = aimDir;
+                const bool kill = vm.hp <= 0;
+                if (kill && headHit) knockHelmet(g, size_t(tgt), aimDir);
+                recordDamage(g, int(i), tgt, applied, headHit, gd.name, false, kill);
+                if (kill) { vm.respawnLeft = 1.0f; botDied(g, size_t(tgt)); }
+                else { g.bots[size_t(tgt)].alertUntil = g.simTime + 2.0; g.bots[size_t(tgt)].lastSeen = d.pos; }
                 continue;
             }
 
@@ -3574,40 +3696,39 @@ void simTick(Game& g, const Options& opt) {
             Vec3 aim = g.eyeHistory[(g.histHead - 1 - sk.lagTicks + 64) & 63] - Vec3{0, 0, rnd(g) < sk.headChance ? 2.0f : 16.0f};
             float err = length(aim - head) * 0.014f * sk.aimError;  // ~0.8 deg of random aim error at normal
             aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * err};
-            Vec3 dir = normalize(aim - head);
-            TraceResult wt = g.world.traceRay(head, head + dir * 5000.0f);
-            float maxT = wt.fraction * 5000.0f, bestT = maxT;
-            float hh = g.player.ducked ? kDuckHeight : kStandHeight;
-            Vec3 o = g.player.origin;
-            int hit = 0;  // 1 body, 2 head
-            float t;
-            if (rayHitsBox(head, dir, bestT, o + Vec3{-13, -13, 0}, o + Vec3{13, 13, hh - 10}, t) && t >= 0) {
-                bestT = t; hit = 1;
+            const Vec3 aimDir = normalize(aim - head);
+            const float hh = g.player.ducked ? kDuckHeight : kStandHeight;
+            const Vec3 o = g.player.origin;
+            // Your armor: competitive, what you bought; everywhere else kevlar and a helmet, like CS deathmatch.
+            const float yourArmor = comp ? g.comp.armor : 100.0f;
+            const bool yourHelmet = comp ? g.comp.helmet : true;
+            float dmg = 0;
+            bool headHit = false;
+            for (int k = 0; k < gd.pellets; ++k) {
+                const Vec3 dir = pelletDir(aimDir, k);
+                TraceResult wt = g.world.traceRay(head, head + dir * 5000.0f);
+                float maxT = wt.fraction * 5000.0f, bestT = maxT;
+                int hit = 0;  // 1 body, 2 head
+                float t;
+                if (rayHitsBox(head, dir, bestT, o + Vec3{-13, -13, 0}, o + Vec3{13, 13, hh - 10}, t) && t >= 0) {
+                    bestT = t; hit = 1;
+                }
+                if (rayHitsBox(head, dir, bestT, o + Vec3{-5, -5, hh - 10}, o + Vec3{5, 5, hh}, t) && t >= 0) {
+                    bestT = t; hit = 2;
+                }
+                g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
+                if (k == 0) {
+                    muzzleLight(g, head + dir * 20.0f, suppressedGun(gun) ? 0.2f : 0.9f);
+                    replayShot(g, head + dir * 20.0f, head + dir * bestT, int(i), gun);
+                    if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * bestT, uint8_t(gun), int(i));
+                }
+                if (!hit) { nearMiss(head, dir, bestT); continue; }
+                const HitGroup grp = hit == 2 ? kHead : kChest;
+                dmg += armoredDamage(damageAt(gd, bestT) * hitGroupDamageScale(grp), grp, yourArmor, yourHelmet, gd.armorRatio);
+                if (hit == 2) headHit = true;
             }
-            if (rayHitsBox(head, dir, bestT, o + Vec3{-5, -5, hh - 10}, o + Vec3{5, 5, hh}, t) && t >= 0) {
-                bestT = t; hit = 2;
-            }
-            if (g.audio) {  // far away a gunshot is mostly echo: muffled, no crack
-                bool far = length(d.pos - simEye) > 1400.0f;
-                if (!rifle)
-                    g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.1f, 1.08f);
-                else
-                    g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
-                                    far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f);
-            }
-            g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
-            muzzleLight(g, head + dir * 20.0f, rifle ? 0.9f : 0.2f);
-            replayShot(g, head + dir * 20.0f, head + dir * bestT, int(i), rifle ? kWRifle : kWPistol);
-            if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * bestT, rifle ? 0 : 1, int(i));
-            if (!hit) nearMiss(head, dir, bestT);
-
             if (i < g.spottedUntil.size()) g.spottedUntil[i] = g.simTime + 1.0;  // shooting gives you away
-            float dmg = hit == 2 ? 100.0f : 26.0f;
-            if (comp && hit) {  // competitive: real weapon damage, and your armor counts
-                dmg = (rifle ? 36.0f : 25.0f) * (hit == 2 ? 4.0f : 1.0f);
-                dmg = armoredDamage(dmg, hit == 2 ? kHead : kChest, g.comp.armor, g.comp.helmet);
-            }
-            if (hit && hurtPlayer(g, int(i), dmg, hit == 2, weaponDef(rifle ? kWRifle : kWPistol).name) && !comp)
+            if (dmg > 0 && hurtPlayer(g, int(i), dmg, headHit, wd.name) && !comp)
                 break;  // you died: nobody else shoots at your new spawn this tick
         }
     }
@@ -4901,7 +5022,8 @@ int main(int argc, char** argv) {
     Game g;
     resetGame(g, opt);
     Audio audio;
-    if (!automated && SDL_InitSubSystem(SDL_INIT_AUDIO) && audio.init(std::clamp(cfg.volume, 0.0f, 1.0f), std::string(base ? base : "") + "assets/sounds")) {
+    // (a benchmark plays the sounds too: the mixer's cost goes into bench.txt)
+    if ((!automated || bench) && SDL_InitSubSystem(SDL_INIT_AUDIO) && audio.init(std::clamp(cfg.volume, 0.0f, 1.0f), std::string(base ? base : "") + "assets/sounds")) {
         g.audio = &audio;
         std::fprintf(stderr, "sounds: %d replaced by recordings from assets, the rest synthesized\n", audio.loadedFromAssets());
         // Sounds through walls are muffled: two rays from your head to the sound (low and high on it); each one a
@@ -5283,18 +5405,7 @@ int main(int argc, char** argv) {
                 case NetEvent::Fire: {
                     if (!inGame) break;
                     if (g.audio) {
-                        const bool far = length(ev.a - g.lastRenderEye) > 1400.0f;
-                        // By gun: the pistols and the Deagle, the Nova's boom, the sniper, the MAC-10 and rifle.
-                        const int w = ev.weapon;
-                        const bool pistolSound = w == kWPistol || w == kWBerettas || w == kWDeagle;
-                        const Sfx s = w == kWPistol    ? Sfx::SuppressedShot
-                                      : w == kWM4A1S  ? Sfx::SuppressedRifle
-                                      : far           ? Sfx::RifleShotFar
-                                      : pistolSound   ? Sfx::PistolShot
-                                      : w == kWNova || w == kWXm1014 ? Sfx::ShotgunShot
-                                      : w == kWSniper || w == kWSsg08 ? Sfx::SniperShot : Sfx::RifleShot;
-                        const float pitch = gunshotPitch(w) * (w == kWPistol && ev.from >= kNetMaxPlayers ? 1.3f : 1.0f);
-                        g.audio->play3D(s, ev.a, g.lastRenderEye, float(g.viewYaw), far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f, pitch);
+                        gunshot3D(g, ev.weapon, ev.a, g.lastRenderEye, float(g.viewYaw));
                         // Close past your head: you hear it go by.
                         const Vec3 eye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)}, dir = normalize(ev.b - ev.a);
                         const float t = dot(eye - ev.a, dir);
@@ -5302,7 +5413,7 @@ int main(int argc, char** argv) {
                             g.audio->play3D(Sfx::Whiz, ev.a + dir * t, eye, float(g.viewYaw), 300.0f, 0.8f);
                     }
                     g.fx.tracer(ev.a, ev.b);
-                    muzzleLight(g, ev.a, ev.weapon == kWPistol || ev.weapon == kWM4A1S ? 0.2f : 0.9f);
+                    muzzleLight(g, ev.a, suppressedGun(ev.weapon) ? 0.2f : 0.9f);
                     if (netHost(g) && comp && ev.from < g.team.size() && !isBot(g, ev.from))
                         makeNoise(g, ev.a, 2200.0f, g.team[ev.from]);  // your bots hear the other players' shots
                     break;
@@ -6228,18 +6339,19 @@ int main(int argc, char** argv) {
                 double total = 0;
                 for (float f : b.frames) total += f;
                 std::string out = std::string(base ? base : "") + "bench.txt";
-                char report[768];
+                char report[900];
                 std::snprintf(report, sizeof(report),
                               "GPU: %s\nresolution %dx%d  msaa %d  map %d  mode %d  bots %zu  static boxes %zu\n"
                               "frames %zu  avg %.0f fps (%.3f ms)  1%% low %.0f fps (%.3f ms)  dynamic boxes/frame %.0f\n"
                               "ms per frame:  latency wait %.3f  input+sim %.3f  scene %.3f  draw calls %.3f  hud %.3f  gpu %.3f  swap %.3f\n"
-                              "low latency %d  vsync %d  fps cap %d\n",
+                              "low latency %d  vsync %d  fps cap %d\n"
+                              "audio: mixer thread busy %.2f%% of one core, up to %d voices at once\n",
                               reinterpret_cast<const char*>(glGetString(GL_RENDERER)), pixW, pixH, std::clamp(cfg.msaa, 0, 8),
                               g.mapId, g.mode, g.dummies.size(), g.world.solids.size(), n, 1000.0 * double(n) / total,
                               total / double(n), 1000.0 / double(sorted[n * 99 / 100]), double(sorted[n * 99 / 100]),
                               double(b.dynBoxes) / double(n), b.wait / double(n), b.sim / double(n), b.scene / double(n),
                               b.draw / double(n), b.hud / double(n), b.gpu / double(n), b.swap / double(n), cfg.low_latency,
-                              cfg.vsync, cfg.fps_max);
+                              cfg.vsync, cfg.fps_max, g.audio ? audio.mixLoad() * 100.0 : 0.0, g.audio ? audio.peakVoices() : 0);
                 std::ofstream(out) << report;
                 running = false;
             }

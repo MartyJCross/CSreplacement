@@ -138,6 +138,8 @@ float hitGroupDamageScale(HitGroup g);
 // Damage after armor: kevlar keeps `ratio` of it on body/arms/stomach, a helmet on the head; legs unarmored.
 // The ratio is the weapon's armorRatio (CS: 77.5% for most guns, the AWP 97.5%).
 float armoredDamage(float damage, HitGroup group, float armor, bool helmet, float ratio = 0.775f);
+// A bullet's damage after `dist` units (before the hit group and armor): damage * rangeModifier ^ (dist / 500).
+float damageAt(const WeaponDef& w, float dist);
 std::vector<Dummy> buildDummies();
 void updateDummy(Dummy& d, float dt);
 

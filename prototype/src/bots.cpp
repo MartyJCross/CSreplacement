@@ -49,6 +49,35 @@ bool stepToward(Dummy& d, const BotSenses& s, const Vec3& to, float step) {
     return len <= step;
 }
 
+// Fires: the one `p` stands in (within `margin` past its edge), if any.
+using Fire = Vec3;
+const Fire* fireAt(const BotSenses& s, const Vec3& p, float margin) {
+    for (const Vec3& f : *s.fires)
+        if (length2d(p - f) < s.fireRadius + margin && std::fabs(p.z - f.z) < 64.0f) return &f;
+    return nullptr;
+}
+
+// The way out of fire `f` from `p`: the nearest spot just outside it (round the ring, or further out) that it can
+// walk to in a straight line, else the nearest one it has a route to (off a ledge the other way, round a corner).
+bool fireExit(const BotSenses& s, const Vec3& p, const Fire& f, Vec3& out) {
+    std::pair<float, Vec3> spots[48];
+    int n = 0;
+    for (int k = 0; k < 48; ++k) {  // two rings: just outside, and further out
+        const float a = float(k % 24) * (6.2831853f / 24.0f);
+        Vec3 c = f + Vec3{std::cos(a), std::sin(a), 0} * (s.fireRadius + (k < 24 ? 28.0f : 90.0f));
+        if (!s.nav->standable(c)) continue;
+        c.z = s.nav->floorAt(c);
+        if (!fireAt(s, c, 8.0f)) spots[n++] = {length2d(c - p), c};
+    }
+    std::sort(spots, spots + n, [](const auto& x, const auto& y) { return x.first < y.first; });
+    for (int k = 0; k < n; ++k)
+        if (straightWalk(s, p, spots[k].second)) { out = spots[k].second; return true; }
+    static std::vector<Vec3> route;  // (sim thread only)
+    for (int k = 0; k < n && k < 8; ++k)
+        if (s.nav->findPath(p, spots[k].second, route)) { out = spots[k].second; return true; }
+    return false;
+}
+
 // A route to `to`; if `to` itself can't be reached (in a wall or a prop at this map size, or on a ledge),
 // to the nearest cell that can, which `to` is then moved to.
 bool pathTo(const BotSenses& s, const Vec3& from, Vec3& to, std::vector<Vec3>& path) {
@@ -217,7 +246,26 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     }
 
     const float step = kBotRunSpeed * kTickDt;
-    if (b.frozen) {  // stays on its spot; back to its angle a moment after losing you
+    // In a fire: out of it first, whatever it was doing (it keeps facing its fight), to the nearest open ground
+    // outside it. Walking on stops at the edge (see the end): it waits for the fire to burn out.
+    const Fire* burning = s.fires ? fireAt(s, d.pos, 8.0f) : nullptr;
+    const bool escaping = !b.frozen && burning;
+    if (!escaping) b.hasFireExit = false;
+    const Vec3 before = d.pos;
+    if (escaping) {  // (it keeps the way out it picked, so it doesn't dither between two)
+        if (!b.hasFireExit || fireAt(s, b.fireExit, 8.0f) || length2d(b.fireExit - d.pos) < 2.0f)
+            b.hasFireExit = fireExit(s, d.pos, *burning, b.fireExit);
+        const Vec3 was = d.pos;
+        if (b.hasFireExit && stepToward(d, s, b.fireExit, step)) b.hasFireExit = false;
+        if (b.hasFireExit && length2d(d.pos - was) < 0.01f) {  // a corner in the way: along the route's cells
+            static std::vector<Vec3> route;  // (sim thread only)
+            if (s.nav->findPath(d.pos, b.fireExit, route) && route.size() >= 2) {
+                stepToward(d, s, route[1], step);
+                if (length2d(d.pos - was) < 0.01f) stepToward(d, s, route[0], step);
+            }
+        }
+        b.strafing = false;
+    } else if (b.frozen) {  // stays on its spot; back to its angle a moment after losing you
         b.strafing = false;
         if (b.state == 2 && !b.sees && (b.timer -= kTickDt) <= 0) b.state = 1;
     } else switch (b.state) {
@@ -335,6 +383,12 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             break;
     }
 
+    // Never a step further into a fire (it waits at the edge).
+    if (!escaping && !b.frozen && s.fires && d.pos.x != before.x) {
+        const Fire* f = fireAt(s, d.pos, 8.0f);
+        if (f && length2d(d.pos - *f) < length2d(before - *f)) d.pos = before;
+    }
+
     // Face you when fighting, otherwise the way they walk (anchors: back to their angle).
     const Vec3 mv = d.pos - d.prevPos;
     const float idle = b.holdOnly && b.state == 1 ? b.holdYaw : d.yaw;
@@ -344,4 +398,89 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                                                            : std::atan2(mv.y, mv.x) / kDegToRad;
     d.yaw = turnToward(d.yaw, want, (b.state == 2 ? 600.0f : 360.0f) * kTickDt);
     b.aimed = b.sees && !b.strafing && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;  // they stop to shoot
+}
+
+BuyRound teamBuyRound(int avgMoney, bool pistolRound, bool mustWin) {
+    if (pistolRound) return kBuyPistol;
+    if (avgMoney >= 3700) return kBuyFull;  // a rifle, kevlar and a helmet each
+    if (mustWin || avgMoney >= 2900) return kBuyForce;
+    return kBuyEco;  // save: next round they can buy properly
+}
+
+BotBuy botBuy(BuyRound round, int money, int side, int role, int gun, bool armor, bool helmet) {
+    BotBuy b{gun, armor, helmet, 0};
+    auto spend = [&](int c) { money -= c; b.spent += c; };
+    auto armorUp = [&](bool withHelmet) {
+        if (!b.armor && money >= 650) { spend(650); b.armor = true; }
+        if (withHelmet && b.armor && !b.helmet && money >= 350) { spend(350); b.helmet = true; }
+    };
+    auto take = [&](int w) {
+        if (money < weaponDef(w).price) return false;
+        spend(weaponDef(w).price);
+        b.gun = w;
+        return true;
+    };
+    if (weaponDef(gun).primary) {  // it kept its gun: armor up - and on a full buy, a cheaper one gets swapped
+        const int better = role == 0 && money >= weaponDef(kWSniper).price + 1000 ? kWSniper : side == 0 ? kWRifle : kWM4A1S;
+        const int kit = (armor ? 0 : 650) + (helmet ? 0 : 350);
+        if (round == kBuyFull && weaponDef(gun).price < weaponDef(better).price && money >= weaponDef(better).price + kit)
+            take(better);
+        armorUp(true);
+        return b;
+    }
+    if (round == kBuyEco && money >= 5500) round = kBuyFull;  // rich enough to buy anyway
+    switch (round) {
+        case kBuyPistol:  // $800: kevlar mostly, one Deagle, one pair of Berettas
+            if (role == 1) take(kWDeagle);
+            else if (role == 3) take(kWBerettas);
+            else armorUp(false);
+            break;
+        case kBuyEco:  // save; one bot gambles on a Deagle
+            if (role == 1 && money >= 1400) take(kWDeagle);
+            break;
+        case kBuyFull: {
+            const int rifle = side == 0 ? kWRifle : kWM4A1S;
+            if (role == 0 && money >= weaponDef(kWSniper).price + 650 && take(kWSniper)) { armorUp(true); break; }
+            if (money >= weaponDef(rifle).price + 650 && take(rifle)) { armorUp(true); break; }
+            [[fallthrough]];  // can't afford the full kit: force
+        }
+        case kBuyForce: {
+            armorUp(false);
+            const int t[5] = {kWSsg08, kWGalil, kWGalil, kWMac10, kWNova};
+            const int ct[5] = {kWSsg08, kWUmp45, kWUmp45, kWUmp45, kWXm1014};
+            const int want = side == 0 ? t[role % 5] : ct[role % 5];
+            if (take(want)) break;
+            if (take(side == 0 ? kWMac10 : kWUmp45)) break;  // the cheap SMG
+            if (take(kWNova)) break;
+            take(kWDeagle);
+            break;
+        }
+    }
+    return b;
+}
+
+int deathmatchBotGun(float r01) {
+    struct Pick { int gun, weight; };
+    const Pick picks[] = {{kWRifle, 30}, {kWM4A1S, 22}, {kWGalil, 8}, {kWSniper, 8}, {kWSsg08, 5}, {kWMac10, 6},
+                          {kWUmp45, 6}, {kWNova, 3}, {kWXm1014, 4}, {kWDeagle, 8}};
+    int total = 0;
+    for (const Pick& p : picks) total += p.weight;
+    int at = std::min(total - 1, int(r01 * float(total)));
+    for (const Pick& p : picks) {
+        if (at < p.weight) return p.gun;
+        at -= p.weight;
+    }
+    return kWRifle;
+}
+
+float botShotGap(int w) {
+    float tap = 0.22f;  // rifles: taps and short bursts
+    switch (w) {
+        case kWMac10: case kWUmp45: tap = 0.15f; break;  // SMGs: spray closer
+        case kWPistol: tap = 0.32f; break;
+        case kWBerettas: tap = 0.26f; break;
+        case kWDeagle: tap = 0.5f; break;
+        default: break;
+    }
+    return std::max(tap, weaponDef(w).fireInterval);  // the bolt guns and the pump: the gun's own pace
 }
