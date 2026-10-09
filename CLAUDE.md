@@ -305,7 +305,8 @@ so a cut-off session can carry on; light testing, no benches while they use the 
       Stone recordings) on the sites' paving and the Lab's concrete, wood and metal as before
 - [x] 7. Viewmodel polish (fx.cpp ViewModel::update/build): sway on a spring (slight overshoot), strafe lean
       (`ViewModelInput::sideSpeed`, `lean_`), dip on takeoff, roll in the walk bob, idle breathing; shot kick untouched
-- [ ] 8. Graphics presets (LOW/MEDIUM/HIGH set shadows, post, msaa)
+- [x] 8. Graphics presets (`graphics_preset`, `kPresets`, `applyGraphicsPreset` in settingsChanged): LOW (no shadows,
+      FXAA), MEDIUM (shadows, FXAA), HIGH (sharp shadows, MSAA 4), CUSTOM when a setting is changed by hand
 - [ ] 9. Docs: README section, CLAUDE.md §7, final report + CI link + zip
 
 Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competitive bots (CT utility, post-plant,

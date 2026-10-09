@@ -4374,6 +4374,23 @@ bool g_replayAvailable = false;  // the pause menu offers WATCH REPLAY (somethin
 
 const char* const kOnOff[] = {"OFF", "ON"};
 const char* const kShadowNames[] = {"OFF", "ON", "SHARP"};
+const char* const kPresetNames[] = {"LOW", "MEDIUM", "HIGH", "CUSTOM"};
+// Graphics presets: shadows, post_fx, msaa. LOW and MEDIUM smooth edges with FXAA (cheap on integrated graphics).
+struct GraphicsPreset { int shadows, post, msaa; };
+constexpr GraphicsPreset kPresets[3] = {{0, 1, 0}, {1, 1, 0}, {2, 1, 4}};
+// A preset picked in the menu sets its three settings; changing one of them by hand makes it CUSTOM.
+void applyGraphicsPreset(Config& c, int& lastPreset) {
+    if (c.graphics_preset != lastPreset && c.graphics_preset >= 0 && c.graphics_preset < 3) {
+        const GraphicsPreset& p = kPresets[c.graphics_preset];
+        c.shadows = p.shadows;
+        c.post_fx = p.post;
+        c.msaa = p.msaa;
+    } else if (c.graphics_preset >= 0 && c.graphics_preset < 3) {
+        const GraphicsPreset& p = kPresets[c.graphics_preset];
+        if (c.shadows != p.shadows || c.post_fx != p.post || c.msaa != p.msaa) c.graphics_preset = 3;
+    }
+    lastPreset = c.graphics_preset;
+}
 const uint32_t kCrosshairColors[] = {0x00FF00, 0xFFFF00, 0x00FFFF, 0xFFFFFF, 0xFF3030, 0xFF40FF};
 const char* const kCrosshairColorNames[] = {"GREEN", "YELLOW", "CYAN", "WHITE", "RED", "PINK"};
 int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
@@ -4595,6 +4612,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
                     {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
                     {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
+                    {"GRAPHICS PRESET", nullptr, &c.graphics_preset, 1, 0, 3, kPresetNames},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
                     {"SUN SHADOWS", nullptr, &c.shadows, 1, 0, 2, kShadowNames},
                     {"POST-PROCESSING (RESTART)", nullptr, &c.post_fx, 1, 0, 1, kOnOff},
@@ -5926,7 +5944,10 @@ int main(int argc, char** argv) {
     setTownMap(cfg.map == 2 ? 1 : 0);
     loadMap(g, renderer, cfg.map >= 1 || g.mode != 0 ? 1 : 0);
     // Settings changed (menu, config reload): a new Dust size rebuilds the map right away.
+    int lastPreset = cfg.graphics_preset;
+    applyGraphicsPreset(cfg, lastPreset);  // (a config with its own shadows/AA shows as CUSTOM)
     auto settingsChanged = [&]() {
+        applyGraphicsPreset(cfg, lastPreset);
         applyConfig(g, cfg);
         g_caseKills = std::clamp(cfg.case_kills, 1, 1000);
         g_allSkins = cfg.all_skins != 0;
