@@ -96,13 +96,26 @@ public:
     void clearDepth();
     // Depth pre-pass for the world: each pixel is shaded once (on by default; off for comparison).
     void setDepthPrepass(bool on) { depthPrepass_ = on; }
+    // Post pass: the 3D scene goes into an offscreen picture (with `msaa` samples there instead of on the window),
+    // then onto the screen with FXAA (no MSAA), the colour grade and a vignette. Off: straight to the screen.
+    void setPost(bool on, int msaa);
+    // The colour grade: 0 the Lab, 1 Dust, 2 Harbor.
+    void setGrade(int look);
+    // After the 3D passes, before the HUD: puts the post-processed scene on the screen (nothing when post is off).
+    void endScene();
     // Uploads the HUD only when `changed` is true; otherwise redraws the last upload.
     void drawHud(const HudBatch& hud, bool changed);
 
     bool screenshot(const std::string& path);
 
 private:
-    unsigned boxProgram_ = 0, hudProgram_ = 0, depthProgram_ = 0, skyProgram_ = 0, skyVao_ = 0;
+    unsigned boxProgram_ = 0, hudProgram_ = 0, depthProgram_ = 0, skyProgram_ = 0, skyVao_ = 0, postProgram_ = 0;
+    // Post pass (setPost/endScene).
+    bool postOn_ = false, postOk_ = false, inPost_ = false;
+    int postMsaa_ = 0, postW_ = 0, postH_ = 0;
+    unsigned postFbo_ = 0, resolveFbo_ = 0, postColorRb_ = 0, postDepthRb_ = 0, postTex_ = 0;
+    int uPostPx_ = -1, uPostFxaa_ = -1, uPostTint_ = -1, uPostGrade_ = -1;
+    bool makePostTargets(int w, int h);
     int uSkyFwd_ = -1, uSkyRight_ = -1, uSkyUp_ = -1;
     unsigned texArray_ = 0;
     int uTex_ = -1, uHasTex_ = -1;

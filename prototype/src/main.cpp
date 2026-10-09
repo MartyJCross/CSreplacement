@@ -2954,6 +2954,7 @@ void loadMap(Game& g, Renderer& r, int id) {
         if (g.world.solids[q].slope != kFlat) g.ramps.push_back(q);
     for (const Box& b : g.world.decor) addStatic(b);
     r.setStaticBoxes(statics);
+    r.setGrade(id == 1 ? 1 + townMap() : 0);
     r.clearDecals();
     if (id == 1) g.nav.build(townGrid(), g.world, townSpawn().pos);
     if (id == 1 && g.mode == 3) g.nav.setAvoid(townMidCells());  // competitive: no mid fights from spawn (owner)
@@ -4584,6 +4585,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
                     {"SUN SHADOWS", nullptr, &c.shadows, 1, 0, 2, kShadowNames},
+                    {"POST-PROCESSING (RESTART)", nullptr, &c.post_fx, 1, 0, 1, kOnOff},
                     back};
         case kMenuGameplay:
             return {{"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
@@ -5739,7 +5741,8 @@ int main(int argc, char** argv) {
     // High pixel density: render at native resolution even with Windows display scaling (125%/150%).
     SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
-    const int msaa = std::clamp(cfg.msaa, 0, 8);
+    // With the post pass the samples live in its offscreen picture, not on the window.
+    const int msaa = cfg.post_fx ? 0 : std::clamp(cfg.msaa, 0, 8);
     if (msaa > 0) {
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, msaa);
@@ -5773,6 +5776,7 @@ int main(int argc, char** argv) {
     Renderer renderer;
     std::string err;
     if (!renderer.init(err)) return fatal(err, window, showErrors);
+    renderer.setPost(cfg.post_fx != 0, std::clamp(cfg.msaa, 0, 8));
     {  // surface textures from assets/ (without them the world keeps its procedural surfaces)
         const char* basePath = SDL_GetBasePath();
         const int layers = renderer.loadTextures(std::string(basePath ? basePath : "") + "assets/textures");
@@ -7212,6 +7216,7 @@ int main(int argc, char** argv) {
             g.hudDirty = false;
             hitMarkerShownUntil = g.simTime < g.hitMarkerUntil ? g.hitMarkerUntil : 0;
         }
+        renderer.endScene();
         renderer.drawHud(hud, rebuild);
         // The inventory / case stage: the weapon turning in front of its backdrop, over the HUD.
         if (g_menu.screen == kMenuInventory || g_menu.screen == kMenuCase) {

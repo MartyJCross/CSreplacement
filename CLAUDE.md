@@ -290,7 +290,8 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 so a cut-off session can carry on; light testing, no benches while they use the PC). Tick each piece off here:
 - [x] 1. Sun shadows (`Renderer::buildShadows`: static depth map from `kSunDir` at map load, `sunVis`/`sunLit` in the
       box FS, config `shadows` 0/1/2 + menu row) and bevelled prop edges (wood/metal faces, box FS)
-- [ ] 2. Post pass: scene into an FBO (MSAA inside it), then FXAA + colour grading per map + vignette; config `post_fx`
+- [x] 2. Post pass (`setPost`, `endScene`, `setGrade` per map in loadMap; kPostFS): scene into an FBO (MSAA samples
+      there, not on the window), then FXAA (when msaa 0) + colour grade + vignette; config `post_fx` (restart)
 - [ ] 3. Real font: stb_truetype + an OFL font baked into the HUD atlas, bitmap fallback
 - [ ] 4. Living main menu: a slow camera over Dust/Harbor behind the main menu; fades between screens / round start
 - [ ] 5. Map ambience (per-map loops) + room echo (reverb in tunnels/roofed areas)
