@@ -84,14 +84,16 @@ uniform vec3 uPA, uPB, uPC;
 uniform vec3 uPaintMisc;  // wear, gloss, seed
 uniform vec2 uPaintZ;     // the model's z range (back..front runs along it)
 uniform vec4 uFlash;      // the muzzle light: position, strength (0 = off)
-// A gunshot lights what's near it: warm, fading to nothing at 420 units, brightest on faces turned to it.
+// A gunshot lights the walls near it (owner: not the floor): warm, fading to nothing at 420 units, brightest on
+// faces turned to it. Floors and ceilings (faces pointing up or down) get none.
 vec3 flashLit(vec3 c) {
     if (uFlash.w <= 0.0) return c;
+    vec3 N = normalize(vNormal);
     vec3 d = uFlash.xyz - vWorld;
     float dist = length(d);
-    float k = uFlash.w * clamp(1.0 - dist / 420.0, 0.0, 1.0);
+    float k = uFlash.w * clamp(1.0 - dist / 420.0, 0.0, 1.0) * (1.0 - abs(N.z));
     k *= k;
-    float facing = 0.25 + 0.75 * max(dot(normalize(vNormal), d / max(dist, 1.0)), 0.0);
+    float facing = 0.25 + 0.75 * max(dot(N, d / max(dist, 1.0)), 0.0);
     return c + (c * vec3(1.2, 0.85, 0.45) + vec3(0.16, 0.11, 0.04)) * k * facing;
 }
 out vec4 oColor;

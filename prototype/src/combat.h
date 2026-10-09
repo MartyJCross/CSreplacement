@@ -146,7 +146,18 @@ struct ShotResult {
     // Wallbangs: walls the bullet passed through (entry/exit points for decals).
     int penCount = 0;
     Vec3 penEntry[2], penExit[2], penNormal[2];
+    // Collaterals: guns that go through walls also go through bodies (losing some damage each time), up to
+    // two more people behind the first. Their hits, in order (already applied to them like the first).
+    struct BodyHit { int dummyIndex; HitGroup group; float damage; bool kill; Vec3 at, normal; float distance; };
+    int collats = 0;
+    BodyHit collat[2];
+    bool isCollat = false;   // (the game's own copy of a collateral hit, made by collatResults)
 };
+constexpr float kBodyThickness = 8.0f;  // how much wall a body counts as, for a bullet going through it
+
+// Each collateral hit of `r` as a result of its own (dummyIndex, group, damage, kill, end, isCollat), so the
+// game can treat it like any other hit. Appends to out[n..] up to `cap`; returns the new count.
+int collatResults(const ShotResult& r, ShotResult* out, int n, int cap);
 
 // Fires one bullet. `dummyRenderPos` are the dummy positions the player was looking at (what you see
 // is what you hit). Spread and recoil are fully deterministic.

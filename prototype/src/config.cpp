@@ -15,7 +15,7 @@ fov 90
 fps_max 0
 vsync 0
 low_latency 1
-muzzle_brightness 0.35
+muzzle_brightness 0.45
 music_volume 0.5
 fullscreen 1
 // 0 = desktop resolution (try e.g. 1280 960 for 4:3 stretched)
@@ -98,15 +98,6 @@ enemy_skill 2
 prefire_bots_shoot 1
 )";
 
-// The sound lab's settings, by name (snd_pistol_<name>, snd_m4_<name>).
-struct ToneField { const char* name; float SuppressorTone::* member; };
-const ToneField kToneFields[] = {
-    {"tone", &SuppressorTone::tone},     {"tail", &SuppressorTone::tail},   {"thump", &SuppressorTone::thump},
-    {"thump_hz", &SuppressorTone::thumpHz}, {"pfft", &SuppressorTone::pfft}, {"zip", &SuppressorTone::zip},
-    {"zip_hz", &SuppressorTone::zipHz},  {"slide", &SuppressorTone::slide}, {"room", &SuppressorTone::room},
-    {"volume", &SuppressorTone::volume}, {"pitch", &SuppressorTone::pitch},
-};
-
 }  // namespace
 
 bool saveConfig(const std::string& path, const Config& c) {
@@ -137,11 +128,6 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nenemy_skill " << c.enemy_skill << "\nskill_variance " << c.skill_variance
         << "\ndm_bot_fights " << c.dm_bot_fights << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
         << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\n";
-    out << "// Sound lab: the suppressed pistol (snd_pistol_*) and the M4A1-S (snd_m4_*)\n";
-    for (int gun = 0; gun < 2; ++gun) {
-        const SuppressorTone& t = gun ? c.snd_m4 : c.snd_pistol;
-        for (const ToneField& f : kToneFields) out << (gun ? "snd_m4_" : "snd_pistol_") << f.name << " " << t.*(f.member) << "\n";
-    }
     return bool(out);
 }
 
@@ -179,12 +165,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "muzzle_brightness") c.muzzle_brightness = v;
         else if (key == "skill_variance") i(c.skill_variance);
         else if (key == "dm_bot_fights") i(c.dm_bot_fights);
-        else if (key.rfind("snd_pistol_", 0) == 0 || key.rfind("snd_m4_", 0) == 0) {
-            const bool m4 = key[4] == 'm';
-            const std::string field = key.substr(m4 ? 7 : 11);
-            for (const ToneField& f : kToneFields)
-                if (field == f.name) (m4 ? c.snd_m4 : c.snd_pistol).*(f.member) = v;
-        }
+
         else if (key == "music_volume") c.music_volume = v;
         else if (key == "fullscreen") i(c.fullscreen);
         else if (key == "width") i(c.width);

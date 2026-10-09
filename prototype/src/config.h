@@ -2,24 +2,6 @@
 #pragma once
 #include <string>
 
-// The sound lab (Settings -> SOUND LAB): how the suppressed pistol and the M4A1-S are built from their
-// recordings (audio.cpp suppressedFrom). The defaults are the v0.14 sounds.
-struct SuppressorTone {
-    float tone = 2600;     // Hz: how much of the recording's top end is kept (higher = brighter, tinnier)
-    float tail = 60;       // ms: how fast the bang dies away
-    float thump = 0.25f;   // the low "thwump" under it...
-    float thumpHz = 130;   // ...and its pitch
-    float pfft = 0.42f;    // the bright spit of gas
-    float zip = 0.2f;      // the falling movie "zip"...
-    float zipHz = 3400;    // ...and where it starts
-    float slide = 0.09f;   // the slide / bolt ringing
-    float room = 0.14f;    // echo off the walls
-    float volume = 1.3f;   // how loud your own shots are
-    float pitch = 1.0f;    // playback speed (lower = deeper)
-};
-inline SuppressorTone pistolToneDefaults() { return {}; }
-inline SuppressorTone rifleToneDefaults() { return {2000, 85, 0.3f, 150, 0.38f, 0.13f, 3000, 0.08f, 0.2f, 1.7f, 1.0f}; }
-
 struct Config {
     float sensitivity = 1.2f;
     float m_yaw = 0.022f;     // degrees per mouse count, same as CS: your CS sensitivity carries over
@@ -28,9 +10,8 @@ struct Config {
     int fps_max = 0;          // 0 = unlimited
     int vsync = 0;
     int low_latency = 1;      // 1 = never more than one frame queued on the GPU (less input lag when GPU-bound)
-    float muzzle_brightness = 0.35f;  // how much gunshots light up the walls round them (0 = off, 1 = v0.14's)
+    float muzzle_brightness = 0.45f;  // how much gunshots light up the walls round them (0 = off, 1 = v0.14's)
     float music_volume = 0.5f;  // the menu soundtrack
-    SuppressorTone snd_pistol = pistolToneDefaults(), snd_m4 = rifleToneDefaults();
     int fullscreen = 1;
     int width = 0, height = 0;  // 0 = desktop resolution (fullscreen) / 1280x720 (windowed)
     int crosshair_size = 5;

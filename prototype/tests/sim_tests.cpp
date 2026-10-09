@@ -973,6 +973,30 @@ void testNewGuns() {
     bodyShot(weaponDef(kWUmp45), 2000, umpFar);
     std::printf("  UMP-45 through kevlar: %.0f at 200 units, %.0f at 2000\n", double(umpNear), double(umpFar));
     CHECK(umpNear > 20.0f && umpFar < umpNear * 0.65f, "ump %.0f / %.0f", double(umpNear), double(umpFar));
+    // Collats: a bullet that goes through walls goes through bodies too, into the next one in line.
+    auto lineShot = [&](const WeaponDef& def, float z, int& kills, int& hits) {
+        std::vector<Dummy> dd(3);
+        for (size_t k = 0; k < dd.size(); ++k) dd[k].pos = dd[k].prevPos = {400.0f + 60.0f * float(k), 0, 0};
+        std::vector<Vec3> pos;
+        for (const Dummy& x : dd) pos.push_back(x.pos);
+        WeaponState ws;
+        ws.def = &def;
+        const ShotResult r = fireBullet(ws, {0, 0, z}, 0, 0, 0, true, false, empty, dd, pos);
+        hits = (r.dummyIndex >= 0 ? 1 : 0) + r.collats;
+        kills = int(r.kill);
+        for (int k = 0; k < r.collats; ++k) kills += r.collat[k].kill;
+        ShotResult out[4];
+        CHECK(collatResults(r, out, 0, 4) == r.collats && (r.collats == 0 || (out[0].isCollat && out[0].dummyIndex == 1)),
+              "collat results");
+    };
+    int awpKills = 0, awpHits = 0, akKills = 0, akHits = 0, pistolKills = 0, pistolHits = 0;
+    lineShot(sniperDef(), 50, awpKills, awpHits);   // chest high
+    lineShot(rifleDef(), 64, akKills, akHits);      // head high
+    lineShot(pistolDef(), 64, pistolKills, pistolHits);
+    std::printf("  collats, three in a line: AWP chest %d hit %d killed, AK-47 head %d hit %d killed, pistol %d hit\n",
+                awpHits, awpKills, akHits, akKills, pistolHits);
+    CHECK(awpKills >= 2 && akKills >= 2 && pistolHits == 1, "collats awp %d ak %d pistol %d", awpKills, akKills, pistolHits);
+
     // Only the snipers scope; a noscope is only inaccurate with the moving-spread option on.
     WeaponState awp;
     awp.def = &sniperDef();

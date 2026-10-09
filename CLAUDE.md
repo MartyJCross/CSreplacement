@@ -219,14 +219,14 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Low latency mode** (`low_latency`, default 1): a GL fence after each swap, waited on before reading input, so
   at most one frame is queued on the GPU (Reflex/Anti-Lag by hand). Costs ~17% FPS on the owner's laptop for
   1-2 frames less lag; compare with `--bench-raw 10` (no glFinish), not `--bench`.
-- **Sound lab** (Settings -> SOUND LAB, `kMenuSoundPistol/Rifle`): the owner tunes the suppressed pistol and M4A1-S;
-  `config.h SuppressorTone` (`snd_pistol_*`, `snd_m4_*` in config.cfg), built by `audio.cpp suppressedFrom` from the
-  unsuppressed base shots (`Audio::setSuppressorTone` rebuilds live; the mixer holds `mutex_` while mixing). When the
-  owner says the sound is right, read their config.cfg snd_* values and make them the defaults.
+- **Suppressed sounds** (audio.cpp `suppressedFrom`, `kUspS`, `kM4A1S`): built on the AK recording (owner: "the AK sounds SO good").
+  The owner tuned them in v0.15's sound lab (removed in v0.16), then asked for a whispier pistol: keep the
+  low "thump" (150-500 Hz) around 15%, the M4A1-S a little fuller.
+- **Collats** (combat.cpp traceShot): guns with penetration go through bodies (`kBodyThickness`), up to 3; `ShotResult::collat`, `collatResults` turns them into extra hits the game handles like any other.
 - **Reloads** are 20% faster than CS (owner, v0.15): the reload animation and sound cues stretch to `reloadTime`.
 - **Bots:** deathmatch bots fight each other (`dm_bot_fights`; `BotSenses::self/huntYou`, `everyone` targets);
   skill variance (`skill_variance` 0/1/2: +/-0.5 or 1 level per bot per match, `botSkillOf`, `skillAt` blends levels).
-- **Muzzle light** (`muzzle_brightness`, 0..1, default 0.35 after "too bright"): one warm point light (`Renderer::setFlash`, shader `flashLit`, 420 units),
+- **Muzzle light** (`muzzle_brightness`, 0..1, default 0.45, owner's pick; walls only, not floors): one warm point light (`Renderer::setFlash`, shader `flashLit`, 420 units),
   set by `muzzleLight()` on every shot (yours, bots', remote) and fading over ~50 ms.
 - **Kill flash** (the dummies loop, dead branch): white and still for ~80 ms (`killFlash`), then the fall.
 - **Menu music** (`Audio::loadMusic` on a thread, `setMusic` fades; `music_volume`): assets/music/menu.ogg (CC0,

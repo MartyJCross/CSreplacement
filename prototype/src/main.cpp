@@ -239,7 +239,6 @@ struct Game {
     int compMates = 4, compEnemies = 5, mateSkill = 1, enemySkill = 2;  // competitive teams, bot skill (config)
     int skillVariance = 0;        // 0 off, 1 slight, 2 wide (config skill_variance)
     bool dmBotFights = true;      // deathmatch: the bots fight each other (config dm_bot_fights)
-    SuppressorTone sndPistol, sndM4 = rifleToneDefaults();  // the sound lab: your suppressed shots' volume and pitch
     double freezeTime = 15;                 // competitive freeze time, seconds (config freeze_time)
     // Online: deathmatch (mode 5) or competitive (mode 3 with `online`). Players are dummies[id] (id = their
     // net id; yours stays hidden); in competitive the host's bots are dummies 8..17. Their states are played
@@ -640,8 +639,6 @@ void applyConfig(Game& g, const Config& cfg) {
     g.enemySkill = std::clamp(cfg.enemy_skill, 0, 3);  // next round
     g.skillVariance = std::clamp(cfg.skill_variance, 0, 2);
     g.dmBotFights = cfg.dm_bot_fights != 0;
-    g.sndPistol = cfg.snd_pistol;
-    g.sndM4 = cfg.snd_m4;
     g.viewShake = cfg.view_shake != 0;
     // (knife and skins: the inventory, applySkins)
     g.hitSound = cfg.hitsound != 0;
@@ -2607,14 +2604,19 @@ void simTick(Game& g, const Options& opt) {
     ws.scoped = g.zoom > 0;  // (a noscope's spread, with the moving-spread option)
     if (wantFire && wd.canFire && ws.reloadEndTime < 0 && ws.ammo > 0 && takeShotTiming(ws, g.simTime)) {
         float hspeed = length2d(g.player.velocity);
-        ShotResult pellets[kMaxPellets];
+        ShotResult pellets[kMaxPellets * 3];  // the bullets (pellets), then any collateral hits
         int shotCount = 1;
-        if (wd.pellets > 1)
+        if (wd.pellets > 1) {
+            ShotResult shot[kMaxPellets];
             shotCount = firePellets(ws, g.lastRenderEye, float(g.viewPitch), float(g.viewYaw), hspeed, g.player.onGround,
-                                    g.player.ducked, g.world, g.dummies, g.lastDummyRenderPos, pellets);
-        else
+                                    g.player.ducked, g.world, g.dummies, g.lastDummyRenderPos, shot);
+            std::copy(shot, shot + shotCount, pellets);
+        } else {
             pellets[0] = fireBullet(ws, g.lastRenderEye, float(g.viewPitch), float(g.viewYaw), hspeed, g.player.onGround,
                                     g.player.ducked, g.world, g.dummies, g.lastDummyRenderPos);
+        }
+        const int bullets = shotCount;
+        for (int k = 0; k < bullets; ++k) shotCount = collatResults(pellets[k], pellets, shotCount, kMaxPellets * 3);
         fired = true;
         ws.ammo--;
         g.shots++;
@@ -2644,7 +2646,7 @@ void simTick(Game& g, const Options& opt) {
         } else if (wd.id == kWXm1014) {
             sound(g, Sfx::ShotgunShot, 1.8f, 0.0f, gunshotPitch(wd.id));
         } else if (wd.id == kWM4A1S) {
-            sound(g, Sfx::SuppressedRifle, g.sndM4.volume, 0.0f, g.sndM4.pitch);
+            sound(g, Sfx::SuppressedRifle, 1.3f, 0.0f, 0.96f);
         } else if (wd.id == kWDeagle) {
             sound(g, Sfx::PistolShot, 1.9f, 0.0f, 0.72f);  // heavy
         } else if (wd.id == kWMac10) {
@@ -2652,7 +2654,7 @@ void simTick(Game& g, const Options& opt) {
         } else if (wd.id == kWBerettas) {
             sound(g, Sfx::PistolShot, 1.45f, (g.shots & 1) ? -0.15f : 0.15f, 1.1f);  // left, right
         } else if (wd.id == kWPistol) {
-            sound(g, Sfx::SuppressedShot, g.sndPistol.volume, 0.0f, g.sndPistol.pitch);
+            sound(g, Sfx::SuppressedShot, 1.3f, 0.0f, 1.08f);
         } else if (wd.id == kWSsg08) {
             sound(g, Sfx::SniperShot, 1.7f, 0.0f, gunshotPitch(wd.id));  // lighter and sharper than the AWP
             g.boltAt = g.simTime + 0.47;
@@ -2682,7 +2684,8 @@ void simTick(Game& g, const Options& opt) {
         bool anyKill = false;
         for (int k = 0; k < shotCount; ++k) {
             const ShotResult& r = pellets[k];
-            if (k == 0 || k % 3 == 0) g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
+            if (k == 0 || k % 3 == 0 || r.isCollat)  // (a collat: the tracer carries on to the next one)
+                g.fx.tracer(g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)), r.end);
             if (g.online && g.net.ready() && k > 0 && k % 3 == 0) g.net.sendFire(g.lastRenderEye, r.end, code);
             // A player (their game applies it), or a bot when you joined (the host's): tell them.
             if (g.online && g.net.ready() && r.dummyIndex >= 0 && !(netHost(g) && isBot(g, size_t(r.dummyIndex))))
@@ -2714,9 +2717,10 @@ void simTick(Game& g, const Options& opt) {
                 hitDamage += r.damage;
                 anyKill = anyKill || r.kill;
                 if (wd.pellets <= 1) {
-                    char buf[96];
-                    std::snprintf(buf, sizeof(buf), "%s %d%s%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
-                                  r.kill ? "  KILL" : "", r.penCount ? "  WALLBANG" : "", r.distance * 0.0254f);
+                    char buf[112];
+                    std::snprintf(buf, sizeof(buf), "%s %d%s%s%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
+                                  r.kill ? "  KILL" : "", r.penCount ? "  WALLBANG" : "", r.isCollat ? "  COLLAT" : "",
+                                  r.distance * 0.0254f);
                     pushHitLog(g, buf, r.group == kHead ? 0xff6060 : 0xffffff);
                 }
                 if (r.kill && r.group == kHead) knockHelmet(g, size_t(r.dummyIndex), shotDir);
@@ -3319,7 +3323,7 @@ void simTick(Game& g, const Options& opt) {
                 if (g.audio) {
                     bool far = length(d.pos - simEye) > 1400.0f;
                     if (!rifle)  // the starting pistol, suppressed
-                        g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.0f, g.sndPistol.pitch);
+                        g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.0f, 1.08f);
                     else
                         g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
                                         far ? 6500.0f : 4000.0f, far ? 1.15f : 0.95f);
@@ -3368,7 +3372,7 @@ void simTick(Game& g, const Options& opt) {
             if (g.audio) {  // far away a gunshot is mostly echo: muffled, no crack
                 bool far = length(d.pos - simEye) > 1400.0f;
                 if (!rifle)
-                    g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.1f, g.sndPistol.pitch);
+                    g.audio->play3D(Sfx::SuppressedShot, d.pos, simEye, float(g.viewYaw), 2200.0f, 1.1f, 1.08f);
                 else
                     g.audio->play3D(far ? Sfx::RifleShotFar : Sfx::RifleShot, d.pos, simEye, float(g.viewYaw),
                                     far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f);
@@ -3462,10 +3466,9 @@ enum MenuScreen {
     kMenuNone, kMenuMain, kMenuPause, kMenuPlay, kMenuSettings, kMenuControls,
     kMenuMouse, kMenuCrosshair, kMenuWeapon, kMenuVideo, kMenuGameplay,  // settings pages, in order
     kMenuInventory, kMenuCase,
-    kMenuSoundPistol, kMenuSoundRifle,  // the sound lab: the suppressed pistol and the M4A1-S
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
-                  kActOpenCase, kActSkipCase, kActEquipNew, kActPlaySound, kActResetSound, kActGoto = 100 };
+                  kActOpenCase, kActSkipCase, kActEquipNew, kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
 
 // Which screen is up (kMenuNone = playing), the highlighted row, and where Back ends up:
@@ -3512,8 +3515,6 @@ const char* menuTitle(int screen) {
         case kMenuGameplay: return "GAMEPLAY";
         case kMenuInventory: return "INVENTORY";
         case kMenuCase: return "CASE";
-        case kMenuSoundPistol: return "SOUND LAB: SUPPRESSED PISTOL";
-        case kMenuSoundRifle: return "SOUND LAB: M4A1-S";
         default: return "";
     }
 }
@@ -3599,29 +3600,9 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuSettings:
             return {button("MOUSE + VIEW", goTo(kMenuMouse)), button("CROSSHAIR + HUD", goTo(kMenuCrosshair)),
                     button("WEAPONS + SKINS", goTo(kMenuWeapon)), button("VIDEO + SOUND", goTo(kMenuVideo)),
-                    button("GAMEPLAY", goTo(kMenuGameplay)), button("SOUND LAB (SUPPRESSED GUNS)", goTo(kMenuSoundPistol)),
+                    button("GAMEPLAY", goTo(kMenuGameplay)),
                     button("RELOAD CONFIG.CFG", kActReload), back};
         case kMenuControls: return {back};
-        case kMenuSoundPistol:
-        case kMenuSoundRifle: {  // every change rebuilds the sound and plays it; all saved in config.cfg (snd_*)
-            const bool m4 = screen == kMenuSoundRifle;
-            SuppressorTone& t = m4 ? c.snd_m4 : c.snd_pistol;
-            return {button("PLAY IT (OR FIRE IT IN A GAME)", kActPlaySound),
-                    {"TONE: BRIGHTNESS (HZ)", &t.tone, nullptr, 100.0f, 600.0f, 9000.0f},
-                    {"TAIL: HOW LONG THE BANG LASTS (MS)", &t.tail, nullptr, 5.0f, 10.0f, 300.0f},
-                    {"THUMP: THE LOW THWUMP", &t.thump, nullptr, 0.02f, 0.0f, 1.0f},
-                    {"THUMP PITCH (HZ)", &t.thumpHz, nullptr, 5.0f, 40.0f, 400.0f},
-                    {"PFFT: THE GAS SPIT", &t.pfft, nullptr, 0.02f, 0.0f, 1.2f},
-                    {"ZIP: THE MOVIE WHISTLE", &t.zip, nullptr, 0.02f, 0.0f, 1.0f},
-                    {"ZIP PITCH (HZ)", &t.zipHz, nullptr, 100.0f, 800.0f, 9000.0f},
-                    {m4 ? "BOLT RING" : "SLIDE RING", &t.slide, nullptr, 0.01f, 0.0f, 0.6f},
-                    {"ROOM ECHO", &t.room, nullptr, 0.01f, 0.0f, 0.6f},
-                    {"VOLUME (YOUR SHOTS)", &t.volume, nullptr, 0.05f, 0.2f, 3.0f},
-                    {"PITCH (PLAYBACK SPEED)", &t.pitch, nullptr, 0.01f, 0.5f, 1.8f},
-                    button("RESET TO DEFAULT", kActResetSound),
-                    button(m4 ? "SUPPRESSED PISTOL PAGE" : "M4A1-S PAGE", goTo(m4 ? kMenuSoundPistol : kMenuSoundRifle)),
-                    back};
-        }
         case kMenuMouse:
             return {{"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
                     {"SCOPED SENSITIVITY RATIO", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
@@ -4587,8 +4568,6 @@ int main(int argc, char** argv) {
     if (!automated && SDL_InitSubSystem(SDL_INIT_AUDIO) && audio.init(std::clamp(cfg.volume, 0.0f, 1.0f), std::string(base ? base : "") + "assets/sounds")) {
         g.audio = &audio;
         std::fprintf(stderr, "sounds: %d replaced by recordings from assets, the rest synthesized\n", audio.loadedFromAssets());
-        audio.setSuppressorTone(false, cfg.snd_pistol);  // the sound lab's settings (config.cfg snd_*)
-        audio.setSuppressorTone(true, cfg.snd_m4);
     }
     else if (!automated)
         std::fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
@@ -4715,19 +4694,10 @@ int main(int argc, char** argv) {
         if (row < 0 || row >= int(rows.size())) return;
         const MenuItem& it = rows[size_t(row)];
         g.hudDirty = true;
-        const bool soundLab = g_menu.screen == kMenuSoundPistol || g_menu.screen == kMenuSoundRifle;
-        const bool labM4 = g_menu.screen == kMenuSoundRifle;
-        auto labPlay = [&]() {  // rebuild the sound from the settings and play it as your own shot
-            if (!g.audio) return;
-            g.audio->setSuppressorTone(labM4, labM4 ? cfg.snd_m4 : cfg.snd_pistol);
-            const SuppressorTone& t = labM4 ? cfg.snd_m4 : cfg.snd_pistol;
-            g.audio->play(labM4 ? Sfx::SuppressedRifle : Sfx::SuppressedShot, t.volume, 0.0f, t.pitch);
-        };
         if (adjustMenu(cfg, it, dir, big)) {
-            if (!soundLab) sound(g, Sfx::UiClick, 0.35f, 0.0f, 1.15f);
+            sound(g, Sfx::UiClick, 0.35f, 0.0f, 1.15f);
             settingsChanged();
             saveConfig(cfgPath, cfg);
-            if (soundLab) labPlay();
             if (g_menu.screen == kMenuInventory) {  // a skin picked (or every skin unlocked / locked again)
                 if (it.i == &cfg.all_skins) {
                     validateEquips(g);
@@ -4764,13 +4734,6 @@ int main(int argc, char** argv) {
                 }
                 break;
             case kActSkipCase: g_case.start = g_uiTime - kCaseSpin; break;
-            case kActPlaySound: labPlay(); break;
-            case kActResetSound:
-                (labM4 ? cfg.snd_m4 : cfg.snd_pistol) = labM4 ? rifleToneDefaults() : pistolToneDefaults();
-                settingsChanged();
-                saveConfig(cfgPath, cfg);
-                labPlay();
-                break;
             case kActEquipNew:
                 if (g_case.item >= 0 && size_t(g_case.item) < g_inv.items.size()) {
                     const Item& it2 = g_inv.items[size_t(g_case.item)];

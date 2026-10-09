@@ -177,7 +177,6 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Bots hear you:** your footsteps and shots reach the host's bots like the host's own.
 - Leaving the match: Esc -> MAIN MENU. If the host leaves, everyone goes back to the menu's Lab.
 
-
 ## Prefire (Play: MODE)
 
 - **Pick a route** (A long, B tunnels, mid, A short). Bots stand at the usual defender angles along it, facing the way you come: the long corner, pit, goose, behind the default boxes, B doors, back plat, mid doors and so on. They never move, but they turn on you and shoot (BOTS SHOOT BACK on the Play screen, `prefire_bots_shoot`, on by default).
@@ -205,7 +204,7 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Damage direction:** when a bot hits you, a red arc round the crosshair points at where it came from (fades over a second), like CS.
 - **A helmet "tink"** when your headshot is stopped by a helmet instead of killing.
 - **The kill, Valorant-style:** the moment a bot dies it flashes bright white and holds still for a beat (~80 ms), then fades as it falls.
-- **Muzzle flash light:** every gunshot lights up the walls, floor and ceiling round the gun for a few frames, warm and fading out over ~400 units (yours, the bots' and other players'; suppressed guns barely). MUZZLE FLASH LIGHT in Settings → Video + sound sets how bright (`muzzle_brightness`, 0 = off, 1 = v0.14's; 0.35 by default).
+- **Muzzle flash light:** every gunshot lights up the walls round the gun for a few frames (not the floor or ceiling), warm and fading out over ~400 units (yours, the bots' and other players'; suppressed guns barely). MUZZLE FLASH LIGHT in Settings → Video + sound sets how bright (`muzzle_brightness`, 0 = off; 0.45 by default).
 - **Kills you can see:** the dead fall over the way your bullet pushed them, faster and faster like a toppling body, slide a little, lie there for a few seconds and sink away. A **headshot kill knocks the helmet off** (CTs; like CS:GO): it flies along the shot, spinning, bounces once and lies there.
 
 ## Guns
@@ -259,13 +258,16 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
 - **Volume** is `volume` in `config.cfg` (0..1).
 - **Each gun sounds like itself:** the shared recordings pitched per gun (the UMP-45 a slow thump, the SSG 08 a smaller bang than the AWP). The **shotguns** are real 12 gauge recordings (a Benelli Nova, a Winchester Model 12, a Charles Daly).
-- **The suppressed pistol**, like a spy film's: made from the pistol recording the way a suppressor changes a shot (the crack cut away, a "thwump" of gas, the bang dying faster), with a bright "pfft" spit, a quick falling "zip" and the slide ringing on top. About 15–20% of it is at 1.5–4 kHz: brighter than v0.13's 6%, nowhere near the old tinny click's 40%.
-- **The M4A1-S** is the same spy-film "thwip" with a rifle under it: made from the AR-15 recordings, more gas, a deeper thump in the low mids (not sub-bass), the bolt carrier slamming and a longer tail.
+- **The suppressed guns are built on the AK-47 recording**, the way a suppressor changes a shot: the crack and top end cut away, the bang dying slower, then a breathy "pfft" of gas, a falling movie "zip" and the slide or bolt ringing. Tuned by the owner in v0.15's sound lab, then the **pistol** made whispier (most of the low "thump" cut: 15% of it below 500 Hz, from 37%) and the **M4A1-S** given a little more weight and a slightly deeper pitch.
+
 - **Menu music:** "Menu Music" by wipics (CC0, an upbeat electronic loop) plays on the main menu and its pages, and fades out when a game starts (not in the pause menu). MENU MUSIC in Settings → Video + sound sets its volume (`music_volume`, 0 = off). It's decoded in the background, so startup isn't slower.
 - **Scoping in** has its own soft "chk".
-- **Sound lab** (Settings → SOUND LAB): tune the suppressed pistol and the M4A1-S yourself. Every change rebuilds the sound from its recording and plays it; fire the gun in a game to hear it for real. TONE (how much of the bang's top end is kept: higher is brighter and tinnier), TAIL (how long the bang lasts), THUMP and its pitch (the low "thwump"), PFFT (the gas spit), ZIP and its pitch (the movie whistle), SLIDE / BOLT RING, ROOM ECHO, VOLUME and PITCH (lower is deeper). RESET TO DEFAULT puts it back. Everything is saved in `config.cfg` as `snd_pistol_*` and `snd_m4_*`.
+
 - **Synthesized sounds** are made at startup (and stand in for any recording that's missing). To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV; `--dump-played-sounds <folder>` writes what the game really plays, recordings included.
 
+## Collaterals
+
+**A bullet that goes through walls goes through people too.** The AK-47, M4A1-S, Galil, AWP, SSG 08, Deagle, Berettas and SMGs pass through a body into whoever is behind (up to three in a line), losing some damage each time (a body counts as 8 units of wall): an AWP chest shot kills two in a row, an AK headshot through one head kills the next. The starting pistol and the shotguns stop in the first body. Your hit log says COLLAT. Tested in `sim_tests`.
 
 ## Bots, smokes, wallbangs, KZ
 

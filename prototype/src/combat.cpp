@@ -366,18 +366,23 @@ namespace {
 ShotResult traceShot(const WeaponDef& w, const Vec3& eye, const Vec3& dir, const World& world,
                      std::vector<Dummy>& dummies, const std::vector<Vec3>& dummyRenderPos) {
     ShotResult res;
-    // Trace in segments: hit a wall -> if it is thin enough for this weapon, pass through
-    // (losing damage) and keep going. Up to two walls.
+    // Trace in segments: hit a wall -> if it is thin enough for this weapon, pass through (losing damage) and
+    // keep going; up to two walls. Hit a body -> it takes the bullet, and a gun that goes through walls goes
+    // through bodies too (a body counts as kBodyThickness of wall), up to three people in a line: a collat.
     const float kRange = 8192.0f;
     float bestT = kRange, travelled = 0, dmgScale = 1.0f, penLeft = w.penetration;
     Vec3 segStart = eye;
-    for (int seg = 0; seg < 3; ++seg) {
+    int bodies = 0, hitIdx[3] = {-1, -1, -1};
+    for (int seg = 0; seg < 6; ++seg) {
         float remaining = kRange - travelled;
         TraceResult wt = world.traceRay(segStart, segStart + dir * remaining);
         float segT = wt.fraction * remaining;
-        bool hitDummy = false;
+        int who = -1;
+        HitGroup group = kChest;
+        Vec3 normal;
         for (size_t i = 0; i < dummies.size(); ++i) {
             if (!dummies[i].alive() || dummies[i].friendly) continue;  // teammates: your bullets pass through
+            if (int(i) == hitIdx[0] || int(i) == hitIdx[1] || int(i) == hitIdx[2]) continue;  // already through them
             // Test in the dummy's model space (it faces -X there): turn the ray by -(yaw - 180).
             const float a = -(dummies[i].shownYaw - 180.0f) * kDegToRad, c = std::cos(a), s = std::sin(a);
             auto toModel = [&](const Vec3& v) { return Vec3{c * v.x - s * v.y, s * v.x + c * v.y, v.z}; };
@@ -390,19 +395,54 @@ ShotResult traceShot(const WeaponDef& w, const Vec3& eye, const Vec3& dir, const
                 const Vec3 mx{hb.maxs.x, hb.maxs.y, crouchZ(hb.maxs.z, crouch)};
                 if (rayHitsBox(localStart, localDir, segT, mn, mx, t, &n) && t >= 0 && t < segT) {
                     segT = t;
-                    res.dummyIndex = int(i);
-                    res.group = hb.group;
-                    res.normal = Vec3{c * n.x + s * n.y, -s * n.x + c * n.y, n.z};  // back to world space
-                    hitDummy = true;
+                    who = int(i);
+                    group = hb.group;
+                    normal = Vec3{c * n.x + s * n.y, -s * n.x + c * n.y, n.z};  // back to world space
                 }
             }
         }
-        bestT = travelled + segT;
-        if (hitDummy) { res.hitWorld = false; break; }
-        res.normal = wt.normal;
-        res.hitWorld = wt.fraction < 1.0f;
-        res.worldBox = res.hitWorld ? wt.box : -1;
-        if (!res.hitWorld || wt.box < 0 || res.penCount >= 2) break;
+        if (who >= 0) {
+            const float at = travelled + segT;
+            Dummy& d = dummies[size_t(who)];
+            const float dmg = armoredDamage(
+                w.damage * hitGroupMultiplier(group) * std::pow(w.rangeModifier, at / 500.0f) * dmgScale, group, d.armor,
+                d.helmet, w.armorRatio);
+            d.hp -= dmg;
+            d.flash[group] = 0.15f;
+            d.hitDir = dir;
+            const bool kill = d.hp <= 0;
+            if (kill) {
+                d.lostHelmet = group == kHead;
+                // Drill: varied respawn delay so you can't pre-time it.
+                d.respawnLeft = d.randomRespawn ? 0.5f + rand01(d.respawns * 31u + 7u) * 0.9f : 1.0f;
+            }
+            if (bodies == 0) {
+                bestT = at;
+                res.dummyIndex = who;
+                res.group = group;
+                res.normal = normal;
+                res.damage = dmg;
+                res.kill = kill;
+                res.hitWorld = false;
+            } else {
+                res.collat[res.collats++] = {who, group, dmg, kill, eye + dir * at, normal, at};
+            }
+            hitIdx[bodies++] = who;
+            // Through the body? Only guns that go through walls, while there's penetration left.
+            if (bodies >= 3 || w.penetration <= 0 || penLeft < kBodyThickness) break;
+            dmgScale *= 1.0f - 0.5f * kBodyThickness / w.penetration;
+            penLeft -= kBodyThickness;
+            travelled += segT + 0.1f;
+            segStart = eye + dir * travelled;
+            continue;
+        }
+        if (bodies == 0) {
+            bestT = travelled + segT;
+            res.normal = wt.normal;
+            res.hitWorld = wt.fraction < 1.0f;
+            res.worldBox = res.hitWorld ? wt.box : -1;
+        }
+        if (wt.fraction >= 1.0f || wt.box < 0 || res.penCount >= 2) break;
 
         // Thickness of the box along the ray.
         const Box& b = world.solids[size_t(wt.box)];
@@ -429,23 +469,6 @@ ShotResult traceShot(const WeaponDef& w, const Vec3& eye, const Vec3& dir, const
     res.start = eye;
     res.end = eye + dir * bestT;
     res.distance = bestT;
-
-    if (res.dummyIndex >= 0) {
-        Dummy& d = dummies[res.dummyIndex];
-        res.damage = armoredDamage(
-            w.damage * hitGroupMultiplier(res.group) * std::pow(w.rangeModifier, bestT / 500.0f) * dmgScale, res.group,
-            d.armor, d.helmet, w.armorRatio);
-        d.hp -= res.damage;
-        d.flash[res.group] = 0.15f;
-        d.hitDir = dir;
-        if (d.hp <= 0) {
-            res.kill = true;
-            d.lostHelmet = res.group == kHead;
-            // Drill: varied respawn delay so you can't pre-time it.
-            d.respawnLeft = d.randomRespawn ? 0.5f + rand01(d.respawns * 31u + 7u) * 0.9f : 1.0f;
-        }
-    }
-
     return res;
 }
 
@@ -468,6 +491,26 @@ void afterShot(WeaponState& ws) {
 }
 
 }  // namespace
+
+int collatResults(const ShotResult& r, ShotResult* out, int n, int cap) {
+    for (int k = 0; k < r.collats && n < cap; ++k) {
+        const ShotResult::BodyHit& h = r.collat[k];
+        ShotResult c;
+        c.start = r.start;
+        c.end = h.at;
+        c.normal = h.normal;
+        c.dummyIndex = h.dummyIndex;
+        c.group = h.group;
+        c.damage = h.damage;
+        c.kill = h.kill;
+        c.distance = h.distance;
+        c.sprayIndex = r.sprayIndex;
+        c.penCount = r.penCount;  // (walls before it count as a wallbang)
+        c.isCollat = true;
+        out[n++] = c;
+    }
+    return n;
+}
 
 ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed,
                       bool onGround, bool ducked, const World& world, std::vector<Dummy>& dummies,
