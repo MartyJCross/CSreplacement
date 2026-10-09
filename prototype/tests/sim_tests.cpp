@@ -829,14 +829,16 @@ void testNewGuns() {
         std::printf("  deagle, helmet, %4.0f units: %.0f damage%s\n", double(dist), double(d), kill ? " KILL" : "");
         CHECK(kill, "deagle must one-tap a helmet at %.0f (%.0f)", double(dist), double(d));
     }
-    // Nova into a chest (z 50): count pellets and damage up close and far, twice to show it's fixed.
-    auto novaShot = [&](float dist, int& hits, float& total) {
+    // The shotguns into a chest (z 50): pellets spread at random (the owner's call), seeded by the shot, so the
+    // same shot repeats exactly but the next one differs. Averaged over 40 shots: deadly close, weak far.
+    auto pelletShot = [&](const WeaponDef& def, float dist, uint32_t shot, int& hits, float& total) {
         std::vector<Dummy> dd(1);
         dd[0].pos = dd[0].prevPos = {dist, 0, 0};
         dd[0].hp = 1e9f;
         std::vector<Vec3> pos{dd[0].pos};
         WeaponState ws;
-        ws.def = &novaDef();
+        ws.def = &def;
+        ws.shotCounter = shot;
         ShotResult out[kMaxPellets];
         const int n = firePellets(ws, {0, 0, 50}, 0, 0, 0, true, false, empty, dd, pos, out);
         hits = 0;
@@ -845,21 +847,41 @@ void testNewGuns() {
             if (out[k].dummyIndex == 0) { ++hits; total += out[k].damage; }
         return n;
     };
-    int hitsNear = 0, hitsNear2 = 0, hitsFar = 0;
-    float near = 0, near2 = 0, far = 0;
-    const int pellets = novaShot(160, hitsNear, near);
-    novaShot(160, hitsNear2, near2);
-    novaShot(1500, hitsFar, far);
-    std::printf("  nova: %d pellets; 160 units %d hit for %.0f, 1500 units %d hit for %.0f\n", pellets, hitsNear,
-                double(near), hitsFar, double(far));
-    CHECK(pellets == 9 && near >= 100.0f && far < 60.0f && hitsNear == hitsNear2 && near == near2,
-          "nova pellets %d near %.0f far %.0f", pellets, double(near), double(far));
+    for (int id : {int(kWNova), int(kWXm1014)}) {
+        const WeaponDef& def = weaponDef(id);
+        int h1 = 0, h2 = 0, pellets = 0;
+        float d1 = 0, d2 = 0, nearSum = 0, farSum = 0, widest = 0;
+        pellets = pelletShot(def, 160, 7, h1, d1);
+        pelletShot(def, 160, 7, h2, d2);
+        CHECK(h1 == h2 && d1 == d2, "%s: the same shot must repeat exactly", def.name);
+        bool differ = false;
+        for (uint32_t shot = 0; shot < 40; ++shot) {
+            int h = 0;
+            float dmg = 0;
+            pelletShot(def, 160, shot, h, dmg);
+            nearSum += dmg;
+            pelletShot(def, 1500, shot, h, dmg);
+            farSum += dmg;
+            for (int k = 0; k < def.pellets; ++k) {
+                const RecoilStep o = pelletOffset(def, k, shot);
+                widest = std::max(widest, std::sqrt(o.up * o.up + o.right * o.right));
+                differ = differ || pelletOffset(def, k, shot).up != pelletOffset(def, k, shot + 1).up;
+            }
+        }
+        std::printf("  %s: %d pellets, spread %.1f deg (widest %.2f); 160 units avg %.0f, 1500 units avg %.0f\n", def.name,
+                    pellets, double(def.pelletSpread), double(widest), double(nearSum / 40), double(farSum / 40));
+        CHECK(pellets == def.pellets && differ && widest <= def.pelletSpread + 1e-4f && nearSum / 40 >= 85.0f &&
+                  farSum / 40 < 40.0f,
+              "%s pellets %d near %.0f far %.0f", def.name, pellets, double(nearSum / 40), double(farSum / 40));
+    }
 
-    // The rifles, like CS: the AK-47 one-taps a helmet, the M4A4 and the Galil don't.
-    const bool ak = headshot(rifleDef(), 500, true, d);
-    std::printf("  AK-47, helmet, 500 units: %.0f damage%s\n", double(d), ak ? " KILL" : "");
-    CHECK(ak, "the AK-47 must one-tap a helmet (%.0f)", double(d));
-    for (int id : {int(kWM4A4), int(kWGalil)}) {
+    // The rifles, like CS: the AK-47 and (up close) the M4A1-S one-tap a helmet, the Galil doesn't.
+    for (int id : {int(kWRifle), int(kWM4A1S)}) {
+        const bool kill = headshot(weaponDef(id), 500, true, d);
+        std::printf("  %s, helmet, 500 units: %.0f damage%s\n", weaponDef(id).name, double(d), kill ? " KILL" : "");
+        CHECK(kill, "the %s must one-tap a helmet at 500 (%.0f)", weaponDef(id).name, double(d));
+    }
+    for (int id : {int(kWGalil)}) {
         const bool kill = headshot(weaponDef(id), 64, true, d);
         std::printf("  %s, helmet, 64 units: %.0f damage%s\n", weaponDef(id).name, double(d), kill ? " KILL" : "");
         CHECK(!kill && d > 85.0f, "%s must not one-tap a helmet (%.0f)", weaponDef(id).name, double(d));

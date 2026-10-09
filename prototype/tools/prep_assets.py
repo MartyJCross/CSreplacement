@@ -7,7 +7,7 @@ resampled to 48 kHz mono 16-bit WAV and normalised; short single sounds (footste
 copied as they are (the game converts and levels everything when it loads them). Textures: each source is
 resized to 512 px and turned into a "detail" map (divided by its average colour, 128 = 1.0x), so in the game
 it only adds surface detail on top of the map's own colours. Only what's used is written, plus CREDITS.md.
-Needs numpy and Pillow.
+Music: the menu track is copied as it is (Ogg). Needs numpy and Pillow.
 """
 import glob
 import os
@@ -129,7 +129,9 @@ def sounds():
     made = {}
     for name, folders, length, count in (('rifle_shot', ['AK-47'], 0.9, 6),
                                          ('pistol_shot', ['1911', 'Walther PPQ'], 0.75, 4),
-                                         ('sniper_shot', ['Tikka', 'Mosin Nagant'], 1.4, 3)):
+                                         ('sniper_shot', ['Tikka', 'Mosin Nagant'], 1.4, 3),
+                                         ('shotgun_shot', ['Nova', 'Model 12', 'CD'], 1.1, 4),
+                                         ('m4_shot', ['AR-15'], 0.9, 4)):  # the M4A1-S is made from these
         files = [f for fo in folders for f in sorted(glob.glob(os.path.join(lib, fo, '*.wav')))]
         shots = cut_shots(files, length)[:count]
         for old in glob.glob(os.path.join(d, f'{name}_*.wav')):  # the game loads _1, _2... until one is missing
@@ -161,6 +163,14 @@ def sounds():
 # glob ** needs recursive=True: patch the helper above to use it
 _glob = glob.glob
 glob.glob = lambda p, recursive=True: _glob(p, recursive=recursive)
+
+
+def music():
+    """The menu soundtrack: copied as it is (the game decodes Ogg itself)."""
+    d = os.path.join(OUT, 'music')
+    os.makedirs(d, exist_ok=True)
+    shutil.copyfile(os.path.join(SRC, 'music', 'wipics_menu.ogg'), os.path.join(d, 'menu.ogg'))
+    return 1
 
 
 # ---------------------------------------------------------------------------------------------- textures
@@ -196,9 +206,12 @@ brown_planks_03 (planks), painted_metal_shutter (shutter), metal_plate_02 (plate
 
 **Sounds**
 - *The Free Firearm Sound Library* (opengameart.org/content/the-free-firearm-sound-library): rifle, pistol,
-  sniper and distant shots, cut into single shots.
+  sniper, shotgun (Benelli Nova, Winchester Model 12, Charles Daly) and AR-15 shots (the M4A1-S is made from
+  these), and distant shots, cut into single shots.
 - Fantozzi's footsteps (opengameart.org/content/fantozzis-footsteps-grasssand-stone): footsteps.
 - Kenney (kenney.nl): Impact Sounds (impacts, wooden footsteps), Interface Sounds (menu clicks).
+
+**Music** - "Menu Music" by wipics (opengameart.org/content/menu-music-1), CC0: the menu soundtrack.
 
 Anything not listed (hit sounds, explosions, flashbang, bomb, reloads...) is synthesized in src/audio.cpp.
 Rebuild this folder with `python prototype/tools/prep_assets.py` (see asset-downloads/SOURCES.md).
@@ -208,6 +221,7 @@ if __name__ == '__main__':
     if not os.path.isdir(SRC):
         sys.exit(f'no downloads at {SRC}')
     made = sounds()
+    music()
     n = textures()
     open(os.path.join(OUT, 'CREDITS.md'), 'w', encoding='utf-8').write(CREDITS)
     print('sounds:', ', '.join(f'{k} {v}' for k, v in made.items()))

@@ -195,8 +195,8 @@ const Part kMac10Mag[] = {
     {{-0.55f, -8.5f, -1.2f}, {0.55f, -8.2f, 0.6f}, kMetalLight},
 };
 
-// M4A4: black, flat-top with a rail, a square quad-rail handguard, the A-frame front sight, a stubby
-// flash hider and a collapsible stock on its buffer tube; a straighter mag than the AK's.
+// M4A1-S: black, flat-top with a rail, a square quad-rail handguard, the A-frame front sight, a long
+// suppressor and a collapsible stock on its buffer tube; a straighter mag than the AK's.
 const Part kM4Body[] = {
     {{-0.85f, -1.0f, -6.0f}, {0.85f, 1.1f, 5.5f}, kMetal},           // receiver
     {{-0.6f, 1.1f, -6.0f}, {0.6f, 1.5f, 5.0f}, kMetalLight},         // flat-top rail
@@ -204,9 +204,11 @@ const Part kM4Body[] = {
     {{-1.0f, -1.1f, -14.0f}, {1.0f, 1.0f, -6.0f}, kPolymer},         // handguard
     {{-0.5f, 1.0f, -13.5f}, {0.5f, 1.35f, -6.0f}, kMetalLight},      // its top rail
     {{-1.05f, -0.2f, -13.0f}, {1.05f, 0.2f, -7.0f}, kMetalLight},    // side rails
-    {{-0.3f, -0.05f, -22.0f}, {0.3f, 0.5f, -14.0f}, kMetal},         // barrel
+    {{-0.3f, -0.05f, -20.0f}, {0.3f, 0.5f, -14.0f}, kMetal},         // barrel
     {{-0.4f, 0.5f, -17.0f}, {0.4f, 2.4f, -16.2f}, kMetal},           // front sight post
-    {{-0.42f, -0.25f, -24.0f}, {0.42f, 0.7f, -22.0f}, kMetalLight},  // flash hider
+    {{-0.62f, -0.4f, -31.0f}, {0.62f, 0.85f, -20.0f}, kMetal},       // suppressor
+    {{-0.66f, -0.44f, -21.0f}, {0.66f, 0.89f, -20.2f}, kMetalLight}, // its collar and end cap
+    {{-0.66f, -0.44f, -31.0f}, {0.66f, 0.89f, -30.4f}, kMetalLight},
     {{-0.2f, -2.0f, 0.5f}, {0.2f, -1.0f, 2.8f}, kMetal},             // trigger guard
     {{-0.6f, -4.4f, 2.6f}, {0.6f, -1.0f, 4.4f}, kPolymer},           // pistol grip
     {{-0.35f, -0.4f, 5.5f}, {0.35f, 0.4f, 9.0f}, kMetal},            // buffer tube
@@ -216,6 +218,29 @@ const Part kM4Body[] = {
 const Part kM4Mag[] = {
     {{-0.6f, -5.0f, -4.0f}, {0.6f, -1.0f, -1.6f}, kMetal},
     {{-0.6f, -8.0f, -4.6f}, {0.6f, -4.8f, -2.2f}, kMetal},
+};
+
+// XM1014: the auto shotgun. A long receiver, a barrel over a full-length tube magazine, a ventilated rib,
+// a pistol-grip stock; no pump (it cycles itself).
+const Part kXmBody[] = {
+    {{-0.85f, -1.1f, -6.0f}, {0.85f, 1.3f, 5.0f}, kMetal},           // receiver
+    {{-0.42f, 0.25f, -27.0f}, {0.42f, 1.05f, -6.0f}, kMetal},        // barrel
+    {{-0.18f, 1.05f, -26.5f}, {0.18f, 1.3f, -6.0f}, kMetalLight},    // vent rib
+    {{-0.45f, -0.8f, -23.0f}, {0.45f, 0.15f, -6.0f}, kMetalLight},   // magazine tube
+    {{-0.85f, -1.2f, -15.0f}, {0.85f, 0.4f, -6.0f}, kPolymer},       // forend
+    {{-0.55f, -0.85f, -25.0f}, {0.55f, 0.2f, -23.0f}, kMetal},       // tube cap / barrel clamp
+    {{-0.12f, 1.3f, -26.6f}, {0.12f, 1.6f, -26.2f}, kMetalLight},    // front bead
+    {{0.85f, 0.2f, -3.5f}, {1.4f, 0.7f, -2.5f}, kMetalLight},        // charging handle
+    {{-0.2f, -2.0f, 0.8f}, {0.2f, -1.1f, 3.5f}, kMetal},             // trigger guard
+    {{-0.65f, -3.8f, 4.0f}, {0.65f, -1.1f, 6.0f}, kPolymer},         // grip
+    {{-0.8f, -1.8f, 5.0f}, {0.8f, 1.0f, 16.0f}, kPolymer},           // stock
+    {{-0.8f, -3.4f, 10.0f}, {0.8f, -1.8f, 16.0f}, kPolymer},         // stock heel
+};
+const Part kXmArms[] = {
+    {{-1.3f, -4.2f, 3.6f}, {1.4f, -1.3f, 6.6f}, kGlove},             // right hand
+    {{0.6f, -6.5f, 6.6f}, {3.6f, -3.2f, 15.0f}, kSleeve},            // right forearm
+    {{-1.5f, -2.6f, -14.0f}, {1.5f, -0.9f, -10.5f}, kGlove},         // left hand under the forend
+    {{-5.5f, -6.7f, -12.0f}, {-1.2f, -2.8f, -5.0f}, kSleeve},        // left forearm
 };
 
 // Galil AR: a dark receiver with a tall rear sight and a raised charging handle, a dark wooden handguard,
@@ -522,7 +547,8 @@ void paintSpan(ViewWeapon w, PaintParams& p) {
         case ViewWeapon::Sniper: p.zMin = -32.0f; p.zMax = 17.0f; break;
         case ViewWeapon::Nova: p.zMin = -26.0f; p.zMax = 16.0f; break;
         case ViewWeapon::Mac10: p.zMin = -9.2f; p.zMax = 3.9f; break;
-        case ViewWeapon::M4A4: p.zMin = -24.0f; p.zMax = 14.0f; break;
+        case ViewWeapon::M4A1S: p.zMin = -31.0f; p.zMax = 14.0f; break;
+        case ViewWeapon::Xm1014: p.zMin = -27.0f; p.zMax = 16.0f; break;
         case ViewWeapon::Galil: p.zMin = -22.5f; p.zMax = 15.2f; break;
         case ViewWeapon::Ssg08: p.zMin = -30.5f; p.zMax = 16.5f; break;
         case ViewWeapon::Ump45: p.zMin = -11.0f; p.zMax = 12.5f; break;
@@ -555,7 +581,7 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
         case ViewWeapon::Deagle:
         case ViewWeapon::Berettas:
         case ViewWeapon::Mac10:
-        case ViewWeapon::M4A4:
+        case ViewWeapon::M4A1S:
         case ViewWeapon::Galil:
         case ViewWeapon::Ssg08:
         case ViewWeapon::Ump45: {
@@ -567,7 +593,7 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
                 addParts(mag, kSniperMag, painted);
                 addParts(bolt, kSniperBolt, painted);
             }
-            if (w == ViewWeapon::M4A4) { addParts(body, kM4Body, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kM4Mag, painted); }
+            if (w == ViewWeapon::M4A1S) { addParts(body, kM4Body, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kM4Mag, painted); }
             if (w == ViewWeapon::Galil) { addParts(body, kGalilBody, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kGalilMag, painted); }
             if (w == ViewWeapon::Ssg08) {
                 addParts(body, kSsgBody, painted);
@@ -592,6 +618,14 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
             add(world, std::move(body));
             if (a.magVisible) add(world * translation(a.magOffset), std::move(mag));
             if (!bolt.empty()) add(world * translation(a.bolt), std::move(bolt));
+            break;
+        }
+        case ViewWeapon::Xm1014: {
+            std::vector<BoxInstance> body;
+            addParts(body, kXmBody, painted);
+            if (a.arms) addParts(body, kXmArms);
+            add(world, std::move(body));
+            if (a.shell >= 0) add(world * translation({0, 2.0f * a.shell, -1.5f * a.shell}), toBoxes(kNovaShell));
             break;
         }
         case ViewWeapon::Nova: {
@@ -650,7 +684,8 @@ void ViewModel::onShot(uint32_t seed) {
     float build = std::min(float(shotsInRow_), 10.0f) / 10.0f;
     float r1 = float(seed % 1000) / 1000.0f - 0.5f, r2 = float((seed / 1000) % 1000) / 1000.0f - 0.5f;
     const float big = weapon_ == ViewWeapon::Sniper ? 2.0f
-                      : weapon_ == ViewWeapon::Deagle || weapon_ == ViewWeapon::Nova || weapon_ == ViewWeapon::Ssg08 ? 1.6f
+                      : weapon_ == ViewWeapon::Deagle || weapon_ == ViewWeapon::Nova || weapon_ == ViewWeapon::Ssg08 ||
+                                weapon_ == ViewWeapon::Xm1014 ? 1.6f
                                                                                                                        : 1.0f;  // heavy hitters
     kickBack_ = std::min(kickBack_ + (2.0f + 0.6f * build) * big, 4.4f * big);
     kickPitch_ = std::min(kickPitch_ + (2.4f + 1.0f * build) * big, 7.5f * big);
@@ -783,7 +818,7 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
         a.pumpZ = 4.0f * (ramp(sinceShot_, 0.16f, 0.32f) - ramp(sinceShot_, 0.4f, 0.58f));
     // Reload. The Nova: tilted, a shell pushed up into the port each time. Mags: tilt, drop the old one,
     // insert a new one, rack it.
-    if (weapon_ == ViewWeapon::Nova && reloadT_ >= 0) {
+    if ((weapon_ == ViewWeapon::Nova || weapon_ == ViewWeapon::Xm1014) && reloadT_ >= 0) {
         const float k = std::clamp(reloadT_ / std::max(reloadTime_, 0.05f), 0.0f, 1.0f);
         roll -= 18.0f;
         pitch += 6.0f;
@@ -868,10 +903,11 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     if (gun && flashLeft_ > 0) {
         float spin = float(flashSeed_ % 90);
         float s = (1.0f + float((flashSeed_ / 90) % 50) / 100.0f) * (rifle ? 1.0f : 0.75f) *
-                  (weapon_ == ViewWeapon::Nova || weapon_ == ViewWeapon::Deagle ? 1.35f : 1.0f);
+                  (weapon_ == ViewWeapon::Nova || weapon_ == ViewWeapon::Xm1014 || weapon_ == ViewWeapon::Deagle ? 1.35f : 1.0f);
         Vec3 muzzle = sniper                           ? Vec3{0, 0.2f, -33.3f}
                       : weapon_ == ViewWeapon::Ssg08    ? Vec3{0, 0.2f, -31.4f}
-                      : weapon_ == ViewWeapon::M4A4     ? Vec3{0, 0.2f, -24.8f}
+                      : weapon_ == ViewWeapon::M4A1S    ? Vec3{0, 0.2f, -31.6f}
+                      : weapon_ == ViewWeapon::Xm1014   ? Vec3{0, 0.6f, -27.8f}
                       : weapon_ == ViewWeapon::Galil    ? Vec3{0, 0.2f, -23.3f}
                       : weapon_ == ViewWeapon::Ump45    ? Vec3{0, 0.2f, -11.7f}
                       : weapon_ == ViewWeapon::Nova     ? Vec3{0, 0.6f, -26.8f}
@@ -880,7 +916,7 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
                       : weapon_ == ViewWeapon::Mac10    ? Vec3{0, 0.3f, -9.9f}
                       : weapon_ == ViewWeapon::Berettas ? Vec3{(shotIndex_ & 1) ? kLeftGun : 0.0f, 0.6f, -9.5f}
                                                         : Vec3{0, 0.8f, -15.6f};  // the suppressor's end
-        if (weapon_ == ViewWeapon::Pistol) s *= 0.3f;  // suppressed: barely a flash
+        if (weapon_ == ViewWeapon::Pistol || weapon_ == ViewWeapon::M4A1S) s *= 0.3f;  // suppressed: barely a flash
         ModelDraw flash{world * translation(muzzle) * rotationZ(spin), {}, {}};
         flash.boxes.push_back(makeEmissive({-0.9f * s, -0.9f * s, -1.6f}, {0.9f * s, 0.9f * s, 1.0f}, 0xfff4c0));
         flash.boxes.push_back(makeEmissive({-2.8f * s, -0.22f, -0.6f}, {2.8f * s, 0.22f, 0.6f}, 0xffc24a));

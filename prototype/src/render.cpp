@@ -83,6 +83,17 @@ uniform int uPaint;
 uniform vec3 uPA, uPB, uPC;
 uniform vec3 uPaintMisc;  // wear, gloss, seed
 uniform vec2 uPaintZ;     // the model's z range (back..front runs along it)
+uniform vec4 uFlash;      // the muzzle light: position, strength (0 = off)
+// A gunshot lights what's near it: warm, fading to nothing at 420 units, brightest on faces turned to it.
+vec3 flashLit(vec3 c) {
+    if (uFlash.w <= 0.0) return c;
+    vec3 d = uFlash.xyz - vWorld;
+    float dist = length(d);
+    float k = uFlash.w * clamp(1.0 - dist / 420.0, 0.0, 1.0);
+    k *= k;
+    float facing = 0.25 + 0.75 * max(dot(normalize(vNormal), d / max(dist, 1.0)), 0.0);
+    return c + (c * vec3(1.2, 0.85, 0.45) + vec3(0.16, 0.11, 0.04)) * k * facing;
+}
 out vec4 oColor;
 float grid(vec2 p, float spacing) {
     vec2 g = abs(fract(p / spacing - 0.5) - 0.5) * spacing;
@@ -189,7 +200,7 @@ void main() {
         c = mix(c, c * env * 1.7, g * 0.35);
         c += vec3(pow(max(dot(N, normalize(L + V)), 0.0), 48.0)) * g * 0.6;
         c += env * pow(1.0 - max(dot(N, V), 0.0), 4.0) * g * 0.25;
-        oColor = vec4(c, 1.0);
+        oColor = vec4(flashLit(c), 1.0);
         return;
     }
     vec3 n = vNormal;
@@ -252,6 +263,7 @@ void main() {
             c *= (0.88 + 0.16 * rib) * (1.0 - 0.18 * frame);
         }
     }
+    c = flashLit(c);
     float d = length(vWorld - uEye);
     c = mix(c, vec3(0.80, 0.84, 0.87), clamp(d / 9000.0, 0.0, 0.30));  // haze: the horizon colour
     oColor = vec4(c, 1.0);
@@ -505,6 +517,7 @@ bool Renderer::init(std::string& err) {
     uViewProj_ = glGetUniformLocation(boxProgram_, "uViewProj");
     uModel_ = glGetUniformLocation(boxProgram_, "uModel");
     uEye_ = glGetUniformLocation(boxProgram_, "uEye");
+    uFlash_ = glGetUniformLocation(boxProgram_, "uFlash");
     uScreen_ = glGetUniformLocation(hudProgram_, "uScreen");
     uFont_ = glGetUniformLocation(hudProgram_, "uFont");
 
@@ -741,6 +754,11 @@ void Renderer::drawModel(const Mat4& viewProj, const Mat4& model, const std::vec
     uploadDynamic(boxes, n);
     glBindVertexArray(dynVao_);
     glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);
+}
+
+void Renderer::setFlash(const Vec3& pos, float strength) {
+    glUseProgram(boxProgram_);
+    glUniform4f(uFlash_, pos.x, pos.y, pos.z, strength);
 }
 
 void Renderer::clearDepth() {

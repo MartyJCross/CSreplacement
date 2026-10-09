@@ -13,8 +13,8 @@ struct RecoilStep { float up, right; };  // degrees per shot
 // Every weapon has an id (also its byte online): the first five are the original ones. kWRifle is the AK-47,
 // kWSniper the AWP-like bolt action.
 enum WeaponId : uint8_t {
-    kWRifle, kWPistol, kWKnife, kWGrenade, kWSniper, kWBerettas, kWDeagle, kWNova, kWMac10, kWM4A4, kWGalil, kWSsg08,
-    kWUmp45, kWeaponCount
+    kWRifle, kWPistol, kWKnife, kWGrenade, kWSniper, kWBerettas, kWDeagle, kWNova, kWMac10, kWM4A1S, kWGalil, kWSsg08,
+    kWUmp45, kWXm1014, kWeaponCount
 };
 
 struct WeaponDef {
@@ -36,12 +36,12 @@ struct WeaponDef {
     float penetration = 0;   // units of wall a bullet can pass through (0 = none)
     int id = kWRifle;
     int pellets = 1;         // shotgun: bullets per shot, in a fixed pattern (firePellets)
-    float pelletSpread = 0;  // degrees: the pattern's outer ring
+    float pelletSpread = 0;  // degrees: the widest a pellet goes from the aim
     bool shellReload = false;  // reloads one shell per reloadTime; firing stops it
     bool primary = true;     // slot 1 (else the pistol slot)
     int price = 0;           // competitive buy menu
     int killReward = 300;    // competitive money per kill
-    float armorRatio = 0.775f;  // damage kept through kevlar / a helmet (CS: the AWP 97.5%, the M4A4 70%)
+    float armorRatio = 0.775f;  // damage kept through kevlar / a helmet (CS: the AWP 97.5%, the M4A1-S 70%)
     bool scope = false;      // Mouse 2 zooms (the snipers)
     float noscopeInaccuracy = 0;  // degrees of spread unscoped (only with the moving-spread option on)
 };
@@ -153,15 +153,17 @@ struct ShotResult {
 ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed,
                       bool onGround, bool ducked, const World& world, std::vector<Dummy>& dummies,
                       const std::vector<Vec3>& dummyRenderPos);
-// A shotgun shot: def.pellets bullets in a fixed pattern round the aim (no randomness: the same every
-// time), each traced and applied like fireBullet. Recoil and the shot counter advance once. `out` gets one
-// result per pellet.
+// A shotgun shot: def.pellets bullets spread at random round the aim (the owner asked for random shotgun
+// spread: the one exception to "no random bullets"), each traced and applied like fireBullet. The spread is
+// seeded by the shot counter, so a replay or a test gets the same shot. Recoil and the counter advance once.
+// `out` gets one result per pellet.
 constexpr int kMaxPellets = 9;
 int firePellets(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed, bool onGround,
                 bool ducked, const World& world, std::vector<Dummy>& dummies, const std::vector<Vec3>& dummyRenderPos,
                 ShotResult (&out)[kMaxPellets]);
-// The pattern: pellet k's offset from the aim in degrees (up, right).
-RecoilStep pelletOffset(const WeaponDef& w, int k);
+// Pellet k of shot `seed`: its offset from the aim in degrees (up, right), within def.pelletSpread and
+// gathered towards the middle (half the pellets land inside 40% of the spread).
+RecoilStep pelletOffset(const WeaponDef& w, int k, uint32_t seed);
 
 
 // Fire timing for one tick: true (and the next shot scheduled) if the weapon may fire now. A held

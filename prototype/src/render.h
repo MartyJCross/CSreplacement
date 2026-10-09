@@ -72,6 +72,8 @@ public:
                    const PaintParams* paint = nullptr);
     // The sky, behind everything already drawn: camera forward, and right/up scaled by tan(half fov).
     void drawSky(const Vec3& fwd, const Vec3& right, const Vec3& up);
+    // The muzzle light for the next draws: a warm point light at `pos`, `strength` 0 (off) .. ~1.3.
+    void setFlash(const Vec3& pos, float strength);
     // Starts the first-person weapon pass: fresh depth so the weapon never clips into walls.
     void clearDepth();
     // Depth pre-pass for the world: each pixel is shaded once (on by default; off for comparison).
@@ -96,6 +98,7 @@ private:
     void cullStatic(const Mat4& viewProj, const Vec3& eye);
     void uploadDynamic(const std::vector<BoxInstance>& boxes, int n);
     int uViewProj_ = -1, uModel_ = -1, uEye_ = -1, uScreen_ = -1, uFont_ = -1;
+    int uFlash_ = -1;
     int uPaint_ = -1, uPA_ = -1, uPB_ = -1, uPC_ = -1, uPaintMisc_ = -1, uPaintZ_ = -1;
     void setPaint(const PaintParams* p);
 

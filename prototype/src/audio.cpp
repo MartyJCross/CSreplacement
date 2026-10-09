@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -166,20 +167,22 @@ std::vector<float> pistolShot(Rng& r) {  // snappier and lighter than the rifle
     return b;
 }
 
-// The suppressed pistol: no crack, but still a gun. A deep "thwump" of gas out of the can (most of it
-// 150-1500 Hz), a short "pfft" on top, the slide cycling as a dull chunk (not a metallic tink), a little room.
+// The suppressed pistol, like a spy film's: a "thwump" of gas out of the can for the body (150-1500 Hz),
+// the bright "pfft" spit and a quick falling "zip" on top, the slide cycling with a little steel ring, a
+// little room.
 std::vector<float> suppressedShot(Rng& r) {
     auto b = buffer(0.32f);
     addNoise(b, 0, 1.0f, 160, 1300 * r.jitter(0.08f), 0.024f * r.jitter(0.12f), r, 0.0006f);  // the thwump
     addTone(b, 0, 0.16f, 150 * r.jitter(0.06f), 95, 0.025f);                                   // body
     addTone(b, 0, 0.22f, 260 * r.jitter(0.05f), 150, 0.012f);                                  // punch
-    addNoise(b, 0.0005f, 0.22f, 700, 3000, 0.006f, r, 0.0003f);                                // pfft
+    addNoise(b, 0.0003f, 0.42f, 1500, 5500, 0.005f, r, 0.0002f);                               // pfft
+    addTone(b, 0, 0.2f, 3400 * r.jitter(0.05f), 1500, 0.006f);                                 // zip
     addNoise(b, 0.012f * r.jitter(0.1f), 0.2f, 300, 1600, 0.006f, r, 0.0002f);                 // slide back
-    addMetal(b, 0.013f, 0.05f, 1600 * r.jitter(0.06f), 0.01f, r);
+    addMetal(b, 0.013f, 0.1f, 2400 * r.jitter(0.06f), 0.012f, r);
     addNoise(b, 0.05f * r.jitter(0.1f), 0.14f, 300, 1400, 0.005f, r, 0.0002f);                 // and home
     highpass(b, 100);
     saturate(b, 1.8f);
-    lowpass(b, 4500);
+    lowpass(b, 7500);
     addReflections(b, 35, 30, 4, 0.14f, 0.55f, 2500, r);
     fadeTail(b);
     normalize(b, 0.8f);
@@ -199,14 +202,15 @@ std::vector<float> suppressedFromRecording(const std::vector<float>& shot, Rng& 
     auto b = buffer(0.32f);
     for (size_t i = 0; i < b.size() && onset + i < shot.size(); ++i)
         b[i] = shot[onset + i] / peak * std::exp(-float(i) / kRate / 0.06f);
-    lowpass(b, 1300);
-    lowpass(b, 1700);
+    lowpass(b, 2600);
+    lowpass(b, 3200);
     highpass(b, 70);
     normalize(b, 1.0f);
     addTone(b, 0, 0.25f, 130 * r.jitter(0.06f), 62, 0.03f);                    // body
-    addNoise(b, 0.0005f, 0.18f, 700, 3000, 0.006f, r, 0.0003f);                // pfft
+    addNoise(b, 0.0003f, 0.42f, 1500, 5500, 0.005f, r, 0.0002f);               // pfft
+    addTone(b, 0, 0.2f, 3400 * r.jitter(0.05f), 1500, 0.006f);                 // zip
     addNoise(b, 0.012f * r.jitter(0.1f), 0.18f, 300, 1600, 0.006f, r, 0.0002f); // slide
-    addMetal(b, 0.013f, 0.04f, 1600 * r.jitter(0.06f), 0.01f, r);
+    addMetal(b, 0.013f, 0.09f, 2400 * r.jitter(0.06f), 0.012f, r);
     addNoise(b, 0.05f * r.jitter(0.1f), 0.12f, 300, 1400, 0.005f, r, 0.0002f);
     saturate(b, 1.5f);
     addReflections(b, 35, 30, 4, 0.14f, 0.55f, 2500, r);
@@ -224,6 +228,65 @@ std::vector<float> zoomSound(Rng& r) {
     lowpass(b, 6000);
     fadeTail(b);
     normalize(b, 0.45f);
+    return b;
+}
+
+// The M4A1-S: the same spy-film "thwip" on top, but a rifle underneath: more gas, a deeper thump, the bolt
+// carrier slamming, a longer tail. From the AR-15 recordings when there are some (suppressedRifleFrom).
+std::vector<float> suppressedRifle(Rng& r) {
+    auto b = buffer(0.45f);
+    addNoise(b, 0, 1.0f, 170, 1500 * r.jitter(0.08f), 0.034f * r.jitter(0.12f), r, 0.0005f);  // the thwump
+    addTone(b, 0, 0.3f, 150 * r.jitter(0.06f), 80, 0.04f);                                     // oomph
+    addTone(b, 0, 0.25f, 230 * r.jitter(0.05f), 130, 0.014f);                                  // punch
+    addNoise(b, 0.0003f, 0.38f, 1400, 5000, 0.006f, r, 0.0002f);                               // pfft
+    addTone(b, 0, 0.16f, 3000 * r.jitter(0.05f), 1300, 0.007f);                                // zip
+    addMetal(b, 0.02f * r.jitter(0.1f), 0.1f, 1900 * r.jitter(0.06f), 0.02f, r);                 // bolt carrier
+    highpass(b, 80);
+    saturate(b, 2.0f);
+    lowpass(b, 7000);
+    addReflections(b, 45, 40, 5, 0.2f, 0.6f, 2500, r);
+    fadeTail(b);
+    normalize(b, 0.9f);
+    return b;
+}
+
+std::vector<float> suppressedRifleFrom(const std::vector<float>& shot, Rng& r) {
+    float peak = 0;
+    for (float v : shot) peak = std::max(peak, std::fabs(v));
+    if (peak <= 0) return suppressedRifle(r);
+    size_t onset = 0;
+    while (onset < shot.size() && std::fabs(shot[onset]) < peak * 0.15f) ++onset;
+    onset = onset > 48 ? onset - 48 : 0;
+    auto b = buffer(0.45f);
+    for (size_t i = 0; i < b.size() && onset + i < shot.size(); ++i)
+        b[i] = shot[onset + i] / peak * std::exp(-float(i) / kRate / 0.085f);
+    lowpass(b, 2000);
+    lowpass(b, 2600);
+    highpass(b, 80);
+    normalize(b, 1.0f);
+    addTone(b, 0, 0.3f, 150 * r.jitter(0.06f), 80, 0.04f);                     // oomph
+    addNoise(b, 0.0003f, 0.38f, 1400, 5000, 0.006f, r, 0.0002f);               // pfft
+    addTone(b, 0, 0.13f, 3000 * r.jitter(0.05f), 1300, 0.007f);                // zip
+    addMetal(b, 0.02f * r.jitter(0.1f), 0.08f, 1900 * r.jitter(0.06f), 0.02f, r);  // bolt carrier
+    highpass(b, 70);
+    saturate(b, 1.8f);
+    addReflections(b, 45, 40, 5, 0.2f, 0.6f, 2500, r);
+    fadeTail(b);
+    normalize(b, 0.9f);
+    return b;
+}
+
+// A 12 gauge: a huge low blast and a long rolling echo (the recordings replace it).
+std::vector<float> shotgunShot(Rng& r) {
+    auto b = buffer(1.2f);
+    addNoise(b, 0, 0.7f, 1800, 9000, 0.005f, r, 0.0002f);
+    addNoise(b, 0, 1.0f, 70, 1400 * r.jitter(0.08f), 0.07f * r.jitter(0.1f), r, 0.0004f);
+    addTone(b, 0, 0.45f, 85 * r.jitter(0.05f), 38, 0.09f);
+    highpass(b, 50);
+    saturate(b, 2.0f);
+    addReflections(b, 70, 80, 6, 0.3f, 0.65f, 3000, r);
+    fadeTail(b);
+    normalize(b, 0.98f);
     return b;
 }
 
@@ -495,7 +558,8 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
                                  "land", "hit_body", "hit_head", "sniper_shot", "pistol_shot", "rifle_shot_far",
                                  "hit_marker", "footstep_wood", "footstep_metal", "flash_bang", "flash_ring",
                                  "explosion", "fire", "bomb_beep", "defuse", "impact_stone", "impact_wood",
-                                 "impact_metal", "helmet_hit", "whiz", "ui_click", "suppressed_shot", "zoom"};
+                                 "impact_metal", "helmet_hit", "whiz", "ui_click", "suppressed_shot", "zoom",
+                                 "suppressed_rifle", "shotgun_shot"};
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
 // A recording -> 48 kHz mono float, or empty if it can't be read. WAV through SDL, Ogg through stb_vorbis.
@@ -552,6 +616,7 @@ SoundBank synthesize() {
         {Sfx::ImpactMetal, impactMetal, 3},      {Sfx::HelmetHit, helmetHit, 2},
         {Sfx::Whiz, whiz, 3},                    {Sfx::UiClick, uiClick, 1},
         {Sfx::SuppressedShot, suppressedShot, 4},  {Sfx::Zoom, zoomSound, 2},
+        {Sfx::SuppressedRifle, suppressedRifle, 4}, {Sfx::ShotgunShot, shotgunShot, 3},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -572,8 +637,8 @@ SoundBank synthesize() {
 SoundBank loadBank(const std::string& assetDir, int& loaded) {
     SoundBank bank = synthesize();
     loaded = 0;
-    std::vector<std::vector<float>> pistolClips;
-    bool ownSuppressed = false;
+    std::vector<std::vector<float>> pistolClips, rifleClips;
+    bool ownSuppressed = false, ownSuppressedRifle = false;
     auto replace = [&](size_t s, std::vector<std::vector<float>>& clips) {
         float synthPeak = 0;
         for (int v = 0; v < bank.count[s]; ++v)
@@ -600,7 +665,9 @@ SoundBank loadBank(const std::string& assetDir, int& loaded) {
         }
         if (clips.empty()) continue;
         if (s == size_t(Sfx::PistolShot)) pistolClips = clips;
+        if (s == size_t(Sfx::RifleShot)) rifleClips = clips;
         if (s == size_t(Sfx::SuppressedShot)) ownSuppressed = true;
+        if (s == size_t(Sfx::SuppressedRifle)) ownSuppressedRifle = true;
         replace(s, clips);
     }
     if (!ownSuppressed && !pistolClips.empty()) {
@@ -608,6 +675,19 @@ SoundBank loadBank(const std::string& assetDir, int& loaded) {
         std::vector<std::vector<float>> clips;
         for (const std::vector<float>& c : pistolClips) clips.push_back(suppressedFromRecording(c, rng));
         replace(size_t(Sfx::SuppressedShot), clips);
+    }
+    std::vector<std::vector<float>> m4;
+    for (int k = 1; !assetDir.empty() && k <= 8; ++k) {
+        std::vector<float> c = loadRecording(assetDir + "/m4_shot_" + std::to_string(k) + ".wav");
+        if (c.empty()) break;
+        m4.push_back(std::move(c));
+    }
+    if (m4.empty()) m4 = rifleClips;
+    if (!ownSuppressedRifle && !m4.empty()) {
+        Rng rng;
+        std::vector<std::vector<float>> clips;
+        for (int v = 0; v < 4; ++v) clips.push_back(suppressedRifleFrom(m4[size_t(v) % m4.size()], rng));
+        replace(size_t(Sfx::SuppressedRifle), clips);
     }
     return bank;
 }
@@ -654,6 +734,46 @@ bool Audio::init(float masterVolume, const std::string& assetDir) {
 void Audio::shutdown() {
     if (stream_) SDL_DestroyAudioStream(stream_);
     stream_ = nullptr;
+    if (musicLoader_.joinable()) musicLoader_.join();
+}
+
+void Audio::loadMusic(const std::string& path) {
+    if (musicLoader_.joinable() || musicReady_) return;
+    musicLoader_ = std::thread([this, path] {
+        int channels = 0, rate = 0;
+        short* pcm = nullptr;
+        const int frames = stb_vorbis_decode_filename(path.c_str(), &channels, &rate, &pcm);
+        if (frames <= 0 || !pcm || channels < 1 || rate <= 0) {
+            if (pcm) std::free(pcm);
+            return;  // no music file: the menu is just quiet
+        }
+        // To stereo at 48 kHz (linear interpolation), a few ms faded at the ends so the loop doesn't click.
+        const double step = double(rate) / kRate;
+        const size_t out = size_t(double(frames) / step);
+        std::vector<float> m(out * 2);
+        for (size_t i = 0; i < out; ++i) {
+            const double src = double(i) * step;
+            const size_t i0 = std::min(size_t(src), size_t(frames - 1)), i1 = std::min(i0 + 1, size_t(frames - 1));
+            const float f = float(src - double(i0));
+            for (int c = 0; c < 2; ++c) {
+                const int ch = std::min(c, channels - 1);
+                const float a = pcm[i0 * size_t(channels) + size_t(ch)], b = pcm[i1 * size_t(channels) + size_t(ch)];
+                m[i * 2 + size_t(c)] = (a + (b - a) * f) / 32768.0f;
+            }
+        }
+        std::free(pcm);
+        const size_t fade = std::min(out / 2, size_t(kRate / 200));
+        for (size_t i = 0; i < fade; ++i) {
+            const float g = float(i) / float(fade);
+            for (int c = 0; c < 2; ++c) {
+                m[i * 2 + size_t(c)] *= g;
+                m[(out - 1 - i) * 2 + size_t(c)] *= g;
+            }
+        }
+        std::fprintf(stderr, "music: %.0f s loaded\n", double(out) / kRate);
+        music_ = std::move(m);
+        musicReady_ = true;  // (publishes music_ to the audio thread)
+    });
 }
 
 float Audio::rand01() {
@@ -713,6 +833,17 @@ void Audio::mix(float* out, int frames) {
         pending_.clear();
     }
     std::fill(out, out + frames * 2, 0.0f);
+    // The music, fading towards its target level (about a second from silent to full).
+    if (musicReady_) {
+        const float target = musicTarget_, rampStep = 1.0f / kRate;
+        const size_t len = music_.size() / 2;
+        for (int i = 0; i < frames && len > 0 && (musicGain_ > 0 || target > 0); ++i) {
+            musicGain_ = musicGain_ < target ? std::min(target, musicGain_ + rampStep) : std::max(target, musicGain_ - rampStep);
+            out[i * 2] += music_[musicPos_ * 2] * musicGain_;
+            out[i * 2 + 1] += music_[musicPos_ * 2 + 1] * musicGain_;
+            if (++musicPos_ >= len) musicPos_ = 0;
+        }
+    }
     for (Voice& v : voices_) {
         const std::vector<float>& snd = sounds_[size_t(v.sound)];
         const double last = double(snd.size() - 1);

@@ -44,8 +44,8 @@ struct Options {
     float spawnX = 0, spawnY = 0, spawnYaw = 0;
     float autofireStart = -1, autofireEnd = -1;  // --autofire start end (sim seconds)
     int windowW = 0, windowH = 0;                // --windowed W H
-    int startWeapon = 0;                         // --weapon 1..13 (4 AWP, 5 grenade, 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10,
-                                                 // 10 M4A4, 11 Galil AR, 12 SSG 08, 13 UMP-45)
+    int startWeapon = 0;                         // --weapon 1..14 (4 AWP, 5 grenade, 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10,
+                                                 // 10 M4A1-S, 11 Galil AR, 12 SSG 08, 13 UMP-45, 14 XM1014)
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
     int menuScreen = 0;                          // --menu N: open menu screen N (screenshots)
     int menuRow = 0;                             // --menu-row N: with the row N highlighted
@@ -135,7 +135,7 @@ struct Game {
     // Berettas or Deagle), 3 knife, 4 grenades. Q = previous weapon.
     WeaponState* primary = &guns[kWRifle];
     WeaponState* secondary = &guns[kWPistol];
-    int buyCategory = 0;          // buy menu: 0 the categories, else the one open (1 pistols .. 6 grenades)
+    int buyCategory = 0;          // buy menu: 0 the categories, else the one open (BuyCategory: 1 pistols .. 7 grenades)
     float buyMouseX = 0, buyMouseY = 0;  // buy wheel: the mouse (pixels; it's free while the wheel is open)
     WeaponState* lastWeapon = &guns[kWKnife];
     bool buyMenu = false;
@@ -346,6 +346,8 @@ struct Game {
     // Cosmetic: camera height offset that eases the view over stairs and stepped ramps.
     float stepSmooth = 0;
     float camRoll = 0;        // spray feedback: camera roll in degrees (around the crosshair)
+    Vec3 flashPos;            // muzzle light: where the last (brightest) shot was, and how bright it still is
+    float flashLight = 0;
     float fovPunch = 0;       // shot thump: the view widens a touch for a moment (centre stays put)
     bool viewShake = true;
     const char* callout = "";  // Dust area name under the player (HUD)
@@ -413,7 +415,7 @@ float gunshotPitch(int id) {
         case kWNova: return 0.82f;
         case kWMac10: return 1.22f;
         case kWBerettas: return 1.1f;
-        case kWM4A4: return 1.1f;    // tighter than the AK
+        case kWXm1014: return 1.06f;  // a little snappier than the Nova
         case kWGalil: return 1.04f;
         case kWUmp45: return 0.9f;   // a slow, thumpy .45
         case kWSsg08: return 1.18f;  // a smaller bang than the AWP
@@ -432,7 +434,8 @@ ViewWeapon viewWeaponFor(int id) {
         case kWDeagle: return ViewWeapon::Deagle;
         case kWNova: return ViewWeapon::Nova;
         case kWMac10: return ViewWeapon::Mac10;
-        case kWM4A4: return ViewWeapon::M4A4;
+        case kWM4A1S: return ViewWeapon::M4A1S;
+        case kWXm1014: return ViewWeapon::Xm1014;
         case kWGalil: return ViewWeapon::Galil;
         case kWSsg08: return ViewWeapon::Ssg08;
         case kWUmp45: return ViewWeapon::Ump45;
@@ -896,6 +899,14 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
 }
 
 // A bot that died: when (and whether) it comes back depends on the mode.
+// A gunshot lights the walls round it for a moment (warm, about 400 units; fades in ~50 ms). One light at a
+// time: a brighter shot takes it over.
+void muzzleLight(Game& g, const Vec3& pos, float strength) {
+    if (strength < g.flashLight) return;
+    g.flashPos = pos;
+    g.flashLight = strength;
+}
+
 // A headshot kill knocks the helmet off (CS:GO does this): it flies along the shot, spins, bounces and lies
 // there. Only on models that wear one (CTs; in competitive the Ts wear a beanie).
 void knockHelmet(Game& g, size_t i, const Vec3& dir) {
@@ -1416,22 +1427,25 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
     g.hudDirty = true;
 }
 
-// The buy menu, like CS: 1 pistols, 2 heavy, 3 SMGs, 4 rifles, 5 gear, 6 grenades; then the item's number.
+// The buy menu, like CS: 1 pistols, 2 shotguns, 3 SMGs, 4 rifles, 5 snipers, 6 gear, 7 grenades; then the item's
+// number. Outside competitive only the guns (1-5).
 // Competitive: during buy time in your spawn, for money. Everywhere else: guns for free, any time.
 struct BuyEntry { const char* name; int weapon; int gear; int price; };  // a gun (WeaponId) or gear (0..7)
+enum BuyCategory { kCatPistols = 1, kCatShotguns, kCatSmgs, kCatRifles, kCatSnipers, kCatGear, kCatGrenades };
 std::vector<BuyEntry> buyEntries(int category) {
     auto gun = [](int id) { return BuyEntry{weaponDef(id).name, id, -1, weaponDef(id).price}; };
     switch (category) {
-        case 1: return {gun(kWPistol), gun(kWBerettas), gun(kWDeagle)};
-        case 2: return {gun(kWNova)};
-        case 3: return {gun(kWMac10), gun(kWUmp45)};
-        case 4: return {gun(kWGalil), gun(kWRifle), gun(kWM4A4), gun(kWSsg08), gun(kWSniper)};
-        case 5: return {{"KEVLAR", -1, 0, 650}, {"KEVLAR + HELMET", -1, 1, 1000}, {"DEFUSE KIT (CT)", -1, 2, 400}};
-        case 6: return {{"SMOKE", -1, 3, 300}, {"FLASHBANG", -1, 4, 200}, {"HE GRENADE", -1, 5, 300}, {"MOLOTOV", -1, 6, 400}};
+        case kCatPistols: return {gun(kWPistol), gun(kWBerettas), gun(kWDeagle)};
+        case kCatShotguns: return {gun(kWNova), gun(kWXm1014)};
+        case kCatSmgs: return {gun(kWMac10), gun(kWUmp45)};
+        case kCatRifles: return {gun(kWGalil), gun(kWRifle), gun(kWM4A1S)};
+        case kCatSnipers: return {gun(kWSsg08), gun(kWSniper)};
+        case kCatGear: return {{"KEVLAR", -1, 0, 650}, {"KEVLAR + HELMET", -1, 1, 1000}, {"DEFUSE KIT (CT)", -1, 2, 400}};
+        case kCatGrenades: return {{"SMOKE", -1, 3, 300}, {"FLASHBANG", -1, 4, 200}, {"HE GRENADE", -1, 5, 300}, {"MOLOTOV", -1, 6, 400}};
         default: return {};
     }
 }
-const char* const kBuyCategories[] = {"PISTOLS", "HEAVY", "SMGS", "RIFLES", "GEAR", "GRENADES"};
+const char* const kBuyCategories[] = {"PISTOLS", "SHOTGUNS", "SMGS", "RIFLES", "SNIPERS", "GEAR", "GRENADES"};
 
 // Where gun `id` sits in a buy category (-1 if it isn't there).
 int buyIndexOf(int category, int id) {
@@ -2220,8 +2234,8 @@ void resetGame(Game& g, const Options& opt) {
     g.botCooldown.assign(g.dummies.size(), 0.0f);
     if (opt.startWeapon == 4) g.primary = &g.guns[kWSniper];
     g.switchTo = opt.startWeapon == 4 ? 1 : opt.startWeapon == 5 ? 4 : opt.startWeapon;
-    if (opt.startWeapon >= 6 && opt.startWeapon <= 13) {  // 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10, 10.. the newest four
-        const int ids[8] = {kWBerettas, kWDeagle, kWNova, kWMac10, kWM4A4, kWGalil, kWSsg08, kWUmp45};
+    if (opt.startWeapon >= 6 && opt.startWeapon <= 14) {  // 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10, 10.. the newer ones
+        const int ids[9] = {kWBerettas, kWDeagle, kWNova, kWMac10, kWM4A1S, kWGalil, kWSsg08, kWUmp45, kWXm1014};
         WeaponState& w = weaponState(g, ids[opt.startWeapon - 6]);
         if (w.def->primary) g.primary = &w;
         else g.secondary = &w;
@@ -2312,11 +2326,11 @@ void countCaseKill(Game& g) {
 }
 
 // The inventory screen: a row per weapon, cycling through the skins you can put on it.
-const int kInvWeapons[] = {kWRifle, kWM4A4, kWGalil, kWSniper, kWSsg08, kWNova, kWMac10, kWUmp45, kWPistol, kWBerettas,
-                           kWDeagle, kWKnife};
-const char* const kInvRowNames[] = {"AK-47", "M4A4", "GALIL AR", "AWP", "SSG 08", "NOVA", "MAC-10", "UMP-45", "PISTOL",
-                                    "DUAL BERETTAS", "DEAGLE", "KNIFE"};
-constexpr int kInvRows = 12;
+const int kInvWeapons[] = {kWRifle, kWM4A1S, kWGalil, kWSniper, kWSsg08, kWNova, kWXm1014, kWMac10, kWUmp45, kWPistol,
+                           kWBerettas, kWDeagle, kWKnife};
+const char* const kInvRowNames[] = {"AK-47", "M4A1-S", "GALIL AR", "AWP", "SSG 08", "NOVA", "XM1014", "MAC-10", "UMP-45",
+                                    "PISTOL", "DUAL BERETTAS", "DEAGLE", "KNIFE"};
+constexpr int kInvRows = 13;
 struct SkinChoice {
     std::vector<Equipped> opts;
     std::vector<std::string> names;
@@ -2581,7 +2595,11 @@ void simTick(Game& g, const Options& opt) {
         g.shots++;
         const uint8_t code = uint8_t(wd.id);
         if (g.online && g.net.ready()) g.net.sendFire(g.lastRenderEye, pellets[0].end, code);
-        makeNoise(g, g.player.origin, wd.id == kWPistol ? 900.0f : 2200.0f);  // (the suppressor: heard less far)
+        // The suppressed guns are heard less far, and barely light the room.
+        const bool suppressed = wd.id == kWPistol || wd.id == kWM4A1S;
+        makeNoise(g, g.player.origin, wd.id == kWPistol ? 900.0f : wd.id == kWM4A1S ? 1100.0f : 2200.0f);
+        muzzleLight(g, g.vm.muzzleWorld(g.lastRenderEye, float(g.viewPitch), float(g.viewYaw)),
+                    suppressed ? 0.25f : wd.pellets > 1 || sniperOut || wd.id == kWDeagle ? 1.3f : 1.0f);
 
         // Cosmetics, once per shot: the sound, the weapon kick, brass.
         const bool isPistol = !wd.primary;
@@ -2596,8 +2614,12 @@ void simTick(Game& g, const Options& opt) {
             sound(g, Sfx::SniperShot, 1.9f);  // your own gun: loud (the mixer soft-limits)
             g.boltAt = g.simTime + 0.55;
         } else if (wd.id == kWNova) {
-            sound(g, Sfx::SniperShot, 1.9f, 0.0f, 0.82f);  // a deep boom
-            g.boltAt = g.simTime + 0.3;                    // the pump
+            sound(g, Sfx::ShotgunShot, 1.9f);  // a 12 gauge
+            g.boltAt = g.simTime + 0.3;        // the pump
+        } else if (wd.id == kWXm1014) {
+            sound(g, Sfx::ShotgunShot, 1.8f, 0.0f, gunshotPitch(wd.id));
+        } else if (wd.id == kWM4A1S) {
+            sound(g, Sfx::SuppressedRifle, 1.7f);
         } else if (wd.id == kWDeagle) {
             sound(g, Sfx::PistolShot, 1.9f, 0.0f, 0.72f);  // heavy
         } else if (wd.id == kWMac10) {
@@ -2609,7 +2631,7 @@ void simTick(Game& g, const Options& opt) {
         } else if (wd.id == kWSsg08) {
             sound(g, Sfx::SniperShot, 1.7f, 0.0f, gunshotPitch(wd.id));  // lighter and sharper than the AWP
             g.boltAt = g.simTime + 0.47;
-        } else if (wd.id == kWM4A4 || wd.id == kWGalil || wd.id == kWUmp45) {
+        } else if (wd.id == kWGalil || wd.id == kWUmp45) {
             sound(g, Sfx::RifleShot, wd.id == kWUmp45 ? 1.6f : 1.8f, 0.0f, gunshotPitch(wd.id));
         } else {
             sound(g, isPistol ? Sfx::PistolShot : Sfx::RifleShot, isPistol ? 1.5f : 1.8f);
@@ -2619,11 +2641,11 @@ void simTick(Game& g, const Options& opt) {
         float wob = float((ws.shotCounter * 2246822519u) >> 16 & 0xFFFF) / 65535.0f - 0.5f;
         if (g.viewShake && !sniperOut) {
             g.camRoll = std::clamp(g.camRoll + wob * (0.5f + 0.06f * float(std::min(pellets[0].sprayIndex, 12))), -1.5f, 1.5f);
-            g.fovPunch = wd.id == kWNova || wd.id == kWDeagle ? 1.4f : isPistol ? 0.7f : 1.0f;
+            g.fovPunch = wd.pellets > 1 || wd.id == kWDeagle ? 1.4f : isPistol ? 0.7f : 1.0f;
         } else if (g.viewShake) {
             g.fovPunch = wd.id == kWSniper ? 2.0f : 1.5f;  // a sniper's shot lands like a hammer
         }
-        if (!sniperOut && wd.id != kWNova) {
+        if (!sniperOut && wd.id != kWNova) {  // (the XM1014 throws its shells out too)
             Vec3 fw = anglesToForward(float(g.viewPitch), float(g.viewYaw)), rt = yawToRight(float(g.viewYaw));
             g.fx.shell(g.lastRenderEye + fw * 20.0f + rt * 7.0f - Vec3{0, 0, 6},
                        rt * (110.0f + 50.0f * wob) + Vec3{0, 0, 120.0f} - fw * 25.0f + g.player.velocity);
@@ -3265,6 +3287,7 @@ void simTick(Game& g, const Options& opt) {
                                         far ? 6500.0f : 4000.0f, far ? 1.15f : 0.95f);
                 }
                 g.fx.tracer(head + dir * 20.0f, head + dir * (hitIt ? t : maxT));
+                muzzleLight(g, head + dir * 20.0f, rifle ? 0.9f : 0.2f);
                 nearMiss(head, dir, hitIt ? t : maxT);
                 if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * (hitIt ? t : maxT), rifle ? 0 : 1, int(i));
                 if (hitIt && !isBot(g, size_t(tgt))) {  // a player: their game takes it (and their armor)
@@ -3313,6 +3336,7 @@ void simTick(Game& g, const Options& opt) {
                                     far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f);
             }
             g.fx.tracer(head + dir * 20.0f, head + dir * bestT);
+            muzzleLight(g, head + dir * 20.0f, rifle ? 0.9f : 0.2f);
             if (g.online) g.net.sendFire(head + dir * 20.0f, head + dir * bestT, rifle ? 0 : 1, int(i));
             if (!hit) nearMiss(head, dir, bestT);
 
@@ -3557,9 +3581,11 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     back};
         case kMenuVideo:
             return {{"VOLUME", &c.volume, nullptr, 0.05f, 0.0f, 1.0f},
+                    {"MENU MUSIC", &c.music_volume, nullptr, 0.05f, 0.0f, 1.0f},
                     {"HIT SOUND", nullptr, &c.hitsound, 1, 0, 1, kOnOff},
                     {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
                     {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
+                    {"MUZZLE FLASH LIGHT", nullptr, &c.muzzle_light, 1, 0, 1, kOnOff},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
                     back};
         case kMenuGameplay:
@@ -3703,7 +3729,7 @@ BuyWheel buyWheel(int w, int h, int s) { return {float(w) * 0.5f, float(h) * 0.4
 
 int buySlotCount(const Game& g) {
     const bool comp = g.mode == 3 && g.mapId == 1;
-    return g.buyCategory == 0 ? (comp ? 6 : 4) : int(buyEntries(g.buyCategory).size());
+    return g.buyCategory == 0 ? (comp ? kCatGrenades : kCatSnipers) : int(buyEntries(g.buyCategory).size());
 }
 
 // The full-buy buttons under the wheel: x, y, width, height of button k (0 rifle, 1 sniper).
@@ -3744,10 +3770,11 @@ const char* fullBuy(Game& g, bool sniper) {
         return weaponDef(sniper ? kWSniper : kWRifle).name;
     }
     const int before = g.comp.money;
-    compBuy(g, 4, buyIndexOf(4, sniper ? kWSniper : kWRifle));
-    compBuy(g, 5, 1);
-    if (g.comp.youTeam == 1) compBuy(g, 5, 2);
-    for (int k = 0; k < 4; ++k) compBuy(g, 6, k);
+    const int cat = sniper ? kCatSnipers : kCatRifles;
+    compBuy(g, cat, buyIndexOf(cat, sniper ? kWSniper : kWRifle));
+    compBuy(g, kCatGear, 1);
+    if (g.comp.youTeam == 1) compBuy(g, kCatGear, 2);
+    for (int k = 0; k < 4; ++k) compBuy(g, kCatGrenades, k);
     return g.comp.money < before ? (sniper ? "FULL BUY: AWP" : "FULL BUY: AK-47") : "NOT ENOUGH MONEY";
 }
 
@@ -3839,7 +3866,7 @@ void drawBuyWheel(HudBatch& hud, const Game& g, int w, int h, int s) {
             const bool on = hover == (k == 0 ? kBuyFullRifle : kBuyFullSniper);
             hud.rect(x, y, bw, bh, on ? 0x3A5F9AF0 : 0x15181CE8);
             hud.rect(x, y + bh - 2.0f * fs, bw, 2.0f * fs, 0xFFD060FF);
-            const char* t = k == 0 ? "7  FULL BUY: AK-47" : "8  FULL BUY: AWP";
+            const char* t = k == 0 ? "8  FULL BUY: AK-47" : "9  FULL BUY: AWP";
             hud.text(x + (bw - hud.textWidth(t)) * 0.5f, y + 7.0f * fs, t, 0xFFFFFFFF);
         }
     }
@@ -4849,10 +4876,12 @@ int main(int argc, char** argv) {
                         // By gun: the pistols and the Deagle, the Nova's boom, the sniper, the MAC-10 and rifle.
                         const int w = ev.weapon;
                         const bool pistolSound = w == kWPistol || w == kWBerettas || w == kWDeagle;
-                        const Sfx s = w == kWPistol ? Sfx::SuppressedShot
-                                      : far        ? Sfx::RifleShotFar
-                                      : pistolSound ? Sfx::PistolShot
-                                      : w == kWSniper || w == kWNova || w == kWSsg08 ? Sfx::SniperShot : Sfx::RifleShot;
+                        const Sfx s = w == kWPistol    ? Sfx::SuppressedShot
+                                      : w == kWM4A1S  ? Sfx::SuppressedRifle
+                                      : far           ? Sfx::RifleShotFar
+                                      : pistolSound   ? Sfx::PistolShot
+                                      : w == kWNova || w == kWXm1014 ? Sfx::ShotgunShot
+                                      : w == kWSniper || w == kWSsg08 ? Sfx::SniperShot : Sfx::RifleShot;
                         const float pitch = gunshotPitch(w) * (w == kWPistol && ev.from >= kNetMaxPlayers ? 1.3f : 1.0f);
                         g.audio->play3D(s, ev.a, g.lastRenderEye, float(g.viewYaw), far ? 6500.0f : 4000.0f, far ? 1.35f : 1.1f, pitch);
                         // Close past your head: you hear it go by.
@@ -4862,6 +4891,7 @@ int main(int argc, char** argv) {
                             g.audio->play3D(Sfx::Whiz, ev.a + dir * t, eye, float(g.viewYaw), 300.0f, 0.8f);
                     }
                     g.fx.tracer(ev.a, ev.b);
+                    muzzleLight(g, ev.a, ev.weapon == kWPistol || ev.weapon == kWM4A1S ? 0.2f : 0.9f);
                     if (netHost(g) && comp && ev.from < g.team.size() && !isBot(g, ev.from))
                         makeNoise(g, ev.a, 2200.0f, g.team[ev.from]);  // your bots hear the other players' shots
                     break;
@@ -4975,6 +5005,7 @@ int main(int argc, char** argv) {
     std::vector<ModelDraw> modelDraws;
     std::vector<ModelDraw> deadDraws;  // bodies falling over (each one model, so it can tilt)
 
+    if (g.audio) g.audio->loadMusic(std::string(base ? base : "") + "assets/music/menu.ogg");  // (on a thread)
     GLsync frameFence = nullptr;  // low_latency: the last frame's GPU work
     while (running) {
         uint64_t frameStart = SDL_GetPerformanceCounter();
@@ -4993,6 +5024,9 @@ int main(int argc, char** argv) {
         if (automated && !bench) dt = 1.0 / 240.0;  // deterministic steps for screenshots/tests
         g_uiTime += dt;
         if (g_menu.screen == kMenuCase) caseTick(g);
+        // The soundtrack plays in the main menu and its pages (not the pause menu), and fades out in a game.
+        if (g.audio)
+            g.audio->setMusic(g_menu.screen != kMenuNone && g_menu.root == kMenuMain ? std::clamp(cfg.music_volume, 0.0f, 1.0f) * 0.7f : 0.0f);
         if (bench) {  // a slow turn with the rifle firing on and off, like play
             g.viewYaw = wrapDeg(float(g.viewYaw) + float(dt) * 720.0f / opt.benchSeconds);
             g.fireHeld = std::fmod(benchStats.elapsed, 3.0) < 1.2;
@@ -5122,8 +5156,8 @@ int main(int argc, char** argv) {
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
                         else if (g.buyMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) {  // the buy wheel
                             const int k = int(sc - SDL_SCANCODE_1) + 1;
-                            const int slot = g.buyCategory == 0 && k == 7 ? kBuyFullRifle
-                                             : g.buyCategory == 0 && k == 8 ? kBuyFullSniper : k - 1;
+                            const int slot = g.buyCategory == 0 && k == 8 ? kBuyFullRifle
+                                             : g.buyCategory == 0 && k == 9 ? kBuyFullSniper : k - 1;
                             const char* msg = buyPick(g, slot);
                             if (msg[0]) pushHitLog(g, msg, 0xffd060);
                             g.hudDirty = true;
@@ -5281,6 +5315,10 @@ int main(int argc, char** argv) {
         const Mat4 roll = rotationZ(g.camRoll);  // about the view axis: the crosshair stays put
         Mat4 viewProj = perspective(vfov, aspect, 2.0f, 16384.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
 
+        // The muzzle light fades out over a few frames.
+        if (!paused) g.flashLight *= std::exp(-float(dt) / 0.022f);
+        renderer.setFlash(g.flashPos, cfg.muzzle_light && g.flashLight > 0.02f ? g.flashLight : 0.0f);
+
         // Dummies at their interpolated positions; remember exactly what we drew for hit tests.
         dynamicBoxes.clear();
         deadDraws.clear();
@@ -5299,18 +5337,20 @@ int main(int argc, char** argv) {
             // ragdoll: they tip faster and faster, slide a little, lie there, then sink away. Cosmetic: the dead
             // can't be hit. The whole body is then one model, so it can tilt.
             const float squash = 1.0f;
+            float killFlash = 0;
             ModelDraw* body = nullptr;
             if (!d.alive()) {
                 const float t = d.deadFor;
-                if (t > 3.0f) continue;
+                if (t > 3.1f) continue;
                 Vec3 hd{d.hitDir.x, d.hitDir.y, 0};
                 const float hl = length(hd);
                 hd = hl > 0.01f ? hd * (1.0f / hl)
                                 : Vec3{-std::cos(shownYaw * kDegToRad), -std::sin(shownYaw * kDegToRad), 0};
                 const float hYaw = std::atan2(hd.y, hd.x) / kDegToRad;
-                const float fall = std::min(1.0f, t / 0.42f);
+                killFlash = std::max(0.0f, 1.0f - t / 0.14f);  // bright for an instant, held still...
+                const float fall = std::clamp((t - 0.08f) / 0.42f, 0.0f, 1.0f);  // ...then down
                 const float tip = 84.0f * fall * fall, slide = 8.0f + 10.0f * fall * (2.0f - fall);
-                const float sink = t > 2.5f ? (t - 2.5f) * 60.0f : 0.0f;
+                const float sink = t > 2.6f ? (t - 2.6f) * 60.0f : 0.0f;
                 deadDraws.push_back({translation(p + hd * slide - Vec3{0, 0, sink}) * rotationZ(hYaw) * rotationY(tip) *
                                          translation({-8.0f, 0, 0}) * rotationZ(shownYaw - 180.0f - hYaw),
                                      {}, {}});
@@ -5320,7 +5360,8 @@ int main(int argc, char** argv) {
                 mn.z = crouchZ(mn.z, crouch) * squash;
                 mx.z = crouchZ(mx.z, crouch) * squash;
                 if (body) {
-                    body->boxes.push_back(makeBox(mn, mx, c, false));
+                    if (killFlash > 0) c = lerpColor(c, 0xfff6ee, 0.85f * killFlash);
+                    body->boxes.push_back(killFlash > 0.5f ? makeEmissive(mn, mx, c) : makeBox(mn, mx, c, false));
                     return;
                 }
                 dynamicBoxes.push_back(makeBox(p + mn, p + mx, c, false));
@@ -5402,6 +5443,11 @@ int main(int argc, char** argv) {
                     part({-33.0f, -0.7f, 47.0f}, {-17.0f, 0.7f, 48.6f}, 0x111214);
                     part({-24.0f, -1.2f, 45.2f}, {-17.0f, 1.2f, 47.2f}, 0x2a2c30);
                     break;
+                case kWXm1014:  // a long auto shotgun, the tube under the barrel
+                    part({-17.0f, -1.5f, 45.5f}, {-6.6f, 1.5f, 49.5f}, 0x232528);
+                    part({-34.0f, -0.7f, 47.4f}, {-17.0f, 0.7f, 48.8f}, 0x111214);
+                    part({-31.0f, -0.8f, 45.8f}, {-17.0f, 0.8f, 47.4f}, 0x2a2c30);
+                    break;
                 case kWMac10:  // a stubby box with a long mag
                     part({-17.0f, -1.6f, 46.0f}, {-9.0f, 1.6f, 50.0f}, 0x26282c);
                     part({-14.0f, -0.8f, 41.0f}, {-12.0f, 0.8f, 46.0f}, 0x1a1b1e);
@@ -5419,10 +5465,11 @@ int main(int argc, char** argv) {
                     part({-36.0f, -0.6f, 47.2f}, {-17.0f, 0.6f, 48.4f}, 0x111214);
                     part({-15.0f, -1.0f, 49.5f}, {-8.0f, 1.0f, 51.5f}, 0x0e0f10);
                     break;
-                case kWM4A4:  // black, a square handguard, a flash hider
+                case kWM4A1S:  // black, a square handguard, a long suppressor
                     part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x18191c);
                     part({-21.0f, -1.6f, 45.8f}, {-14.0f, 1.6f, 49.4f}, 0x222327);
-                    part({-28.0f, -0.6f, 47.2f}, {-21.0f, 0.6f, 48.4f}, 0x111214);
+                    part({-24.0f, -0.5f, 47.3f}, {-21.0f, 0.5f, 48.3f}, 0x111214);
+                    part({-33.0f, -1.0f, 46.8f}, {-24.0f, 1.0f, 48.8f}, 0x0e0f10);
                     part({-12.0f, -0.8f, 41.5f}, {-10.0f, 0.8f, 46.0f}, 0x111214);  // the mag
                     break;
                 case kWGalil:  // dark, a wooden handguard, a curved mag
@@ -5588,7 +5635,7 @@ int main(int argc, char** argv) {
                 // Long guns fill most of the stage; the MAC-10, knives and pistols are shown smaller, like CS.
                 const float room = std::min(st.w / float(pixW) * 2.0f * sh, st.h / float(pixH) * 2.0f * sv * 1.6f) * dist;
                 const int sw = st.weapon;
-                const float size = room * (sw == kWRifle || sw == kWSniper || sw == kWNova || sw == kWM4A4 || sw == kWGalil ||
+                const float size = room * (sw == kWRifle || sw == kWSniper || sw == kWNova || sw == kWXm1014 || sw == kWM4A1S || sw == kWGalil ||
                                                    sw == kWSsg08 ? 0.85f
                                            : sw == kWUmp45 ? 0.62f : sw == kWMac10 ? 0.5f : sw == kWKnife ? 0.55f : 0.42f);
                 const Equipped& it = st.item;

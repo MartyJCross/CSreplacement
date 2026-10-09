@@ -71,11 +71,16 @@ std::vector<SkinDef> buildSkins() {
     gun(kWSniper, "SNIPER", "AWP", "HAZARD", kClassified, kPatHazard, 0xf2f2ee, 0xff7a1a, 0x121314, 0.45f);
     gun(kWSniper, "SNIPER", "AWP", "LIGHTNING", kCovert, kPatNeon, 0x0c1020, 0x5ab4ff, 0x1a2a60, 0.6f);
     gun(kWSniper, "SNIPER", "AWP", "DRAGON", kCovert, kPatMarble, 0xc8201e, 0xf0b040, 0x200808, 0.7f);
-    // M4A4
-    gun(kWM4A4, "M4A4", "M4A4", "URBAN DDPAT", kMilSpec, kPatCamo, 0x7a7f86, 0x4a4e55, 0x2a2d32, 0.15f);
-    gun(kWM4A4, "M4A4", "M4A4", "DESERT TECH", kRestricted, kPatTwoTone, 0xc9a978, 0x2a2c30, 0x5e4a30, 0.45f);
-    gun(kWM4A4, "M4A4", "M4A4", "ICE COLD", kClassified, kPatFade, 0xe8f6ff, 0x6ab8ff, 0x2a4aa0, 0.8f);
-    gun(kWM4A4, "M4A4", "M4A4", "HOWL", kCovert, kPatFlames, 0xffb020, 0xd02818, 0x180808, 0.55f);
+    // M4A1-S (the save keys are still "M4A4_...", from when it was one)
+    gun(kWM4A1S, "M4A4", "M4A1-S", "URBAN DDPAT", kMilSpec, kPatCamo, 0x7a7f86, 0x4a4e55, 0x2a2d32, 0.15f);
+    gun(kWM4A1S, "M4A4", "M4A1-S", "DESERT TECH", kRestricted, kPatTwoTone, 0xc9a978, 0x2a2c30, 0x5e4a30, 0.45f);
+    gun(kWM4A1S, "M4A4", "M4A1-S", "ICE COLD", kClassified, kPatFade, 0xe8f6ff, 0x6ab8ff, 0x2a4aa0, 0.8f);
+    gun(kWM4A1S, "M4A4", "M4A1-S", "HOWL", kCovert, kPatFlames, 0xffb020, 0xd02818, 0x180808, 0.55f);
+    gun(kWM4A1S, "M4A1S", "M4A1-S", "PRINTSTREAM", kCovert, kPatTwoTone, 0xf4f4f0, 0x101012, 0xd8b24a, 0.85f);
+    // XM1014
+    gun(kWXm1014, "XM1014", "XM1014", "BLUE STEEL", kMilSpec, kPatHardened, 0x3a5a9a, 0x6a7a8a, 0x2a2d32, 0.6f);
+    gun(kWXm1014, "XM1014", "XM1014", "TRANQUILITY", kRestricted, kPatMarble, 0x8ad0d8, 0x2a6a8a, 0xe8f6ff, 0.5f);
+    gun(kWXm1014, "XM1014", "XM1014", "INCINEGATOR", kClassified, kPatFlames, 0xffd23a, 0xff3a1a, 0x1a0806, 0.5f);
     // Galil AR
     gun(kWGalil, "GALIL", "GALIL AR", "SAGE", kMilSpec, kPatCamo, 0x8a9a6a, 0x5a6a42, 0x3a4228, 0.15f);
     gun(kWGalil, "GALIL", "GALIL AR", "ROCKET POP", kRestricted, kPatHazard, 0xf2f2ee, 0xff3a6a, 0x2a6aff, 0.5f);

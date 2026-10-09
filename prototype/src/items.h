@@ -51,7 +51,7 @@ struct Equipped {
     float wear = 0;
 };
 
-constexpr int kSlots = 13;  // one per WeaponId (items.cpp checks it against kWeaponCount)
+constexpr int kSlots = 14;  // one per WeaponId (items.cpp checks it against kWeaponCount)
 
 struct Inventory {
     std::vector<Item> items;

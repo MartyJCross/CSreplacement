@@ -6,8 +6,10 @@
 #include "render.h"
 #include "vecmath.h"
 
-enum class ViewWeapon { Rifle, Pistol, Sniper, Knife, Grenade, Berettas, Deagle, Nova, Mac10, M4A4, Galil, Ssg08, Ump45 };
-constexpr int kViewWeapons = 13;
+enum class ViewWeapon {
+    Rifle, Pistol, Sniper, Knife, Grenade, Berettas, Deagle, Nova, Mac10, M4A1S, Galil, Ssg08, Ump45, Xm1014
+};
+constexpr int kViewWeapons = 14;
 
 struct ViewModelInput {
     float dt;                  // frame time

@@ -79,7 +79,17 @@ const WeaponDef kDeagle = {
 const RecoilStep kNovaPattern[2] = {{0.0f, 0.0f}, {3.0f, 0.2f}};
 const WeaponDef kNova = {
     "NOVA", true, 220.0f, 26.0f, 0.70f, 0.88f, 8, 0.5f,
-    0.34f, 6.0f, 9.0f, 0.0f, kNovaPattern, 2, false, 0.0f, kWNova, 9, 3.2f, true, true, 1050, 900,
+    0.34f, 6.0f, 9.0f, 0.0f, kNovaPattern, 2, false, 0.0f, kWNova, 9, 2.7f, true, true, 1050, 900,
+};
+
+// XM1014: the auto shotgun. 6 pellets of 20, a shot every 0.35 s while you hold it, 7 shells loaded one by
+// one; a little wider than the Nova.
+const RecoilStep kXmPattern[7] = {
+    {0.0f, 0.0f}, {1.9f, 0.15f}, {1.7f, -0.2f}, {1.6f, 0.2f}, {1.5f, -0.2f}, {1.4f, 0.15f}, {1.3f, -0.15f},
+};
+const WeaponDef kXm1014 = {
+    "XM1014", true, 215.0f, 20.0f, 0.70f, 0.35f, 7, 0.45f,
+    0.34f, 6.0f, 9.0f, 0.0f, kXmPattern, 7, true, 0.0f, kWXm1014, 6, 2.9f, true, true, 2000, 900, 0.80f,
 };
 
 // MAC-10: fast-firing SMG (800 rounds a minute), modest damage, the spray climbs then wanders.
@@ -95,18 +105,18 @@ const WeaponDef kMac10 = {
     0.34f, 5.0f, 8.0f, 0.15f, kMac10Pattern, 30, true, 10.0f, kWMac10, 1, 0.0f, false, true, 1050, 600,
 };
 
-// M4A4: the CT rifle. 33 damage (a headshot through a helmet does 92: no one-tap there, like CS), 666 rounds a
-// minute, a gentler climb than the AK; kevlar keeps only 70%.
-const RecoilStep kM4Pattern[30] = {
-    {0.00f, 0.00f}, {0.75f, 0.04f}, {0.90f, 0.08f}, {1.00f, 0.04f}, {1.05f, 0.08f}, {1.00f, 0.12f},
-    {0.85f, 0.16f}, {0.70f, 0.16f}, {0.55f, 0.20f}, {0.30f, -0.40f}, {0.25f, -0.55f}, {0.20f, -0.62f},
-    {0.15f, -0.60f}, {0.12f, -0.50f}, {0.08f, -0.40f}, {0.08f, 0.30f}, {0.08f, 0.52f}, {0.04f, 0.62f},
-    {0.04f, 0.62f}, {0.04f, 0.55f}, {0.04f, 0.45f}, {0.00f, 0.30f}, {0.04f, -0.26f}, {0.00f, -0.38f},
-    {0.04f, -0.34f}, {0.00f, 0.22f}, {0.04f, 0.34f}, {0.00f, 0.26f}, {0.04f, -0.22f}, {0.00f, -0.22f},
+// M4A1-S: the suppressed CT rifle. 38 damage, 600 rounds a minute, 20 rounds, the gentlest spray of the
+// rifles; a headshot kills through a helmet up close (106) but not from far away; kevlar keeps 70%. Quiet:
+// bots hear it from 1,100 units, not 2,200.
+const RecoilStep kM4Pattern[20] = {
+    {0.00f, 0.00f}, {0.65f, 0.03f}, {0.78f, 0.07f}, {0.86f, 0.03f}, {0.90f, 0.07f}, {0.86f, 0.10f},
+    {0.72f, 0.14f}, {0.60f, 0.14f}, {0.46f, 0.17f}, {0.26f, -0.34f}, {0.21f, -0.47f}, {0.17f, -0.53f},
+    {0.13f, -0.51f}, {0.10f, -0.42f}, {0.07f, -0.34f}, {0.07f, 0.26f}, {0.07f, 0.44f}, {0.03f, 0.53f},
+    {0.03f, 0.52f}, {0.03f, 0.46f},
 };
-const WeaponDef kM4A4 = {
-    "M4A4", true, 225.0f, 33.0f, 0.97f, 0.09f, 30, 3.1f,
-    0.34f, 4.5f, 8.0f, 0.10f, kM4Pattern, 30, true, 24.0f, kWM4A4, 1, 0.0f, false, true, 3100, 300, 0.70f,
+const WeaponDef kM4A1S = {
+    "M4A1-S", true, 225.0f, 38.0f, 0.99f, 0.1f, 20, 3.1f,
+    0.34f, 4.0f, 8.0f, 0.09f, kM4Pattern, 20, true, 24.0f, kWM4A1S, 1, 0.0f, false, true, 2900, 300, 0.70f,
 };
 
 // Galil AR: the cheap rifle. 30 damage, 35 rounds, the AK's climb a little softer and longer.
@@ -185,7 +195,8 @@ const WeaponDef& weaponDef(int id) {
         case kWDeagle: return kDeagle;
         case kWNova: return kNova;
         case kWMac10: return kMac10;
-        case kWM4A4: return kM4A4;
+        case kWM4A1S: return kM4A1S;
+        case kWXm1014: return kXm1014;
         case kWGalil: return kGalil;
         case kWSsg08: return kSsg08;
         case kWUmp45: return kUmp45;
@@ -469,14 +480,11 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
     return res;
 }
 
-RecoilStep pelletOffset(const WeaponDef& w, int k) {
-    if (k <= 0 || w.pellets <= 1) return {0, 0};
-    // The centre pellet, then an inner ring (turned 45 degrees) and an outer ring: half the rest each.
-    const int rest = w.pellets - 1, inner = rest / 2;
-    const bool in = k - 1 < inner;
-    const int idx = in ? k - 1 : k - 1 - inner, count = in ? inner : rest - inner;
-    const float ang = (float(idx) / float(std::max(count, 1)) + (in ? 0.125f : 0.0f)) * 2.0f * kPi;
-    const float r = w.pelletSpread * (in ? 0.45f : 1.0f);
+RecoilStep pelletOffset(const WeaponDef& w, int k, uint32_t seed) {
+    if (w.pellets <= 1) return {0, 0};
+    // A random direction, and a random distance that favours the middle (uniform in radius, not in area).
+    const uint32_t base = seed * 2654435761u + uint32_t(k) * 40503u + 0x9e37u;
+    const float ang = rand01(base) * 2.0f * kPi, r = w.pelletSpread * rand01(base ^ 0x5bd1e995u);
     return {std::sin(ang) * r, std::cos(ang) * r};
 }
 
@@ -486,8 +494,9 @@ int firePellets(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw
     float pitch = 0, yaw = 0;
     shotAim(ws, viewPitch, viewYaw, horizSpeed, onGround, ducked, pitch, yaw);
     const int n = std::clamp(ws.def->pellets, 1, kMaxPellets);
+    const uint32_t seed = ws.shotCounter;
     for (int k = 0; k < n; ++k) {
-        const RecoilStep o = pelletOffset(*ws.def, k);
+        const RecoilStep o = pelletOffset(*ws.def, k, seed);
         out[k] = traceShot(*ws.def, eye, anglesToForward(pitch - o.up, yaw + o.right), world, dummies, dummyRenderPos);
         out[k].sprayIndex = int(ws.recoilIndex);
     }

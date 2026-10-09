@@ -5,7 +5,8 @@ This is a deliberately tiny prototype for testing **movement and shooting feel**
 - 128-tick fixed simulation
 - uncapped FPS
 - raw mouse input
-- eleven guns with fixed spray patterns (AK-47, M4A4, Galil AR, AWP, SSG 08, Nova, MAC-10, UMP-45, pistol, Dual Berettas, Deagle), knives and grenades
+- twelve guns with fixed spray patterns (AK-47, M4A1-S, Galil AR, AWP, SSG 08, Nova, XM1014, MAC-10, UMP-45, pistol, Dual Berettas, Deagle), knives and grenades
+- menu music (a CC0 track; MENU MUSIC volume in Settings → Video + sound)
 - target dummies on a grey-box test map
 - **sound:**
   - gunshots, footsteps, landing, reload, dry-fire
@@ -43,7 +44,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Q | Switch back to your previous weapon |
 | F | Inspect your weapon |
 | E | Plant (T, on a site) / defuse (CT, at the bomb). Hold it |
-| B | The **buy wheel**, like CS:GO's: the mouse is free while it's open; click a category, then an item (or press its number). Right click / Esc goes back. Underneath: **7 FULL BUY: AK-47** and **8 FULL BUY: AWP**. Competitive: with money, in your spawn during buy time. Everywhere else: any gun, free, any time |
+| B | The **buy wheel**, like CS:GO's: the mouse is free while it's open; click a category, then an item (or press its number). Right click / Esc goes back. Categories: 1 pistols, 2 shotguns, 3 SMGs, 4 rifles, 5 snipers (6 gear and 7 grenades in competitive). Underneath: **8 FULL BUY: AK-47** and **9 FULL BUY: AWP**. Competitive: with money, in your spawn during buy time. Everywhere else: any gun, free, any time |
 | Mouse 2 | Sniper scope (AWP, SSG 08): 40 → 15 FOV → off. Like CS, a shot takes the scope down while the bolt cycles and it comes back up by itself. With a grenade out: hold for an underhand lob, thrown on release |
 | Tab | Scoreboard (deathmatch, retakes, competitive) |
 | G | Quick-throw the current grenade without switching (deterministic bounces, so lineups repeat) |
@@ -118,8 +119,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Rounds:** 15 s freeze time (buy and plan, can't move; `freeze_time`, Play: FREEZE TIME), 1:55 to play, 40 s bomb fuse.
 - **Win** by killing the other side, planting and letting it blow (T), defusing (CT) or running the clock out without a plant (CT).
 - **Money, like CS:** start with $800; win $3,250 ($3,500 for a bomb win); loss bonus $1,400 rising by $500 per loss in a row up to $3,400; Ts get $800 more for a plant; kill rewards below.
-- **Buy menu (B):** a wheel, only in your spawn during freeze time and the first 20 s after it. **Full buys** in one click: **FULL BUY: AK-47** (AK-47, kevlar + helmet, a kit on CT, then smoke, flash, HE and molotov while the money lasts) or **FULL BUY: AWP**. Or pick a category, then the item: **1 pistols** (pistol $200, Dual Berettas $300, Deagle $700) · **2 heavy** (Nova $1,050) · **3 SMGs** (MAC-10 $1,050, UMP-45 $1,200) · **4 rifles** (Galil AR $1,800, AK-47 $2,700, M4A4 $3,100, SSG 08 $1,700, AWP $4,750) · **5 gear** (kevlar $650, kevlar + helmet $1,000, defuse kit $400, CT) · **6 grenades** (smoke $300, flashbang $200, HE $300, molotov $400). Both sides can buy every gun. Armor, like CS, depends on the gun: most keep 77.5% of their damage through kevlar (and a helmet, for the head), the M4A4 70%, the UMP-45 65%, the SSG 08 85% and the AWP 97.5%. If you survive, you keep what you had.
-- **Kill rewards, like CS:** $300 (AWP $100, SMGs $600, Nova $900).
+- **Buy menu (B):** a wheel, only in your spawn during freeze time and the first 20 s after it. **Full buys** in one click: **FULL BUY: AK-47** (AK-47, kevlar + helmet, a kit on CT, then smoke, flash, HE and molotov while the money lasts) or **FULL BUY: AWP**. Or pick a category, then the item: **1 pistols** (pistol $200, Dual Berettas $300, Deagle $700) · **2 shotguns** (Nova $1,050, XM1014 $2,000) · **3 SMGs** (MAC-10 $1,050, UMP-45 $1,200) · **4 rifles** (Galil AR $1,800, AK-47 $2,700, M4A1-S $2,900) · **5 snipers** (SSG 08 $1,700, AWP $4,750) · **6 gear** (kevlar $650, kevlar + helmet $1,000, defuse kit $400, CT) · **7 grenades** (smoke $300, flashbang $200, HE $300, molotov $400). Both sides can buy every gun. Armor, like CS, depends on the gun: most keep 77.5% of their damage through kevlar (and a helmet, for the head), the M4A1-S 70%, the XM1014 80%, the UMP-45 65%, the SSG 08 85% and the AWP 97.5%. If you survive, you keep what you had.
+- **Kill rewards, like CS:** $300 (AWP $100, SMGs $600, shotguns $900).
 - **The bomb:** a random T carries it. Hold **E** on either site for 3.2 s to plant. If the carrier dies it drops; walk over it to pick it up (T bots go and fetch it). You can see it: a C4 brick with a keypad, wires and a light that blinks with the beeps once it's planted. CTs defuse with **E**: 5 s with a kit, 10 without. You can't move while planting or defusing.
 - **Spawns:** both teams spread over their spawn, you at the front, and nobody is in sight of the other team's spawn when the round starts (the long mid-doors sightline is kept clear; tested).
 - **Names:** the bots have ordinary first names (a different set every match), in the kill feed, scoreboard, radio and when you spectate them.
@@ -201,6 +202,8 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Small ticks around the crosshair** flash for an instant: white for a body hit, red for the head, slightly bigger on a kill: `hitmarker`.
 - **Damage direction:** when a bot hits you, a red arc round the crosshair points at where it came from (fades over a second), like CS.
 - **A helmet "tink"** when your headshot is stopped by a helmet instead of killing.
+- **The kill, Valorant-style:** the moment a bot dies it flashes bright white and holds still for a beat (~80 ms), then fades as it falls.
+- **Muzzle flash light:** every gunshot lights up the walls, floor and ceiling round the gun for a few frames, warm and fading out over ~400 units (yours, the bots' and other players'; suppressed guns barely). `muzzle_light`, Settings → Video + sound.
 - **Kills you can see:** the dead fall over the way your bullet pushed them, faster and faster like a toppling body, slide a little, lie there for a few seconds and sink away. A **headshot kill knocks the helmet off** (CTs; like CS:GO): it flies along the shot, spinning, bounces once and lies there.
 
 ## Guns
@@ -208,11 +211,12 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 | | Slot | Damage | Fire | Mag | Notes |
 |---|---|---|---|---|---|
 | AK-47 | 1 | 36 | 600 RPM, auto | 30 | wallbangs; **a headshot kills through a helmet** (109 at 500 units) |
-| M4A4 | 1 | 33 | 666 RPM, auto | 30 | the CT rifle: a gentler climb, runs at 225; **no one-tap through a helmet** (92); kevlar keeps 70% |
+| M4A1-S | 1 | 38 | 600 RPM, auto | 20 | **suppressed** (bots hear it from 1,100 units, not 2,200; barely a flash); the gentlest spray of the rifles; **a headshot kills through a helmet up close** (105 at 500 units), not from far away; kevlar keeps 70% |
 | Galil AR | 1 | 30 | 666 RPM, auto | 35 | the cheap rifle: the AK's climb, softer and longer; no one-tap through a helmet (93) |
 | AWP | 1 | 115 | bolt, 1.46 s | 5 | scope (Mouse 2); **a body shot kills through kevlar** (97.5% kept: 111 at 500 units, 103 at 4,000) |
 | SSG 08 | 1 | 88 | bolt, 1.25 s | 10 | the scout: scope, runs at 230; **a headshot kills through a helmet from anywhere**, a body shot doesn't |
-| Nova | 1 | 9 × 26 | pump, 0.88 s | 8 | pellets in a **fixed pattern** (the same every shot, no luck); loads shell by shell (firing stops the reload) |
+| Nova | 1 | 9 × 26 | pump, 0.88 s | 8 | pellets spread **at random** inside 2.7° (gathered towards the middle); loads shell by shell (firing stops the reload) |
+| XM1014 | 1 | 6 × 20 | auto, 0.35 s | 7 | the auto shotgun: hold to fire; random spread inside 2.9°; loads shell by shell |
 | MAC-10 | 1 | 29 | 800 RPM, auto | 30 | runs at 240 |
 | UMP-45 | 1 | 35 | 666 RPM, auto | 25 | heavy hits up close, falls off fast (21 → 12 through kevlar from 200 to 2,000 units) |
 | Pistol | 2 | 30 | semi | 12 | **suppressed** (quiet, barely a flash; bots hear it from 900 units, not 2,200). A headshot kills without a helmet up close, **not through one** (93) |
@@ -220,7 +224,7 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 | Dual Berettas | 2 | 32 | semi, fast | 30 | one in each hand, firing left and right in turn; no one-tap through a helmet |
 | Deagle | 2 | 63 | semi, 0.225 s | 7 | **a headshot kills through a helmet from anywhere** (still 106 at 6,000 units), big kick |
 
-Tested in `sim_tests` (new guns): the pistol, Berettas, M4A4 and Galil can't one-tap a helmet, the AK-47 can, the Deagle and the SSG 08 can from anywhere, the AWP kills through kevlar with a body shot at 500 and 4,000 units, the UMP-45 falls off, the Nova's pattern is the same every time and kills close but not far.
+Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a helmet, the AK-47 and M4A1-S can (at 500 units), the Deagle and the SSG 08 can from anywhere, the AWP kills through kevlar with a body shot at 500 and 4,000 units, the UMP-45 falls off, the shotguns' pellets differ every shot but repeat exactly for the same shot, stay inside their spread and kill close but not far (averaged over 40 shots).
 
 ## Inspect, knives, skins and cases
 
@@ -252,8 +256,10 @@ Tested in `sim_tests` (new guns): the pistol, Berettas, M4A4 and Galil can't one
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
 - **Volume** is `volume` in `config.cfg` (0..1).
-- **Each gun sounds like itself:** the shared recordings pitched per gun (the M4A4 tighter than the AK, the UMP-45 a slow thump, the SSG 08 a smaller bang than the AWP).
-- **The suppressed pistol** is made from the pistol recording the way a suppressor changes a shot: the crack and the top end cut away, a deep "thwump" of gas, the bang dying faster, then the slide cycling as a dull chunk. Most of it sits between 150 and 1,500 Hz (it used to be a tinny metallic click: 40% of its energy was at 1.5–4 kHz, now 6%).
+- **Each gun sounds like itself:** the shared recordings pitched per gun (the UMP-45 a slow thump, the SSG 08 a smaller bang than the AWP). The **shotguns** are real 12 gauge recordings (a Benelli Nova, a Winchester Model 12, a Charles Daly).
+- **The suppressed pistol**, like a spy film's: made from the pistol recording the way a suppressor changes a shot (the crack cut away, a "thwump" of gas, the bang dying faster), with a bright "pfft" spit, a quick falling "zip" and the slide ringing on top. About 15–20% of it is at 1.5–4 kHz: brighter than v0.13's 6%, nowhere near the old tinny click's 40%.
+- **The M4A1-S** is the same spy-film "thwip" with a rifle under it: made from the AR-15 recordings, more gas, a deeper thump in the low mids (not sub-bass), the bolt carrier slamming and a longer tail.
+- **Menu music:** "Menu Music" by wipics (CC0, an upbeat electronic loop) plays on the main menu and its pages, and fades out when a game starts (not in the pause menu). MENU MUSIC in Settings → Video + sound sets its volume (`music_volume`, 0 = off). It's decoded in the background, so startup isn't slower.
 - **Scoping in** has its own soft "chk".
 - **Synthesized sounds** are made at startup (and stand in for any recording that's missing). To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV; `--dump-played-sounds <folder>` writes what the game really plays, recordings included.
 
@@ -301,6 +307,8 @@ Perfect hops keep 250 u/s, and good strafes build to 500+.
 
 **There is no random bullet spread by default.** Every bullet goes exactly to your crosshair plus the weapon's fixed recoil pattern, so sprays are 100% repeatable. Movement still matters: the recoil pattern and the view kick are the same either way, but nothing randomizes your shots.
 
+**The one exception: shotguns.** You asked for random shotgun spread, so the Nova's and XM1014's pellets land at random inside their spread (each shot different; seeded by the shot, so a replay or a test gets the same one).
+
 For a CS-like comparison, set `spread_spray 1` (spread grows during a spray) and/or `spread_movement 1` (inaccurate while moving or in the air) in `config.cfg`, then use Settings → RELOAD CONFIG.CFG.
 
 ## Tuning numbers (CS:GO-like defaults)
@@ -344,7 +352,7 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | `src/world.*` | Maps made of boxes and ramps (the Lab, Dust2 from a grid of named areas, materials), swept-box / ray traces incl. sloped ramps, broadphase, retake/team spawn data |
 | `src/nav.*` | Bot navigation on the Dust grid: walkable / roamable cells, shortest routes, following a route |
 | `src/bots.*` | Bot brains: spawning anywhere, roaming or walking to a goal, holding angles, sight cone, choosing a target among enemies, hearing, chasing (tested headless) |
-| `src/combat.*` | Weapons (`WeaponId`, `weaponDef`), recoil patterns, deterministic spread, shotgun pellets in a fixed pattern (`firePellets`), dummies and turned / crouched hitboxes, armor, material wallbangs, hit detection |
+| `src/combat.*` | Weapons (`WeaponId`, `weaponDef`), recoil patterns, deterministic spread, shotgun pellets spread at random, seeded per shot (`firePellets`, `pelletOffset`), dummies and turned / crouched hitboxes, armor, material wallbangs, hit detection |
 | `src/items.*` | Skins, knives, rarities and odds, case rolls, the inventory and its file (tested) |
 | `src/render.*`, `src/gl.*` | OpenGL 3.3: every 3D object is an instanced box (optionally turned or a ramp); depth pre-pass, view culling, nearest-first; skins are a painted surface in the box shader (`PaintParams`); the HUD is a single batch |
 | `src/fx.*` | First-person weapon and knife models and animation, the inventory showcase, tracers, particles (cosmetic only) |

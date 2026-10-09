@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include "vecmath.h"
 
@@ -21,6 +22,8 @@ enum class Sfx {
     UiClick,                                // menu clicks
     SuppressedShot,                         // the starting pistol's silencer: a muted "thwip" and the slide
     Zoom,                                   // a sniper scoping in: a soft mechanical "chk"
+    SuppressedRifle,                        // the M4A1-S: the movie "thwip" with a rifle's punch
+    ShotgunShot,                            // the Nova and the XM1014
     Count
 };
 
@@ -43,6 +46,11 @@ public:
     static bool dumpWavs(const std::string& dir, const std::string& assetDir = "");
     void setVolume(float v) { master_ = v; }
 
+    // Music: an Ogg/WAV decoded on a background thread (startup isn't held up), then looped. setMusic() sets
+    // the level it fades to over about a second (0 = silent; it keeps its place while silent).
+    void loadMusic(const std::string& path);
+    void setMusic(float gain) { musicTarget_ = gain; }
+
 private:
     struct Voice {
         int sound;
@@ -62,5 +70,11 @@ private:
     std::mutex mutex_;
     std::atomic<float> master_{0.6f};
     int loaded_ = 0;  // sounds replaced by recordings from assets/
+    std::vector<float> music_;           // stereo, interleaved, 48 kHz (written by the loader thread)
+    std::atomic<bool> musicReady_{false};
+    std::atomic<float> musicTarget_{0.0f};
+    float musicGain_ = 0;                // audio thread only
+    size_t musicPos_ = 0;                // frames, audio thread only
+    std::thread musicLoader_;
     uint32_t rng_ = 0x51ED270Bu;
 };
