@@ -204,9 +204,22 @@ def textures():
     return len(TEXTURES)
 
 
+def fonts():
+    """The HUD font: Rajdhani Bold (SIL Open Font License 1.1), with its licence beside it as the OFL asks."""
+    d = os.path.join(OUT, 'fonts')
+    os.makedirs(d, exist_ok=True)
+    src = os.path.join(SRC, 'fonts', 'rajdhani')
+    shutil.copyfile(os.path.join(src, 'Rajdhani-Bold.ttf'), os.path.join(d, 'rajdhani-bold.ttf'))
+    shutil.copyfile(os.path.join(src, 'OFL.txt'), os.path.join(d, 'OFL.txt'))
+
+
 CREDITS = """# Credits
 
-All assets here are CC0 (public domain): free for any use, no attribution required. Thank you to:
+All assets here are CC0 (public domain): free for any use, no attribution required, except the font (SIL Open
+Font License, free to use and bundle; its licence is in fonts/OFL.txt). Thank you to:
+
+**Font** - Rajdhani Bold by the Indian Type Foundry (fonts.google.com/specimen/Rajdhani), SIL OFL 1.1: the HUD and
+menus.
 
 **Textures** - Poly Haven (polyhaven.com), resized and turned into detail maps:
 old_sandstone_02 (sandstone), clay_plaster (plaster), dense_sand (sand), red_sandstone_pavement (paving),
@@ -233,6 +246,7 @@ if __name__ == '__main__':
     made = sounds()
     music()
     n = textures()
+    fonts()
     open(os.path.join(OUT, 'CREDITS.md'), 'w', encoding='utf-8').write(CREDITS)
     print('sounds:', ', '.join(f'{k} {v}' for k, v in made.items()))
     print('textures:', n)

@@ -292,7 +292,9 @@ so a cut-off session can carry on; light testing, no benches while they use the 
       box FS, config `shadows` 0/1/2 + menu row) and bevelled prop edges (wood/metal faces, box FS)
 - [x] 2. Post pass (`setPost`, `endScene`, `setGrade` per map in loadMap; kPostFS): scene into an FBO (MSAA samples
       there, not on the window), then FXAA (when msaa 0) + colour grade + vignette; config `post_fx` (restart)
-- [ ] 3. Real font: stb_truetype + an OFL font baked into the HUD atlas, bitmap fallback
+- [x] 3. Real font (`Renderer::loadFont`, `g_ttf` in render.cpp): Rajdhani Bold (OFL, assets/fonts) baked by
+      stb_truetype at scales 1,2,3,4,6,8,12 into a 2048 atlas; capitals as tall as the bitmap font's; lines with
+      double spaces (padded columns) keep fixed cells; bitmap font.h is the fallback
 - [ ] 4. Living main menu: a slow camera over Dust/Harbor behind the main menu; fades between screens / round start
 - [ ] 5. Map ambience (per-map loops) + room echo (reverb in tunnels/roofed areas)
 - [ ] 6. Footsteps by surface (stone/sand, wood, metal)

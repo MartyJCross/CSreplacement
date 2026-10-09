@@ -1,6 +1,10 @@
 # Credits
 
-All assets here are CC0 (public domain): free for any use, no attribution required. Thank you to:
+All assets here are CC0 (public domain): free for any use, no attribution required, except the font (SIL Open
+Font License, free to use and bundle; its licence is in fonts/OFL.txt). Thank you to:
+
+**Font** - Rajdhani Bold by the Indian Type Foundry (fonts.google.com/specimen/Rajdhani), SIL OFL 1.1: the HUD and
+menus.
 
 **Textures** - Poly Haven (polyhaven.com), resized and turned into detail maps:
 old_sandstone_02 (sandstone), clay_plaster (plaster), dense_sand (sand), red_sandstone_pavement (paving),

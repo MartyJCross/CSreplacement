@@ -5781,6 +5781,8 @@ int main(int argc, char** argv) {
         const char* basePath = SDL_GetBasePath();
         const int layers = renderer.loadTextures(std::string(basePath ? basePath : "") + "assets/textures");
         std::fprintf(stderr, "textures: %s\n", layers ? "loaded" : "not found, using procedural surfaces");
+        const bool font = renderer.loadFont(std::string(basePath ? basePath : "") + "assets/fonts/rajdhani-bold.ttf");
+        std::fprintf(stderr, "font: %s\n", font ? "loaded" : "not found, using the bitmap font");
     }
 
     const bool bench = opt.benchSeconds > 0;

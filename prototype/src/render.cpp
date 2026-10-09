@@ -3,6 +3,9 @@
 #include <algorithm>
 #include "font.h"
 #include "stb_image.h"  // JPEG decoding (public domain), compiled in crisp_third_party
+#include "stb_truetype.h"  // the HUD font's glyphs (public domain), compiled in crisp_third_party
+#include <fstream>
+#include <iterator>
 #include "gl.h"
 
 namespace {
@@ -436,6 +439,34 @@ void main() {
 )";
 
 constexpr int kAtlasCols = 16, kCellW = 6, kCellH = 8;
+
+// The TrueType HUD font (Renderer::loadFont): ASCII 32..126 baked at a few sizes into one atlas. Size k is for text
+// scale kTtfScales[k] (capitals 7 * scale pixels tall, like the bitmap font); other scales use the next size up,
+// drawn smaller. Without it the bitmap font (font.h) stays.
+constexpr int kTtfScales[] = {1, 2, 3, 4, 6, 8, 12};
+constexpr int kTtfSizes = int(sizeof(kTtfScales) / sizeof(kTtfScales[0]));
+constexpr int kTtfFirst = 32, kTtfCount = 95, kTtfAtlas = 2048;
+struct TtfFont {
+    bool ok = false;
+    stbtt_packedchar ch[kTtfSizes][kTtfCount];
+};
+TtfFont g_ttf;
+// Glyph and advance for one character at text scale `sc`: which baked size, and how much to shrink it.
+inline void ttfPick(int sc, int& k, float& f) {
+    k = kTtfSizes - 1;
+    for (int i = 0; i < kTtfSizes; ++i)
+        if (kTtfScales[i] >= sc) { k = i; break; }
+    f = float(sc) / float(kTtfScales[k]);
+}
+inline int ttfIndex(char ch) {
+    const int c = (ch >= 'a' && ch <= 'z') ? ch - 32 : static_cast<unsigned char>(ch);  // capitals, like the HUD always was
+    return c >= kTtfFirst && c < kTtfFirst + kTtfCount ? c - kTtfFirst : -1;
+}
+// Lines padded into columns with runs of spaces (scoreboard, stats) keep fixed cells so the columns line up.
+inline bool ttfMono(const std::string& s) { return s.find("  ") != std::string::npos; }
+inline float ttfAdvance(int k, float f, int idx, int sc) {
+    return idx < 0 ? float(kCellW * sc) : g_ttf.ch[k][idx].xadvance * f + 0.4f * float(sc);  // a little tracking
+}
 constexpr int kAtlasW = kAtlasCols * kCellW, kAtlasH = (kFontCount / kAtlasCols) * kCellH;
 
 unsigned compileProgram(const char* vs, const char* fs, std::string& err) {
@@ -586,12 +617,45 @@ void HudBatch::quad(float x0, float y0, float x1, float y1, float x2, float y2, 
 
 float HudBatch::textWidth(const std::string& s, int scale) const {
     int sc = scale > 0 ? scale : fontScale;
-    return float(s.size() * kCellW * sc);
+    if (!g_ttf.ok || ttfMono(s)) return float(s.size() * kCellW * sc);
+    int k;
+    float f;
+    ttfPick(sc, k, f);
+    float w = 0;
+    for (char ch : s) w += ttfAdvance(k, f, ttfIndex(ch), sc);
+    return w;
 }
 
 void HudBatch::text(float x, float y, const std::string& s, uint32_t rgba, int scale) {
     int sc = scale > 0 ? scale : fontScale;
     const uint32_t shadow = (rgba & 0xFF) * 3 / 4;  // black drop shadow at 75% of the text alpha
+    if (g_ttf.ok) {
+        int k;
+        float f;
+        ttfPick(sc, k, f);
+        const bool mono = ttfMono(s);
+        const float base = y + 7.0f * float(sc);  // the capitals sit in the same 7-pixel box as the bitmap font's
+        const float inv = 1.0f / float(kTtfAtlas);
+        for (int pass = 0; pass < 2; ++pass) {
+            const float off = pass == 0 ? std::max(1.0f, float(sc) * 0.5f) : 0.0f;
+            const uint32_t col = pass == 0 ? shadow : rgba;
+            float cx = x;
+            for (char ch : s) {
+                const int idx = ttfIndex(ch);
+                const float adv = ttfAdvance(k, f, idx, sc);
+                if (idx >= 0) {
+                    const stbtt_packedchar& g = g_ttf.ch[k][idx];
+                    const float gx = mono ? cx + (float(kCellW * sc) - adv) * 0.5f : cx;
+                    if (g.x1 > g.x0)
+                        pushQuad(verts, gx + g.xoff * f + off, base + g.yoff * f + off, gx + g.xoff2 * f + off,
+                                 base + g.yoff2 * f + off, float(g.x0) * inv, float(g.y0) * inv, float(g.x1) * inv,
+                                 float(g.y1) * inv, col);
+                }
+                cx += mono ? float(kCellW * sc) : adv;
+            }
+        }
+        return;
+    }
     for (int pass = 0; pass < 2; ++pass) {
         float off = pass == 0 ? float(sc) * 0.5f : 0.0f;
         uint32_t col = pass == 0 ? shadow : rgba;
@@ -1144,6 +1208,36 @@ void Renderer::drawHud(const HudBatch& hud, bool changed) {
         hudCount_ = int(hud.verts.size());
     }
     if (hudCount_ > 0) glDrawArrays(GL_TRIANGLES, 0, hudCount_);
+}
+
+bool Renderer::loadFont(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return false;
+    std::vector<unsigned char> ttf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    stbtt_fontinfo info;
+    if (ttf.empty() || !stbtt_InitFont(&info, ttf.data(), stbtt_GetFontOffsetForIndex(ttf.data(), 0))) return false;
+    int x0, y0, x1, capTop;  // the capitals' height, so a scale draws them as tall as the bitmap font did
+    if (!stbtt_GetCodepointBox(&info, 'H', &x0, &y0, &x1, &capTop) || capTop <= 0) return false;
+    const float perPixelHeight = stbtt_ScaleForPixelHeight(&info, 1.0f);
+    std::vector<unsigned char> atlas(size_t(kTtfAtlas) * kTtfAtlas, 0);
+    stbtt_pack_context pc;
+    if (!stbtt_PackBegin(&pc, atlas.data(), kTtfAtlas, kTtfAtlas, 0, 1, nullptr)) return false;
+    bool ok = true;
+    for (int k = 0; k < kTtfSizes && ok; ++k) {
+        const int over = kTtfScales[k] <= 3 ? 2 : 1;  // small sizes: sharper sideways placement
+        stbtt_PackSetOversampling(&pc, unsigned(over), 1);
+        const float pixelHeight = 7.0f * float(kTtfScales[k]) / (float(capTop) * perPixelHeight);
+        ok = stbtt_PackFontRange(&pc, ttf.data(), 0, pixelHeight, kTtfFirst, kTtfCount, g_ttf.ch[k]) != 0;
+    }
+    stbtt_PackEnd(&pc);
+    if (!ok) return false;
+    glBindTexture(GL_TEXTURE_2D, fontTex_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, kTtfAtlas, kTtfAtlas, 0, GL_RED, GL_UNSIGNED_BYTE, atlas.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    g_ttf.ok = true;
+    return true;
 }
 
 bool Renderer::screenshot(const std::string& path) {

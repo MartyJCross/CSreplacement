@@ -76,7 +76,7 @@ if(CRISP_BUILD_GAME)
 
   # Third-party single-file decoders (public domain / MIT): Ogg Vorbis sounds and JPEG textures from
   # assets/. Built on their own, without our warning flags.
-  add_library(crisp_third_party STATIC third_party/stb_vorbis.c third_party/stb_image_impl.c)
+  add_library(crisp_third_party STATIC third_party/stb_vorbis.c third_party/stb_image_impl.c third_party/stb_truetype_impl.c)
   target_include_directories(crisp_third_party PUBLIC third_party)
   if(MSVC)
     target_compile_options(crisp_third_party PRIVATE /w)

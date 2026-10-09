@@ -76,6 +76,8 @@ public:
     // Surface textures (assets/textures/*.jpg, 512 px detail maps) for the stone, wood and metal surfaces.
     // Returns how many loaded; 0 = none (missing files): the shader falls back to its procedural patterns.
     int loadTextures(const std::string& dir);
+    // The HUD font (assets/fonts/*.ttf); false = missing or unreadable: the built-in bitmap font stays.
+    bool loadFont(const std::string& path);
 
     // Ring buffer of impact decals that persists between frames (updated only when it changes).
     void addDecal(const BoxInstance& b);
