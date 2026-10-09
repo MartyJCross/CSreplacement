@@ -301,7 +301,8 @@ so a cut-off session can carry on; light testing, no benches while they use the 
 - [x] 5. Ambience (`ambienceBed` synthesized loops levelled to -33 dB RMS: Dust wind + birds, Harbor waves + gulls +
       wind; `setAmbience`, config `ambience_volume`) and room echo (`Audio::Reverb`, Freeverb-lite on voices with
       `wet`; UI cues dry via `dryCue`; `setRoom` from main: roofed cell = tunnel echo, street = short slap)
-- [ ] 6. Footsteps by surface (stone/sand, wood, metal)
+- [x] 6. Footsteps by surface (`stepSoundAt`): sand (Footstep) on the towns' ground, Sfx::FootstepStone (Fantozzi
+      Stone recordings) on the sites' paving and the Lab's concrete, wood and metal as before
 - [ ] 7. Viewmodel polish: smoother sway/bob, landing dip, strafe tilt
 - [ ] 8. Graphics presets (LOW/MEDIUM/HIGH set shadows, post, msaa)
 - [ ] 9. Docs: README section, CLAUDE.md §7, final report + CI link + zip

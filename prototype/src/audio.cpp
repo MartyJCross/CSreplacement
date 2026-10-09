@@ -301,6 +301,18 @@ std::vector<float> footstep(Rng& r) {  // boot on sand/stone: heel, roll, toe sc
     return b;
 }
 
+std::vector<float> footstepStone(Rng& r) {  // boot on paving / concrete: a harder heel click, no grit
+    auto b = buffer(0.18f);
+    float toe = 0.04f * r.jitter(0.25f);
+    addNoise(b, 0, 0.8f, 400 * r.jitter(0.15f), 5200 * r.jitter(0.15f), 0.007f * r.jitter(0.2f), r, 0.0004f);
+    addTone(b, 0, 0.25f, 120 * r.jitter(0.1f), 80, 0.008f);
+    addNoise(b, toe, 0.45f * r.jitter(0.25f), 900, 6500 * r.jitter(0.15f), 0.008f, r, 0.0005f);
+    lowpass(b, 8000);
+    fadeTail(b);
+    normalize(b, 0.7f);
+    return b;
+}
+
 std::vector<float> landing(Rng& r) {  // thud, grit and a little gear rattle
     auto b = buffer(0.3f);
     addTone(b, 0, 0.3f, 80 * r.jitter(0.08f), 48, 0.04f);
@@ -610,11 +622,12 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
                                  "impact_metal", "helmet_hit", "whiz", "ui_click", "suppressed_shot", "zoom",
                                  "suppressed_rifle", "shotgun_shot", "galil_shot", "mac10_shot", "ump_shot",
                                  "ssg_shot", "xm_shot", "deagle_shot", "berettas_shot", "round_start", "bomb_planted",
-                                 "round_win", "round_lose", "low_ammo", "last_round"};
+                                 "round_win", "round_lose", "low_ammo", "last_round", "footstep_stone"};
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
-// A recording -> 48 kHz mono float, or empty if it can't be read. WAV through SDL, Ogg through stb_vorbis.
 std::vector<float> ambienceBed(int which);  // (below, with the mixer)
+
+// A recording -> 48 kHz mono float, or empty if it can't be read. WAV through SDL, Ogg through stb_vorbis.
 
 std::vector<float> loadRecording(const std::string& path) {
     std::vector<float> out;
@@ -662,6 +675,7 @@ SoundBank synthesize() {
         {Sfx::HitHead, hitHead, 3},      {Sfx::SniperShot, sniperShot, 3}, {Sfx::PistolShot, pistolShot, 4},
         {Sfx::RifleShotFar, rifleShotFar, 3},    {Sfx::HitMarker, hitMarker, 3},
         {Sfx::FootstepWood, footstepWood, 4},    {Sfx::FootstepMetal, footstepMetal, 4},
+        {Sfx::FootstepStone, footstepStone, 4},
         {Sfx::FlashBang, flashBang, 2},          {Sfx::FlashRing, flashRing, 1},
         {Sfx::Explosion, explosion, 3},          {Sfx::Fire, fireCrackle, 4},
         {Sfx::BombBeep, bombBeep, 1},            {Sfx::Defuse, defuseKit, 1},

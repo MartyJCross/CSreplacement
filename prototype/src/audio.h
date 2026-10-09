@@ -28,6 +28,7 @@ enum class Sfx {
     GalilShot, Mac10Shot, UmpShot, SsgShot, XmShot, DeagleShot, BerettasShot,
     RoundStart, BombPlanted, RoundWin, RoundLose,  // the match's cues: "go", the alarm, the stings
     LowAmmo, LastRound,                     // your magazine: nearly empty (a tick), the last round (a ping)
+    FootstepStone,                          // steps on the sites' paving and the Lab's concrete (sand is Footstep)
     Count
 };
 

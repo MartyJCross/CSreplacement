@@ -160,6 +160,7 @@ def sounds():
         made[name] = len(files)
 
     copy('footstep', 'opengameart/fantozzi-footsteps/**/Fantozzi-Sand*.ogg', 6)
+    copy('footstep_stone', 'opengameart/fantozzi-footsteps/**/Fantozzi-Stone*.ogg', 6)
     copy('footstep_wood', 'kenney/**/footstep_wood_*.ogg', 4)
     copy('impact_metal', 'kenney/kenney_impact-sounds/**/impactMetal_light_*.ogg', 4)
     copy('impact_wood', 'kenney/kenney_impact-sounds/**/impactWood_light_*.ogg', 4)
@@ -231,7 +232,7 @@ brown_planks_03 (planks), painted_metal_shutter (shutter), metal_plate_02 (plate
   MAC-10 (PPSh), UMP-45 (Carl Gustav M45), AWP (Tikka T3, Mosin Nagant), SSG 08 (Savage 10, Marlin 336), Nova
   (Benelli Nova, Winchester Model 12), XM1014 (Charles Daly, Mossberg 190), Deagle (Smith & Wesson 642, 1911), Dual
   Berettas (Walther PPQ, Bersa), pistol (1911, Walther PPQ), AR-15, and distant shots.
-- Fantozzi's footsteps (opengameart.org/content/fantozzis-footsteps-grasssand-stone): footsteps.
+- Fantozzi's footsteps (opengameart.org/content/fantozzis-footsteps-grasssand-stone): footsteps on sand and stone.
 - Kenney (kenney.nl): Impact Sounds (impacts, wooden footsteps), Interface Sounds (menu clicks).
 
 **Music** - "Menu Music" by wipics (opengameart.org/content/menu-music-1), CC0: the menu soundtrack.

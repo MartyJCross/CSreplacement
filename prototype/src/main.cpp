@@ -657,12 +657,15 @@ float turnToward(float yaw, float target, float maxStep) {
 }
 
 // Something bots can hear: footsteps (~1100 units) or gunshots (~2200).
-// Footstep sound for whatever is under these feet: wood (crates, doors), metal (container, car) or grit.
+// Footstep sound for whatever is under these feet: wood (crates, doors), metal (container, car), the sites' paving
+// and the Lab's concrete (a hard click), or the towns' sandy ground (grit).
 Sfx stepSoundAt(const Game& g, const Vec3& feet) {
     TraceResult tr = g.world.traceBox(feet + Vec3{0, 0, 2}, feet - Vec3{0, 0, 6}, hullMins(), hullMaxs(false));
-    if (tr.box < 0) return Sfx::Footstep;
+    if (tr.box < 0) return g.mapId == 1 ? Sfx::Footstep : Sfx::FootstepStone;
     uint8_t m = g.world.solids[size_t(tr.box)].material;
-    return m == kMatWood ? Sfx::FootstepWood : m == kMatMetal ? Sfx::FootstepMetal : Sfx::Footstep;
+    if (m == kMatWood) return Sfx::FootstepWood;
+    if (m == kMatMetal) return Sfx::FootstepMetal;
+    return m == kMatPaving || g.mapId != 1 ? Sfx::FootstepStone : Sfx::Footstep;
 }
 
 // `side`: who made it (competitive: only the other side reacts); -1 = you.
