@@ -32,7 +32,7 @@ prototype/
   CMakeLists.txt          builds crisp_sim (lib), sim_tests (headless), crisp (game; CRISP_BUILD_GAME=ON)
   src/
     vecmath.h             Vec3/Mat4, Z-up, Source-style angles (pitch + = down, yaw + = left)
-    world.*               AABB world, traces (+ optional broadphase), maps: buildLab(), buildDust()
+    world.*               AABB world, traces (+ optional broadphase), maps: buildLab(), buildTown() (Dust2 or Harbor)
                           (Dust2 from the kDustAreas table on a 32u grid, decor, props), bot/retake/prefire/spawn
                           spots, KZ course
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
@@ -245,7 +245,15 @@ See `prototype/README.md` for full details. Each item below lists where its code
 - **Owner's sound notes (v0.14):** the suppressed pistol should be "a bit tinny, like Bond" (~15-20% at 1.5-4 kHz);
   the M4A1-S the same with more oomph (low mids, not sub-bass). v0.15: "still not it", so they got the sound lab.
   Measure with `--dump-played-sounds` (it uses the default lab settings).
-- **Doors** (world.cpp, end of buildDust): frames (jambs + lintel) at both ends of each doorway and the leaves,
+- **Town maps** (world.cpp): Dust2 and **Harbor** (Crisp's own map, owner asked for one free to share) are both
+  "town maps": named floor areas on a 32u grid (`DustArea` tables `kDustAreas`, `kHarborAreas`; `TownDef kTowns`:
+  extents, scalable, wall shades). `setTownMap(0|1)` picks the active one; every `town*` function (townGrid,
+  townPoint, townCallout, townSpawn, townTeamSpawns, townRetakeSites, townCtSpots, townPrefireRoutes,
+  townPeekSpots, townTactics, buildTown) answers for it. Bot tactics per map: `TownTactics` (stages, utility,
+  pushes, radio calls). Game::mapId stays 1 for both; config `map` 0 Lab, 1 Dust2, 2 Harbor. Online: the map
+  rides in the welcome's game byte (bit 0 game, bits 1+ map). Harbor is tested in `testHarbor`: change its spots
+  and keep that passing.
+- **Doors** (world.cpp, end of buildTown): frames (jambs + lintel) at both ends of each doorway and the leaves,
   all placed on the doorway's grid cells (`cellsOf`, `frame`, `openLeaf` shortens a leaf that would hit a prop).
 - **Performance:** the owner's laptop has only an integrated Radeon (GPU-bound, fill-rate). Depth pre-pass,
   per-frame frustum cull + front-to-back sort of world boxes, per-face lighting. Measure with
@@ -275,7 +283,7 @@ See `prototype/README.md` for full details. Each item below lists where its code
    Competitive: the host runs `compTick`, bots and `netRoster` (teams, bots fill), sends `NetRound` (start/end/
    roster), `NetMatch` (8 Hz) and `NetBot` (64 Hz); joined games run `compClientTick` (their plant/defuse, beeps),
    keep their own money and armor (hits arrive unarmored: the victim applies its armor). Aliveness in
-   competitive comes from round starts and death messages, not the state stream. `kNetProtocol` (7) must match to join.
+   competitive comes from round starts and death messages, not the state stream. `kNetProtocol` (8) must match to join.
    The owner's network is double-NATed (router behind the ISP's router), so UPnP alone doesn't reach them from
    outside: the HUD says so. Later: a server-authoritative model with lag compensation (`docs/04`) if it ever goes
    public. Test locally with two copies in separate folders (own config.cfg): `crisp --host` (`net_game 1` for

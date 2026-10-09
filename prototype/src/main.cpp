@@ -760,10 +760,10 @@ void startDeathmatch(Game& g) {
 
 // Prefire: everyone back to the start of the route, every bot back on its spot.
 void startPrefire(Game& g) {
-    const std::vector<PrefireRoute>& routes = dustPrefireRoutes();
+    const std::vector<PrefireRoute>& routes = townPrefireRoutes();
     g.pf.route = std::clamp(g.pf.route, 0, int(routes.size()) - 1);
     const PrefireRoute& r = routes[size_t(g.pf.route)];
-    g.spawn = dustPoint(r.start.x, r.start.y);
+    g.spawn = townPoint(r.start.x, r.start.y);
     g.spawnYaw = std::atan2(r.start.lookY - r.start.y, r.start.lookX - r.start.x) / kDegToRad;
     g.hp = 100;
     g.deadUntil = -1;
@@ -773,7 +773,7 @@ void startPrefire(Game& g) {
         const RetakeSpot& b = r.bots[i];
         Dummy& d = g.dummies[i];
         d = Dummy{};
-        d.pos = d.prevPos = dustPoint(b.x, b.y);
+        d.pos = d.prevPos = townPoint(b.x, b.y);
         d.yaw = d.prevYaw = std::atan2(b.lookY - b.y, b.lookX - b.x) / kDegToRad;
         BotBrain brain;
         brain.state = 1;
@@ -832,11 +832,11 @@ void startOnline(Game& g) {
 // A new retake round: random site, its bots on random hold spots facing the way you'll come, you at
 // a random entry with full ammo and HP.
 void startRetakeRound(Game& g) {
-    const std::vector<RetakeSite>& sites = dustRetakeSites();
+    const std::vector<RetakeSite>& sites = townRetakeSites();
     g.rtSite = int(rnd(g) * float(sites.size())) % int(sites.size());
     const RetakeSite& site = sites[size_t(g.rtSite)];
     const RetakeSpot& entry = site.entries[size_t(rnd(g) * float(site.entries.size())) % site.entries.size()];
-    g.spawn = dustPoint(entry.x, entry.y);
+    g.spawn = townPoint(entry.x, entry.y);
     g.spawnYaw = std::atan2(entry.lookY - entry.y, entry.lookX - entry.x) / kDegToRad;
     g.hp = 100;
     g.deadUntil = -1;
@@ -848,20 +848,20 @@ void startRetakeRound(Game& g) {
     // Holds you can see from where you start go last: no bot is in view when the round begins.
     const Vec3 eye = g.spawn + Vec3{0, 0, kStandEye};
     std::stable_partition(order.begin(), order.end(), [&](size_t k) {
-        const Vec3 p = dustPoint(site.holds[k].x, site.holds[k].y);
+        const Vec3 p = townPoint(site.holds[k].x, site.holds[k].y);
         return g.world.traceRay(eye, p + Vec3{0, 0, 62}).fraction < 1.0f && g.world.traceRay(eye, p + Vec3{0, 0, 30}).fraction < 1.0f;
     });
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         const RetakeSpot& h = site.holds[order[i % order.size()]];
         Dummy& d = g.dummies[i];
         d = Dummy{};
-        d.pos = d.prevPos = dustPoint(h.x, h.y);
+        d.pos = d.prevPos = townPoint(h.x, h.y);
         d.yaw = d.prevYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
         BotBrain b;
         b.state = 1;  // already placed: hold
         b.holdOnly = true;
         b.holdYaw = d.yaw;
-        b.holdLook = dustPoint(h.lookX, h.lookY);
+        b.holdLook = townPoint(h.lookX, h.lookY);
         b.hasHoldLook = true;
         b.home = d.pos;
         b.hasHome = true;
@@ -871,7 +871,7 @@ void startRetakeRound(Game& g) {
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
     g.rtRoundEnd = g.simTime + kRetakeRoundTime;  // = the bomb's fuse
     g.rtResultUntil = -1;
-    g.bombPos = dustPoint(site.bombX, site.bombY);
+    g.bombPos = townPoint(site.bombX, site.bombY);
     g.bombActive = true;
     g.bombExplodeAt = g.rtRoundEnd;
     g.defuseStart = -1;
@@ -1178,7 +1178,7 @@ void igniteMolotov(Game& g, const Vec3& at, int owner) {
 // Radar picture of the Dust grid: walkable cells merged into rectangles, lighter = higher.
 void buildRadar(Game& g) {
     g.radarRects.clear();
-    const MapGrid& m = dustGrid();
+    const MapGrid& m = townGrid();
     std::vector<int> band(size_t(m.w * m.h), -1);
     float lo = 1e9f, hi = -1e9f;
     for (size_t c = 0; c < band.size(); ++c)
@@ -1315,7 +1315,7 @@ void startCompRound(Game& g) {
     g.spec = -1;
     if (netHost(g)) netRoster(g);
     const int youSide = c.youTeam;
-    g.spawn = dustTeamSpawns(youSide)[0];
+    g.spawn = townTeamSpawns(youSide)[0];
     g.spawnYaw = youSide == 0 ? 90.0f : -90.0f;
     g.hp = 100;
     g.deadUntil = -1;
@@ -1338,7 +1338,7 @@ void startCompRound(Game& g) {
         const bool helmet = !died && d.helmet;
         if (died) g.comp.botRifle[i] = 0;
         const int spot = slot[side]++;
-        const Vec3 sp = dustTeamSpawns(side)[size_t(spot) % 5];
+        const Vec3 sp = townTeamSpawns(side)[size_t(spot) % 5];
         if (!isBot(g, i)) {  // another player: alive at their spawn (their game puts them there and keeps their kit)
             g.netSpawn[i] = spot;
             d = Dummy{};
@@ -1369,7 +1369,8 @@ void startCompRound(Game& g) {
     if (c.carrier == -1) pushHitLog(g, "YOU HAVE THE BOMB", 0xffd060);
     // Ts: the round's play. Staging points on the way in: 0 A long, 1 A short (catwalk), 2 B tunnels, 3 mid
     // by the doors (mid to B), 4 lower mid. Then the execute (compTick).
-    const float stages[5][2] = {{1500, 1100}, {170, 1350}, {-2070, 1150}, {-180, 1650}, {-150, 700}};
+    const TownTactics& tac = townTactics();
+    const auto& stages = tac.stages;
     const float pr = rnd(g);
     const int play = pr < 0.30f ? kPlayExecute : pr < 0.45f ? kPlayRush : pr < 0.58f ? kPlaySplitA
                    : pr < 0.68f ? kPlaySplitB : pr < 0.84f ? kPlayFake : kPlayDefault;
@@ -1383,7 +1384,7 @@ void startCompRound(Game& g) {
     c.goAt = 0;
     c.fakeRoute = play == kPlayFake ? (c.siteTarget == 1 ? (rnd(g) < 0.5f ? 0 : 1) : 2) : -1;
     c.stages.clear();
-    auto addStage = [&](int r) { c.stages.push_back(dustPoint(stages[r][0], stages[r][1])); };
+    auto addStage = [&](int r) { c.stages.push_back(townPoint(stages[r][0], stages[r][1])); };
     switch (play) {
         case kPlaySplitA: addStage(0); addStage(1); break;          // long and short together
         case kPlaySplitB: addStage(2); addStage(3); break;          // tunnels and through mid doors
@@ -1409,7 +1410,7 @@ void startCompRound(Game& g) {
     const int* setup = roles[roll < 0.7f ? 0 : roll < 0.85f ? 1 : 2];
     std::vector<int> spotOrder[kCtRoles];
     for (int r = 0; r < kCtRoles; ++r) {  // a shuffled spot list per role
-        const size_t n = dustCtSpots(r).size();
+        const size_t n = townCtSpots(r).size();
         for (size_t k = 0; k < n; ++k) spotOrder[r].push_back(int(k));
         for (size_t k = n; k > 1; --k) std::swap(spotOrder[r][k - 1], spotOrder[r][size_t(rnd(g) * float(k)) % k]);
     }
@@ -1438,13 +1439,13 @@ void startCompRound(Game& g) {
             b.goal = g.nav.standable(p) ? p : base;
         } else {
             const int role = setup[ctCount++ % 5];
-            const std::vector<RetakeSpot>& spots = dustCtSpots(role);
+            const std::vector<RetakeSpot>& spots = townCtSpots(role);
             const RetakeSpot& h = spots[size_t(spotOrder[role][size_t(roleUsed[role]++) % spots.size()])];
             ctRole[i] = role;
             ctSpot[i] = h;
-            b.goal = dustPoint(h.x, h.y);
+            b.goal = townPoint(h.x, h.y);
             b.holdYaw = std::atan2(h.lookY - h.y, h.lookX - h.x) / kDegToRad;
-            b.holdLook = dustPoint(h.lookX, h.lookY);
+            b.holdLook = townPoint(h.lookX, h.lookY);
             b.hasHoldLook = true;
         }
         b.hasGoal = true;
@@ -1455,16 +1456,16 @@ void startCompRound(Game& g) {
     // CTs, now and then: one pushes for an early pick (long, mid or B tunnels) and falls back to its spot.
     if (rnd(g) < 0.4f) {
         struct Push { int role; RetakeSpot at; const char* call; };
-        const Push pushes[3] = {{kCtLong, {1150, 500, 720, 380}, "PUSHING LONG"},
-                                {kCtMid, {-120, 1100, -120, 100}, "PUSHING MID"},
-                                {kCtB, {-2070, 1750, -2070, 900}, "PUSHING B TUNNELS"}};
+        const Push pushes[3] = {{kCtLong, tac.pushes[0], tac.pushCalls[0]},
+                                {kCtMid, tac.pushes[1], tac.pushCalls[1]},
+                                {kCtB, tac.pushes[2], tac.pushCalls[2]}};
         const Push& p = pushes[size_t(rnd(g) * 3.0f) % 3];
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             if (ctRole[i] != p.role) continue;
             BotBrain& b = g.bots[i];
-            b.goal = b.home = dustPoint(p.at.x, p.at.y);
+            b.goal = b.home = townPoint(p.at.x, p.at.y);
             b.holdYaw = std::atan2(p.at.lookY - p.at.y, p.at.lookX - p.at.x) / kDegToRad;
-            b.holdLook = dustPoint(p.at.lookX, p.at.lookY);
+            b.holdLook = townPoint(p.at.lookX, p.at.lookY);
             c.pushers.push_back(int(i));
             c.pushBack.push_back(ctSpot[i]);
             c.pushUntil = g.simTime + g.freezeTime + 18.0 + 8.0 * double(rnd(g));
@@ -1479,8 +1480,8 @@ void startCompRound(Game& g) {
             if (isBot(g, i) && g.dummies[i].alive() && g.team[i] == 0) caller = int(i);
         const char* site = c.siteTarget == 0 ? "A" : "B";
         std::string call = play == kPlayRush     ? std::string("RUSH ") + site
-                           : play == kPlaySplitA  ? "SPLIT A, LONG AND SHORT"
-                           : play == kPlaySplitB  ? "SPLIT B, TUNNELS AND MID"
+                           : play == kPlaySplitA  ? townTactics().splitA
+                           : play == kPlaySplitB  ? townTactics().splitB
                            : play == kPlayFake    ? std::string("FAKE ") + (c.siteTarget == 0 ? "B" : "A") + ", GO " + site
                            : play == kPlayDefault ? std::string("DEFAULT, THEN ") + site
                                                   : std::string("EXECUTE ") + site;
@@ -1556,7 +1557,7 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
             const BotBrain& b = g.bots[size_t(c.carrier)];
             char info[160];
             std::snprintf(info, sizeof(info), "  carrier at %s (%.0f, %.0f) state %d sees %d goal %d path %zu urgent %d\n",
-                          dustCallout(d.pos), double(d.pos.x), double(d.pos.y), b.state, int(b.sees), int(b.hasGoal),
+                          townCallout(d.pos), double(d.pos.x), double(d.pos.y), b.state, int(b.sees), int(b.hasGoal),
                           b.path.size(), int(b.urgent));
             std::ofstream(g_compLog, std::ios::app) << info;
         }
@@ -1705,7 +1706,7 @@ void sendBot(Game& g, size_t i, const Vec3& to, bool hold, const RetakeSpot* h =
     }
     b.hasHoldLook = h != nullptr;
     if (h) {
-        b.holdLook = dustPoint(h->lookX, h->lookY);
+        b.holdLook = townPoint(h->lookX, h->lookY);
         b.holdYaw = std::atan2(h->lookY - h->y, h->lookX - h->x) / kDegToRad;
     }
     b.holdCoverChecked = false;
@@ -1742,7 +1743,7 @@ bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
 // The bomb goes down at `at` (a bot, you, or online a player who planted it): 40 s, and the CTs retake.
 void compPlanted(Game& g, const Vec3& at) {
     Game::Comp& c = g.comp;
-    const std::vector<RetakeSite>& sites = dustRetakeSites();
+    const std::vector<RetakeSite>& sites = townRetakeSites();
     c.planted = true;
     c.carrier = c.planter = -3;
     g.bombActive = true;
@@ -1751,7 +1752,7 @@ void compPlanted(Game& g, const Vec3& at) {
     g.nextBeep = g.simTime;
     float best = 1e30f;  // whichever site it went down on
     for (size_t k = 0; k < sites.size(); ++k) {
-        float dd = length2d(at - dustPoint(sites[k].bombX, sites[k].bombY));
+        float dd = length2d(at - townPoint(sites[k].bombX, sites[k].bombY));
         if (dd < best) { best = dd; c.siteTarget = int(k); }
     }
     pushHitLog(g, "THE BOMB HAS BEEN PLANTED", 0xff6060);
@@ -1760,7 +1761,7 @@ void compPlanted(Game& g, const Vec3& at) {
     for (size_t i = 0; i < g.dummies.size(); ++i) {  // CT bots: retake the site
         if (!g.dummies[i].alive() || g.team[i] != 1 || !isBot(g, i)) continue;
         const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-        sendBot(g, i, dustPoint(h.x, h.y), true, &h);
+        sendBot(g, i, townPoint(h.x, h.y), true, &h);
     }
     g.hudDirty = true;
 }
@@ -1769,8 +1770,8 @@ void compPlanted(Game& g, const Vec3& at) {
 bool youPlant(Game& g) {
     Game::Comp& c = g.comp;
     bool onSite = false;
-    for (const RetakeSite& s : dustRetakeSites())
-        onSite |= length2d(g.player.origin - dustPoint(s.bombX, s.bombY)) < 340.0f * dustScale() + 60.0f;
+    for (const RetakeSite& s : townRetakeSites())
+        onSite |= length2d(g.player.origin - townPoint(s.bombX, s.bombY)) < 340.0f * townScale() + 60.0f;
     if (onSite && g.defuseHeld && g.player.onGround) {
         if (c.planter != -1) { c.planter = -1; c.plantStart = g.simTime; sound(g, Sfx::Defuse, 0.7f, 0.0f, 1.3f); }
         return g.simTime - c.plantStart >= kCompPlantTime;
@@ -1868,7 +1869,7 @@ void compTick(Game& g) {
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             const BotBrain& b = g.bots[i];
             if (!g.dummies[i].alive() || !isBot(g, i) || g.team[i] != c.youTeam || !b.sees || b.target < 0) continue;
-            const char* where = dustCallout(g.dummies[size_t(b.target)].pos);
+            const char* where = townCallout(g.dummies[size_t(b.target)].pos);
             const bool fresh = std::strcmp(where, c.lastSpot) != 0 ? now - c.lastSpotAt > 2.0 : now - c.lastSpotAt > 8.0;
             if (where[0] && fresh) {
                 radio(int(i), std::string("ENEMY SPOTTED: ") + where);
@@ -1885,8 +1886,8 @@ void compTick(Game& g) {
         if (now >= c.phaseEnd) c.phase == 3 ? startCompMatch(g) : startCompRound(g);
         return;
     }
-    const std::vector<RetakeSite>& sites = dustRetakeSites();
-    const Vec3 bombSpot = dustPoint(sites[size_t(c.siteTarget)].bombX, sites[size_t(c.siteTarget)].bombY);
+    const std::vector<RetakeSite>& sites = townRetakeSites();
+    const Vec3 bombSpot = townPoint(sites[size_t(c.siteTarget)].bombX, sites[size_t(c.siteTarget)].bombY);
     // The carrier dies: the bomb drops where they fell.
     if (c.carrier >= 0 && !g.dummies[size_t(c.carrier)].alive()) { c.dropped = g.dummies[size_t(c.carrier)].pos; c.carrier = -2; }
     if (c.carrier == -1 && c.youDead) { c.dropped = g.player.origin; c.carrier = -2; }
@@ -1899,14 +1900,9 @@ void compTick(Game& g) {
     // Utility for a way in (`route`): a smoke to cut the defenders' view, then a flash over where they hold,
     // thrown by the two T bots nearest that way's staging point (fakers only, or everyone but the fakers).
     auto siteUtility = [&](int route, bool byFakers) {
-        static const float kUtil[3][2][3] = {
-            {{1450, 2300, 0}, {1400, 2650, 140}},    // A long: smoke the top of the ramp, flash the site
-            {{850, 2850, 0}, {450, 2520, 140}},      // short: smoke CT side of A, flash short
-            {{-1450, 2210, 0}, {-1800, 2450, 140}},  // B: smoke the doors, flash the site
-        };
+        const auto& kUtil = townTactics().util;
         const int r = route >= 2 ? 2 : route;
-        const float stagesXY[3][2] = {{1500, 1100}, {170, 1350}, {-2070, 1150}};
-        const Vec3 from0 = dustPoint(stagesXY[r][0], stagesXY[r][1]);
+        const Vec3 from0 = townPoint(townTactics().stages[r][0], townTactics().stages[r][1]);
         std::vector<std::pair<float, size_t>> near;
         for (size_t i = 0; i < g.dummies.size(); ++i)
             if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && int(i) != c.carrier &&
@@ -1915,7 +1911,7 @@ void compTick(Game& g) {
         std::sort(near.begin(), near.end());
         for (size_t q = 0; q < near.size() && q < 2; ++q) {
             const float* u = kUtil[r][q];
-            const Vec3 target = dustPoint(u[0], u[1]) + Vec3{0, 0, u[2]};
+            const Vec3 target = townPoint(u[0], u[1]) + Vec3{0, 0, u[2]};
             const double from = now + 0.3 + 0.7 * double(q);
             c.throws.push_back({int(near[q].second), q == 0 ? Game::kSmokeNade : Game::kFlashNade, target, from, from + 10.0, from});
         }
@@ -1927,7 +1923,7 @@ void compTick(Game& g) {
             const size_t i = size_t(c.pushers[k]);
             if (!g.dummies[i].alive()) continue;
             const RetakeSpot& h = c.pushBack[k];
-            sendBot(g, i, dustPoint(h.x, h.y), true, &h);
+            sendBot(g, i, townPoint(h.x, h.y), true, &h);
             radio(int(i), "FALLING BACK");
         }
     }
@@ -1976,7 +1972,7 @@ void compTick(Game& g) {
                     sendBot(g, i, bombSpot, true);
                 } else {
                     const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-                    sendBot(g, i, dustPoint(h.x, h.y), true, &h);
+                    sendBot(g, i, townPoint(h.x, h.y), true, &h);
                 }
             }
         }
@@ -1998,7 +1994,7 @@ void compTick(Game& g) {
     }
     // CT rotation: once a T is on the site being hit, the CT bots away from it come over to help.
     if (!c.planted && c.executing && !c.rotated) {
-        const float onSite = 700.0f * dustScale();
+        const float onSite = 700.0f * townScale();
         bool hit = c.youTeam == 0 && youAlive(g) && length2d(g.player.origin - bombSpot) < onSite;
         for (size_t i = 0; i < g.dummies.size(); ++i)
             hit |= g.dummies[i].alive() && g.team[i] == 0 && length2d(g.dummies[i].pos - bombSpot) < onSite;
@@ -2011,7 +2007,7 @@ void compTick(Game& g) {
                 if (!g.dummies[i].alive() || !isBot(g, i) || g.team[i] != 1 || length2d(g.dummies[i].pos - bombSpot) < 2.0f * onSite)
                     continue;
                 const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-                sendBot(g, i, dustPoint(h.x, h.y), true, &h);
+                sendBot(g, i, townPoint(h.x, h.y), true, &h);
             }
         }
     }
@@ -2132,7 +2128,7 @@ void compTick(Game& g) {
                               "  STUCK bot %zu %s at %s (%.0f, %.0f, %.0f) state %d goal %d (%.0f, %.0f) %.0f away, goal standable %d, "
                               "path %zu/%zu hold %d urgent %d sees %d standable %d path-from-here %d sends %d carrier %d dropped %d "
                               "planted %d lastSaw %.1fs ago coverFor %d cover %d/%d t=%.0fs\n",
-                              i, g.team[i] == 0 ? "T" : "CT", dustCallout(d.pos), double(d.pos.x), double(d.pos.y), double(d.pos.z),
+                              i, g.team[i] == 0 ? "T" : "CT", townCallout(d.pos), double(d.pos.x), double(d.pos.y), double(d.pos.z),
                               b.state, int(b.hasGoal), double(b.goal.x), double(b.goal.y), double(length2d(b.goal - d.pos)),
                               int(g.nav.standable(b.goal)), b.next, b.path.size(), int(b.holdOnly), int(b.urgent), int(b.sees),
                               int(g.nav.standable(d.pos)), int(pathOk), i < g_sendCount.size() ? g_sendCount[i] : 0, c.carrier,
@@ -2221,7 +2217,7 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     for (Game::Stats& st : g.botStats) st.roundKills = 0;
     g.you.roundKills = 0;
     const int side = c.youTeam;
-    g.spawn = dustTeamSpawns(side)[size_t(r.spawn[me]) % 5];
+    g.spawn = townTeamSpawns(side)[size_t(r.spawn[me]) % 5];
     g.spawnYaw = side == 0 ? 90.0f : -90.0f;
     if (playing) {
         g.noclip = false;
@@ -2303,25 +2299,25 @@ void startNetCompClient(Game& g) {
     g.hp = 0;
     g.deadUntil = 1e18;
     g.noclip = true;
-    g.spawn = dustTeamSpawns(1)[0];
+    g.spawn = townTeamSpawns(1)[0];
     resetPosition(g);
     g.hudDirty = true;
 }
 
 void loadMap(Game& g, Renderer& r, int id) {
     g.mapId = id;
-    g.world = id == 1 ? buildDust() : buildLab();
+    g.world = id == 1 ? buildTown() : buildLab();
     if (id == 1) {
         g.dummies.assign(g.mode == 1   ? size_t(g.dmBots)
                          : g.mode == 2 ? size_t(g.rtBots)
                          : g.mode == 3 ? size_t(g.online ? kNetSlots : g.compMates + g.compEnemies)
                          : g.mode == 5 ? size_t(kNetMaxPlayers)
-                         : g.mode == 4 ? dustPrefireRoutes()[size_t(std::clamp(g.pf.route, 0, int(dustPrefireRoutes().size()) - 1))].bots.size()
+                         : g.mode == 4 ? townPrefireRoutes()[size_t(std::clamp(g.pf.route, 0, int(townPrefireRoutes().size()) - 1))].bots.size()
                                        : 4,
                          Dummy{});
         for (Dummy& d : g.dummies) d.respawnLeft = 0.01f;  // spawn at a spot on the first tick
-        g.spawn = dustSpawn().pos;
-        g.spawnYaw = dustSpawn().yaw;
+        g.spawn = townSpawn().pos;
+        g.spawnYaw = townSpawn().yaw;
         g.botsFire = true;
     } else {
         g.dummies = buildDummies();
@@ -2364,12 +2360,12 @@ void loadMap(Game& g, Renderer& r, int id) {
     for (const Box& b : g.world.decor) addStatic(b);
     r.setStaticBoxes(statics);
     r.clearDecals();
-    if (id == 1) g.nav.build(dustGrid(), g.world, dustSpawn().pos);
+    if (id == 1) g.nav.build(townGrid(), g.world, townSpawn().pos);
     if (id == 1) buildRadar(g);
     g.spottedUntil.assign(g.dummies.size(), -1.0);
     if (id == 1)  // particles land on Dust's floors (which aren't all at height 0)
         g.fx.setGround([](float x, float y) {
-            float z = dustGrid().floorAt(x, y);
+            float z = townGrid().floorAt(x, y);
             return z > MapGrid::kNoFloor ? z : -1e9f;
         });
     else
@@ -3027,7 +3023,7 @@ void simTick(Game& g, const Options& opt) {
             g.stepSmooth = std::clamp(g.stepSmooth - dz, -32.0f, 32.0f);
     }
     if (g.mapId == 1) {
-        const char* c = dustCallout(g.player.origin);
+        const char* c = townCallout(g.player.origin);
         if (c != g.callout) { g.callout = c; g.hudDirty = true; }
     }
 
@@ -3266,7 +3262,7 @@ void simTick(Game& g, const Options& opt) {
 
     // ---- Dust bots: hide, peek, hold an angle, return; respawn at a free spot ----
     if (g.mapId == 1 && g.mode == 0) {
-        const auto& spots = dustPeekSpots();
+        const auto& spots = townPeekSpots();
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             Dummy& d = g.dummies[i];
             if (!d.alive()) { g.botState[i] = -1; continue; }
@@ -3701,9 +3697,8 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 // The PLAY screen's choices; they only take effect on START.
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
-const char* const kMapNames[] = {"THE LAB", "DUST2"};
+const char* const kMapNames[] = {"THE LAB", "DUST2", "HARBOR"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE", "ONLINE"};
-const char* const kRouteNames[] = {"A LONG", "B TUNNELS", "MID", "A SHORT"};
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
@@ -3787,11 +3782,14 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 return r;
             }
             if (m.mode == 4) {
-                r.push_back({"ROUTE", nullptr, &g_gameMenu.route, 1, 0, 3, kRouteNames});
+                static const char* routeNames[8];
+                const std::vector<PrefireRoute>& routes = townPrefireRoutes();
+                for (size_t k = 0; k < routes.size() && k < 8; ++k) routeNames[k] = routes[k].name;
+                r.push_back({"ROUTE", nullptr, &g_gameMenu.route, 1, 0, float(std::min<size_t>(routes.size(), 8) - 1), routeNames});
                 r.push_back({"BOTS SHOOT BACK", nullptr, &c.prefire_bots_shoot, 1, 0, 1, kOnOff});
             }
             if (m.mode == 0) {
-                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 1, kMapNames});
+                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 2, kMapNames});
                 r.push_back({"BOTS SHOOT BACK", nullptr, &g_gameMenu.bots, 1, 0, 1, kOnOff});
                 if (m.map == 0) r.push_back({"AIM DRILL", nullptr, &g_gameMenu.drill, 1, 0, 1, kOnOff});
             }
@@ -3812,7 +3810,11 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
             }
             if (m.mode == 1) r.push_back({"BOTS FIGHT EACH OTHER", nullptr, &c.dm_bot_fights, 1, 0, 1, kOnOff});
-            if (m.mode != 0 || m.map == 1) r.push_back({"DUST SIZE (% OF REAL)", nullptr, &c.dust_scale, 5, 50, 100});
+            if (m.mode != 0 && m.mode != 5) {  // the bot modes play on a town map: which one
+                if (g_gameMenu.map == 0) g_gameMenu.map = 1;
+                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 1, 2, kMapNames});
+            }
+            if ((m.mode != 0 || m.map >= 1) && m.map != 2) r.push_back({"DUST SIZE (% OF REAL)", nullptr, &c.dust_scale, 5, 50, 100});
             r.push_back(button("START", kActStart));
             r.push_back(back);
             return r;
@@ -4555,7 +4557,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         const float best = pf.best[pf.route % 8];
         char bestText[24] = "-";
         if (best > 0) std::snprintf(bestText, sizeof(bestText), "%.2f", double(best));
-        std::snprintf(buf, sizeof(buf), "PREFIRE %s   %d / %zu   %.2f S   BEST %s", dustPrefireRoutes()[size_t(pf.route)].name,
+        std::snprintf(buf, sizeof(buf), "PREFIRE %s   %d / %zu   %.2f S   BEST %s", townPrefireRoutes()[size_t(pf.route)].name,
                       dead, g.dummies.size(), t, bestText);
         hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
         if (pf.start < 0 && pf.resultUntil < 0) {
@@ -4640,7 +4642,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         int left = int(std::max(0.0, g.rtRoundEnd - g.simTime)), alive = 0;
         for (const Dummy& d : g.dummies) alive += d.alive();
         std::snprintf(buf, sizeof(buf), "BOMB PLANTED %s   0:%02d   BOTS LEFT %d   WON %d  LOST %d",
-                      dustRetakeSites()[size_t(g.rtSite)].name, left, alive, g.rtWon, g.rtLost);
+                      townRetakeSites()[size_t(g.rtSite)].name, left, alive, g.rtWon, g.rtLost);
         hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, left <= 10 ? 0xFF8060FF : 0xFFFFFFFF);
         if (g.bombActive && g.rtResultUntil < 0) {
             if (g.defuseStart >= 0) {  // defuse bar
@@ -4918,7 +4920,8 @@ int main(int argc, char** argv) {
     g.mode = cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     setDustScale(float(cfg.dust_scale) / 100.0f);
-    loadMap(g, renderer, cfg.map == 1 || g.mode != 0 ? 1 : 0);
+    setTownMap(cfg.map == 2 ? 1 : 0);
+    loadMap(g, renderer, cfg.map >= 1 || g.mode != 0 ? 1 : 0);
     // Settings changed (menu, config reload): a new Dust size rebuilds the map right away.
     auto settingsChanged = [&]() {
         applyConfig(g, cfg);
@@ -4927,7 +4930,7 @@ int main(int argc, char** argv) {
         if (setDustScale(float(cfg.dust_scale) / 100.0f) && g.mapId == 1) loadMap(g, renderer, 1);
     };
     if (opt.spawnOverride) {
-        float floorZ = g.mapId == 1 ? dustGrid().floorAt(opt.spawnX, opt.spawnY) : 0.0f;
+        float floorZ = g.mapId == 1 ? townGrid().floorAt(opt.spawnX, opt.spawnY) : 0.0f;
         g.spawn = {opt.spawnX, opt.spawnY, floorZ > MapGrid::kNoFloor ? floorZ : 0.0f};
         g.spawnYaw = opt.spawnYaw;
         resetPosition(g);
@@ -4940,7 +4943,7 @@ int main(int argc, char** argv) {
     // Menus: any open screen pauses the game and frees the mouse.
     auto setMenu = [&](int screen) {
         if (screen == kMenuPlay) {  // the play screen starts from what's running now
-            g_gameMenu.map = g.mapId;
+            g_gameMenu.map = g.mapId == 1 ? 1 + townMap() : 0;
             g_gameMenu.mode = g.online ? 5 : g.mode;
             g_gameMenu.bots = g.botsFire;
             g_gameMenu.drill = g.drill;
@@ -4978,7 +4981,7 @@ int main(int argc, char** argv) {
         if (k == SDLK_SEMICOLON && shift) return ':';
         return 0;
     };
-    auto goOnline = [&](int game) {  // hosting, or just connected: online deathmatch (0) or competitive (1) on Dust
+    auto goOnline = [&](int game) {  // hosting, or just connected: online deathmatch (0) or competitive (1) on the town map
         g.online = true;
         g.mode = game == 1 ? 3 : 5;
         g_netTeamsTogether = cfg.net_teams;
@@ -4986,7 +4989,7 @@ int main(int argc, char** argv) {
         g_menu.root = kMenuPause;
         setMenu(kMenuNone);
         if (opt.spawnOverride) {  // (tests: start where told)
-            g.spawn = {opt.spawnX, opt.spawnY, dustGrid().floorAt(opt.spawnX, opt.spawnY)};
+            g.spawn = {opt.spawnX, opt.spawnY, townGrid().floorAt(opt.spawnX, opt.spawnY)};
             g.spawnYaw = opt.spawnYaw;
             resetPosition(g);
         }
@@ -5010,13 +5013,15 @@ int main(int argc, char** argv) {
         leaveOnline();  // (if you were in an online game)
         g.mode = m.mode;
         g.pf.route = m.route;
-        loadMap(g, renderer, m.mode != 0 ? 1 : m.map);
+        const int map = m.mode != 0 && m.map == 0 ? 1 : m.map;
+        setTownMap(map == 2 ? 1 : 0);
+        loadMap(g, renderer, map >= 1 ? 1 : 0);
         if (g.mode == 4) g.botsFire = cfg.prefire_bots_shoot != 0;
         if (g.mode == 0) {
             g.botsFire = m.bots != 0;
             if (g.mapId == 0 && m.drill) setDrill(g, true);
         }
-        cfg.map = g.mapId;
+        cfg.map = map;
         cfg.mode = g.mode;
         saveConfig(cfgPath, cfg);
         g_menu.root = kMenuPause;
@@ -5100,7 +5105,7 @@ int main(int argc, char** argv) {
                 std::string err;
                 const uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
                 g.net.setName(cfg.player_name);
-                if (g.net.host(port, float(cfg.dust_scale) / 100.0f, uint8_t(cfg.net_game == 1), err)) {
+                if (g.net.host(port, float(cfg.dust_scale) / 100.0f, uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1), err)) {
                     g.netPort = port;
                     g.ports.open(port);  // ask the router, in the background
                     g_playerNames[0] = Net::cleanName(cfg.player_name);
@@ -5156,13 +5161,16 @@ int main(int argc, char** argv) {
             switch (ev.type) {
                 case NetEvent::Connected:
                     g.netJoining = false;
-                    if (int(std::lround(ev.dustScale * 100.0f)) != cfg.dust_scale) {  // the host's map size
-                        cfg.dust_scale = int(std::lround(ev.dustScale * 100.0f));
-                        setDustScale(ev.dustScale);
+                    if (int(std::lround(ev.townScale * 100.0f)) != cfg.dust_scale) {  // the host's map size
+                        cfg.dust_scale = int(std::lround(ev.townScale * 100.0f));
+                        setDustScale(ev.townScale);
                     }
-                    goOnline(ev.game);
-                    pushHitLog(g, ev.game == 1 ? "CONNECTED - YOU'RE IN FROM THE NEXT ROUND" : "CONNECTED", 0x80ff80);
-                    if (automated) std::fprintf(stderr, "net: connected as player %d (%s)\n", g.net.myId() + 1, ev.game ? "competitive" : "deathmatch");
+                    setTownMap(ev.game >> 1);  // the host's map
+                    goOnline(ev.game & 1);
+                    pushHitLog(g, (ev.game & 1) == 1 ? "CONNECTED - YOU'RE IN FROM THE NEXT ROUND" : "CONNECTED", 0x80ff80);
+                    if (automated)
+                        std::fprintf(stderr, "net: connected as player %d (%s on %s)\n", g.net.myId() + 1,
+                                     (ev.game & 1) ? "competitive" : "deathmatch", townMapName(ev.game >> 1));
                     break;
                 case NetEvent::Failed:
                     g.netJoining = false;
@@ -5363,7 +5371,7 @@ int main(int argc, char** argv) {
         std::string netErr;
         g.net.setName(cfg.player_name);
         g.netPort = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
-        if (g.net.host(g.netPort, float(cfg.dust_scale) / 100.0f, uint8_t(cfg.net_game == 1), netErr)) {
+        if (g.net.host(g.netPort, float(cfg.dust_scale) / 100.0f, uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1), netErr)) {
             g.ports.open(g.netPort);  // like the menu's HOST: ask the router
             g_playerNames[0] = Net::cleanName(cfg.player_name);
             goOnline(cfg.net_game == 1 ? 1 : 0);

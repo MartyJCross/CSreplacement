@@ -85,6 +85,16 @@ Dust2 at **60% of real size** by default (`dust_scale`, Play screen DUST SIZE, 5
 
 In practice mode the 4 bots peek from cover: the long corner, mid doors, the B and A default boxes, B doors and short. They hold the angle for a random time, react in 0.25–0.55 s with slight random aim error (your own shots stay fully deterministic), and respawn 2–4 s after you kill them.
 
+## Harbor (Play: MAP, every mode)
+
+**Crisp's own map**, designed for it from scratch (so, unlike the Dust2 copy, it's free to share): a whitewashed harbour town with containers on the docks. T spawn in the south, CT spawn in the north:
+- **A (east):** out of T spawn to the **docks**, a long straight lane past a blue and a red container and a stack of crates, then the **A ramp** up to a raised **A site** (the default box, a crate by the ramp, one on the CT side, a green container in the corner). The CTs come down the **A CT ramp** behind it.
+- **Mid:** the **market** (stalls to hide behind) opens into **mid**, a gentle slope down to **mid doors** (mostly shut, a gap to walk and shoot through) and **CT mid** behind them. Off mid's east side the roofed **warehouse** leads to **A short**, up onto the site.
+- **B (west):** the **B lane** into the roofed **underpass**, then up the **B entrance** into **B site** (a default box, a car, a raised **platform** at the back reached by a ramp). The **B alley** from mid's west side comes in from the side, and the CTs come through the **B CT path**.
+- Everything works there: practice (peek bots), deathmatch, retakes, competitive with the plays (DOCKS / SHORT / UNDERPASS / ALLEY versions of the calls), prefire (DOCKS, UNDERPASS, MID, A SHORT) and online (the host's map is sent to whoever joins).
+- **At knife speed:** T spawn to A 11.8 s, to B 10.8 s, to mid doors 7.1 s; CT spawn to A 6.2 s, to B 5.1 s, to mid doors 3.3 s. It's built at its own size (DUST SIZE doesn't change it).
+- Tested like Dust2 (`testHarbor`): all 99 bot spots are standing room with a route, real bots walk to every competitive spot from both spawns (70 of 70), the spawns can't see each other, and 72,000 rays from everywhere you can stand find no holes.
+
 ## Radar
 
 Top-left on Dust (`radar`, Settings → Crosshair + HUD): the whole map north-up, shaded by height; you as an arrow; enemies as **red dots while spotted** (you can see them, a teammate can, or they just shot); teammates in **blue**; the bomb (red when planted, orange when dropped).

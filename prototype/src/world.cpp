@@ -303,6 +303,62 @@ const DustArea kDustAreas[] = {
     {"LOWER TUNNELS", -750, 1060, -300, 1240, -128, -36, 'x', kDTunnel, 128},
 };
 constexpr int kDustAreaCount = int(sizeof(kDustAreas) / sizeof(kDustAreas[0]));
+
+// Harbor: Crisp's own map (designed for it, free to share). A harbour town: T spawn south, CT spawn north, A east
+// up from the docks, B west through the underpass, a market and mid between them. Units are its real size (it
+// doesn't scale). +y = north.
+constexpr uint32_t kHSand = 0xc8bca2, kHSandLight = 0xd4c9b0, kHSandDark = 0xb4a68a, kHDock = 0xa49a8a,
+                   kHSite = 0xd2c4a6, kHTunnel = 0x847a6a, kHMarket = 0xcdb894, kHContainerRed = 0x9a3b32,
+                   kHContainerGreen = 0x3f7a4a;
+const DustArea kHarborAreas[] = {
+    // T side.
+    {"T SPAWN", -600, -1600, 600, -1100, 0, 0, 0, kHSand, 0},
+    {"T EAST", 600, -1500, 900, -1250, 0, 0, 0, kHSand, 0},
+    {"T WEST", -900, -1500, -600, -1250, 0, 0, 0, kHSand, 0},
+    // A: the docks (a long straight lane by the water), the ramp up, the site, the way back to CT.
+    {"DOCKS", 900, -1500, 1200, -1000, 0, -48, 'y', kHDock, 0},
+    {"DOCKS", 900, -1000, 1200, 650, -48, -48, 0, kHDock, 0},
+    {"A RAMP", 900, 650, 1250, 950, -48, 64, 'y', kHSandLight, 0},
+    {"A SITE", 550, 950, 1450, 1550, 64, 64, 0, kHSite, 0},
+    {"A CT RAMP", 550, 1550, 750, 1800, 64, 0, 'y', kHSandLight, 0},
+    // Mid: the market, mid (a gentle slope down), the warehouse to A short, mid doors to CT mid.
+    {"MARKET", -250, -1100, 250, -350, 0, 0, 0, kHMarket, 0},
+    {"MID", -400, -350, 400, 500, 0, -32, 'y', kHSand, 0},
+    {"WAREHOUSE", 400, 150, 700, 450, -16, -16, 0, kHTunnel, 160},
+    {"A SHORT", 550, 450, 700, 950, -16, 64, 'y', kHSandLight, 0},
+    {"MID DOORS", -100, 500, 100, 560, -32, -32, 0, kHSandDark, 128},
+    {"CT MID", -450, 560, 450, 1050, -32, -32, 0, kHSand, 0},
+    {"CT RAMP", -450, 1050, 450, 1250, -32, 0, 'y', kHSandLight, 0},
+    {"CT SPAWN", -450, 1250, 450, 1800, 0, 0, 0, kHSand, 0},
+    {"CT SPAWN", -450, 1800, 750, 1900, 0, 0, 0, kHSand, 0},
+    // B: the lane, the roofed underpass, the way up into the site; the alley from mid; the platform.
+    {"B LANE", -1200, -1500, -900, -700, 0, 0, 0, kHSand, 0},
+    {"UNDERPASS", -1200, -700, -900, -400, 0, -32, 'y', kHTunnel, 140},
+    {"UNDERPASS", -1200, -400, -900, 400, -32, -32, 0, kHTunnel, 140},
+    {"B ENTRANCE", -1250, 400, -850, 700, -32, 0, 'y', kHSandDark, 0},
+    {"B ALLEY", -700, 0, -400, 250, -16, -16, 0, kHSandDark, 0},
+    {"B ALLEY", -800, 250, -600, 700, -16, 0, 'y', kHSandDark, 0},
+    {"B SITE", -1600, 700, -650, 1400, 0, 0, 0, kHSite, 0},
+    {"B PLATFORM", -1600, 1400, -1350, 1650, 64, 64, 0, kHSandLight, 0},
+    {"B RAMP", -1350, 1400, -1200, 1650, 0, 64, 'y', kHSandLight, 0},
+    {"B CT PATH", -650, 1300, -450, 1500, 0, 0, 0, kHSand, 0},
+};
+
+// The town maps: their areas, how far the grid reaches (real units), whether DUST SIZE scales them, and their
+// three wall shades.
+struct TownDef {
+    const char* name;
+    const DustArea* areas;
+    int count;
+    float minX, minY, maxX, maxY;
+    bool scalable;
+    uint32_t shades[3];
+};
+const TownDef kTowns[2] = {
+    {"DUST2", kDustAreas, kDustAreaCount, -2400, -1216, 1952, 3264, true, {kDStone, 0xd2bd94, 0xc7b089}},
+    {"HARBOR", kHarborAreas, int(sizeof(kHarborAreas) / sizeof(kHarborAreas[0])), -1650, -1650, 1500, 1950, false,
+     {0xdcd6c8, 0xcfc8b6, 0xc2bba8}},
+};
 constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
 
 // Wall top for a wall whose nearest floor is at `z`: high enough that nothing can be climbed.
@@ -350,33 +406,38 @@ float MapGrid::floorAt(float x, float y) const {
 
 namespace {
 
-float g_dustScale = 0.6f;
+float g_dustScale = 0.6f;   // DUST SIZE (Dust2 only: Harbor is built at its own size)
+int g_town = 0;             // the active town map: 0 Dust2, 1 Harbor
 bool g_dustBuilt = false;
 MapGrid g_dustGrid;
+const TownDef& town() { return kTowns[g_town]; }
+float scaleNow() { return town().scalable ? g_dustScale : 1.0f; }
 
 // An area's extent along one axis at the current scale. It never shrinks below min(original, 96)
 // units, so doorways stay a doorway (and thin areas don't fall between grid cells).
 void scaledSpan(float a0, float a1, float& b0, float& b1) {
-    float c = (a0 + a1) * 0.5f * g_dustScale;
-    float len = std::max((a1 - a0) * g_dustScale, std::min(a1 - a0, 96.0f));
+    const float sc = scaleNow();
+    float c = (a0 + a1) * 0.5f * sc;
+    float len = std::max((a1 - a0) * sc, std::min(a1 - a0, 96.0f));
     b0 = c - len * 0.5f;
     b1 = c + len * 0.5f;
 }
 
 void buildDustGrid() {
-    const float s = g_dustScale;
+    const float s = scaleNow();
+    const TownDef& td = town();
     MapGrid m;
     m.cell = 32;
-    m.x0 = std::floor(-2400.0f * s / m.cell) * m.cell - 64;
-    m.y0 = std::floor(-1216.0f * s / m.cell) * m.cell - 64;
-    m.w = int(std::ceil((1952.0f * s - m.x0) / m.cell)) + 2;
-    m.h = int(std::ceil((3264.0f * s - m.y0) / m.cell)) + 2;
+    m.x0 = std::floor(td.minX * s / m.cell) * m.cell - 64;
+    m.y0 = std::floor(td.minY * s / m.cell) * m.cell - 64;
+    m.w = int(std::ceil((td.maxX * s - m.x0) / m.cell)) + 2;
+    m.h = int(std::ceil((td.maxY * s - m.y0) / m.cell)) + 2;
     size_t n = size_t(m.w * m.h);
     m.floor.assign(n, MapGrid::kNoFloor);
     m.ceiling.assign(n, MapGrid::kOpenSky);
     m.area.assign(n, -1);
-    for (int a = 0; a < kDustAreaCount; ++a) {
-        const DustArea& d = kDustAreas[a];
+    for (int a = 0; a < td.count; ++a) {
+        const DustArea& d = td.areas[a];
         float x0, x1, y0, y1;
         scaledSpan(d.x0, d.x1, x0, x1);
         scaledSpan(d.y0, d.y1, y0, y1);
@@ -407,39 +468,82 @@ bool setDustScale(float scale) {
     return true;
 }
 
-float dustScale() { return g_dustScale; }
+bool setTownMap(int map) {
+    map = std::clamp(map, 0, kTownMaps - 1);
+    if (g_dustBuilt && map == g_town) return false;
+    g_town = map;
+    buildDustGrid();
+    return true;
+}
+int townMap() { return g_town; }
+const char* townMapName(int map) { return kTowns[std::clamp(map, 0, kTownMaps - 1)].name; }
 
-const MapGrid& dustGrid() {
+float townScale() { return scaleNow(); }
+
+const MapGrid& townGrid() {
     if (!g_dustBuilt) buildDustGrid();
     return g_dustGrid;
 }
 
-const char* dustCallout(const Vec3& p) {
-    const MapGrid& m = dustGrid();
+const char* townCallout(const Vec3& p) {
+    const MapGrid& m = townGrid();
     int i, j;
     if (!m.cellAt(p.x, p.y, i, j)) return "";
     int a = m.area[size_t(m.index(i, j))];
-    return a >= 0 ? kDustAreas[a].name : "";
+    return a >= 0 ? town().areas[a].name : "";
 }
 
-Vec3 dustPoint(float x, float y) {
-    float s = dustScale();
-    return {x * s, y * s, dustGrid().floorAt(x * s, y * s)};
+Vec3 townPoint(float x, float y) {
+    float s = townScale();
+    return {x * s, y * s, townGrid().floorAt(x * s, y * s)};
 }
 
-std::vector<Vec3> dustTeamSpawns(int side) {
+std::vector<Vec3> townTeamSpawns(int side) {
     // Spread over each spawn, the first (yours) at the front, and off the long sightline through mid doors
     // (T spawn <-> CT spawn), so nobody can see the other team when the round starts (tested).
-    static const float xy[2][5][2] = {
-        {{-560, -650}, {-720, -820}, {120, -760}, {100, -950}, {-600, -1000}},  // T spawn
-        {{40, 2600}, {-410, 2650}, {60, 2850}, {-410, 2950}, {80, 3050}},     // CT spawn
+    static const float xy[2][2][5][2] = {
+        {{{-560, -650}, {-720, -820}, {120, -760}, {100, -950}, {-600, -1000}},   // Dust2: T spawn
+         {{40, 2600}, {-410, 2650}, {60, 2850}, {-410, 2950}, {80, 3050}}},       // CT spawn
+        {{{-400, -1200}, {-250, -1480}, {300, -1200}, {250, -1480}, {-520, -1300}},  // Harbor: T spawn
+         {{-300, 1400}, {300, 1400}, {-250, 1700}, {350, 1650}, {200, 1550}}},       // CT spawn
     };
     std::vector<Vec3> out;
-    for (const auto& p : xy[side == 0 ? 0 : 1]) out.push_back(dustPoint(p[0], p[1]));
+    for (const auto& p : xy[g_town][side == 0 ? 0 : 1]) out.push_back(townPoint(p[0], p[1]));
     return out;
 }
 
-const std::vector<RetakeSite>& dustRetakeSites() {
+const std::vector<RetakeSite>& townRetakeSites() {
+    static const std::vector<RetakeSite> harbor = {
+        {"A", 1050, 1150,  // bomb: by the default box
+         {
+             {945, 1330, 1050, 700},    // behind the default box, on the ramp
+             {1240, 1450, 1050, 800},   // by the container, down the ramp
+             {720, 1350, 620, 500},     // CT side, down short
+             {1380, 1050, 1050, 650},   // the corner past the crate, on the ramp
+             {650, 1050, 620, 500},     // top of short
+             {1100, 1500, 650, 1700},   // back of the site, on the CT ramp
+         },
+         {
+             {0, 1650, 650, 1650},      // CT spawn, round to the CT ramp
+             {1050, 0, 1050, 900},      // the docks
+             {600, 300, 620, 900},      // the warehouse, up short
+         }},
+        {"B", -1050, 1050,  // bomb: beside the default box
+         {
+             {-1500, 1550, -1050, 550},  // the platform, on the entrance
+             {-1155, 1130, -1050, 550},  // behind the default box
+             {-850, 1350, -550, 1400},   // by the CT path
+             {-1420, 900, -1050, 550},   // by the car
+             {-760, 800, -700, 300},     // the alley exit
+             {-1550, 1200, -700, 900},   // back of the site
+         },
+         {
+             {-1050, 0, -1050, 800},     // the underpass
+             {-700, 400, -1100, 1000},   // the alley
+             {-300, 1400, -1000, 1100},  // CT spawn, through the CT path
+         }},
+    };
+    if (g_town == 1) return harbor;
     static const std::vector<RetakeSite> sites = {
         {"A", 1380, 2560,  // bomb: beside the default box
          {
@@ -473,7 +577,16 @@ const std::vector<RetakeSite>& dustRetakeSites() {
     return sites;
 }
 
-const std::vector<RetakeSpot>& dustCtSpots(int role) {
+const std::vector<RetakeSpot>& townCtSpots(int role) {
+    static const std::vector<RetakeSpot> harbor[kCtRoles] = {
+        {{0, 700, 0, -200}, {-300, 850, -50, 500}, {300, 800, 50, 500}},             // mid: behind the doors
+        {{650, 1050, 620, 500}, {760, 1150, 620, 500}, {720, 1350, 620, 600}},        // short: down A short
+        {{1100, 1050, 1050, 0}, {1380, 1150, 1050, 300}, {1000, 1350, 1050, 600}},    // long: down the docks
+        {{1240, 1450, 1050, 800}, {820, 1450, 1000, 900}, {1200, 1100, 1050, 500}},   // an extra on A
+        {{-1500, 1550, -1050, 600}, {-1155, 1130, -1050, 500}, {-850, 1350, -700, 500},  // B site
+         {-1420, 900, -1050, 500}, {-760, 850, -700, 300}, {-1550, 1200, -1050, 500}},
+    };
+    if (g_town == 1) return harbor[std::clamp(role, 0, kCtRoles - 1)];
     static const std::vector<RetakeSpot> spots[kCtRoles] = {
         {   // mid: behind mid doors, or further back in CT mid on an angle
             {-180, 1990, -180, 1500},
@@ -507,7 +620,49 @@ const std::vector<RetakeSpot>& dustCtSpots(int role) {
     return spots[std::clamp(role, 0, kCtRoles - 1)];
 }
 
-const std::vector<PrefireRoute>& dustPrefireRoutes() {
+const std::vector<PrefireRoute>& townPrefireRoutes() {
+    static const std::vector<PrefireRoute> harbor = {
+        {"DOCKS", {750, -1375, 1050, -1375},
+         {
+             {960, -380, 1050, -1300},   // behind the blue container
+             {1140, 200, 1050, -800},    // behind the red one
+             {950, 480, 1050, -500},     // past the crates
+             {1100, 1050, 1050, 0},      // top of the ramp
+             {945, 1330, 1050, 700},     // behind the default box
+             {1240, 1450, 1050, 800},    // by the container
+             {720, 1350, 1050, 800},     // CT side of the site
+             {650, 1700, 650, 1100},     // the CT ramp
+         }},
+        {"UNDERPASS", {-750, -1375, -1050, -1375},
+         {
+             {-1050, -1000, -1050, -1450},  // the lane
+             {-1100, 100, -1050, -600},     // the underpass
+             {-1500, 1550, -1050, 600},     // the platform
+             {-1155, 1130, -1050, 500},     // behind the default box
+             {-1420, 900, -1050, 500},      // by the car
+             {-850, 1350, -1050, 600},      // by the CT path
+             {-1550, 1200, -1050, 500},     // back of the site
+         }},
+        {"MID", {0, -1250, 0, -500},
+         {
+             {330, -150, 0, -900},     // the mid box
+             {-350, 150, 0, -800},     // the west crate
+             {600, 300, 0, 250},       // the warehouse
+             {-600, 150, -300, 150},   // the alley
+             {0, 700, 0, -200},        // behind mid doors
+             {300, 800, 0, 500},       // CT mid
+         }},
+        {"A SHORT", {0, -300, 400, 250},
+         {
+             {650, 300, 400, 300},     // the warehouse
+             {620, 800, 620, 400},     // up short
+             {650, 1050, 620, 500},    // top of short
+             {945, 1330, 650, 950},    // behind the default box
+             {1240, 1450, 650, 950},   // by the container
+             {720, 1350, 650, 1000},   // CT side
+         }},
+    };
+    if (g_town == 1) return harbor;
     static const std::vector<PrefireRoute> routes = {
         {"A LONG", {540, -400, 540, 300},
          {
@@ -556,13 +711,37 @@ const std::vector<PrefireRoute>& dustPrefireRoutes() {
     return routes;
 }
 
-MapSpawn dustSpawn() {
-    float x = -350.0f * g_dustScale, y = -800.0f * g_dustScale;
-    return {{x, y, dustGrid().floorAt(x, y)}, 90.0f};
+MapSpawn townSpawn() {
+    const float sc = scaleNow(), x = (g_town == 1 ? 0.0f : -350.0f) * sc, y = (g_town == 1 ? -1350.0f : -800.0f) * sc;
+    return {{x, y, townGrid().floorAt(x, y)}, 90.0f};
 }
 
-World buildDust() {
-    const MapGrid& m = dustGrid();
+const TownTactics& townTactics() {
+    static const TownTactics kTactics[2] = {
+        {   // Dust2
+            {{1500, 1100}, {170, 1350}, {-2070, 1150}, {-180, 1650}, {-150, 700}},
+            {{{1450, 2300, 0}, {1400, 2650, 140}},    // A long: smoke the top of the ramp, flash the site
+             {{850, 2850, 0}, {450, 2520, 140}},      // short: smoke CT side of A, flash short
+             {{-1450, 2210, 0}, {-1800, 2450, 140}}}, // B: smoke the doors, flash the site
+            {{1150, 500, 720, 380}, {-120, 1100, -120, 100}, {-2070, 1750, -2070, 900}},
+            {"PUSHING LONG", "PUSHING MID", "PUSHING B TUNNELS"},
+            "SPLIT A, LONG AND SHORT", "SPLIT B, TUNNELS AND MID",
+        },
+        {   // Harbor
+            {{1050, 450}, {550, 300}, {-1050, 250}, {-550, 120}, {0, -500}},
+            {{{1050, 1150, 0}, {1000, 1250, 140}},    // the docks: smoke the top of the ramp, flash the site
+             {{700, 1500, 0}, {650, 1050, 140}},      // short: smoke the CT side, flash the top of short
+             {{-650, 1400, 0}, {-1150, 1050, 140}}},  // B: smoke the CT path, flash the site
+            {{1050, 500, 1050, -600}, {0, 300, 0, -600}, {-1050, 300, -1050, -600}},
+            {"PUSHING DOCKS", "PUSHING MID", "PUSHING UNDERPASS"},
+            "SPLIT A, DOCKS AND SHORT", "SPLIT B, UNDERPASS AND ALLEY",
+        },
+    };
+    return kTactics[g_town];
+}
+
+World buildTown() {
+    const MapGrid& m = townGrid();
     World w;
     size_t n = m.floor.size();
 
@@ -610,8 +789,9 @@ World buildDust() {
     // Ramps: a ramp area that kept its whole rectangle becomes one smooth wedge (its cells are left out
     // of the stepped floors below). The grid keeps its steps for the bots' navigation.
     std::vector<char> smooth(n, 0);
-    for (int a = 0; a < kDustAreaCount; ++a) {
-        const DustArea& d = kDustAreas[a];
+    const TownDef& td = town();
+    for (int a = 0; a < td.count; ++a) {
+        const DustArea& d = td.areas[a];
         if (d.axis == 0) continue;
         int i0 = m.w, j0 = m.h, i1 = -1, j1 = -1;
         for (int j = 0; j < m.h; ++j)
@@ -624,7 +804,7 @@ World buildDust() {
         if (!whole) continue;  // partly covered by another area: stays stepped
         float u0, u1;
         d.axis == 'x' ? scaledSpan(d.x0, d.x1, u0, u1) : scaledSpan(d.y0, d.y1, u0, u1);
-        const float s = dustScale();
+        const float s = townScale();
         auto zAt = [&](float u) { return (d.z0 + (d.z1 - d.z0) * std::clamp((u - u0) / (u1 - u0), 0.0f, 1.0f)) * s; };
         Box b{{m.x0 + float(i0) * m.cell, m.y0 + float(j0) * m.cell, kDustBottom},
               {m.x0 + float(i1 + 1) * m.cell, m.y0 + float(j1 + 1) * m.cell, 0}, d.color};
@@ -640,10 +820,10 @@ World buildDust() {
 
     // Floors (one key per height + colour).
     for (size_t c = 0; c < n; ++c)
-        if (m.area[c] >= 0 && !smooth[c]) key[c] = (zKey(m.floor[c]) << 24) | int64_t(kDustAreas[m.area[c]].color);
+        if (m.area[c] >= 0 && !smooth[c]) key[c] = (zKey(m.floor[c]) << 24) | int64_t(td.areas[m.area[c]].color);
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
-        if (uint32_t(k & 0xFFFFFF) == kDSite) w.solids.back().material = kMatPaving;  // the sites are paved
+        if (uint32_t(k & 0xFFFFFF) == kDSite || uint32_t(k & 0xFFFFFF) == kHSite) w.solids.back().material = kMatPaving;  // the sites are paved
     });
 
     // Walls: each 5x5-cell block is its own building with its own height (so the skyline isn't one flat
@@ -660,7 +840,7 @@ World buildDust() {
             size_t c = size_t(m.index(i, j));
             if (m.area[c] < 0) top[c] = wallTop(nearZ[c]) + blockExtra(i, j);
         }
-    const uint32_t shades[3] = {kDStone, 0xd2bd94, 0xc7b089};
+    const uint32_t* shades = td.shades;
     for (size_t c = 0; c < n; ++c) key[c] = m.area[c] < 0 ? zKey(top[c]) : -1;
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float(k - 65536), shades[uint32_t(i0 * 7 + j0 * 13) % 3]);
@@ -710,7 +890,7 @@ World buildDust() {
                 fz[size_t(a)] = m.floor[nc];
                 tp[size_t(a)] = top[c];
                 open[size_t(a)] = m.ceiling[nc] >= MapGrid::kOpenSky;
-                skirt[size_t(a)] = kDustAreas[m.area[nc]].axis == 0 ? m.floor[nc] : MapGrid::kNoFloor;
+                skirt[size_t(a)] = td.areas[m.area[nc]].axis == 0 ? m.floor[nc] : MapGrid::kNoFloor;
             }
             auto along = [&](int a) { return k < 2 ? Y(a) : X(a); };
             // Trim: runs of cells with the same heights become one box each.
@@ -763,7 +943,7 @@ World buildDust() {
 
     // Props, standing on the floor under their centre. Crates keep their real size wherever the map's
     // scale puts them; `anchored` ones are placed relative to a point that scales (a wall edge).
-    const float sc = dustScale();
+    const float sc = townScale();
     // Crates and doors are wood (hollow footsteps, easy to shoot through); the container and car metal.
     auto materialOf = [](uint32_t color) -> uint8_t {
         return color == kDCrate || color == kDWood ? kMatWood
@@ -796,6 +976,44 @@ World buildDust() {
         float z = m.floorAt((ax0 + ax1) * 0.5f, (ay0 + ay1) * 0.5f) + clearance;
         w.solids.push_back({{ax0, ay0, z}, {ax1, ay1, z + 28}, 0xb9a37c, kMatStone});
     };
+    if (g_town == 1) {  // Harbor: containers on the docks, market stalls, crates and a car on the sites
+        car(-600, -1600, 20, 20, 120, 220);                   // T spawn: a car in the south-west corner
+        prop(-450, -1450, -390, -1390, 64, kDCrate);
+        prop(380, -1560, 460, -1480, 64, kDCrate);
+        barrel(900, -1250, -32, -30);
+        prop(910, -750, 1010, -450, 96, kDBlue);              // the docks: containers along both sides
+        prop(1090, -150, 1190, 150, 96, kHContainerRed);
+        prop(910, 250, 980, 320, 64, kDCrate);                // and crates further up
+        prop(910, 330, 980, 400, 48, kDCrate);
+        barrel(1200, -1300, -30, 0);
+        prop(1180, 700, 1240, 760, 48, kDCrate);              // A ramp
+        prop(900, 1200, 990, 1290, 64, kDCrate);              // A default box (double stack)
+        prop(915, 1215, 975, 1275, 48, kDCrate, 64);
+        prop(1250, 1000, 1330, 1080, 64, kDCrate);            // A site, by the ramp
+        prop(600, 1420, 680, 1500, 64, kDCrate);              // A site, CT side
+        prop(1300, 1350, 1440, 1540, 96, kHContainerGreen);   // A site: the container in the corner
+        prop(-230, -950, -170, -890, 40, kDCrate);            // market stalls
+        prop(170, -700, 230, -640, 48, kDCrate);
+        prop(-230, -500, -150, -420, 56, kDCrate);
+        prop(-380, 50, -320, 110, 64, kDCrate);               // mid
+        prop(300, -250, 360, -190, 48, kDCrate);
+        prop(420, 180, 480, 240, 64, kDCrate);                // warehouse
+        prop(420, 380, 480, 440, 48, kDCrate);
+        prop(-430, 700, -370, 760, 64, kDCrate);              // CT mid
+        prop(370, 900, 430, 960, 64, kDCrate);
+        prop(-430, 1600, -370, 1660, 64, kDCrate);            // CT spawn
+        prop(-1190, -1100, -1130, -1040, 64, kDCrate);        // the B lane
+        barrel(-900, -900, -30, 0);
+        barrel(-1200, 0, 2, 0);                               // the underpass
+        prop(-960, -200, -910, -150, 48, kDCrate);
+        prop(-1200, 1000, -1110, 1090, 64, kDCrate);          // B default box (double stack)
+        prop(-1185, 1015, -1125, 1075, 44, kDCrate, 64);
+        prop(-1550, 780, -1450, 980, 40, kDCar);              // B: a car
+        prop(-1530, 810, -1470, 950, 24, kDCarTop, 40);
+        prop(-800, 1240, -740, 1300, 64, kDCrate);            // B site, by the CT path
+        prop(-1000, 780, -940, 840, 48, kDCrate);
+        prop(-780, 500, -730, 550, 48, kDCrate);              // the alley
+    } else {
     prop(-500, -800, -440, -740, 64, kDCrate);    // T spawn crates
     prop(-60, -1000, 20, -920, 64, kDCrate);
     prop(1050, 450, 1150, 650, 96, kDBlue);       // long: the blue container outside the doors
@@ -846,6 +1064,7 @@ World buildDust() {
     anchored(-2300, 3150, 2, -58, 58, -2, 56, kDCrate);    // back plat
     anchored(-2200, 1300, 0, 0, 48, 48, 48, kDCrate);      // upper tunnels
     barrel(-1200, 1240, 0, -30);                            // lower tunnels
+    }
     {
         // Doorways (long, B and mid doors): a wooden frame at both ends (a jamb up each side, a lintel under
         // the roof) with the door leaves hung on it, so no door floats and no gap shows round one. Everything
@@ -856,7 +1075,7 @@ World buildDust() {
             for (int j = 0; j < m.h; ++j)
                 for (int i = 0; i < m.w; ++i) {
                     const int a = m.area[size_t(m.index(i, j))];
-                    if (a < 0 || std::strcmp(kDustAreas[a].name, name) != 0) continue;
+                    if (a < 0 || std::strcmp(td.areas[a].name, name) != 0) continue;
                     c.i0 = std::min(c.i0, i); c.i1 = std::max(c.i1, i);
                     c.j0 = std::min(c.j0, j); c.j1 = std::max(c.j1, j);
                 }
@@ -926,20 +1145,27 @@ World buildDust() {
             if (mid + gap < o.a1 - jamb) w.solids.push_back(wood(false, o.p1 - 8, o.p1, mid + gap, o.a1 - jamb, o.z, o.top));
         }
     }
-    arch(-300, 280, 20, 320, 176);    // top mid into mid
-    arch(150, 2330, 330, 2370, 176);  // top of the short stairs
-    arch(-450, 2335, 120, 2365, 196); // CT mid into CT spawn
+    if (g_town == 1) {
+        arch(-250, -365, 250, -335, 176);  // the market into mid
+        arch(-450, 1235, 450, 1265, 190);  // the CT ramp into CT spawn
+    } else {
+        arch(-300, 280, 20, 320, 176);    // top mid into mid
+        arch(150, 2330, 330, 2370, 176);  // top of the short stairs
+        arch(-450, 2335, 120, 2365, 196); // CT mid into CT spawn
+    }
 
     w.buildIndex();
     return w;
 }
 
-const std::vector<PeekSpot>& dustPeekSpots() {
+const std::vector<PeekSpot>& townPeekSpots() {
     static std::vector<PeekSpot> spots;
     static float builtFor = -1;
-    if (builtFor != dustScale()) {
-        builtFor = dustScale();
-        const MapGrid& m = dustGrid();
+    static int builtTown = -1;
+    if (builtFor != townScale() || builtTown != g_town) {
+        builtFor = townScale();
+        builtTown = g_town;
+        const MapGrid& m = townGrid();
         const float sc = builtFor;
         // rel(): a fixed offset from something that scales (a box's centre); at(): a point that scales.
         auto rel = [&](float ax, float ay, float dx, float dy) {
@@ -948,6 +1174,17 @@ const std::vector<PeekSpot>& dustPeekSpots() {
             return p;
         };
         auto at = [&](float x, float y) { return rel(x, y, 0, 0); };
+        if (g_town == 1) {
+            spots = {
+                {at(960, -380), at(1100, -380)},     // behind the blue container -> down the docks
+                {at(-200, 620), at(0, 620)},         // CT mid -> through mid doors
+                {at(-1155, 1130), at(-1050, 1130)},  // B default box -> the entrance
+                {at(945, 1330), at(1050, 1330)},     // A default box -> the ramp
+                {at(-760, 800), at(-700, 700)},      // B, the alley exit
+                {at(720, 1050), at(650, 1000)},      // A, the top of short
+            };
+            return spots;
+        }
         spots = {
             {rel(1100, 550, 90, 40), rel(1100, 550, 90, -150)},       // long corner, beside the blue container -> doors
             {at(-320, 1990), at(-180, 1990)},                          // CT mid, through mid doors

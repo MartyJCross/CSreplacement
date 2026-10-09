@@ -19,7 +19,7 @@ constexpr int kNetMaxPlayers = 8;        // ids 0..7: the host is 0
 constexpr int kNetBots = 10;             // competitive: bot slots 8..17
 constexpr int kNetSlots = kNetMaxPlayers + kNetBots;
 constexpr uint16_t kNetDefaultPort = 27015;
-constexpr uint32_t kNetProtocol = 7;     // bump when messages change: other versions can't join
+constexpr uint32_t kNetProtocol = 8;     // bump when messages change: other versions can't join
 
 struct NetState {                        // one player, one tick
     uint8_t id = 0;
@@ -71,8 +71,8 @@ struct NetEvent {
     uint8_t group = 1;                   // Hit: the hit group (0 head)
     bool head = false;                   // Hit, Death
     uint8_t weapon = 0;                  // Fire, Hit, Death; Nade: the grenade type
-    float dustScale = 0.6f;              // Connected: the host's map size (everyone must match)
-    uint8_t game = 0;                    // Connected: 0 deathmatch, 1 competitive
+    float townScale = 0.6f;              // Connected: the host's map size (everyone must match)
+    uint8_t game = 0;                    // Connected: bit 0: 0 deathmatch, 1 competitive; bits 1+: the town map
     std::string text;                    // Name: the player's name; Failed: why
     uint32_t tick = 0;                   // Bots: the host's tick
     uint8_t botCount = 0;
@@ -84,7 +84,7 @@ struct NetEvent {
 class Net {
 public:
     ~Net() { stop(); }
-    bool host(uint16_t port, float dustScale, uint8_t game, std::string& err);
+    bool host(uint16_t port, float townScale, uint8_t game, std::string& err);
     bool join(const std::string& address, uint16_t port, std::string& err);  // connects in the background (poll)
     void stop();
     bool active() const { return host_ != nullptr; }
@@ -119,7 +119,7 @@ private:
     void* peers_[kNetMaxPlayers] = {};  // host: ENetPeer* by player id
     bool isHost_ = false;
     int myId_ = -1;
-    float dustScale_ = 0.6f;
+    float townScale_ = 0.6f;
     uint8_t game_ = 0;
     double connectStarted_ = 0;
     std::string myName_ = "PLAYER";

@@ -65,11 +65,16 @@ bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin
 // Builds the Lab: the greybox test map (range, spray wall, crates, stairs, KZ course).
 World buildLab();
 
-// Dust2 at real scale (~4200 x 4250 units, +y = north). Built from named floor areas on a 32-unit
-// grid (flat areas, ramps, roofed tunnels); everything else is solid wall. See world.cpp.
-World buildDust();
+// The town maps, built from named floor areas on a 32-unit grid (flat areas, ramps, roofed tunnels; everything
+// else is solid wall): 0 Dust2 at real scale (~4200 x 4250 units, scaled by DUST SIZE), 1 Harbor (Crisp's own
+// map, ~3100 x 3500, its own size). +y = north. Every town function below works on the active one.
+constexpr int kTownMaps = 2;
+bool setTownMap(int map);  // true if it changed: rebuild the world (buildTown) and anything built from the grid
+int townMap();
+const char* townMapName(int map);
+World buildTown();
 struct PeekSpot { Vec3 cover, peek; };  // bot hides at `cover`, steps out to `peek`
-const std::vector<PeekSpot>& dustPeekSpots();
+const std::vector<PeekSpot>& townPeekSpots();
 
 struct MapGrid {
     float x0 = 0, y0 = 0, cell = 32;  // world position of cell (0,0)'s min corner, cell size
@@ -86,32 +91,43 @@ struct MapGrid {
 };
 // Dust's size relative to real Dust2 (default 0.6, range 0.5..1). Heights scale too, so slopes stay
 // walkable; headroom, crates and doorways (at least 96 wide) keep their real size. Returns true if it
-// changed: rebuild the world (buildDust) and anything built from the grid.
+// changed: rebuild the world (buildTown) and anything built from the grid.
 bool setDustScale(float scale);
-float dustScale();
-const MapGrid& dustGrid();
-const char* dustCallout(const Vec3& p);  // area name under p ("" in walls)
+float townScale();
+const MapGrid& townGrid();
+const char* townCallout(const Vec3& p);  // area name under p ("" in walls)
 struct MapSpawn { Vec3 pos; float yaw; };
-MapSpawn dustSpawn();
+MapSpawn townSpawn();
 // A point given in real-Dust2 coordinates, at the map's current scale, on the floor.
-Vec3 dustPoint(float x, float y);
+Vec3 townPoint(float x, float y);
 // Competitive: five spawn spots per side (0 = T, 1 = CT), at the current scale.
-std::vector<Vec3> dustTeamSpawns(int side);
+std::vector<Vec3> townTeamSpawns(int side);
 
 // Retakes: per bombsite, spots for the bots to hold (each facing a look-at point) and entries you
-// retake from. All in real-Dust2 coordinates: place them with dustPoint().
+// retake from. All in real-Dust2 coordinates: place them with townPoint().
 struct RetakeSpot { float x, y, lookX, lookY; };
 struct RetakeSite {
     const char* name;
     float bombX, bombY;  // where the bomb is planted
     std::vector<RetakeSpot> holds, entries;
 };
-const std::vector<RetakeSite>& dustRetakeSites();
+const std::vector<RetakeSite>& townRetakeSites();
 
 // Competitive CT positions by role, each with a few spots (and the way to look) to pick from, so the
 // setup is familiar but never quite the same. Real-Dust2 coordinates.
 enum CtRole { kCtMid, kCtShort, kCtLong, kCtA, kCtB, kCtRoles };
-const std::vector<RetakeSpot>& dustCtSpots(int role);
+const std::vector<RetakeSpot>& townCtSpots(int role);
+
+// Competitive bot tactics for the active town map (its real coordinates: townPoint()).
+struct TownTactics {
+    float stages[5][2];       // T staging: 0 A main, 1 A's second way, 2 B main, 3 B's second way (from mid), 4 mid
+    float util[3][2][3];      // the utility for a way in (A main, A second, B): smoke, flash (x, y, height)
+    RetakeSpot pushes[3];     // CT early pushes: A main, mid, B main (the role: long, mid, B)
+    const char* pushCalls[3];
+    const char* splitA;       // the radio calls for the split plays
+    const char* splitB;
+};
+const TownTactics& townTactics();
 
 // Prefire practice: where you start (looking the way to go) and the spots bots hold along the route,
 // each looking back at where you come from, in the order you meet them. Real-Dust2 coordinates.
@@ -120,7 +136,7 @@ struct PrefireRoute {
     RetakeSpot start;
     std::vector<RetakeSpot> bots;
 };
-const std::vector<PrefireRoute>& dustPrefireRoutes();
+const std::vector<PrefireRoute>& townPrefireRoutes();
 
 // KZ / bhop course (behind the spray wall): start pad, lava floor, pads, end pad.
 constexpr float kKzMinY = -880.0f, kKzMaxY = -580.0f;

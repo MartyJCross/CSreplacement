@@ -97,7 +97,7 @@ std::vector<uint8_t> stamped(const uint8_t* data, size_t len, int from) {
 
 }  // namespace
 
-bool Net::host(uint16_t port, float dustScale, uint8_t game, std::string& err) {
+bool Net::host(uint16_t port, float townScale, uint8_t game, std::string& err) {
     stop();
     if (!initEnet(err)) return false;
     ENetAddress addr;
@@ -110,7 +110,7 @@ bool Net::host(uint16_t port, float dustScale, uint8_t game, std::string& err) {
     }
     isHost_ = true;
     myId_ = 0;
-    dustScale_ = dustScale;
+    townScale_ = townScale;
     game_ = game;
     names_[0] = myName_;
     return true;
@@ -209,7 +209,7 @@ void Net::poll(std::vector<NetEvent>& out) {
                     enet_peer_timeout(e.peer, 32, 4000, 10000);
                     Writer w(kWelcome);
                     w.u8(uint8_t(id));
-                    w.f32(dustScale_);
+                    w.f32(townScale_);
                     w.u8(game_);
                     sendTo(e.peer, w.b, true);
                     for (int k = 0; k < kNetMaxPlayers; ++k)  // everyone's names so far
@@ -266,7 +266,7 @@ void Net::handle(const uint8_t* data, size_t len, int fromPeer, std::vector<NetE
             if (isHost_) return;
             myId_ = r.u8();
             ev.type = NetEvent::Connected;
-            ev.dustScale = r.f32();
+            ev.townScale = r.f32();
             ev.game = r.u8();
             if (!r.ok) { myId_ = -1; return; }
             enet_peer_timeout(P(server_), 32, 4000, 10000);
