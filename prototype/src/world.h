@@ -78,7 +78,7 @@ bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin
 World buildLab();
 
 // The town maps, built from named floor areas on a 32-unit grid (flat areas, ramps, roofed tunnels; everything
-// else is solid wall): 0 Dust2 at real scale (~4200 x 4250 units, scaled by DUST SIZE), 1 Harbor (Crisp's own
+// else is solid wall): 0 Dust2 at real scale (~4200 x 4250 units, scaled by setDustScale: the game uses 90%), 1 Harbor (Crisp's own
 // map, ~3100 x 3500, its own size). +y = north. Every town function below works on the active one.
 constexpr int kTownMaps = 2;
 bool setTownMap(int map);  // true if it changed: rebuild the world (buildTown) and anything built from the grid

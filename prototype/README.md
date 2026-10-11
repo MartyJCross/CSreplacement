@@ -1,13 +1,15 @@
-# Crisp: single-player prototype
+# Crisp
 
-This is a deliberately tiny prototype for testing **movement and shooting feel**. It has:
+A CS:GO-like tactical shooter built around **movement and shooting feel**, offline against bots or online with
+friends. It has:
 
 - 128-tick fixed simulation
 - uncapped FPS
 - raw mouse input
 - twelve guns with fixed spray patterns (AK-47, M4A1-S, Galil AR, AWP, SSG 08, Nova, XM1014, MAC-10, UMP-45, pistol, Dual Berettas, Deagle), knives and grenades
-- menu music (a CC0 track; MENU MUSIC volume in Settings → Video + sound)
-- target dummies on a grey-box test map
+- menu music (a CC0 track; MENU MUSIC volume in Settings → Sound)
+- three maps: the Lab (a grey-box range), Dust (a Dust2 copy, for personal testing) and Harbor (Crisp's own)
+- modes: competitive 5v5, deathmatch, retakes, prefire and practice, plus online deathmatch and competitive
 - **sound:**
   - gunshots, footsteps, landing, reload, dry-fire
   - body-hit thwack and a headshot "dink"
@@ -18,7 +20,8 @@ This is a deliberately tiny prototype for testing **movement and shooting feel**
   - reload and draw animations
 - **effects:** muzzle flash, tracers, impact debris, blood; the dead fall over the way the shot pushed them, and a headshot kill knocks a helmet off
 
-Almost everything is generated in code (models are boxes; a few CC0 sounds and textures sit in `assets/`, with synthesized fallbacks), and the download is a few MB. Online play is in (see **Online**). See `../docs/06-build-process.md` (Phase 0) for why feel comes first.
+Almost everything is generated in code (models are boxes; a few CC0 sounds and textures sit in `assets/`, with synthesized fallbacks), and the download is a few MB. Online play is in (see **Online**). See `../docs/06-build-process.md` (Phase 0) for why feel comes first, and
+`CHANGELOG.md` for what changed in each version.
 
 ## Download and play (Windows)
 
@@ -35,7 +38,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Key | Action |
 |---|---|
 | WASD | Move |
-| Space / mouse wheel | Jump. **Hold Space to bunny hop** (auto-jump on landing) |
+| Space / mouse wheel | Jump. A wheel notch as you land is a bunny hop (see **Bunny hopping**); holding Space hops only with AUTO BUNNY HOP on |
 | Ctrl | Crouch (crouch in the air = crouch-jump) |
 | Shift | Walk |
 | Mouse 1 | Fire |
@@ -48,10 +51,10 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Mouse 2 | Sniper scope (AWP, SSG 08): 40 → 15 FOV → off. Like CS, a shot takes the scope down while the bolt cycles and it comes back up by itself. With a grenade out: hold for an underhand lob, thrown on release |
 | Tab | Scoreboard (deathmatch, retakes, competitive) |
 | G | Quick-throw the current grenade without switching (deterministic bounces, so lineups repeat) |
-| V | Noclip (fly where you look; Shift = slow) |
+| V | Noclip in practice (fly where you look; Shift = slow) |
 | C | Clear bullet decals |
 | Alt+Enter | Toggle fullscreen |
-| Esc | **Menu.** The game opens on the **main menu** (Play, Settings, Controls, Quit). In a game, Esc pauses: Resume, Change mode or map, Reset position (practice) / Restart route (prefire), Settings, Controls, Main menu, Quit. **Play** picks the mode and its options (map, bots, minutes, Dust size); START loads it fresh. **Settings** has pages: Mouse + view, Crosshair + HUD, Weapons + skins, Video + sound, Gameplay. Hover or ↑/↓ to select, click or Enter to press, ←/→, wheel or right click to change a setting (Shift = ×5); saved to `config.cfg`. Esc goes back |
+| Esc | **Menu.** The game opens on the **main menu**: PLAY, PLAY ONLINE, INVENTORY, STATS, SETTINGS, QUIT. **PLAY** lists the modes (a line under the menu says what the highlighted one is); picking one opens its setup: the map, the mode's options (bots, skill, minutes, route...), START. **PLAY ONLINE**: your name, HOST A GAME (you set the game up in your lobby), your friend's address and JOIN, the port. **SETTINGS** has pages: Mouse + view, Crosshair + HUD, Weapons + skins, Video, Sound, Gameplay, Controls, and RESET TO DEFAULTS (press twice). In a game, Esc pauses: Resume, New game, Reset position (practice) / Restart route (prefire), Watch replay, Inventory, Settings, Main menu, Quit. Hover or ↑/↓ to select, click or Enter to press, ←/→, wheel or right click to change a setting (Shift = ×5); saved to `config.cfg`. Esc goes back |
 
 ## The map
 
@@ -64,19 +67,20 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 
 ## What the HUD tells you
 
-- **FPS / 1% LOW / MS:** average FPS, the 1% low (99th percentile frame time) and average frame time, updated every 0.5 s.
-- **SPEED / SPREAD / ACCURATE:** horizontal speed, your current bullet spread in degrees, and `ACCURATE` (green) when you're slow enough for a perfect first shot (≤ 34% of rifle speed, ~73 u/s).
+- **FPS / 1% LOW / MS** (Settings → Video → SHOW FPS, on by default): average FPS, the 1% low (99th percentile frame time) and average frame time, updated every 0.5 s.
+- **Practice only, top-left: SPEED / SPREAD / ACCURATE:** horizontal speed, your current bullet spread in degrees, and `ACCURATE` (green) when you're slow enough for a perfect first shot (≤ 34% of rifle speed, ~73 u/s).
 - **LAST STOP:** how long your last stop took from full speed to accurate. It's labelled COUNTER-STRAFE if you tapped the opposite key, RELEASE if you just let go. Expect about **62 ms** counter-strafing vs **~195 ms** releasing.
 - **Hit log (top right):** hitgroup, damage, kill, distance in metres.
 
-## Dust2 (Play: any mode, MAP DUST)
+## Dust (every mode: MAP DUST on the setup screen)
 
 Dust2 at **90% of real size** (fixed). Everything scales evenly, heights too, so slopes stay walkable; crates, headroom and doorways (at least 96 units wide) keep their real size. The area you're in shows at the top of the screen (LONG A, CATWALK, B SITE, ...).
 
 - **Every route:** T spawn, outside long, long doors, long A with the blue container and the pit, the A ramp, A site with goose; top mid, mid, xbox (jump on it to reach catwalk), catwalk, short; mid doors, CT mid, CT spawn, the CT ramp, mid to B, B doors and **B window** (see and shoot through it, can't climb through); outside, upper and lower tunnels, the tunnel exit, B site with the back plat, car and boxes. **Arches** over top mid, short and CT mid.
 - **Real slopes:** the ramps (A ramp, CT ramp, short stairs, top mid, mid, the tunnel stairs...) are smooth slopes, not steps. You slide up and down them like in Source, and jumping onto one doesn't snag.
 - **Real surfaces** (CC0 textures from Poly Haven): sand underfoot, paving on the sites, sandstone and plaster walls, plank crates and doors, a painted ribbed container, metal barrels and cars. They're detail maps over the map's own colours, mipmapped and filtered so they don't shimmer.
-- **Walls hold at every size:** where two areas sit closer than a grid cell (CT mid and CT spawn against short, CT mid against catwalk), a wall is kept between them whatever DUST SIZE you pick, so you can't see A site from mid (tested at nine sizes).
+- **Walls hold at every size:** where two areas sit closer than a grid cell (CT mid and CT spawn against short, CT mid against catwalk), a wall is kept between them, so you can't see A site from mid (the tests build the map at nine sizes).
+- **Spawns are their own area:** walls keep both spawns out of mid's sight, and getting to mid is a run (a dog-leg MID PATH from T spawn, gaps either side of the wall at CT spawn), so nobody fights mid straight out of spawn (tested: no spawn spot is seen from mid at any size).
 - **Doors:** every doorway (long, mid, B) has a wooden frame at both ends, a jamb up each side and a lintel under the roof, and the leaves hang on it with no gaps: long doors swung open flat against the walls into long A, B doors one wide leaf against the wall inside the site (the B window is on the other side), and **mid doors** mostly shut, like Dust2's, with a gap in the middle you can walk and shoot through. They're built on the doorway's own grid cells, so they fit at every map size. The doors are wood, so they're wallbangable.
 - **Proportions like the real map:** lanes are as narrow as Dust2's (mid, catwalk, the tunnels and long were far too wide before), so it plays tight rather than open.
 - **Scenery:** buildings of different heights with stone-block walls, a trim along their foot and top, windows with painted shutters, doors under cloth awnings and wooden beam ends; flagstone and sand floors, plank crates, a ribbed metal container and barrels. None of the scenery on walls blocks you or your bullets (it's all thin and flat against the wall or above head height).
@@ -86,14 +90,14 @@ Dust2 at **90% of real size** (fixed). Everything scales evenly, heights too, so
 
 In practice mode the 4 bots peek from cover: the long corner, mid doors, the B and A default boxes, B doors and short. They hold the angle for a random time, react in 0.25–0.55 s with slight random aim error (your own shots stay fully deterministic), and respawn 2–4 s after you kill them.
 
-## Harbor (Play: MAP, every mode)
+## Harbor (every mode: MAP HARBOR)
 
 **Crisp's own map**, designed for it from scratch (so, unlike the Dust2 copy, it's free to share): a whitewashed harbour town with containers on the docks. T spawn in the south, CT spawn in the north:
 - **A (east):** out of T spawn to the **docks**, a long straight lane past a blue and a red container and a stack of crates, then the **A ramp** up to a raised **A site** (the default box, a crate by the ramp, one on the CT side, a green container in the corner). The CTs come down the **A CT ramp** behind it.
 - **Mid:** the **market** (stalls to hide behind) opens into **mid**, a gentle slope down to **mid doors** (mostly shut, a gap to walk and shoot through) and **CT mid** behind them. Off mid's east side the roofed **warehouse** leads to **A short**, up onto the site.
 - **B (west):** the **B lane** into the roofed **underpass**, then up the **B entrance** into **B site** (a default box, a car, a raised **platform** at the back reached by a ramp). The **B alley** from mid's west side comes in from the side, and the CTs come through the **B CT path**.
 - Everything works there: practice (peek bots), deathmatch, retakes, competitive with the plays (DOCKS / SHORT / UNDERPASS / ALLEY versions of the calls), prefire (DOCKS, UNDERPASS, MID, A SHORT) and online (the host's map is sent to whoever joins).
-- **At knife speed:** T spawn to A 11.8 s, to B 10.8 s, to mid doors 7.1 s; CT spawn to A 6.2 s, to B 5.1 s, to mid doors 3.3 s. It's built at its own size (DUST SIZE doesn't change it).
+- **At knife speed:** T spawn to A 11.8 s, to B 10.8 s, to mid doors 7.1 s; CT spawn to A 6.2 s, to B 5.1 s, to mid doors 3.3 s. It's built at its own size.
 - Tested like Dust2 (`testHarbor`): all 99 bot spots are standing room with a route, real bots walk to every competitive spot from both spawns (70 of 70), the spawns can't see each other, and 72,000 rays from everywhere you can stand find no holes.
 
 ## Radar
@@ -128,164 +132,13 @@ MSAA 2, Dust at 95%, deathmatch with 7 bots): ~200 FPS average, GPU-bound (~2.8 
 routes with A* now: the slowest single simulation tick went from ~5 ms to ~2 ms (fewer 1% low dips), and a sound
 played never waits on the mixer.
 
-**Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
+**Low latency mode** (`low_latency 1`, on by default; Settings → Video): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
-## v0.25.2
-
-- **Dust is always 90% of real Dust2's size** (the setting is gone), and the FPS counter is on by default.
-
-## v0.25: menus you can find your way round, scroll-wheel bhops
-
-- **Menus:** the main menu is PLAY, PLAY ONLINE, INVENTORY, STATS, SETTINGS, QUIT. PLAY lists the modes
-  (competitive, deathmatch, retakes, prefire, practice) with a line about the highlighted one; picking one opens its
-  setup - the map (and Dust's size), the mode's own options, START. PLAY ONLINE is your name, HOST A GAME (you set the
-  game up in your lobby), your friend's address and JOIN, and the port. SETTINGS: mouse + view, crosshair + HUD,
-  weapons + skins, video, sound, gameplay, controls, and RESET TO DEFAULTS (press it twice: every setting back to
-  its default, keeping your name, your friend's address, the port and unlocked skins). The pause menu offers NEW GAME.
-- **Testing options gone from the menus:** reload config, random spray spread, player model size, zero-lag camera,
-  smooth stairs, "all skins unlocked" (their config keys still work). Noclip (V) only in practice. The top-left speed /
-  spread / shots readouts show in practice only; the FPS counter is Settings -> Video -> SHOW FPS.
-- **Scroll-wheel bunny hops without auto-hop:** a jump within 47 ms of landing (6 ticks) is a hop and keeps your
-  speed (less a small landing penalty); a wheel notch just before landing waits 0.15 s for the ground. Holding Space
-  doesn't hop (that's the AUTO BUNNY HOP setting).
-
-## v0.24: spawns off mid, the stylized look, detailed guns and players
-
-- **Spawns in their own area:** on both maps the T spawn is walled off from mid, with a short dog-leg path
-  ("MID PATH") to get there, and the CT spawn sits behind a wall out of the line through mid doors (Harbor's CT ramp
-  splits round it). Nobody in mid can see any spawn point, and reaching mid from spawn is a run (at least ~530
-  units, it was 170). Deathmatch never spawns you in mid.
-- **The clean stylized look** (Settings → Video + sound → VISUAL STYLE, `art_style` 1, the default; 0 = classic):
-  flat colour with only a hint of the surface textures, crisp dark outlines on every edge and silhouette (drawn by
-  the post pass from the world's depth, fading with distance), shade that stays rich and warm instead of grey, walls
-  that lighten as they rise, and a bolder colour grade. Needs post-processing on.
-- **More detailed first-person guns:** gloved hands with fingers round the grip and up the handguard, a trigger
-  finger on the guard, thumbs and wrist cuffs; ejection ports, selector levers, rivets, gas blocks, cleaning rod,
-  front-sight ears, mag ribs and floor plates, rail teeth, vents, slide serrations, scope lenses and turrets,
-  cheek rest, thumbhole, barrel flutes, recoil pads.
-- **More detailed players** (all inside their hitboxes): boot soles, cargo pockets, a holster and pouch, vest straps,
-  a radio, team patches on the shoulders, elbow pads, a helmet rim and night-vision mount (CT), a beanie fold (T).
-
-## v0.23.7
-
-- **Buy wheel icons:** half as big again, with panel lines in a second shade (ejection ports, handguard grooves,
-  mag ribs, scope lenses, suppressor rings), and a slightly bigger wheel to fit them. The kill feed keeps clean
-  silhouettes.
-
-## v0.23.6
-
-- **New gun icons** (kill feed, buy wheel): hand-drawn CS-style silhouettes for every weapon - stocks, grips, curved
-  mags, scopes, suppressors, muzzle brakes.
-- **More detailed guns in players' hands and on the floor:** stocks, grips, magazines, sights, rails, scope bells.
-- **Scroll-wheel bhops without auto-hop:** a wheel notch in the air waits 0.1 s for the ground and jumps on the
-  landing tick, and a hop on the landing tick takes only a quarter of the landing slowdown, so chains are easy.
-  Space stays one jump per press.
-- **Speeds:** scoped, the AWP runs at 100 and the SSG 08 keeps its 230 (CS:GO; both used to halve); crouching while
-  scoped no longer stacks the scope slowdown (an AWP crouch-walks at 68, not 34). Bots now run at their gun's speed
-  (knife 250, pistols 240, AWP 200) instead of always 215.
-
-## v0.23.5
-
-- **Spectating:** you hear the game from the player you're watching (where they are, the way they face), see
-  their gun in first person (their shots kick it, their reloads play, a grenade shows as they throw it), and your
-  own body stays put meanwhile.
-- **Flying free when dead:** no gun; Space goes up and Ctrl down; Mouse 1/2 watches a teammate again (Space while
-  watching starts flying, from their eyes).
-
-## v0.23.4
-
-- **Scout jump shots:** the SSG 08 is dead on at the top of a jump (scoped, vertical speed under 40 units/s: about
-  the top 80 ms), like CS:GO's scout, even while moving sideways. Rising or falling it scatters like any gun in the air.
-
-## v0.23.3
-
-- **Moving costs accuracy, always:** running, jumping and noscoping scatter your shots (the option to turn that off
-  is gone). Stop to shoot, like CS.
-- **Cheaper guns scatter a little standing still** (USP, Dual Berettas, Galil, MAC-10, UMP-45); the AK-47, M4A1-S,
-  AWP, SSG 08 and Deagle stay dead on.
-
-## v0.23.2
-
-- **No glimpse of your respawn when you die:** the camera stays where you fell and sinks to the floor until the
-  killcam starts (or you respawn, with the killcam off).
-- **Pistols fire as fast as you click:** a click made while the gun is still cycling used to be thrown away, so
-  spamming felt slower than the gun really is. Now a click waits up to 0.25 s and fires the moment the gun is ready
-  (still one shot per click, never faster than CS's rates: USP 0.15 s, Berettas 0.12 s, Deagle 0.225 s). Shooting
-  slowly enough for the recoil to settle is the skill.
-- **New defaults:** volume 0.8, ambience 0.3, bunny hop off. (An existing config.cfg keeps its own values.)
-
-## v0.23.1
-
-- **Characters 15% smaller:** the default model size goes from 120% to 102% (hitboxes, crouch, eye height and aim
-  scale with it, as before).
-
-## v0.23: the premium pass
-
-- **Sun shadows.** Walls, roofs, awnings and crates cast real shadows from the sun (worked out once when the map
-  loads, so they cost little); what's in shade is cooler and darker, and players walking into shade darken too.
-  Settings → Video + sound → SUN SHADOWS (`shadows`: 0 off, 1 on, 2 sharp).
-- **Post-processing** (`post_fx`, restart): each map has its own colour grade (Dust warm and sun-baked, Harbor cooler,
-  the Lab neutral) and a soft vignette that leaves the middle of the screen alone. With `msaa 0` it smooths edges with
-  FXAA, which is much cheaper than MSAA on integrated graphics. The HUD isn't touched.
-- **A real font.** The HUD and menus use Rajdhani Bold (SIL Open Font License) instead of the 5x7 pixel font; the
-  scoreboard's columns still line up. Without the font file the old one comes back.
-- **A living main menu.** Behind the menu a camera drifts slowly over the map from one angle to the next. A map
-  loading or a competitive round starting fades in from black.
-- **Ambience and echo.** Dust has wind and distant birds, Harbor has waves, gulls and sea wind (`ambience_volume`,
-  AMBIENCE row). Shots and steps echo in tunnels and roofed halls, with a short slap off the walls in the streets; UI
-  sounds stay dry.
-- **Footsteps by surface:** sand on the streets, a harder stone click on the bomb sites' paving and the Lab's
-  concrete, wood on crates and doors, metal on the container.
-- **Viewmodel polish:** the sway settles on a spring (a little weight), strafing leans the gun, jumping drops it a
-  touch, the walk bob rolls slightly, and it breathes when you stand still. The shot kick is unchanged.
-- **Graphics presets** (`graphics_preset`): LOW (no shadows, FXAA), MEDIUM (shadows, FXAA), HIGH (sharp shadows, 4x
-  MSAA). Changing one of those settings by hand shows CUSTOM.
-
-## v0.22.1: no mid fights, bots that shoot
-
-- **Competitive bots don't take a mid fight from spawn.** No T plan stages in mid any more (A goes long in one or two
-  waves, B through tunnels in one or two), the CT holding mid watches the way out of mid doors from beside them where
-  nobody in mid can see him, CTs never push mid, routes go round mid when there's another way, and before the
-  execute no bot goes looking for someone in mid. Tested (testNoMidFights: every plan and route on both maps, and
-  that the mid CT can't be seen from mid) and measured: automated matches on both sides, no bot died in mid before
-  the execute.
-- **No more jiggling at each other without shooting.** A bot out of cover with an enemy in its sights stays out for
-  a burst (it used to duck back on a timer, out of step with the other one), a re-peek on someone it just saw needs
-  no new reaction time, and the gun's fire rate keeps counting while it moves. Measured: fights where a bot saw its
-  enemy for 2.5 s without firing went from dozens a match to none.
-
-## What's new in v0.22 (polish)
-
-- **Round flow:** a CS-style bar at the top (the clock, or the bomb once it's planted; each side's score; a figure per
-  player, dimmed when dead); a round-end banner in the winners' colour with the reason and the **MVP** (most kills, or
-  the planter / defuser when the bomb decided it); 7 s before the next round; a **match-end screen** (VICTORY /
-  DEFEAT, the score, your line, your rating change, the final scoreboard). Sounds: "go" when freeze time ends, an
-  alarm when the bomb is planted, a sting for a round won or lost.
-- **Kill feed with icons:** killer and victim in their team's colour, the gun as a small silhouette, a skull for a
-  headshot; your kills and deaths have a red edge. **"KILLED NAME"** shows under the crosshair when you get one.
-- **Your magazine talks:** a light tick on each of the last quarter's shots, a ping on the last round.
-- **Money and armor** bottom left, like CS ($, HP, ARMOR, KIT, C4).
-- **Rifles by side** in competitive: the AK-47 (and Galil) for T, the M4A1-S for CT; the full buy picks your side's
-  rifle. **Full buys get two flashbangs.**
-- **Weapon drops:** guns fall where people die (yours and the bots'). With no primary you pick one up by walking over
-  it; **E** swaps for the gun you're looking at. Bots with only a pistol grab rifles they walk over. Deathmatch drops
-  vanish after 20 s; online everyone sees the same guns on the floor.
-- **Calls (Z):** tell your bots the plan. T: GO A, GO B, RUSH A, RUSH B, PLAY SLOW, SAVE. CT: STACK A, STACK B,
-  DEFAULT SETUP, ROTATE A, ROTATE B, SAVE. A teammate answers ROGER.
-- **A lived-in world:** bullet holes on every wall (a pale chip round a dark hole, by material; bots' too) that fade
-  after ~25 s; soft contact shadows where walls meet the floor and round every prop; a soft shadow under every
-  player; all following the ramps.
-- **Player animation:** guns kick and flash when enemies fire, come down while they reload (bots now reload: a
-  window to push), hands go down and they kneel while planting or defusing, legs tuck in the air, a dip on landing.
-- **Online lobby:** HOST opens a lobby; friends who join land in it, pick their team (SWITCH TEAM), and the host sets
-  the game, map and bots and presses START. A dropped connection reconnects by itself for 30 s; a failed join says
-  why (no answer, different version, full) in a box at the top.
-
-## Competitive 5v5 (Play: MODE)
+## Competitive 5v5 (PLAY → COMPETITIVE)
 
 You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap after 12 rounds (with a fresh economy), and a new match starts after the result.
 
-- **Rounds:** 15 s freeze time (buy and plan, can't move; `freeze_time`, Play: FREEZE TIME), 1:55 to play, 40 s bomb fuse.
+- **Rounds:** 15 s freeze time (buy and plan, can't move; `freeze_time`, setup: BUY TIME), 1:55 to play, 40 s bomb fuse.
 - **Win** by killing the other side, planting and letting it blow (T), defusing (CT) or running the clock out without a plant (CT).
 - **Money, like CS:** start with $800; win $3,250 ($3,500 for a bomb win); loss bonus $1,400 rising by $500 per loss in a row up to $3,400; Ts get $800 more for a plant; kill rewards below.
 - **Buy menu (B):** a wheel, only in your spawn during freeze time and the first 20 s after it. **Full buys** in one click: **FULL BUY: AK-47** (AK-47, kevlar + helmet, a kit on CT, then smoke, flash, HE and molotov while the money lasts) or **FULL BUY: AWP**. Or pick a category, then the item: **1 pistols** (pistol $200, Dual Berettas $300, Deagle $700) · **2 shotguns** (Nova $1,050, XM1014 $2,000) · **3 SMGs** (MAC-10 $1,050, UMP-45 $1,200) · **4 rifles** (Galil AR $1,800, AK-47 $2,700, M4A1-S $2,900) · **5 snipers** (SSG 08 $1,700, AWP $4,750) · **6 gear** (kevlar $650, kevlar + helmet $1,000, defuse kit $400, CT) · **7 grenades** (smoke $300, flashbang $200, HE $300, molotov $400). Both sides can buy every gun. Armor, like CS, depends on the gun: most keep 77.5% of their damage through kevlar (and a helmet, for the head), the M4A1-S 70%, the XM1014 80%, the UMP-45 65%, the SSG 08 85% and the AWP 97.5%. If you survive, you keep what you had.
@@ -294,7 +147,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Spawns:** both teams spread over their spawn, you at the front, and nobody is in sight of the other team's spawn when the round starts (the long mid-doors sightline is kept clear; tested).
 - **Names:** the bots have ordinary first names (a different set every match), in the kill feed, scoreboard, radio and when you spectate them.
 - **Plays:** each round the Ts pick one and a teammate calls it on the radio: **EXECUTE** A or B (gather, then go together), **RUSH** (no waiting), **SPLIT A** (long and short at once) or **SPLIT B** (tunnels and through mid doors), a **FAKE** (two throw utility at one site, the team hits the other a few seconds later), or a **DEFAULT** (spread over long, mid, tunnels and short for map control, then a late execute). Now and then a CT **pushes** for an early pick (long, mid or B tunnels) and falls back to its spot after about 20 s or when the Ts go.
-- **The bots:** Ts gather at their play's staging points, then execute together after 14 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant (it doesn't hide, chase or stop for anyone far away: it fights its way through and gets straight back on its way), the rest take the site's angles. With 45 s left and no plant, every T commits to the site. You choose the teams (Play: TEAMMATES 0-4, ENEMIES 1-5) and how good the bots are (TEAMMATE SKILL, ENEMY SKILL: easy, normal, hard, expert; hard is the default for enemies). Skill sets reaction time (0.45-0.85 s easy down to 0.12-0.27 s expert), aim error, fire rate, how far behind your movement they aim and how often they go for the head (never on normal, 40% on expert); the other modes use BOT SKILL. CTs play a default setup (one mid, one short, one long, two B; now and then one heavier on A or B), each from one of a few spots so it's never quite the same, mostly holding their angle and stepping back behind cover now and then; once Ts show up on a site, the far CTs rotate, and after a plant they all retake, in a hurry. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). Teammates trade: when one is in a fight, the others nearby look that way. A bot that's been holding an empty angle for a while reacts a little slower to the first enemy (up to 0.2 s), so a good peek is rewarded. They fight each other, not just you. Your bullets pass through your teammates (no friendly fire).
+- **The bots:** Ts gather at their play's staging points, then execute together after 14 s at the latest, with a smoke and a flash for the site (each bot aims by trying throws with the real grenade flight): the carrier goes for the plant (it doesn't hide, chase or stop for anyone far away: it fights its way through and gets straight back on its way), the rest take the site's angles. With 45 s left and no plant, every T commits to the site. You choose the teams (setup: TEAMMATES 0-4, ENEMIES 1-5) and how good the bots are (TEAMMATE SKILL, ENEMY SKILL: easy, normal, hard, expert; hard is the default for enemies). Skill sets reaction time (0.45-0.85 s easy down to 0.12-0.27 s expert), aim error, fire rate, how far behind your movement they aim and how often they go for the head (never on normal, 40% on expert); the other modes use BOT SKILL. CTs play a default setup (one mid, one short, one long, two B; now and then one heavier on A or B), each from one of a few spots so it's never quite the same, mostly holding their angle and stepping back behind cover now and then; once Ts show up on a site, the far CTs rotate, and after a plant they all retake, in a hurry. Bots use cover: in a fight they shoot, duck behind the nearest box or corner, and peek again (hurt, they stay hidden longer); holding a site they hold the angle from beside cover and step back into it now and then. In the open with nothing nearby they jiggle (a quick strafe, stop, shoot). Teammates trade: when one is in a fight, the others nearby look that way. A bot that's been holding an empty angle for a while reacts a little slower to the first enemy (up to 0.2 s), so a good peek is rewarded. They fight each other, not just you. Your bullets pass through your teammates (no friendly fire).
 - **Bots buy like a CS team, the whole arsenal.** Each side calls the round from its bots' money: a **pistol round**
   (kevlar mostly, one Deagle, one pair of Berettas), an **eco** (save; one bot gambles on a Deagle), a **force**
   (kevlar and a Galil, MAC-10, UMP-45, Nova or XM1014, the scout for the AWPer) or a **full buy** (rifles and full
@@ -313,34 +166,34 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Teammate radio:** your side's bots call out in the top-right feed (green): ENEMY SPOTTED: LONG A, GOING B, THEY'RE ON A, ROTATING, PLANTING THE BOMB, DEFUSING.
 - **Tab** shows both teams with money for yours; the radar shows your teammates and anything they spot.
 
-## Deathmatch (Play: MODE)
+## Deathmatch (PLAY → DEATHMATCH)
 
 - **The match:** 5 minutes (`dm_minutes`) against 10 bots (`dm_bots`, up to 16); results screen, then a new match.
-- **Spawns are anywhere on the map**, away from the bots and out of their sight, with every gun reloaded and 1 s of protection. Bots respawn 2–4 s after you kill them, out of your sight.
+- **Spawns are anywhere on the map but mid**, away from the bots and out of their sight, with every gun reloaded and 1 s of protection. Bots respawn 2–4 s after you kill them, out of your sight.
 - **A kill gives you +40 HP** (up to 100) **and 10 rounds** in your magazine (up to a full mag).
-- **The bots fight each other too** (Play: BOTS FIGHT EACH OTHER, on by default, `dm_bot_fights`): each fights whoever it sees nearest, bot or you, and the kill feed and scoreboard count their kills. They still come looking for you half the time, and respawn out of each other's sight.
-- **Skill variance** (Play: SKILL VARIANCE, every mode with bots, `skill_variance`): OFF, every bot plays exactly the skill you picked; SLIGHT, each bot is up to half a level better or worse (a HARD lobby has some nearly-EXPERT bots and some nearly-NORMAL ones); WIDE, up to a whole level. Each bot keeps its own for the whole match.
+- **The bots fight each other too** (setup: BOTS FIGHT EACH OTHER, on by default, `dm_bot_fights`): each fights whoever it sees nearest, bot or you, and the kill feed and scoreboard count their kills. They still come looking for you half the time, and respawn out of each other's sight.
+- **Skill variance** (competitive setup: SKILL VARIANCE, `skill_variance`; it applies to every mode with bots): OFF, every bot plays exactly the skill you picked; SLIGHT, each bot is up to half a level better or worse (a HARD lobby has some nearly-EXPERT bots and some nearly-NORMAL ones); WIDE, up to a whole level. Each bot keeps its own for the whole match.
 - **Each bot gets a new gun every life**, like CS deathmatch: mostly AK-47s and M4A1-Ss, some AWPs, Galils, scouts,
   MAC-10s, UMP-45s, shotguns and Deagles, each with its own damage (falling off with range), armor penetration, fire
   rate, sound and model. The shotguns fire pellets. You count as wearing kevlar and a helmet, like CS deathmatch.
 - **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a 0.25–0.55 s reaction once they've turned to face you. Half the time they roam towards your part of the map. In a fight they use cover when there's some close by (shoot, duck behind it, peek again), else they jiggle (strafe a step, stop, shoot). They spawn out of sight of where you are and of where you'll be a moment later.
 
-## Retakes (Play: MODE)
+## Retakes (PLAY → RETAKES)
 
 - **Each round** the bomb is already planted on a random site, held by 4 bots (`rt_bots`, 1–6) facing the way you'll come, holding from beside cover. You start at a random entry (A: CT spawn, long or catwalk; B: tunnels, mid to B or CT mid); spots you can see from your entry are used last, so nobody's in view when the round starts.
 - **Defuse it** (hold E for 5 s, you have a kit) before the 40 s fuse runs out. Killing everyone isn't enough, like CS. Lose if it blows or you die. Kills heal +40 HP.
 
-## Online (Play: MODE -> ONLINE)
+## Online (PLAY ONLINE)
 
-Deathmatch or competitive on Dust with friends, up to 8 players. One of you hosts from the game; the others join.
+Deathmatch or competitive on Dust or Harbor with friends, up to 8 players. One of you hosts from the game; the others join.
 
-1. **Your name:** Play -> MODE: ONLINE -> **YOUR NAME** (select it and type). It shows in the kill feed and on the scoreboard.
-2. **Host:** pick the **GAME** (`net_game`): DEATHMATCH (players only) or COMPETITIVE (below), then **HOST A GAME**. The first time, Windows asks whether Crisp may use the network: allow it. The game then asks your router to open the port by itself (UPnP) and shows, at the top of the screen while the Esc menu is open, **the address to give your friends** ("FRIENDS JOIN: ..."), or what's in the way if it can't:
+1. **Your name:** PLAY ONLINE → **YOUR NAME** (select it and type). It shows in the kill feed and on the scoreboard.
+2. **Host:** **HOST A GAME** opens your lobby, where you pick the **GAME** (`net_game`: DEATHMATCH, players only, or COMPETITIVE, below), the **MAP** and the bots, see who has joined, and press **START**. The first time, Windows asks whether Crisp may use the network: allow it. The game then asks your router to open the port by itself (UPnP) and shows, at the top of the screen while the Esc menu is open, **the address to give your friends** ("FRIENDS JOIN: ..."), or what's in the way if it can't:
    - *"your router sits behind another one"*: your ISP's box is a router too. Forward UDP 27015 on that one to your router's address (shown), or put it in bridge mode, or use ZeroTier;
    - *"carrier-grade NAT"*: your provider shares one address between customers; nobody can reach you directly: use ZeroTier;
    - *"no router answered"*: UPnP is off on your router: turn it on, forward UDP 27015 by hand, or use ZeroTier.
    The port is closed again when you stop hosting.
-3. **Join:** type the address in **JOIN ADDRESS** (an IP or a name, `address:port` if it isn't 27015), then **JOIN**. The host's Dust size is used.
+3. **Join:** type the address in **FRIEND'S ADDRESS** (an IP or a name, `address:port` if it isn't 27015), then **JOIN**. You land in the host's lobby: pick your team (SWITCH TEAM) and wait for START.
 4. **Same house:** use the "SAME HOUSE" address the host sees. **ZeroTier / Tailscale** (everyone on the same virtual network) always works, whatever the routers do.
 
 How it works: everyone's own movement and shooting run on their own PC exactly like offline (128 ticks, zero lag for you), and each PC sends a ~30-byte update every tick (about 8 KB/s each way per player). Other players are shown about 47 ms behind their newest update, smoothly. **Your game decides your hits** against what it showed you, and the victim's game applies them: what you see is what you hit, at any ping. That trusts everyone's PC, so it's for friends (no anti-cheat). Kills give +40 HP and 10 rounds, like offline deathmatch; Tab shows the scores; the menu doesn't pause an online game (you just stand still). Everyone has to run the same version of Crisp (a different one is told so when it tries to join).
@@ -354,17 +207,17 @@ How it works: everyone's own movement and shooting run on their own PC exactly l
 
 The offline competitive match (MR12, economy, buy menu, the bomb) with friends in it. The host's game runs the match and the bots; everyone else's game shows them and runs only its own player.
 
-- **PLAYERS** (`net_teams`): **SPLIT** puts players on both sides, evenly (you can play against each other), **ALL ON ONE SIDE VS BOTS** puts everyone on the host's side.
-- **Team sizes:** TEAMMATES (the host's side, not counting the host) and ENEMIES, like offline (`comp_mates`, `comp_enemies`). Players take places first; **bots fill the rest**. Bots on the host's side use YOUR TEAM'S BOTS skill, the others OTHER TEAM'S BOTS.
+- **Teams:** players pick their side in the lobby (SWITCH TEAM). Whoever joins starts on the side with fewer players (`net_teams 1` in the host's config: on the host's side instead).
+- **Team sizes** (lobby): TEAMMATES (the host's side, not counting the host) and ENEMIES, like offline (`comp_mates`, `comp_enemies`). Players take places first; **bots fill the rest**. Bots on the host's side use YOUR TEAM'S BOTS skill, the others OTHER TEAM'S BOTS.
 - **Joining mid-match:** you watch until the next round, then you're in (split: on the side with fewer players).
 - **Money** is yours: kill rewards, the round's pay and the loss bonus come to your own game, like CS. The scoreboard shows only your own money.
 - **The bomb:** anyone on T can carry it (the host's game hands it out, like CS); you plant or defuse with E as offline, and your game tells the host. Bots plant, defuse and fetch a dropped bomb as offline.
 - **Bots hear you:** your footsteps and shots reach the host's bots like the host's own.
 - Leaving the match: Esc -> MAIN MENU. If the host leaves, everyone goes back to the menu's Lab.
 
-## Prefire (Play: MODE)
+## Prefire (PLAY → PREFIRE)
 
-- **Pick a route** (A long, B tunnels, mid, A short). Bots stand at the usual defender angles along it, facing the way you come: the long corner, pit, goose, behind the default boxes, B doors, back plat, mid doors and so on. They never move, but they turn on you and shoot (BOTS SHOOT BACK on the Play screen, `prefire_bots_shoot`, on by default).
+- **Pick a route** (A long, B tunnels, mid, A short). Bots stand at the usual defender angles along it, facing the way you come: the long corner, pit, goose, behind the default boxes, B doors, back plat, mid doors and so on. They never move, but they turn on you and shoot (setup: BOTS SHOOT BACK, `prefire_bots_shoot`, on by default).
 - **Every route starts out of the bots' sight** (tested), and they hold fire until your clock starts.
 - **The clock** starts when you move or shoot and stops when the last one dies: your time, accuracy and headshots, and the best time per route this session. Die and the route starts over; Esc → RESTART ROUTE any time.
 
@@ -376,13 +229,13 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 
 ## Players: facing, arms, anti-aliasing
 
-- **Model size** (Settings → Gameplay → PLAYER MODEL SIZE, `model_scale`, 102% by default since v0.23.1 (was 120%), 80-150): how big the characters are. Their hitboxes grow with them (what you see is what you hit), and so do their crouch, the bots' eye height (77 units at 120%, 65 at 102%) and where they aim. Your own movement hull doesn't change, so bigger models' heads sit above your eye line on the same floor.
+- **Model size** (`model_scale` in `config.cfg`, 102% by default, 80-150; not in the menus): how big the characters are. Their hitboxes grow with them (what you see is what you hit), and so do their crouch, the bots' eye height (77 units at 120%, 65 at 102%) and where they aim. Your own movement hull doesn't change, so bigger models' heads sit above your eye line on the same floor.
 
 - **Bots turn to face you** when they fight. Their hitboxes turn with them. Head-on you see about 27 units of shoulders; side-on, about 21.
 - **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable.
 - **Competitive colours:** Ts in tan, CTs in blue; a green marker floats over your teammates.
 - **The models:** two legs that step as they walk, boots and knee pads, a belt with a buckle, a vest with pouches, shoulder pads and a small pack, sleeves and gloves on the gun. CTs wear a helmet with goggles; Ts a balaclava with an eye slit and a beanie. Every piece sits inside its hitbox, and a hit flashes the part you hit.
-- **Anti-aliasing** (`msaa 4`, Settings → Video + sound, applies on restart) smooths edges so far-away players stop shimmering. With `msaa 0` and post-processing on, FXAA smooths them instead (cheaper).
+- **Anti-aliasing** (`msaa`, Settings → Video, applies on restart) smooths edges so far-away players stop shimmering. With `msaa 0` and post-processing on, FXAA smooths them instead (cheaper).
 
 ## Hit feedback
 
@@ -391,7 +244,7 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Damage direction:** when a bot hits you, a red arc round the crosshair points at where it came from (fades over a second), like CS.
 - **A helmet "tink"** when your headshot is stopped by a helmet instead of killing.
 - **The kill, Valorant-style:** the moment a bot dies it flashes bright white and holds still for a beat (~80 ms), then fades as it falls.
-- **Muzzle flash light:** every gunshot lights up the walls round the gun for a few frames (not the floor or ceiling), warm and fading out over ~400 units (yours, the bots' and other players'; suppressed guns barely). MUZZLE FLASH LIGHT in Settings → Video + sound sets how bright (`muzzle_brightness`, 0 = off; 0.45 by default).
+- **Muzzle flash light:** every gunshot lights up the walls round the gun for a few frames (not the floor or ceiling), warm and fading out over ~400 units (yours, the bots' and other players'; suppressed guns barely). MUZZLE FLASH LIGHT in Settings → Video sets how bright (`muzzle_brightness`, 0 = off; 0.45 by default).
 - **Kills you can see:** the dead fall over the way your bullet pushed them, faster and faster like a toppling body, slide a little, lie there for a few seconds and sink away. A **headshot kill knocks the helmet off** (CTs; like CS:GO): it flies along the shot, spinning, bounces once and lies there.
 
 ## Guns
@@ -420,7 +273,7 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
 - **Knives:** everyone has the plain black **knife**. Cases can give a **butterfly** (flips open on draw, two aerials on inspect), **karambit** (spins round the finger ring), **M9 bayonet** (tossed end over end), **talon** (ivory and brass, big claw), **bowie** (stag handle, brass guard, clip point) or **kukri** (forward-bent blade). Blades have an edge bevel and a fuller.
 - **Skins** are painted on the gun by the shader, in the gun's own space: fades, camo, tiger stripes, marble, case hardened, web, hazard blocks, flames, carbon weave, glowing neon lines, two-tone. Polished ones catch the light as the gun turns. **Wear** (the float, factory new to battle-scarred) scratches and chips them down to bare steel.
 - **Cases:** you get one for every **25 kills** (`case_kills`) in deathmatch, retakes, competitive and online (not the range, the aim drill or prefire). Open them in **Esc → INVENTORY → OPEN A CASE**: a reel of items spins and stops on what you got. The odds are CS's: mil-spec (blue) 79.92%, restricted (purple) 15.98%, classified (pink) 3.2%, covert (red) 0.64%, and the **rare special (gold) 0.26%: a knife** in one of nine finishes (vanilla, fade, sapphire, ruby, emerald, tiger, hardened, web, night). 29 gun skins over the seven guns.
-- **Inventory** (main menu or Esc → INVENTORY): a row per weapon; left / right steps through the skins you own for it, and the weapon turns on the stage on the right with its name, rarity, wear and float. **ALL SKINS UNLOCKED (TESTING)** (`all_skins`) lets you pick any skin without opening cases; turning it off again takes off whatever you don't own.
+- **Inventory** (main menu or Esc → INVENTORY): a row per weapon; left / right steps through the skins you own for it, and the weapon turns on the stage on the right with its name, rarity, wear and float. `all_skins 1` in `config.cfg` (testing, not in the menus) lets you pick any skin without opening cases; turning it off again takes off whatever you don't own.
 - Saved in **`inventory.txt`** next to the game (your cases, kills towards the next one, every item and what's equipped). Keep it when you update Crisp.
 
 ## Spray feedback (all cosmetic: your bullets are unchanged)
@@ -443,7 +296,8 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
 - **Footsteps** are boot-on-grit (heel, toe scuff, crunch), and landing has a bit of gear rattle.
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
-- **Volume** is `volume` in `config.cfg` (0..1, 0.8 by default); the map ambience is `ambience_volume` (0.3 by default).
+- **Volume** (Settings → Sound): VOLUME (`volume`, 0.8 by default), AMBIENCE (`ambience_volume`, 0.3: Dust's wind and birds, Harbor's waves and gulls), MENU MUSIC, HIT SOUND.
+- **Rooms echo:** under a roof (tunnels, the warehouse, the underpass) shots and steps ring like a tunnel; out in the street there's a short slap off the walls.
 - **Every gun has its own recording**, from the nearest real gun in the CC0 library: the AK-47 an AK-47, the
   **Galil AR** an SKS (the same 7.62 round, a carbine), the **MAC-10** a PPSh (a fast, sharp SMG), the **UMP-45** a
   Carl Gustav M45 (a slower SMG), the **AWP** big bolt-action rifles, the **SSG 08** a Savage 10 and a Marlin
@@ -453,7 +307,7 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
   short and punchy. Without the files each falls back to a shared sound, pitched.
 - **The suppressed guns sound the way a suppressor really changes a shot.** A gunshot's energy is mostly the muzzle blast, below 500 Hz, and that is the one part a suppressor takes away; what's left is the high "fizzle" of gas leaving the can, the bullet's crack if it's supersonic (the M4A1-S's 5.56, not the pistol's .45), and the action cycling. So they're built from only the top of the AK recording (its blast cut), a short breathy fizzle, the crack for the M4A1-S, and the action as two dull clacks: about 1% of each below 500 Hz (v0.19's was 42%), the body a mid-range "pop", nothing that rings. Short: the pistol ~50 ms, the M4A1-S ~95 ms.
 
-- **Menu music:** "Menu Music" by wipics (CC0, an upbeat electronic loop) plays on the main menu and its pages, and fades out when a game starts (not in the pause menu). MENU MUSIC in Settings → Video + sound sets its volume (`music_volume`, 0 = off). It's decoded in the background, so startup isn't slower.
+- **Menu music:** "Menu Music" by wipics (CC0, an upbeat electronic loop) plays on the main menu and its pages, and fades out when a game starts (not in the pause menu). MENU MUSIC in Settings → Sound sets its volume (`music_volume`, 0 = off). It's decoded in the background, so startup isn't slower.
 - **Scoping in** has its own soft "chk".
 
 - **Synthesized sounds** are made at startup (and stand in for any recording that's missing). To listen to them as files, run `crisp.exe --dump-sounds <folder>` and it writes every variant as a WAV; `--dump-played-sounds <folder>` writes what the game really plays, recordings included.
@@ -487,7 +341,7 @@ Every finished deathmatch or competitive match against bots goes into your **car
 
 ## Bots, smokes, wallbangs, KZ
 
-- **Bots shoot back (Play: practice).** Any dummy that can see you reacts after a random 0.25–0.55 s and fires every 0.22–0.38 s (with an AK-47; other guns at their own pace), with about 0.8° of random aim error. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. Smokes block their vision.
+- **Bots shoot back (practice setup: BOTS SHOOT BACK).** Any dummy that can see you reacts after a random 0.25–0.55 s and fires every 0.22–0.38 s (with an AK-47; other guns at their own pace), with about 0.8° of random aim error. They aim at where you were 0.2 s ago, so strafing and counter-strafe peeks dodge them, while standing still in the open gets you killed. Smokes block their vision.
 - **Grenades:** see Grenades above (smoke, flash, HE, molotov).
 - **Wallbangs:**
   - rifle and sniper bullets go through thin walls (rifle 24 units, sniper 40) and lose damage; the pistol can't
@@ -498,9 +352,11 @@ Every finished deathmatch or competitive match against bots goes into your **car
 
 ## Bunny hopping
 
-Off by default (`bhop 0`, like CS: one jump per press, and landing costs a little speed). With `bhop 1` (Settings → Gameplay → BUNNY HOP):
-- Hold Space (or spam the wheel) and you jump the instant you land, so ground friction never touches you.
-- There's no stamina slowdown.
+- **With the scroll wheel, always:** a wheel notch in the air waits 0.15 s for the ground, and a jump within 6 ticks
+  (47 ms) of landing is a hop: you leave with the speed you landed with, less a quarter of the landing slowdown
+  (`hopPenalty`). Bind jump to the wheel and scroll as you land. Holding Space doesn't hop.
+- **AUTO BUNNY HOP** (Settings → Gameplay, `bhop 1`, off by default): hold Space and you jump the instant you land,
+  so ground friction never touches you, with no stamina slowdown.
 - Air-strafe to gain speed: hold A while turning left (or D while turning right), without W.
 
 Perfect hops keep 250 u/s, and good strafes build to 500+.
@@ -512,28 +368,29 @@ Perfect hops keep 250 u/s, and good strafes build to 500+.
 - **Like CS, a shot takes the scope down:** you see the bolt cycle (the gun rolls in, the bolt lifts, comes back and goes home, with the sound), and the scope comes back up by itself just before you can fire again. Switching weapons (Q Q) cancels it.
 - **Scoping in** eases the zoom over a few frames (instant out), with a soft "chk"; the scope has a dark lens edge and cross hairs that thicken into posts towards the rim.
 - **A heavier shot:** a bigger kick in the hands and a view thump.
-- **Movement:** half speed while scoped.
+- **Movement:** the AWP runs at half speed while scoped (100 u/s), the SSG 08 at its full 230; crouched there's no scope slowdown.
 - **No crosshair unscoped,** like CS, and a noscope scatters (AWP 4.5°, SSG 3°).
 - **Scoped sensitivity** is scaled so flicks feel the same as unscoped (`zoom_sensitivity_ratio`, default 1).
 
 ## Zero-lag camera
 
-`camera_extrapolate 1` is on by default. The simulation runs at 128 ticks, so a normal interpolated camera shows your position up to one tick (7.8 ms) in the past. This one draws you where you are *now*: the latest tick plus the time since, with collision and step-up checks. Movement keys show up on screen with no added delay. Set it to 0 to compare.
+`camera_extrapolate 1` is on by default (config only). The simulation runs at 128 ticks, so a normal interpolated camera shows your position up to one tick (7.8 ms) in the past. This one draws you where you are *now*: the latest tick plus the time since, with collision and step-up checks. Movement keys show up on screen with no added delay. Set it to 0 to compare.
 
 ## Smooth stairs
 
-`view_smooth_steps 1` is on by default. Walking up or down a step moves you up to 18 units in one tick. With this on, the camera eases over the step in about 50 ms instead of jumping. It's purely visual: your movement, hitbox and timing are unchanged, and your shots come from exactly where the camera is. Set it to 0 to compare.
+`view_smooth_steps 1` is on by default (config only). Walking up or down a step moves you up to 18 units in one tick. With this on, the camera eases over the step in about 50 ms instead of jumping. It's purely visual: your movement, hitbox and timing are unchanged, and your shots come from exactly where the camera is. Set it to 0 to compare.
 
-## No random spread
+## Spread
 
-**There is no random bullet spread by default.** Every bullet goes exactly to your crosshair plus the weapon's fixed recoil pattern, so sprays are 100% repeatable. Movement still matters: the recoil pattern and the view kick are the same either way, but nothing randomizes your shots.
-
-**The one exception: shotguns.** You asked for random shotgun spread, so the Nova's and XM1014's pellets land at random inside their spread (each shot different; seeded by the shot, so a replay or a test gets the same one).
-
-**Spread (v0.23.3):** moving faster than about a third of the gun's top speed, jumping and noscoping always scatter
-your shots, like CS: stop (counter-strafe) to shoot. Standing still, the AK-47, M4A1-S, AWP, SSG 08 and Deagle go
-exactly where you aim; the cheaper guns scatter a little (USP 0.30°, Dual Berettas 0.40°, Galil 0.20°, MAC-10 0.55°,
-UMP-45 0.40°). Sprays follow the fixed recoil pattern; `spread_spray 1` adds CS-like spread that grows during a spray.
+- **Sprays are fixed:** every bullet goes to your crosshair plus the gun's recoil pattern, the same every time.
+- **Moving, jumping and noscoping scatter your shots**, always, like CS: moving faster than about a third of the
+  gun's top speed, in the air, or a sniper unscoped. Stop (counter-strafe) to shoot.
+- **Standing still**, the AK-47, M4A1-S, AWP, SSG 08 and Deagle go exactly where you aim; the cheaper guns scatter a
+  little (USP 0.30°, Dual Berettas 0.40°, Galil 0.20°, MAC-10 0.55°, UMP-45 0.40°).
+- **The SSG 08 is dead on at the top of a jump** (vertical speed under 40 u/s), like CS's scout.
+- **Shotguns:** the Nova's and XM1014's pellets land at random inside their spread.
+- Every random part is seeded by the shot, so a replay or a test gets the same one. `spread_spray 1` (config only)
+  adds CS-like spread that grows during a spray.
 
 ## Tuning numbers (CS:GO-like defaults)
 
@@ -544,7 +401,7 @@ UMP-45 0.40°). Sprays follow the fixed recoil pattern; `spread_spray 1` adds CS
 | Jump | 57 units apex, ~675 ms airtime (gravity 1000: snappier than CS:GO) |
 | Friction / accelerate / air accelerate | 5.6 / 6.48 / 12 (95% of run speed from a standstill in ~320 ms) |
 | Rifle | 600 RPM, 30 rounds, 36 dmg (×4 head) |
-| Pistol | semi-auto, 400 RPM max, 12 rounds, 30 dmg (×4 head), strong climbing kick |
+| Pistol | semi-auto, 12 rounds, 30 dmg (×4 head), strong climbing kick; clicks while it cycles are kept (0.25 s), so spam-clicking reaches the full fire rate |
 | Other guns | see **Guns** above |
 | Fire rate | exact: a held spray keeps its cadence, and however you tap, two shots are never closer than one interval |
 | Spray reset | ~0.2 s after a tap, ~1.0 s after a full spray |
@@ -559,7 +416,7 @@ Weapon model settings in `config.cfg`, all CS-style:
 
 ## Build it yourself
 
-You need CMake 3.24+ and a C++20 compiler (Visual Studio 2022 on Windows). SDL3 is downloaded automatically.
+You need CMake 3.24+ and a C++20 compiler (Visual Studio 2022 or newer on Windows). SDL3, ENet and miniupnpc are downloaded automatically.
 
 ```
 cmake -S prototype -B build
@@ -572,17 +429,18 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 
 | File | What |
 |---|---|
-| `src/movement.*` | Kinematic player movement: friction/accel, air strafing, step-up, crouch-jump, stamina |
-| `src/world.*` | Maps made of boxes and ramps (the Lab, Dust2 from a grid of named areas, materials), swept-box / ray traces incl. sloped ramps, broadphase, retake/team spawn data |
-| `src/nav.*` | Bot navigation on the Dust grid: walkable / roamable cells, shortest routes, following a route |
+| `src/movement.*` | Kinematic player movement: friction/accel, air strafing, step-up, crouch-jump, bunny hops (`MoveParams`) |
+| `src/world.*` | Maps made of boxes and ramps (the Lab; Dust and Harbor from grids of named areas, materials), swept-box / ray traces incl. sloped ramps, a broadphase grid walked along each trace, spawns, retake sites, bot spots and plays |
+| `src/nav.*` | Bot navigation on the town grid: walkable / roamable cells, A* routes, following a route |
 | `src/bots.*` | Bot brains: spawning anywhere, roaming or walking to a goal, holding angles, sight cone, choosing a target among enemies, hearing, chasing (tested headless) |
 | `src/combat.*` | Weapons (`WeaponId`, `weaponDef`), recoil patterns, deterministic spread, shotgun pellets spread at random, seeded per shot (`firePellets`, `pelletOffset`), dummies and turned / crouched hitboxes, armor, material wallbangs, hit detection |
 | `src/items.*` | Skins, knives, rarities and odds, case rolls, the inventory and its file (tested) |
-| `src/render.*`, `src/gl.*` | OpenGL 3.3: every 3D object is an instanced box (optionally turned or a ramp); depth pre-pass, view culling, nearest-first; skins are a painted surface in the box shader (`PaintParams`); the HUD is a single batch |
-| `src/fx.*` | First-person weapon and knife models and animation, the inventory showcase, tracers, particles (cosmetic only) |
-
-| `src/audio.*` | SDL3 audio mixer and procedural sound synthesis |
-| `src/main.cpp` | Window, input, 128 Hz fixed-step loop, the modes (practice, deathmatch, retakes, competitive), grenades, bomb, economy, combat record, radar, HUD, Esc menu |
-| `tests/sim_tests.cpp` | Headless checks: speeds, jump height, counter-strafe timing, collision, stairs, ramps, crates, determinism, material wallbangs, Dust routes and run times at every size, spawns, bot roaming and sight, turned hitboxes |
+| `src/render.*`, `src/gl.*` | OpenGL 3.3: every 3D object is an instanced box (optionally turned or a ramp); depth pre-pass, view culling, nearest-first; sun shadow map; post pass (FXAA, grade, outlines); skins are a painted surface in the box shader (`PaintParams`); the HUD is a single batch with a TrueType font |
+| `src/fx.*` | First-person weapon and knife models and animation, the inventory showcase, tracers, particles, `DrawList` (cosmetic only) |
+| `src/audio.*` | SDL3 audio mixer: recordings with synthesized fallbacks, 3D audio, ambience, room echo, menu music |
+| `src/net.*`, `src/upnp.*` | Online play (ENet: host relays, lobby, competitive) and opening the router's port |
+| `src/replay.*`, `src/stats.*`, `src/config.*` | Replays and the killcam, your career and rating, `config.cfg` |
+| `src/main.cpp` | Window, input, 128 Hz fixed-step loop, the modes, grenades, bomb, economy, combat record, radar, HUD, menus, online glue |
+| `tests/sim_tests.cpp` | Headless checks: speeds, jumps and hops, counter-strafe timing, collision, stairs, ramps, crates, determinism, spread, guns, material wallbangs, the maps' routes, sightlines, spawns and holes, bots (roaming, sight, cover, fire, arsenal), replays, cases, stats |
 
 Shots are tested against exactly what was on your screen the frame you clicked: the interpolated dummy positions, facings and camera. That's the single-player version of "what you see is what you hit".

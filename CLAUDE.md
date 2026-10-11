@@ -13,7 +13,7 @@ A CS:GO-like tactical shooter where **shooting, movement and positioning are the
 
 There are two parts:
 - `docs/`: research and plan (player research, design, tech stack, netcode, performance budget, build roadmap). Read `README.md`, then the docs relevant to your task.
-- `prototype/`: **Crisp** (the game, formerly "Feel Lab"), a C++20 / SDL3 / OpenGL 3.3 game: offline modes with bots and online play with friends. `prototype/README.md` documents every control, system and config key. **Keep it up to date.**
+- `prototype/`: **Crisp** (the game, formerly "Feel Lab"), a C++20 / SDL3 / OpenGL 3.3 game: offline modes with bots and online play with friends. `prototype/README.md` documents the game as it is now: every control, system and config key. **Keep it up to date.** `prototype/CHANGELOG.md` has each version's notes (newest first): add one for every version you hand over.
 
 **The motto is CRISPY. It must feel like CS:GO.** When in doubt, pick whatever is more responsive, more consistent and more CS-like.
 
@@ -36,9 +36,10 @@ There are two parts:
 docs/                     research + plan (markdown)
 prototype/
   CMakeLists.txt          builds crisp_sim (lib), sim_tests (headless), crisp (game; CRISP_BUILD_GAME=ON)
+  README.md, CHANGELOG.md the game as it is now; what changed per version
   src/
     vecmath.h             Vec3/Mat4, Z-up, Source-style angles (pitch + = down, yaw + = left)
-    world.*               AABB world, traces (+ broadphase); buildLab(); the town maps (Dust2, Harbor) from named areas
+    world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor) from named areas
                           on a 32u grid: buildTown(), townGrid(), spawns, retake sites, CT spots, prefire routes, peek
                           spots, TownTactics (bot plays), doors, facades; KZ course constants
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
@@ -54,12 +55,12 @@ prototype/
     bots.*                bot brains (spawn anywhere, roam or walk to a goal, hold, view cone, pick a target,
                           hearing, chase, cover, skill); main.cpp only feeds them BotSenses, so tests run bots headless
     main.cpp              window/input, 128 Hz fixed-step loop, the modes, grenades, bot shooting, competitive (plays,
-                          economy, bomb), KZ, HUD, menus, map loading, replays/killcam, stats, online glue (~6k lines)
+                          economy, bomb), KZ, HUD, menus, map loading, replays/killcam, stats, online glue (~8k lines)
     render.*, gl.*        OpenGL 3.3: everything is an instanced box (optionally yaw-rotated: yawBox) or a ModelDraw
                           (boxes under a matrix); HUD is one batch (TrueType font atlas); muzzle light uniform; static
                           sun shadow map; post pass (FXAA, grade, vignette); tiny GL loader (+ fences, FBOs)
     fx.*                  cosmetic only: first-person weapons/knives (weaponDraws), the inventory showcase, tracers,
-                          particles, debris (helmets)
+                          particles, debris (helmets); DrawList (model draws that keep their buffers between frames)
     net.*                 online play: ENet host/join, relay through the host, state/fire/hit/death/name/grenade
                           messages; competitive: the host's bots, match state, round start/end, plant/defuse
     upnp.*                hosting: miniupnpc opens the router's port in a background thread, finds the addresses
@@ -87,7 +88,8 @@ prototype/
    still). The SSG 08 is exact at a jump's apex (v0.23.4: `kApexSpeed` 40, `WeaponState::vertSpeed`). All of it is seeded by `shotCounter` (reproducible). `spread_spray` (random spray spread) stays an option,
    off. Shotgun pellets spread at random (v0.14, `pelletOffset`). Bots use `rnd(g)` in `main.cpp`.
 3. **What you see is what you hit.** Shots test against the dummy positions and eye that were rendered on the frame you clicked (`lastDummyRenderPos`, `lastRenderEye`). Cosmetic parts of enemies must sit inside their hitboxes (and scale with them: `modelScale()`). Weapons held by enemies are the only exception, like CS.
-4. **Performance budget.** No per-frame heap allocations in hot paths (reuse vectors: `static`/member buffers), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
+4. **Performance budget.** No per-frame heap allocations in hot paths (reuse vectors: `static`/member buffers;
+   per-frame model draws go in a `DrawList`), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
 5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). Revisit before anything is shared publicly; Harbor is Crisp's own map and is free to share.
 6. **Keep it portable to MSVC.** C++20, standard library and SDL3 only. No GCC/Clang-only extensions. Code must compile warning-clean with `-Wall -Wextra -pedantic` (Linux/GCC: CI runs it; check locally, §10) and `/W4` (MSVC).
 7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`). If you change an area table, keep those passing and look at the printed run times.
@@ -140,21 +142,25 @@ plays, throws, STUCK bots). The idle test player can't die, so **its side wins a
    `https://MartyJCross@github.com/MartyJCross/CSreplacement.git`. Don't push to other branches or create PRs unless asked.
 2. **Before pushing:** build the game (warning-free), run `sim_tests` (all checks pass), run the GCC warning check
    (§10), re-read your diff.
-3. **Commit messages:** a one-line summary, then bullets covering what changed and why; end with the attribution line
+3. **Docs:** update `prototype/README.md` (the current game), add the version's notes to `prototype/CHANGELOG.md`, and
+   keep this file's §7 current.
+4. **Commit messages:** a one-line summary, then bullets covering what changed and why; end with the attribution line
    the session asks for.
-4. **Push**, then wait for the **"Crisp prototype"** workflow (windows job: build, tests, artifact; linux-tests job).
+5. **Push**, then wait for the **"Crisp prototype"** workflow (windows job: build, tests, artifact; linux-tests job).
    No `gh` here: poll `https://api.github.com/repos/MartyJCross/CSreplacement/actions/runs?branch=claude/festive-hypatia-q2q1fd&per_page=1`
    with curl until the head commit's run is `completed` (a background `until` loop).
-5. **If CI fails, fix it and push again.** Never hand over a red build.
-6. **Report to the owner:** the run link, what changed (in their terms), what you verified, what they should try.
+6. **If CI fails, fix it and push again.** Never hand over a red build.
+7. **Report to the owner:** the run link, what changed (in their terms), what you verified, what they should try.
    Then make the zip (§2).
 
 ## 7. Current feature set
 
 See `prototype/README.md` for full details. Each item lists where its code lives.
 
-**Movement** (`MoveParams` in `movement.h`; v0.23.6: scroll-wheel jumps buffered 0.1 s (`Game::wheelJumpAt`), a hop
-on the landing tick takes `hopPenalty` 0.25 of the landing slowdown (`PlayerState::landKeep`, applied next tick); run
+**Movement** (`MoveParams` in `movement.h`; v0.25: a scroll-wheel notch in the air waits `kWheelJumpBuffer` 0.15 s
+for the ground (`Game::wheelJumpAt`), a jump within `hopGrace` 6 ticks of landing is a hop (`PlayerState::sinceLand`,
+`landedKeep`) that keeps the landing speed less `hopPenalty` 0.25 of the landing slowdown; holding Space never hops
+without `bhop 1`; run
 speed `moveSpeedFor`: scoped AWP 100, SSG 08 230, crouched no scope slowdown; bots run at their gun's maxSpeed): gravity 1000, accelerate 6.48 (owner: 10% under 7.2), friction 5.6, air
 accelerate 12; 57-unit jump, crouch-jump reaches 64-unit crates; bhop off by default (`bhop` 1 = hold-to-hop, no
 stamina); real ramps (`Box::slope`/`lowZ` wedges, swept Quake-style). After any spawn a held Space must come up
@@ -286,7 +292,10 @@ are A* (`NavGrid::findPath`, octile estimate). The mixer only locks to take new 
 laptop (1080p, MSAA 2, DM, 7 bots): ~200 FPS, GPU-bound (gpu ~2.8 ms, sim ~0.15 ms), MSAA 0 gives ~275; the mixer
 ~0.6% of a core (bench.txt reports it: `--bench` plays audio); muzzle light and model scale cost nothing measurable. Low latency
 mode (`low_latency` 1: a GL fence after each swap, waited on before reading input; ~17% FPS for 1-2 frames less lag on
-the owner's laptop). Measure with `--bench 10` / `--bench-raw 10` before and after rendering changes.
+the owner's laptop). Traces walk the broadphase along the trace (`World::forSweep`, v0.25.3): a long ray on Dust
+~2.3 us (was ~4.6; brute force ~8; `testDustBroadphase` prints it). Measure with `--bench 10` / `--bench-raw 10`
+before and after rendering changes. Not tried yet (needs a bench): `drawModel`/`uploadDynamic` orphan the whole
+4096-box dynamic buffer (196 KB) on every model draw; orphaning only what's drawn might help the integrated GPU.
 
 **Online** (stages 1-3 done): listen host relays; every client simulates itself and sends its state each tick
 (`NetState`); remote players are `dummies[netId]` played back 6 ticks behind; the shooter decides hits and the victim
@@ -296,7 +305,7 @@ Competitive: host runs `compTick`/bots/`netRoster`, sends `NetRound`, `NetMatch`
 `compClientTick`. Sounds are heard from `Game::earPos/earYaw` (the camera: your eyes or the spectated
 player's; set each frame). Spectating draws `Game::specVm` (their weapon, shots via `shotAt`, reloads, throws from
 `nades` owner); dead free-fly: no gun, Space/Ctrl up/down, your body frozen while spectating. The welcome carries map size and (game byte: bit 0 game, bits 1+ map) the town map.
-`kNetProtocol` (8) must match. Test with two copies in separate folders: `crisp --host` and `crisp --join 127.0.0.1`.
+`kNetProtocol` (10, net.h) must match. Test with two copies in separate folders: `crisp --host` and `crisp --join 127.0.0.1`.
 
 **v0.22 polish** (main.cpp unless noted): `matchCues` (Sfx RoundStart/BombPlanted/RoundWin/RoundLose), round banner +
 MVP (`Comp::mvp/mvpWhy/plantedBy/defusedBy`), match-end screen (phase 3, 15 s; `--rounds N` ends matches sooner for

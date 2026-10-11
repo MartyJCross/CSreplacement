@@ -400,7 +400,7 @@ const char* const kDustSeparate[][2] = {
     {"CT MID", "CATWALK"},   // and CT mid doesn't open onto the top of catwalk
 };
 
-// The town maps: their areas, how far the grid reaches (real units), whether DUST SIZE scales them, their three
+// The town maps: their areas, how far the grid reaches (real units), whether setDustScale scales them, their three
 // wall shades, and the area pairs that must always have a wall between them.
 struct TownDef {
     const char* name;
@@ -465,7 +465,7 @@ float MapGrid::floorAt(float x, float y) const {
 
 namespace {
 
-float g_dustScale = 0.6f;   // DUST SIZE (Dust2 only: Harbor is built at its own size)
+float g_dustScale = 0.6f;   // setDustScale (Dust2 only: Harbor is built at its own size; the game sets 0.9)
 int g_town = 0;             // the active town map: 0 Dust2, 1 Harbor
 bool g_dustBuilt = false;
 MapGrid g_dustGrid;

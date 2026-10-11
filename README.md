@@ -1,6 +1,6 @@
 # CSreplacement: research and plan for a CS:GO-like tactical shooter
 
-This repo holds the research and plan, plus **Crisp**, a playable single-player prototype (see below). The research sets out what it would take to build a tactical FPS where **shooting, movement and positioning come first**, which runs at **700+ FPS** on high-end PCs and has **hit registration players can trust** on online servers.
+This repo holds the research and plan, plus **Crisp**, a playable prototype (see below). The research sets out what it would take to build a tactical FPS where **shooting, movement and positioning come first**, which runs at **700+ FPS** on high-end PCs and has **hit registration players can trust** on online servers.
 
 ## Documents
 
@@ -32,7 +32,7 @@ This repo holds the research and plan, plus **Crisp**, a playable single-player 
 
 ## Prototype: Crisp
 
-[`prototype/`](prototype/) is a single-player C++20 / SDL3 / OpenGL 3.3 game built to test the feel: 128-tick CS-style movement, rifle, pistol, sniper and knives with fixed spray patterns, grenades, and a Dust2 recreation (scenery, cover, real proportions) with bots. Modes: practice, deathmatch, retakes, competitive 5v5 (economy, bomb) and prefire. Everything is drawn from boxes and the sounds are synthesized, so there are no asset files. The version is shown on the main menu; a GitHub Action builds a Windows `.exe` on every push. See [prototype/README.md](prototype/README.md) to download and play, and [CLAUDE.md](CLAUDE.md) for how the code is organised.
+[`prototype/`](prototype/) is a C++20 / SDL3 / OpenGL 3.3 game built to test the feel: 128-tick CS-style movement, twelve guns with fixed spray patterns, knives and grenades, and three maps (the Lab, a Dust2 recreation for personal testing, and Harbor, Crisp's own). Modes: competitive 5v5 (economy, bomb, buying bots), deathmatch, retakes, prefire and practice offline against bots, and deathmatch or competitive online with friends. Models are boxes; a few CC0 sounds, textures and a font sit in `prototype/assets/`, with synthesized fallbacks. The version is shown on the main menu; a GitHub Action builds a Windows `.exe` on every push. See [prototype/README.md](prototype/README.md) to download and play, [prototype/CHANGELOG.md](prototype/CHANGELOG.md) for what changed, and [CLAUDE.md](CLAUDE.md) for how the code is organised.
 
 ## Recommended first step
 
