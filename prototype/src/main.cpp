@@ -191,6 +191,8 @@ struct Game {
 
     // Input latches so quick taps between ticks are never lost.
     bool fireHeld = false, fireLatch = false, jumpLatch = false, reloadLatch = false;
+    TriggerBuffer trigger;  // a semi-auto click waiting for the gun to be ready
+    const WeaponState* triggerFor = nullptr;
     int switchTo = 0;
 
     // What was on screen last frame: shots are tested against exactly this (what you see is what you hit).
@@ -419,6 +421,12 @@ struct Game {
         double shotsDone = 0;    // the shots up to here have been played
         int killer = -1;
     } rv;
+    // Where you died: until the killcam starts (or you respawn, without one) the camera stays there and sinks to the
+    // floor, so the spawn you've already been moved to never shows.
+    bool deathView = false;
+    Vec3 deathEye;
+    float deathPitch = 0, deathYaw = 0;
+    double deathAt = 0;
     int killcamKiller = -1;      // a bot just killed you: its killcam starts at killcamAt
     double killcamAt = -1;
     bool killcamOn = true;       // (config killcam)
@@ -1152,6 +1160,11 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
     sound(g, Sfx::HitBody, 0.9f, 0.0f, 0.7f);
     g.hudDirty = true;
     if (!dies) return false;
+    g.deathView = true;
+    g.deathEye = g.lastRenderEye;
+    g.deathPitch = float(g.viewPitch);
+    g.deathYaw = float(g.viewYaw);
+    g.deathAt = g.simTime;
     if (attacker >= 0 && size_t(attacker) < g.dummies.size() && isBot(g, size_t(attacker)) && !g.online && g.killcamOn &&
         g.mapId == 1 && (g.mode == 1 || g.mode == 3)) {
         g.killcamKiller = attacker;  // the killcam starts a moment from now
@@ -1225,6 +1238,7 @@ void stepReplay(Game& g, double dt) {
     if (g.killcamAt >= 0 && !g.rv.on && g.simTime >= g.killcamAt + 0.6) {  // the killcam: the last 3 s, its eyes
         g.rv = Game::ReplayView{};
         g.rv.on = g.rv.killcam = true;
+        g.deathView = false;
         g.rv.killer = g.rv.pov = g.killcamKiller;
         g.rv.t = std::max(g.replay.start(), g.killcamAt - 3.0);
         g.rv.end = g.killcamAt + 0.35;
@@ -3411,9 +3425,15 @@ void simTick(Game& g, const Options& opt) {
     }
     dropsTick(g);
     matchCues(g);
-    // Semi-auto weapons fire once per click; automatic ones keep firing while held.
-    bool wantFire = ((wd.automatic && g.fireHeld) || g.fireLatch || autofire) && g.deadUntil < 0;  // not while dead
-    if (g.fireLatch && wd.canFire && (ws.ammo == 0 || ws.reloadEndTime >= 0)) sound(g, Sfx::DryFire, 0.6f);
+    // Semi-auto weapons fire once per click (a click while the gun is still cycling waits for it: TriggerBuffer);
+    // automatic ones keep firing while held.
+    if (g.triggerFor != &ws) g.trigger.clear();  // (a click doesn't carry over to another weapon)
+    g.triggerFor = &ws;
+    if (g.fireLatch) {
+        if (wd.canFire && (ws.ammo == 0 || ws.reloadEndTime >= 0)) sound(g, Sfx::DryFire, 0.6f);
+        else g.trigger.click(g.simTime);
+    }
+    bool wantFire = ((wd.automatic && g.fireHeld) || g.trigger.pending(g.simTime) || autofire) && g.deadUntil < 0;  // not while dead
     g.fireLatch = false;
     g.recoilIndexPrev = ws.recoilIndex;
 
@@ -3437,6 +3457,7 @@ void simTick(Game& g, const Options& opt) {
         const int bullets = shotCount;
         for (int k = 0; k < bullets; ++k) shotCount = collatResults(pellets[k], pellets, shotCount, kMaxPellets * 3);
         fired = true;
+        g.trigger.clear();
         ws.ammo--;
         g.shots++;
         const uint8_t code = uint8_t(wd.id);
@@ -6947,6 +6968,21 @@ int main(int argc, char** argv) {
             camPitch = d.prevPitch + (d.pitch - d.prevPitch) * alpha;
         }
 
+        // Just died: the camera stays where you fell (sinking to the floor) until the killcam or the respawn. In
+        // competitive it hands over to spectating once there's no killcam coming.
+        if (g.deathView) {
+            const bool comp = g.mode == 3 && g.mapId == 1;
+            const bool waiting = g.killcamAt >= 0 || (!comp && g.deadUntil >= 0 && g.deadUntil < 1e17) ||
+                                 (comp && g.simTime - g.deathAt < 1.0);
+            if (!waiting || g.rv.on) g.deathView = false;
+        }
+        if (g.deathView) {
+            const float k = std::clamp(float(g.simTime - g.deathAt) / 0.45f, 0.0f, 1.0f), ease = k * (2.0f - k);
+            eye = g.deathEye - Vec3{0, 0, 46.0f * ease};  // (eye height ~64: down to near the floor)
+            camPitch = g.deathPitch + (12.0f - g.deathPitch * 0.4f) * ease;
+            camYaw = g.deathYaw;
+        }
+
         // A replay: everyone as recorded, through someone's eyes (or the free camera).
         const bool replayView = g.rv.on && g.replay.sample(g.rv.t, replayNow);
         if (replayView) {
@@ -7196,7 +7232,7 @@ int main(int argc, char** argv) {
                                                     p + Vec3{2.5f, 2.5f, crouchZ(85 * ms, crouch)}, 0x60ff90));
 
         }
-        if (!replayView && !menuCam) g.lastRenderEye = eye;
+        if (!replayView && !menuCam && !g.deathView) g.lastRenderEye = eye;
         // Guns on the floor: the held model, lying on its side.
         dropDraws.resize(replayView ? 0 : g.drops.size());
         for (size_t k = 0; k < dropDraws.size(); ++k) {
@@ -7326,7 +7362,7 @@ int main(int argc, char** argv) {
         }
 
         // First-person weapon: own FOV and fresh depth so it never clips into walls.
-        if (cfg.show_viewmodel && g.zoom == 0 && !spectating && !replayView && !menuCam) {
+        if (cfg.show_viewmodel && g.zoom == 0 && !spectating && !replayView && !menuCam && !g.deathView) {
             float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
             Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
             modelDraws.clear();

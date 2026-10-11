@@ -200,6 +200,19 @@ RecoilStep pelletOffset(const WeaponDef& w, int k, uint32_t seed);
 // drift); after any pause the next shot is timed from now, so a quick tap is never followed by a
 // shot sooner than one interval.
 bool takeShotTiming(WeaponState& ws, double now);
+// A semi-auto click made while the gun is still cycling isn't lost: it's kept for kClickBuffer seconds and fires the
+// moment the gun is ready (one shot per click, never faster than fireInterval). So clicking fast reaches the gun's
+// real fire rate, and shooting slowly enough to stay accurate is the skill (owner, v0.23.2).
+constexpr double kClickBuffer = 0.25;
+struct TriggerBuffer {
+    double at = -1;  // when the waiting click was made (-1: none)
+    void click(double now) { at = now; }
+    bool pending(double now) {
+        if (at >= 0 && now - at > kClickBuffer) at = -1;
+        return at >= 0;
+    }
+    void clear() { at = -1; }
+};
 
 // Current spread radius in degrees for HUD/debugging.
 float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, bool ducked);

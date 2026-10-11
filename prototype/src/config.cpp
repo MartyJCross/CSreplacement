@@ -34,7 +34,7 @@ view_recoil_tracking 0.45
 // 0 = auto
 hud_scale 0
 // Master volume 0..1
-volume 0.6
+volume 0.8
 // First-person weapon: FOV (like CS viewmodel_fov), position offsets, bob strength, visibility.
 viewmodel_fov 68
 viewmodel_offset_x 0
@@ -74,7 +74,7 @@ graphics_preset 2
 // Sun shadows: 0 off, 1 on, 2 sharp (a bigger shadow map).
 shadows 2
 // The map's ambience: wind and distant birds on Dust, waves and gulls on Harbor (0 = off .. 1).
-ambience_volume 0.6
+ambience_volume 0.3
 // Post-processing: each map's colour grade and a soft vignette; with msaa 0 it smooths edges with FXAA instead
 // (much cheaper than MSAA on integrated graphics). Restart to apply.
 post_fx 1

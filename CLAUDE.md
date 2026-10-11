@@ -169,6 +169,8 @@ pistol (suppressed USP-like), Dual Berettas, Deagle; knife; grenades.
 - Armor `armoredDamage(dmg, group, armor, helmet, ratio)`; material wallbangs (wood ×0.5, metal ×1.5); **collats**
   (traceShot: guns with penetration go through bodies, `kBodyThickness` 8, up to 3; `ShotResult::collat`,
   `collatResults` turns them into ordinary hits); fire timing `takeShotTiming` (tested).
+- Semi-auto clicks are buffered (`TriggerBuffer`, `kClickBuffer` 0.25 s, v0.23.2): a click while the gun cycles fires
+  when it's ready, so spam-clicking reaches the real fire rate (owner: firing slowly for accuracy is the skill).
 - Reloads are 20% faster than CS (owner, v0.15); the reload animation and sound cues stretch to `reloadTime`.
 - Shot "oomph" (cosmetic): viewmodel kick, muzzle flash, `fovPunch`, sounds. The owner likes the feel: change it only when asked.
 

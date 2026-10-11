@@ -391,6 +391,36 @@ void testWeapon() {
         return t * kTickDt * 1000;
     };
     std::printf("  recoil reset: 1 shot %.0f ms, 30 shots %.0f ms\n", recover(1), recover(29));
+    // Semi-auto: clicking faster than the gun cycles still fires at its full rate (a click waits for it,
+    // TriggerBuffer), one shot per click, never faster than fireInterval.
+    for (WeaponId gun : {kWPistol, kWDeagle, kWBerettas}) {
+        WeaponState semi;
+        semi.def = &weaponDef(gun);
+        TriggerBuffer trig;
+        int shots = 0, clicks = 0;
+        double last = -1, closest = 1e9;
+        const double clickEvery = double(semi.def->fireInterval) * 0.7;  // spamming faster than it can fire
+        double nextClick = 0;
+        for (int t = 0; t < int(2.0 / double(kTickDt)); ++t) {
+            const double now = double(t) * double(kTickDt);
+            if (now >= nextClick) {
+                trig.click(now);
+                ++clicks;
+                nextClick += clickEvery;
+            }
+            if (trig.pending(now) && takeShotTiming(semi, now)) {
+                trig.clear();
+                if (last >= 0) closest = std::min(closest, now - last);
+                last = now;
+                ++shots;
+            }
+        }
+        const int most = int(2.0 / double(semi.def->fireInterval)) + 1;
+        std::printf("  %s spam-clicked: %d shots in 2 s (most %d, %d clicks), closest gap %.0f ms\n", semi.def->name, shots, most,
+                    clicks, closest * 1000.0);
+        CHECK(shots >= most - 1 && shots <= most && closest >= double(semi.def->fireInterval) - double(kTickDt),
+              "%s: clicking fast should reach its fire rate", semi.def->name);
+    }
     CHECK(recover(1) < 300, "tap recovery");
     CHECK(recover(29) < 1300, "spray recovery");
 }

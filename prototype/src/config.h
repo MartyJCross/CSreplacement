@@ -22,7 +22,7 @@ struct Config {
     int crosshair_dot = 0;
     float view_recoil_tracking = 0.45f;  // fraction of recoil that moves the camera
     int hud_scale = 0;                   // 0 = auto
-    float volume = 0.6f;
+    float volume = 0.8f;
     float viewmodel_fov = 68.0f;         // like CS: horizontal FOV at 4:3 for the weapon pass
     float viewmodel_offset_x = 0, viewmodel_offset_y = 0, viewmodel_offset_z = 0;
     float viewmodel_bob = 1.0f;          // 0 disables weapon bob
@@ -42,7 +42,7 @@ struct Config {
     int map = 0;               // 0 = the Lab, 1 = dust (Play screen)
     int dust_scale = 60;       // Dust's size in % of real Dust2 (50..100)
     int msaa = 4;              // anti-aliasing samples (0 = off); applies on restart
-    float ambience_volume = 0.6f;  // the map's ambience (wind, birds, waves, gulls); 0 = off
+    float ambience_volume = 0.3f;  // the map's ambience (wind, birds, waves, gulls); 0 = off
     int graphics_preset = 2;   // 0 low, 1 medium, 2 high (set shadows, post_fx, msaa together), 3 custom
     int shadows = 2;           // sun shadows: 0 off, 1 on (2048 map), 2 sharp (4096)
     int post_fx = 1;           // 1 = post pass: colour grade, vignette, FXAA when msaa is 0 (applies on restart)

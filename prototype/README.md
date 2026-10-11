@@ -130,6 +130,16 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## v0.23.2
+
+- **No glimpse of your respawn when you die:** the camera stays where you fell and sinks to the floor until the
+  killcam starts (or you respawn, with the killcam off).
+- **Pistols fire as fast as you click:** a click made while the gun is still cycling used to be thrown away, so
+  spamming felt slower than the gun really is. Now a click waits up to 0.25 s and fires the moment the gun is ready
+  (still one shot per click, never faster than CS's rates: USP 0.15 s, Berettas 0.12 s, Deagle 0.225 s). Shooting
+  slowly enough for the recoil to settle is the skill.
+- **New defaults:** volume 0.8, ambience 0.3, bunny hop off. (An existing config.cfg keeps its own values.)
+
 ## v0.23.1
 
 - **Characters 15% smaller:** the default model size goes from 120% to 102% (hitboxes, crouch, eye height and aim
@@ -359,7 +369,7 @@ Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a
 - **Footsteps** are boot-on-grit (heel, toe scuff, crunch), and landing has a bit of gear rattle.
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
-- **Volume** is `volume` in `config.cfg` (0..1).
+- **Volume** is `volume` in `config.cfg` (0..1, 0.8 by default); the map ambience is `ambience_volume` (0.3 by default).
 - **Every gun has its own recording**, from the nearest real gun in the CC0 library: the AK-47 an AK-47, the
   **Galil AR** an SKS (the same 7.62 round, a carbine), the **MAC-10** a PPSh (a fast, sharp SMG), the **UMP-45** a
   Carl Gustav M45 (a slower SMG), the **AWP** big bolt-action rifles, the **SSG 08** a Savage 10 and a Marlin
