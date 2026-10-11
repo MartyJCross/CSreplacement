@@ -84,7 +84,7 @@ prototype/
    recoil pattern, plus (v0.23.3, owner) spread that is always on: moving above `accurateSpeedFrac`, airborne, noscoped
    (`currentInaccuracy`; the `spread_movement` option was removed), and a small standing spread on the cheaper guns
    only (`standingSpread`: USP, Berettas, Galil, MAC-10, UMP; the AK, M4A1-S, AWP, SSG 08 and Deagle are exact when
-   still). All of it is seeded by `shotCounter` (reproducible). `spread_spray` (random spray spread) stays an option,
+   still). The SSG 08 is exact at a jump's apex (v0.23.4: `kApexSpeed` 40, `WeaponState::vertSpeed`). All of it is seeded by `shotCounter` (reproducible). `spread_spray` (random spray spread) stays an option,
    off. Shotgun pellets spread at random (v0.14, `pelletOffset`). Bots use `rnd(g)` in `main.cpp`.
 3. **What you see is what you hit.** Shots test against the dummy positions and eye that were rendered on the frame you clicked (`lastDummyRenderPos`, `lastRenderEye`). Cosmetic parts of enemies must sit inside their hitboxes (and scale with them: `modelScale()`). Weapons held by enemies are the only exception, like CS.
 4. **Performance budget.** No per-frame heap allocations in hot paths (reuse vectors: `static`/member buffers), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.

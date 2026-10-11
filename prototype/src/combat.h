@@ -66,6 +66,7 @@ struct WeaponState {
     uint32_t shotCounter = 0;   // seeds deterministic spread
     // Random spread is OFF by default: bullets go exactly to crosshair + fixed recoil pattern.
     bool spraySpread = false;   // random spread that grows during a spray
+    float vertSpeed = 0;        // your vertical speed at the shot (the SSG 08's jump apex: currentInaccuracy)
     bool scoped = false;        // the game sets it: a sniper's noscope spread is off while zoomed
 };
 
@@ -220,6 +221,9 @@ float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, 
 // Spread standing still (owner, v0.23.3): the cheaper guns scatter a little (USP, Berettas, Galil, MAC-10, UMP);
 // the AK, M4A1-S, AWP, SSG 08 and Deagle go exactly where you aim. Shotguns have their pellets instead.
 float standingSpread(const WeaponDef& w);
+// The SSG 08 at the top of a jump (owner, v0.23.4, like CS:GO's scout): airborne with less than this vertical speed
+// (the top ~80 ms of a jump), it takes no air or movement spread: a scoped apex shot is dead on.
+constexpr float kApexSpeed = 40.0f;
 
 // Recoil recovery while not firing.
 void decayRecoil(WeaponState& ws, float dt);

@@ -1073,6 +1073,21 @@ void testNewGuns() {
     for (int id = 0; id < kWeaponCount; ++id) scopes += weaponDef(id).scope ? 1 : 0;
     CHECK(noscope > 3.0f && scoped == 0.0f && scopes == 2 && weaponDef(kWSsg08).scope,
           "scope %.1f %.1f (%d scoped guns)", double(noscope), double(scoped), scopes);
+
+    // The SSG 08 at the top of a jump, scoped, even moving sideways: dead on. Rising or falling it isn't, nor is the
+    // AWP at the apex.
+    WeaponState scout;
+    scout.def = &weaponDef(kWSsg08);
+    scout.scoped = true;
+    scout.vertSpeed = 12.0f;
+    const float apex = currentInaccuracy(scout, 230.0f, false, false);
+    scout.vertSpeed = 150.0f;
+    const float rising = currentInaccuracy(scout, 230.0f, false, false);
+    awp.vertSpeed = 12.0f;
+    const float awpApex = currentInaccuracy(awp, 0.0f, false, false);
+    std::printf("  jump shots: SSG 08 at the apex %.2f deg, rising %.2f deg; AWP at the apex %.2f deg\n", double(apex),
+                double(rising), double(awpApex));
+    CHECK(apex == 0.0f && rising > 2.0f && awpApex > 2.0f, "the SSG 08 must be dead on at the apex only");
 }
 
 // Career: beating bots raises your rating (more for better bots), losing lowers it, and it all saves and loads.

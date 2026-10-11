@@ -3440,6 +3440,7 @@ void simTick(Game& g, const Options& opt) {
     // The Nova loads shell by shell: firing with shells in it stops the reload.
     if (wantFire && wd.shellReload && ws.reloadEndTime >= 0 && ws.ammo > 0) ws.reloadEndTime = -1;
     ws.scoped = g.zoom > 0;  // (a noscope scatters)
+    ws.vertSpeed = g.player.velocity.z;  // (the SSG 08 is dead on at the top of a jump)
     if (wantFire && wd.canFire && ws.reloadEndTime < 0 && ws.ammo > 0 && takeShotTiming(ws, g.simTime)) {
         float hspeed = length2d(g.player.velocity);
         ShotResult pellets[kMaxPellets * 3];  // the bullets (pellets), then any collateral hits

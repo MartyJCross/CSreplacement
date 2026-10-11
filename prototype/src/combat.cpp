@@ -233,12 +233,13 @@ float standingSpread(const WeaponDef& w) {
 float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, bool ducked) {
     const WeaponDef& w = *ws.def;
     float inacc = standingSpread(w) + (ws.spraySpread ? std::min(ws.recoilIndex, 8.0f) * w.sprayInaccuracy : 0.0f);
+    const bool apex = !onGround && w.id == kWSsg08 && std::fabs(ws.vertSpeed) < kApexSpeed;  // the scout's jump shot
     float threshold = w.maxSpeed * w.accurateSpeedFrac;
-    if (horizSpeed > threshold) {
+    if (horizSpeed > threshold && !apex) {
         float t = std::min(1.0f, (horizSpeed - threshold) / (w.maxSpeed - threshold));
         inacc += t * w.moveInaccuracy;
     }
-    if (!onGround) inacc += w.airInaccuracy;
+    if (!onGround && !apex) inacc += w.airInaccuracy;
     if (w.scope && !ws.scoped) inacc += w.noscopeInaccuracy;  // a noscope, like CS
     if (ducked && onGround) inacc *= 0.8f;
     return inacc;
