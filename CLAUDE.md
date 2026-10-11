@@ -185,6 +185,9 @@ pistol (suppressed USP-like), Dual Berettas, Deagle; knife; grenades.
   buy while the loadout still matches its after and the gun is unfired; R with the wheel open / the REFUND button
   (`kBuyRefund`); cleared at round start; `--refund-test N` prints a full buy then N refunds. Q (`lastWeapon`) only
   goes to a weapon you still have.
+- Drops (v0.28): G in competitive drops the primary you hold (`dropPrimary`; `Game::noPickupUntil` 1 s), else
+  quick-throws; Z -> NEED A DROP (`kCallTDrop` / `kCallCtDrop`, 8 calls a side): the richest teammate bot with the
+  money buys `fullBuyRifle` and drops it between itself and you. `--comp-money N` (tests: everyone's starting money).
 - Buy wheel (B; `drawBuyWheel`, `buySlotAt`, `buyPick`, `BuyCategory`: pistols, shotguns, SMGs, rifles, snipers, gear,
   grenades; full buys on 8 / 9: `fullBuy`). Competitive: in spawn during buy time for money; elsewhere free.
 - Armor `armoredDamage(dmg, group, armor, helmet, ratio)`; material wallbangs (wood ×0.5, metal ×1.5); **collats**
@@ -218,7 +221,16 @@ shader gets them as uniform arrays (`setPaint`) and reads the region from the pa
 26 patterns (`Pattern`, render.cpp `skin()`). A case per `case_kills` (25) kills, a knife case per `kKillsPerKnifeCase`
 (100) kills, in modes 1/2/3/5; INVENTORY (`kMenuInventory`: case, knife case, then a row per weapon) and the case reel
 (`kMenuCase`, `CaseOpening::knife`); `all_skins` unlocks everything. Save keys are stable (the M4A1-S keeps
-"M4A4_..." keys; keep every old key when redesigning). Automated runs never save inventory.txt.
+"M4A4_..." keys; keep every old key when redesigning). Automated runs never save inventory.txt. v0.28 (owner): every
+skin factory new (`paintFor` sets wear 0; the float only seeds the pattern; rolls under 0.07); StatTrak
+(`Item::st/kills`, `Equipped` = `Item`, `kStatTrakOdds` 0.1, "st KILLS" at the end of an inventory line;
+`countCaseKill(g, weapon)` counts your kills by the weapon's name; `PaintParams::stKills` -> fx.cpp `addKillCounter`, a
+seven-segment counter on `gunBody(w)`'s left side; `--stattrak N` with `--skin`).
+**Knife attacks** (v0.28, combat.cpp `knifeAttack`, tested in `testKnife`): CS:GO's numbers (slash 40/25/90 at 48
+units, stab 65/180 at 32, kevlar x0.85, `knifeRefire`), rays fanned 8 degrees round the aim, backstab when the victim
+faces away (dot > 0.475); main.cpp handles the hit like a bullet's (Mouse 1 slash, Mouse 2 stab: `stabLatch`,
+`knifeComboUntil`); fx.cpp `knifeSwing` (forehand / backhand alternate, `ViewModel::knifeAttack`); Sfx KnifeSwing,
+KnifeHit, KnifeWall; `--stab N`.
 
 **Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor; `Game::mapId` is 1 for both town maps):
 - The Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course.
@@ -255,6 +267,9 @@ online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
   site's holds, off the bomb; `defuseHeard`: they rush the bomb when a defuse starts); saving (`Comp::saving`: lost
   round = no time to defuse/plant or 1 vs 3+, a gun worth $1700+ -> back to spawn, never the defuser). Bots step out
   of fire (`BotSenses::fires`, `fireExit`, waits at the edge; `testBotFire`).
+- Bot utility (v0.28): `Comp::Throw::afterPlant`; execute molotov onto `townCtSpots(kCtA/kCtB)[0]` (siteUtility, group
+  0, a rifle); retake flashes (first two CTs sent, a rifle, target bomb + 150 z, `botThrow(..., maxErr 350)`); a molotov
+  on the bomb when the Ts hear a defuse; a bot's defuse stops > 60 units off the bomb. comp_log names every throw.
 - T plays (v0.26; `CompPlay`: execute, rush, split, fake, default, mid control) over **ways** onto the sites
   (`townTactics().ways`, `TownWay`: stage, smoke, flash, the area its route crosses, `fromMid`; Dust long, short,
   tunnels, lowers, mid to B; Harbor docks, short, underpass, alley; `waysTo`). The round's T groups (`Comp::stages`,
@@ -347,13 +362,17 @@ MVP (`Comp::mvp/mvpWhy/plantedBy/defusedBy`), match-end screen (phase 3, 15 s; `
 tests), CS top bar (`kTeamColor`), kill feed icons (`FeedEntry` killer/victim/weapon, `drawGunIcon` from `gunModel`,
 `drawSkull`; v0.23.6: hand-drawn silhouettes on a 10-unit grid, `gunModel` detailed), kill toast, LowAmmo/LastRound sounds, side rifles (`buyEntries(cat, side)`, `buySide`, `fullBuyRifle`),
 2 flashes in full buys, drops (`Game::Drop`, `dropGun`, `pickUp`, `dropsTick`, E = `useLatch`; net kDrop/kPickup;
-`--drop W`), calls (`playerCall`, Z, 7 a side: `kCallsPerSide`; TAKE MID, PUSH MID since v0.26.1; `--call N AT`), bullet holes (`bulletHole`, `makeBulletHole`: alpha 16, shrink
+`--drop W`), calls (`playerCall`, Z, 8 a side: `kCallsPerSide`; TAKE MID, PUSH MID since v0.26.1, NEED A DROP v0.28; `--call N AT`), bullet holes (`bulletHole`, `makeBulletHole`: alpha 16, shrink
 in the VS by `uTime`), contact shadows (world.cpp: decor with `kMatShade`, alpha 30..37; blobs `makeBlobShadow` 46..49;
 `layOnRamp`, sheets in the VS), animation (Dummy `shotAt/reloadUntil/mag/busy/air/landedAt`; bots reload; net flags
 kNetReload/kNetDuck), lobby (`kMenuLobby`, `LobbyState g_lobby`, net kLobby/kTeamPick/kStart/kBye, `kNetLobbyOpen`
 in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
+
+**Done in v0.28** (owner, 2026-10-11): knife attacks, bot utility, drops (G + NEED A DROP), StatTrak, every skin
+factory new (v0.27.2 before it: refunds, the butterfly redone side on, a Q fix). Known: an occasional STUCK in
+`--comp-money 16000` T runs (a T in UPPER TUNNELS, round 2, bomb dropped) that predates v0.28; not tracked down yet.
 
 **Done in v0.26** (owner, 2026-10-11: "double down on the bot AI"): doorways one cell wider on both maps; the
 competitive MAP row's labels (showed THE LAB / DUST for Dust / Harbor); mid open, real splits, short / lowers / mid-to-B
@@ -400,8 +419,9 @@ their laptop**; next session with their OK, run `--bench 10` with presets LOW/ME
 
 Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competitive bots (CT utility, post-plant,
 saving, fire avoidance), the performance check (A* routes, mixer lock).
-Offered, not chosen yet: T molotovs on executes, bots dropping guns for teammates, CT retake utility, pick up / drop guns (G), server-authoritative netcode with lag compensation (`docs/04`),
-practice tools (grenade lineups, spray-pattern overlay, CS-style console), a third map, ladders, net_graph.
+Offered, not chosen yet: defuse kits (10 s defuse without), bots dropping guns for each other, server-authoritative
+netcode with lag compensation (`docs/04`), practice tools (grenade lineups, spray-pattern overlay, CS-style console),
+trade-ups, stickers, a third map, ladders, net_graph.
 
 ## 9. The owner: who they are, what they want, the history
 

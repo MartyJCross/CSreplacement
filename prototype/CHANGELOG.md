@@ -3,6 +3,18 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.28: knife attacks, drops, bot utility, StatTrak, factory new
+
+- **Knife attacks** (CS:GO's numbers): Mouse 1 slashes (40, 25 for a slash right after another, 90 from behind,
+  48 units; forehand and backhand take turns), Mouse 2 stabs (65, 180 from behind, 32 units). Kevlar takes 15% off.
+  New swing and stab animations, and sounds for the swish, the blade going in and the blade on a wall.
+- **Drops:** G in competitive drops the primary you're holding (otherwise it still quick-throws a grenade). Z → 8
+  NEED A DROP: in buy time the richest teammate bot that can afford it buys your side's rifle and drops it by you.
+- **Bot utility:** the Ts' execute on a full buy adds a molotov onto the site's anchor spot; the first two CTs into a
+  retake flash over the site; the Ts molly the bomb when they hear a defuse (a defusing bot stops when it steps out).
+- **StatTrak:** one case item in ten counts your kills with it, on a six-digit counter on the gun's side.
+- **Every skin factory new:** no more scratches (your skins look new; the float only shifts the pattern).
+
 ## v0.27.2: refunds, the butterfly redone, a Q fix
 
 - **Refunds:** in competitive, with the buy wheel open, **R** (or the REFUND button under the full buys) sells back
