@@ -207,6 +207,24 @@ void testNoAutoBhop() {
     float end = length2d(ps.velocity);
     std::printf("  speed before %.1f, after 5 hops %.1f\n", start, end);
     CHECK(end < start, "chained hops should lose speed");
+
+    // Hopping on the landing tick (a scroll-wheel bhop) keeps far more than landing and standing: easy to chain.
+    auto afterLanding = [&](bool hop) {
+        PlayerState p = spawnAt({-400, 0, 0});
+        MoveInput m;
+        m.forward = 1;
+        run(p, m, 0, 250, kTickRate);
+        m.jumpPressed = true;
+        playerMove(p, m, 0, 250, lab());
+        m.jumpPressed = false;
+        while (!p.onGround) playerMove(p, m, 0, 250, lab());
+        m.jumpPressed = hop;  // the first tick on the ground
+        playerMove(p, m, 0, 250, lab());
+        return length2d(p.velocity);
+    };
+    const float hopped = afterLanding(true), stayed = afterLanding(false);
+    std::printf("  one landing: hop on the landing tick %.1f, stay on the ground %.1f\n", hopped, stayed);
+    CHECK(hopped > 235.0f && hopped > stayed + 15.0f, "a perfect hop keeps most of its speed");
 }
 
 void testBhop() {
@@ -1071,6 +1089,12 @@ void testNewGuns() {
     const float scoped = currentInaccuracy(awp, 0, true, false);
     int scopes = 0;
     for (int id = 0; id < kWeaponCount; ++id) scopes += weaponDef(id).scope ? 1 : 0;
+    // Run speeds: scoped, the AWP halves (100) and the SSG 08 doesn't (230); crouched, scoping costs nothing more.
+    const float awpScoped = moveSpeedFor(sniperDef(), true, false), ssgScoped = moveSpeedFor(weaponDef(kWSsg08), true, false);
+    const float awpCrouchScoped = moveSpeedFor(sniperDef(), true, true);
+    std::printf("  scoped run: AWP %.0f, SSG 08 %.0f; AWP crouched and scoped %.0f (x crouch)\n", double(awpScoped),
+                double(ssgScoped), double(awpCrouchScoped));
+    CHECK(awpScoped == 100.0f && ssgScoped == 230.0f && awpCrouchScoped == 200.0f, "scoped / crouched speeds");
     CHECK(noscope > 3.0f && scoped == 0.0f && scopes == 2 && weaponDef(kWSsg08).scope,
           "scope %.1f %.1f (%d scoped guns)", double(noscope), double(scoped), scopes);
 

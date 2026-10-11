@@ -130,6 +130,18 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## v0.23.6
+
+- **New gun icons** (kill feed, buy wheel): hand-drawn CS-style silhouettes for every weapon - stocks, grips, curved
+  mags, scopes, suppressors, muzzle brakes.
+- **More detailed guns in players' hands and on the floor:** stocks, grips, magazines, sights, rails, scope bells.
+- **Scroll-wheel bhops without auto-hop:** a wheel notch in the air waits 0.1 s for the ground and jumps on the
+  landing tick, and a hop on the landing tick takes only a quarter of the landing slowdown, so chains are easy.
+  Space stays one jump per press.
+- **Speeds:** scoped, the AWP runs at 100 and the SSG 08 keeps its 230 (CS:GO; both used to halve); crouching while
+  scoped no longer stacks the scope slowdown (an AWP crouch-walks at 68, not 34). Bots now run at their gun's speed
+  (knife 250, pistols 240, AWP 200) instead of always 215.
+
 ## v0.23.5
 
 - **Spectating:** you hear the game from the player you're watching (where they are, the way they face), see

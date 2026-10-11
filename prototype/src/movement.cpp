@@ -146,6 +146,14 @@ void playerMove(PlayerState& ps, const MoveInput& in, float yawDeg, float weapon
     if (ps.ducked) wishSpeed *= mp.duckScale;
     else if (in.walk) wishSpeed *= mp.walkScale;
 
+    // The last landing's slowdown: all of it if you stay on the ground, a share if you hop straight away.
+    if (ps.landKeep < 1.0f) {
+        const float keep = in.jumpPressed && ps.onGround ? 1.0f - (1.0f - ps.landKeep) * mp.hopPenalty : ps.landKeep;
+        ps.velocity.x *= keep;
+        ps.velocity.y *= keep;
+        ps.landKeep = 1.0f;
+    }
+
     // Jump.
     if (in.jumpPressed && ps.onGround) {
         ps.velocity.z = mp.jumpImpulse;
@@ -177,9 +185,7 @@ void playerMove(PlayerState& ps, const MoveInput& in, float yawDeg, float weapon
         if (!wasOnGround) {
             // Landing: lose some horizontal speed according to stamina (anti bunny-hop).
             ps.stamina = std::min(mp.staminaMax, ps.stamina + mp.staminaLandCost);
-            float keep = 1.0f - ps.stamina / 100.0f;
-            ps.velocity.x *= keep;
-            ps.velocity.y *= keep;
+            ps.landKeep = 1.0f - ps.stamina / 100.0f;  // (taken next tick: see the top)
         }
         ps.velocity.z = 0;
         ps.onGround = true;

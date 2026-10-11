@@ -224,6 +224,10 @@ float standingSpread(const WeaponDef& w);
 // The SSG 08 at the top of a jump (owner, v0.23.4, like CS:GO's scout): airborne with less than this vertical speed
 // (the top ~80 ms of a jump), it takes no air or movement spread: a scoped apex shot is dead on.
 constexpr float kApexSpeed = 40.0f;
+// How fast you can run with a gun, like CS:GO: its maxSpeed; scoped the AWP drops to half (100) and the SSG 08
+// keeps its full speed (230). Crouched, the scope doesn't slow you as well: crouch-walking is the crouch speed of
+// the gun (movement applies duckScale), scoped or not (owner: snipers crawled when crouched).
+float moveSpeedFor(const WeaponDef& w, bool scoped, bool ducked);
 
 // Recoil recovery while not firing.
 void decayRecoil(WeaponState& ws, float dt);

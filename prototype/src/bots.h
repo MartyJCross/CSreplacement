@@ -75,7 +75,7 @@ struct BotSenses {
     float fireRadius = 110.0f;
 };
 
-constexpr float kBotRunSpeed = 215.0f;  // rifle run speed
+constexpr float kBotRunSpeed = 215.0f;  // rifle run speed (estimates; a bot runs at its gun's maxSpeed)
 
 // Bot skill (difficulty), 0 easy .. 3 expert: reaction time (min + random range, seconds), aim error (x the
 // normal ~0.8 degrees), time between shots (x), how far behind your movement they aim (ticks; 26 = 0.2 s) and

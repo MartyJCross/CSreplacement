@@ -245,7 +245,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
         b.path.clear();
     }
 
-    const float step = kBotRunSpeed * kTickDt;
+    const float step = weaponDef(d.weapon).maxSpeed * kTickDt;  // the gun it holds sets its speed, like yours
     // In a fire: out of it first, whatever it was doing (it keeps facing its fight), to the nearest open ground
     // outside it. Walking on stops at the edge (see the end): it waits for the fire to burn out.
     const Fire* burning = s.fires ? fireAt(s, d.pos, 8.0f) : nullptr;

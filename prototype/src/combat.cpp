@@ -219,6 +219,11 @@ RecoilStep recoilAt(const WeaponDef& w, float index) {
     return sum;
 }
 
+float moveSpeedFor(const WeaponDef& w, bool scoped, bool ducked) {
+    if (!scoped || ducked || w.id == kWSsg08) return w.maxSpeed;
+    return w.maxSpeed * 0.5f;
+}
+
 float standingSpread(const WeaponDef& w) {
     switch (w.id) {
         case kWPistol: return 0.30f;

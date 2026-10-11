@@ -191,6 +191,9 @@ struct Game {
 
     // Input latches so quick taps between ticks are never lost.
     bool fireHeld = false, fireLatch = false, jumpLatch = false, reloadLatch = false;
+    // Scroll-wheel jumps (bhop without auto-hop, owner): a notch in the air waits up to kWheelJumpBuffer for the
+    // ground and jumps on the landing tick.
+    double wheelJumpAt = -1;
     TriggerBuffer trigger;  // a semi-auto click waiting for the gun to be ready
     const WeaponState* triggerFor = nullptr;
     int switchTo = 0;
@@ -537,96 +540,290 @@ void gunshot3D(Game& g, int w, const Vec3& at, const Vec3& ear, float earYaw, fl
 }
 
 // A gun as players hold it (and as it lies on the floor when dropped): boxes in the holder's space (x forward is
-// -x, up z, the grip about 47 units up), given to `part(min, max, colour)`.
+// -x, up z, the grip about 47 units up), given to `part(min, max, colour)`. Stocks reach back towards the shoulder
+// (x up to about -1); grips and magazines hang under the receiver.
 template <class Part>
 void gunModel(int weapon, Part&& part) {
+    constexpr uint32_t kSteel = 0x1e2024, kDark = 0x111214, kBlack = 0x18191c, kWood = 0x6a4428, kWoodDark = 0x553621;
     switch (weapon) {
-        case kWPistol:  // pistol: a short slide between the hands, the suppressor out front
-            part({-17.5f, -1.0f, 47.0f}, {-11.0f, 1.0f, 49.6f}, 0x1e2024);
-            part({-23.5f, -0.7f, 47.4f}, {-17.5f, 0.7f, 49.2f}, 0x15171a);
-            part({-13.0f, -0.8f, 44.5f}, {-11.2f, 0.8f, 47.0f}, 0x26282c);
+        case kWPistol:  // USP-S: slide, frame, grip, the long suppressor out front
+            part({-17.5f, -1.0f, 47.4f}, {-11.0f, 1.0f, 49.6f}, 0x1e2024);
+            part({-17.0f, -0.9f, 46.4f}, {-11.6f, 0.9f, 47.4f}, 0x26282c);
+            part({-24.5f, -0.75f, 47.6f}, {-17.5f, 0.75f, 49.3f}, 0x15171a);
+            part({-13.0f, -0.8f, 43.8f}, {-11.2f, 0.8f, 46.4f}, 0x26282c);
+            part({-15.2f, -0.3f, 45.6f}, {-13.0f, 0.3f, 46.0f}, kDark);  // trigger guard
+            part({-11.6f, -0.3f, 49.6f}, {-11.0f, 0.3f, 50.1f}, kDark);  // rear sight
             break;
-        case kWDeagle:  // a bigger, chunkier pistol
-            part({-19.0f, -1.3f, 47.0f}, {-10.8f, 1.3f, 50.4f}, 0x3a3d42);
-            part({-13.2f, -1.0f, 44.0f}, {-11.0f, 1.0f, 47.0f}, 0x26282c);
+        case kWDeagle:  // a big slab of a pistol: slide, frame, ribbed grip
+            part({-19.5f, -1.3f, 47.6f}, {-10.8f, 1.3f, 50.6f}, 0x3a3d42);
+            part({-19.0f, -1.1f, 46.4f}, {-11.6f, 1.1f, 47.6f}, 0x303236);
+            part({-13.4f, -1.05f, 43.2f}, {-11.0f, 1.05f, 46.4f}, 0x26282c);
+            part({-15.6f, -0.35f, 45.4f}, {-13.4f, 0.35f, 45.9f}, kDark);
+            part({-19.3f, -0.3f, 50.6f}, {-18.7f, 0.3f, 51.1f}, kDark);  // front sight
+            part({-11.5f, -0.4f, 50.6f}, {-10.9f, 0.4f, 51.1f}, kDark);  // rear sight
             break;
-        case kWBerettas:  // a pistol in each hand
-            part({-17.5f, -12.6f, 47.0f}, {-11.5f, -10.8f, 49.4f}, 0x8a9098);
-            part({-19.5f, 10.8f, 47.0f}, {-13.5f, 12.6f, 49.4f}, 0x8a9098);
+        case kWBerettas:  // a pistol in each hand: slide, grip, a little barrel
+            for (float side : {-1.0f, 1.0f}) {
+                const float y0 = side < 0 ? -12.6f : 10.8f, y1 = y0 + 1.8f, back = side < 0 ? -11.5f : -13.5f;
+                part({back - 6.0f, y0, 47.6f}, {back, y1, 49.4f}, 0x8a9098);
+                part({back - 6.6f, y0 + 0.5f, 47.9f}, {back - 6.0f, y1 - 0.5f, 48.7f}, kDark);
+                part({back - 1.8f, y0 + 0.1f, 44.6f}, {back, y1 - 0.1f, 47.6f}, 0x2a2c30);
+            }
             break;
-        case kWNova:  // a long pump shotgun
+        case kWNova:  // pump shotgun: stock, receiver, barrel over the tube, the pump
+            part({-6.6f, -1.2f, 45.0f}, {-1.0f, 1.2f, 48.6f}, kBlack);
             part({-17.0f, -1.5f, 45.5f}, {-6.6f, 1.5f, 49.5f}, 0x1e2024);
-            part({-33.0f, -0.7f, 47.0f}, {-17.0f, 0.7f, 48.6f}, 0x111214);
-            part({-24.0f, -1.2f, 45.2f}, {-17.0f, 1.2f, 47.2f}, 0x2a2c30);
+            part({-35.0f, -0.7f, 47.6f}, {-17.0f, 0.7f, 49.0f}, kDark);
+            part({-31.0f, -0.75f, 46.0f}, {-17.0f, 0.75f, 47.6f}, 0x26282c);
+            part({-26.0f, -1.3f, 45.4f}, {-19.0f, 1.3f, 47.4f}, 0x2a2c30);  // the pump
+            part({-10.5f, -0.4f, 43.6f}, {-8.0f, 0.4f, 45.5f}, kBlack);     // grip
+            part({-34.6f, -0.2f, 49.0f}, {-34.0f, 0.2f, 49.4f}, 0xb0b0b0);   // bead
             break;
-        case kWXm1014:  // a long auto shotgun, the tube under the barrel
+        case kWXm1014:  // auto shotgun: stock, rail on top, the tube under the barrel
+            part({-6.6f, -1.2f, 45.2f}, {-1.0f, 1.2f, 48.8f}, 0x232528);
             part({-17.0f, -1.5f, 45.5f}, {-6.6f, 1.5f, 49.5f}, 0x232528);
-            part({-34.0f, -0.7f, 47.4f}, {-17.0f, 0.7f, 48.8f}, 0x111214);
-            part({-31.0f, -0.8f, 45.8f}, {-17.0f, 0.8f, 47.4f}, 0x2a2c30);
+            part({-16.0f, -0.8f, 49.5f}, {-8.0f, 0.8f, 50.2f}, kDark);
+            part({-34.0f, -0.7f, 47.6f}, {-17.0f, 0.7f, 49.0f}, kDark);
+            part({-31.0f, -0.85f, 45.8f}, {-17.0f, 0.85f, 47.6f}, 0x2a2c30);
+            part({-11.0f, -0.6f, 42.6f}, {-8.8f, 0.6f, 45.5f}, kBlack);
             break;
-        case kWMac10:  // a stubby box with a long mag
+        case kWMac10:  // a stubby box, the mag in the grip, a wire stock folded alongside
             part({-17.0f, -1.6f, 46.0f}, {-9.0f, 1.6f, 50.0f}, 0x26282c);
-            part({-14.0f, -0.8f, 41.0f}, {-12.0f, 0.8f, 46.0f}, 0x1a1b1e);
+            part({-14.0f, -0.8f, 40.0f}, {-11.8f, 0.8f, 46.0f}, 0x1a1b1e);
+            part({-19.5f, -0.6f, 47.6f}, {-17.0f, 0.6f, 48.8f}, kDark);
+            part({-9.0f, -1.7f, 48.6f}, {-5.0f, -1.4f, 49.2f}, 0x3a3c40);
+            part({-16.2f, -0.4f, 50.0f}, {-15.4f, 0.4f, 50.8f}, kDark);
             break;
         case kWKnife:  // knife
             part({-14.0f, -0.6f, 46.5f}, {-11.0f, 0.6f, 48.5f}, 0x2a2420);
-            part({-21.0f, -0.25f, 46.8f}, {-14.0f, 0.25f, 48.2f}, 0xb8bcc2);
+            part({-14.6f, -0.9f, 46.2f}, {-14.0f, 0.9f, 48.8f}, 0x3a3c40);
+            part({-21.0f, -0.25f, 46.8f}, {-14.6f, 0.25f, 48.2f}, 0xb8bcc2);
             break;
-        case kWGrenade:  // grenade in the hand
+        case kWGrenade:  // grenade in the hand, the lever and pin on top
             part({-15.5f, -1.8f, 46.0f}, {-12.0f, 1.8f, 50.0f}, 0x3b4a2f);
+            part({-14.6f, -0.6f, 50.0f}, {-12.6f, 0.6f, 51.0f}, 0x8a8c90);
             break;
-        case kWSniper:  // sniper: long barrel, scope on top
+        case kWSniper:  // AWP: thumbhole stock, receiver, the big scope, a long fluted barrel, the muzzle brake
+            part({-6.6f, -1.3f, 44.6f}, {-1.0f, 1.3f, 49.0f}, 0x2c3326);
             part({-17.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x2c3326);
-
-            part({-36.0f, -0.6f, 47.2f}, {-17.0f, 0.6f, 48.4f}, 0x111214);
-            part({-15.0f, -1.0f, 49.5f}, {-8.0f, 1.0f, 51.5f}, 0x0e0f10);
+            part({-38.0f, -0.65f, 47.2f}, {-17.0f, 0.65f, 48.5f}, kDark);
+            part({-40.0f, -0.9f, 46.9f}, {-38.0f, 0.9f, 48.8f}, kDark);
+            part({-16.0f, -1.0f, 50.0f}, {-7.0f, 1.0f, 52.0f}, 0x0e0f10);   // the scope
+            part({-17.2f, -1.3f, 49.8f}, {-15.6f, 1.3f, 52.4f}, 0x0e0f10);
+            part({-7.4f, -1.2f, 49.8f}, {-6.0f, 1.2f, 52.2f}, 0x0e0f10);
+            part({-13.5f, -0.5f, 49.5f}, {-12.5f, 0.5f, 50.0f}, kDark);     // mounts
+            part({-10.0f, -0.5f, 49.5f}, {-9.0f, 0.5f, 50.0f}, kDark);
+            part({-13.0f, -0.8f, 43.8f}, {-10.8f, 0.8f, 46.0f}, kBlack);    // the mag
+            part({-9.8f, -0.6f, 42.8f}, {-8.0f, 0.6f, 46.0f}, 0x2c3326);    // grip
             break;
-        case kWM4A1S:  // black, a square handguard, a long suppressor
-            part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x18191c);
+        case kWM4A1S:  // black: a sliding stock, a flat-top receiver, a square handguard, a long suppressor
+            part({-6.6f, -1.0f, 46.4f}, {-3.6f, 1.0f, 48.4f}, kBlack);     // buffer tube
+            part({-3.6f, -1.2f, 44.6f}, {-1.0f, 1.2f, 49.0f}, kBlack);     // stock
+            part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, kBlack);
+            part({-15.0f, -0.7f, 49.5f}, {-7.0f, 0.7f, 50.2f}, kDark);     // rail
+            part({-8.2f, -0.5f, 50.2f}, {-7.2f, 0.5f, 51.0f}, kDark);      // rear sight
             part({-21.0f, -1.6f, 45.8f}, {-14.0f, 1.6f, 49.4f}, 0x222327);
-            part({-24.0f, -0.5f, 47.3f}, {-21.0f, 0.5f, 48.3f}, 0x111214);
-            part({-33.0f, -1.0f, 46.8f}, {-24.0f, 1.0f, 48.8f}, 0x0e0f10);
-            part({-12.0f, -0.8f, 41.5f}, {-10.0f, 0.8f, 46.0f}, 0x111214);  // the mag
+            part({-24.0f, -0.5f, 47.3f}, {-21.0f, 0.5f, 48.3f}, kDark);
+            part({-34.0f, -1.0f, 46.8f}, {-24.0f, 1.0f, 48.8f}, 0x0e0f10);
+            part({-12.0f, -0.8f, 41.5f}, {-10.0f, 0.8f, 46.0f}, kDark);    // the mag
+            part({-9.4f, -0.6f, 42.8f}, {-7.8f, 0.6f, 46.0f}, kBlack);     // grip
             break;
-        case kWGalil:  // dark, a wooden handguard, a curved mag
+        case kWGalil:  // dark, a skeleton stock, a wooden handguard, a curved mag
+            part({-6.6f, -0.9f, 47.6f}, {-1.0f, 0.9f, 48.6f}, kBlack);
+            part({-2.2f, -1.0f, 44.4f}, {-1.0f, 1.0f, 48.6f}, kBlack);
+            part({-6.6f, -0.7f, 44.6f}, {-2.2f, 0.7f, 45.4f}, kBlack);
             part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x232528);
             part({-21.0f, -1.5f, 45.8f}, {-15.0f, 1.5f, 48.8f}, 0x5a3c23);
-            part({-27.0f, -0.6f, 47.2f}, {-21.0f, 0.6f, 48.4f}, 0x111214);
-            part({-13.5f, -0.8f, 41.0f}, {-11.0f, 0.8f, 46.0f}, 0x18191c);
+            part({-29.0f, -0.6f, 47.2f}, {-21.0f, 0.6f, 48.4f}, kDark);
+            part({-27.0f, -0.4f, 48.4f}, {-26.2f, 0.4f, 50.0f}, kDark);   // front sight
+            part({-13.5f, -0.8f, 42.6f}, {-11.0f, 0.8f, 46.0f}, kBlack);  // the mag, curving forward
+            part({-14.6f, -0.8f, 40.4f}, {-12.0f, 0.8f, 42.6f}, kBlack);
+            part({-9.4f, -0.6f, 42.8f}, {-7.8f, 0.6f, 46.0f}, kBlack);
             break;
-        case kWSsg08:  // a slim bolt gun, a small scope
+        case kWSsg08:  // a slim bolt gun: a skeleton stock, a small scope, a long thin barrel
+            part({-6.6f, -1.0f, 45.4f}, {-1.0f, 1.0f, 48.6f}, 0x2a2c30);
             part({-16.0f, -1.2f, 46.2f}, {-6.6f, 1.2f, 49.0f}, 0x2a2c30);
-            part({-33.0f, -0.5f, 47.3f}, {-16.0f, 0.5f, 48.3f}, 0x111214);
-            part({-14.0f, -0.8f, 49.0f}, {-9.0f, 0.8f, 50.6f}, 0x0e0f10);
+            part({-35.0f, -0.5f, 47.3f}, {-16.0f, 0.5f, 48.3f}, kDark);
+            part({-15.0f, -0.8f, 49.4f}, {-8.0f, 0.8f, 51.0f}, 0x0e0f10);
+            part({-15.6f, -1.0f, 49.2f}, {-14.4f, 1.0f, 51.4f}, 0x0e0f10);
+            part({-8.6f, -1.0f, 49.2f}, {-7.4f, 1.0f, 51.4f}, 0x0e0f10);
+            part({-12.5f, -0.7f, 44.6f}, {-10.8f, 0.7f, 46.2f}, kDark);
+            part({-9.4f, -0.6f, 43.0f}, {-7.8f, 0.6f, 46.2f}, 0x2a2c30);
+            part({-8.0f, -1.6f, 47.8f}, {-7.2f, -1.2f, 48.4f}, kDark);    // the bolt handle
             break;
-        case kWUmp45:  // a boxy SMG, a straight mag
-            part({-18.0f, -1.6f, 45.8f}, {-8.0f, 1.6f, 49.8f}, 0x232528);
-            part({-21.0f, -0.6f, 47.2f}, {-18.0f, 0.6f, 48.4f}, 0x111214);
-            part({-15.0f, -0.9f, 40.0f}, {-13.0f, 0.9f, 45.8f}, 0x18191c);
+        case kWUmp45:  // a boxy SMG: folding stock, rail, a straight mag
+            part({-6.6f, -1.2f, 45.2f}, {-1.0f, 1.2f, 49.0f}, kBlack);
+            part({-18.0f, -1.6f, 45.8f}, {-6.6f, 1.6f, 49.8f}, 0x232528);
+            part({-17.0f, -0.6f, 49.8f}, {-8.0f, 0.6f, 50.4f}, kDark);
+            part({-22.0f, -0.6f, 47.2f}, {-18.0f, 0.6f, 48.4f}, kDark);
+            part({-15.0f, -0.9f, 40.0f}, {-13.0f, 0.9f, 45.8f}, kBlack);
+            part({-10.0f, -0.6f, 42.6f}, {-8.4f, 0.6f, 45.8f}, kBlack);
             break;
-        default:  // the AK-47
-            part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, 0x1e2024);
-            part({-27.0f, -0.6f, 47.2f}, {-16.0f, 0.6f, 48.4f}, 0x111214);
+        default:  // the AK-47: wooden stock and handguard, the curved mag, gas tube, sights, the muzzle brake
+            part({-6.6f, -1.1f, 44.8f}, {-1.0f, 1.1f, 48.8f}, kWood);       // stock
+            part({-16.0f, -1.4f, 46.0f}, {-6.6f, 1.4f, 49.5f}, kSteel);     // receiver
+            part({-15.6f, -1.2f, 49.5f}, {-7.0f, 1.2f, 50.1f}, 0x26282c);   // dust cover
+            part({-23.0f, -1.5f, 45.9f}, {-16.0f, 1.5f, 48.6f}, kWood);     // handguard
+            part({-23.0f, -0.7f, 48.6f}, {-16.0f, 0.7f, 49.6f}, kWoodDark); // gas tube cover
+            part({-30.0f, -0.6f, 47.2f}, {-23.0f, 0.6f, 48.4f}, kDark);     // barrel
+            part({-29.0f, -0.4f, 48.4f}, {-28.2f, 0.4f, 50.2f}, kDark);     // front sight
+            part({-31.6f, -0.8f, 47.0f}, {-30.0f, 0.8f, 48.6f}, kDark);     // muzzle brake
+            part({-13.6f, -0.8f, 42.8f}, {-11.0f, 0.8f, 46.0f}, kBlack);    // the mag, curving forward
+            part({-15.0f, -0.8f, 40.4f}, {-12.4f, 0.8f, 42.8f}, kBlack);
+            part({-9.4f, -0.6f, 42.8f}, {-7.8f, 0.6f, 46.0f}, kWoodDark);   // grip
             break;
     }
 }
 
-// A gun's side view as a small flat silhouette (kill feed, buy wheel), muzzle to the right, `ht` pixels tall from
-// the top at y. Returns its width.
+// A gun's side view as a flat silhouette like CS's kill feed icons (kill feed, buy wheel): muzzle to the right,
+// `ht` pixels tall from the top at y. Each is drawn by hand on a 10-unit-tall grid from rectangles and slanted
+// four-cornered pieces (stocks, grips, curved mags). Returns its width.
 float drawGunIcon(HudBatch& hud, int weapon, float x, float y, float ht, uint32_t col) {
-    float x0 = 1e9f, x1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
-    gunModel(weapon, [&](Vec3 mn, Vec3 mx, uint32_t) {
-        x0 = std::min(x0, -mx.x);
-        x1 = std::max(x1, -mn.x);
-        z0 = std::min(z0, mn.z);
-        z1 = std::max(z1, mx.z);
-    });
-    if (x1 <= x0) return 0;
-    const float k = ht / std::max(z1 - z0, 7.0f);
-    gunModel(weapon, [&](Vec3 mn, Vec3 mx, uint32_t) {
-        hud.rect(x + (-mx.x - x0) * k, y + (z1 - mx.z) * k, std::max(1.0f, (mx.x - mn.x) * k), std::max(1.0f, (mx.z - mn.z) * k), col);
-    });
-    return (x1 - x0) * k;
+    const float k = ht / 10.0f;
+    float width = 0;
+    auto R = [&](float px, float py, float w, float h) {
+        width = std::max(width, px + w);
+        hud.rect(x + px * k, y + py * k, std::max(1.0f, w * k), std::max(1.0f, h * k), col);
+    };
+    auto Q = [&](float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3) {
+        width = std::max({width, x0, x1, x2, x3});
+        hud.quad(x + x0 * k, y + y0 * k, x + x1 * k, y + y1 * k, x + x2 * k, y + y2 * k, x + x3 * k, y + y3 * k, col);
+    };
+    auto pistol = [&](float ox, float oy, float len) {  // slide, frame, grip, trigger guard
+        R(ox + 1.0f, oy + 1.2f, len, 2.4f);
+        R(ox + 3.0f, oy + 3.6f, len - 2.4f, 1.0f);
+        Q(ox + 1.0f, oy + 3.6f, ox + 4.6f, oy + 3.6f, ox + 3.6f, oy + 9.2f, ox + 0.0f, oy + 8.8f);
+        R(ox + 4.6f, oy + 4.6f, 2.6f, 0.6f);
+        R(ox + 6.8f, oy + 3.6f, 0.6f, 1.6f);
+    };
+    switch (weapon) {
+        case kWPistol:  // USP-S
+            pistol(0, 0, 10.0f);
+            R(11.0f, 1.5f, 10.5f, 1.8f);  // suppressor
+            R(1.4f, 0.6f, 0.8f, 0.7f);
+            break;
+        case kWDeagle:
+            R(1.0f, 0.8f, 14.0f, 3.0f);            // slide
+            R(13.8f, 0.2f, 0.8f, 0.7f);            // front sight
+            R(1.4f, 0.2f, 1.0f, 0.7f);             // rear sight
+            R(3.2f, 3.8f, 11.0f, 1.2f);            // frame
+            Q(1.0f, 3.8f, 5.2f, 3.8f, 4.2f, 9.8f, 0.0f, 9.4f);  // grip
+            R(5.2f, 4.9f, 3.0f, 0.6f);             // trigger guard
+            R(7.6f, 3.8f, 0.6f, 1.7f);
+            break;
+        case kWBerettas:  // two pistols, one behind the other
+            pistol(0, 0.8f, 9.0f);
+            pistol(5.0f, -0.4f, 9.0f);
+            break;
+        case kWKnife:
+            R(0.0f, 4.2f, 7.0f, 2.0f);                                  // handle
+            R(6.8f, 3.2f, 1.0f, 4.0f);                                  // guard
+            Q(7.8f, 3.8f, 21.0f, 4.6f, 18.6f, 6.0f, 7.8f, 6.0f);        // blade
+            break;
+        case kWGrenade:  // an HE: the body, its lever and pin ring
+            Q(1.4f, 3.0f, 6.6f, 3.0f, 8.0f, 4.6f, 0.0f, 4.6f);
+            R(0.0f, 4.6f, 8.0f, 3.8f);
+            Q(0.0f, 8.4f, 8.0f, 8.4f, 6.6f, 10.0f, 1.4f, 10.0f);
+            R(2.6f, 1.6f, 2.8f, 1.4f);
+            Q(5.4f, 1.6f, 7.8f, 2.6f, 7.8f, 3.4f, 5.4f, 3.0f);         // the lever
+            R(0.6f, 0.6f, 2.0f, 0.5f);                                  // the ring
+            R(0.6f, 0.6f, 0.5f, 1.6f);
+            break;
+        case kWNova:
+            Q(0.0f, 3.2f, 8.0f, 2.8f, 8.0f, 5.0f, 0.4f, 6.8f);          // stock
+            R(8.0f, 2.6f, 9.0f, 2.6f);                                  // receiver
+            R(11.0f, 5.2f, 3.0f, 0.7f);                                 // trigger guard
+            R(17.0f, 2.9f, 21.0f, 1.2f);                                // barrel
+            R(17.0f, 4.3f, 16.0f, 1.0f);                                // tube
+            R(21.0f, 4.0f, 7.0f, 1.8f);                                 // pump
+            R(37.2f, 2.3f, 0.6f, 0.6f);                                 // bead
+            break;
+        case kWXm1014:
+            Q(0.0f, 2.8f, 7.0f, 2.8f, 7.0f, 5.0f, 0.2f, 6.4f);
+            R(7.0f, 2.4f, 10.0f, 2.8f);
+            R(8.0f, 1.7f, 9.0f, 0.7f);                                  // rail
+            Q(9.6f, 5.2f, 11.6f, 5.2f, 10.8f, 8.4f, 8.8f, 8.0f);        // grip
+            R(17.0f, 2.8f, 17.0f, 1.2f);
+            R(17.0f, 4.2f, 14.0f, 1.4f);
+            break;
+        case kWMac10:
+            R(0.0f, 2.4f, 4.6f, 0.7f);                                  // wire stock
+            R(0.0f, 2.4f, 0.7f, 2.6f);
+            R(4.0f, 1.8f, 11.0f, 3.6f);                                 // body
+            R(10.0f, 1.2f, 1.0f, 0.7f);                                 // sight
+            Q(6.4f, 5.4f, 9.0f, 5.4f, 9.0f, 10.0f, 6.4f, 10.0f);        // grip + mag
+            R(9.0f, 5.4f, 2.6f, 0.6f);                                  // trigger guard
+            R(15.0f, 2.7f, 4.4f, 1.3f);                                 // barrel
+            break;
+        case kWUmp45:
+            Q(0.0f, 2.2f, 5.0f, 2.2f, 5.0f, 5.0f, 0.0f, 5.8f);          // stock
+            R(5.0f, 1.8f, 14.0f, 3.8f);                                 // body
+            R(6.0f, 1.2f, 12.0f, 0.6f);                                 // rail
+            Q(8.4f, 5.6f, 10.4f, 5.6f, 9.8f, 8.8f, 7.8f, 8.5f);         // grip
+            Q(13.0f, 5.6f, 15.4f, 5.6f, 16.2f, 9.8f, 13.8f, 10.0f);     // mag
+            R(19.0f, 3.0f, 4.0f, 1.2f);                                 // barrel
+            break;
+        case kWGalil:
+            Q(0.0f, 2.8f, 7.0f, 2.8f, 7.0f, 5.0f, 0.0f, 6.4f);          // stock
+            R(7.0f, 2.4f, 12.0f, 2.8f);                                 // receiver
+            Q(10.4f, 5.2f, 12.4f, 5.2f, 11.8f, 8.4f, 9.8f, 8.0f);       // grip
+            Q(15.0f, 5.2f, 17.8f, 5.2f, 19.2f, 9.0f, 16.4f, 9.6f);      // curved mag
+            R(19.0f, 2.5f, 7.0f, 2.6f);                                 // handguard
+            R(26.0f, 3.0f, 9.0f, 1.1f);                                 // barrel
+            R(32.0f, 1.5f, 0.8f, 1.6f);                                 // front sight
+            R(35.0f, 2.8f, 1.8f, 1.4f);                                 // flash hider
+            break;
+        case kWM4A1S:
+            Q(0.0f, 2.4f, 6.0f, 2.4f, 6.0f, 5.4f, 0.0f, 6.2f);          // stock
+            R(6.0f, 3.0f, 3.0f, 1.4f);                                  // buffer tube
+            R(9.0f, 2.4f, 11.0f, 3.0f);                                 // receiver
+            R(9.0f, 1.7f, 11.0f, 0.7f);                                 // rail
+            R(10.0f, 0.9f, 1.2f, 0.9f);                                 // rear sight
+            Q(11.4f, 5.4f, 13.4f, 5.4f, 12.6f, 8.8f, 10.5f, 8.4f);      // grip
+            Q(15.4f, 5.4f, 18.2f, 5.4f, 18.8f, 8.8f, 16.0f, 9.0f);      // mag
+            R(20.0f, 2.4f, 8.0f, 2.8f);                                 // handguard
+            R(26.6f, 0.9f, 0.9f, 1.5f);                                 // front sight
+            R(28.0f, 3.1f, 2.6f, 1.0f);                                 // barrel
+            R(30.6f, 2.6f, 11.0f, 2.0f);                                // suppressor
+            break;
+        case kWSniper:  // AWP
+            Q(0.0f, 3.0f, 9.0f, 2.6f, 9.0f, 6.0f, 0.6f, 7.6f);          // stock
+            R(9.0f, 2.8f, 10.0f, 2.6f);                                 // receiver
+            R(9.6f, 0.5f, 10.4f, 1.5f);                                 // scope
+            R(8.6f, 0.0f, 1.6f, 2.4f);
+            R(19.6f, 0.0f, 1.8f, 2.4f);
+            R(12.0f, 2.0f, 1.0f, 0.8f);                                 // mounts
+            R(17.0f, 2.0f, 1.0f, 0.8f);
+            Q(10.6f, 5.2f, 12.6f, 5.2f, 12.1f, 8.2f, 10.1f, 7.9f);      // grip
+            R(14.4f, 5.2f, 2.6f, 2.2f);                                 // mag
+            Q(19.0f, 3.0f, 46.0f, 3.4f, 46.0f, 4.3f, 19.0f, 5.0f);      // barrel, tapering
+            R(46.0f, 3.0f, 2.2f, 1.6f);                                 // muzzle brake
+            break;
+        case kWSsg08:
+            Q(0.0f, 3.2f, 8.0f, 3.0f, 8.0f, 5.4f, 0.4f, 6.6f);          // stock
+            R(8.0f, 3.0f, 9.0f, 2.2f);                                  // receiver
+            R(9.0f, 1.0f, 9.0f, 1.3f);                                  // scope
+            R(8.3f, 0.6f, 1.2f, 2.0f);
+            R(17.6f, 0.6f, 1.3f, 2.0f);
+            Q(10.0f, 5.0f, 12.0f, 5.0f, 11.5f, 7.8f, 9.6f, 7.5f);       // grip
+            R(13.4f, 5.0f, 2.0f, 1.6f);                                 // mag
+            Q(17.0f, 3.4f, 40.0f, 3.6f, 40.0f, 4.3f, 17.0f, 4.7f);      // barrel
+            break;
+        default:  // AK-47
+            Q(0.0f, 3.2f, 7.0f, 2.6f, 7.0f, 5.0f, 0.5f, 6.8f);          // stock
+            R(7.0f, 2.4f, 12.0f, 2.8f);                                 // receiver
+            R(8.0f, 1.8f, 10.0f, 0.8f);                                 // dust cover
+            Q(11.4f, 5.2f, 13.4f, 5.2f, 12.7f, 8.6f, 10.6f, 8.2f);      // grip
+            R(13.4f, 5.2f, 2.2f, 0.5f);                                 // trigger guard
+            Q(16.0f, 5.2f, 19.0f, 5.2f, 20.6f, 9.2f, 17.6f, 9.8f);      // curved mag
+            R(19.0f, 2.6f, 7.0f, 2.4f);                                 // handguard
+            R(19.0f, 1.9f, 8.0f, 0.7f);                                 // gas tube
+            R(26.0f, 3.0f, 12.0f, 1.1f);                                // barrel
+            R(35.4f, 1.5f, 0.8f, 1.6f);                                 // front sight
+            R(38.0f, 2.8f, 2.0f, 1.5f);                                 // muzzle brake
+            break;
+    }
+    return width * k;
 }
 
 // A small skull (a headshot in the kill feed), `sz` wide.
@@ -886,6 +1083,7 @@ void applyConfig(Game& g, const Config& cfg) {
 
 void resetPosition(Game& g) {
     g.jumpLatch = false;
+    g.wheelJumpAt = -1;
     g.jumpNeedsRelease = true;  // a jump key still held from before (skipping a killcam...) doesn't jump you
     g.player = {};
     // Stand on the real ground under the spawn (spawn heights come from a stepped grid; ramps are smooth).
@@ -3298,7 +3496,11 @@ void simTick(Game& g, const Options& opt) {
     in.duck = keys[SDL_SCANCODE_LCTRL];
     if (g.inputBlocked) in = MoveInput{};  // online with the menu open: you stand still, the game goes on
     if (g.jumpNeedsRelease && !keys[SDL_SCANCODE_SPACE]) g.jumpNeedsRelease = false;
-    in.jumpPressed = !g.inputBlocked && !g.jumpNeedsRelease && (g.jumpLatch || (g.autoHop && keys[SDL_SCANCODE_SPACE]));
+    constexpr double kWheelJumpBuffer = 0.1;
+    if (g.wheelJumpAt >= 0 && g.simTime - g.wheelJumpAt > kWheelJumpBuffer) g.wheelJumpAt = -1;
+    in.jumpPressed = !g.inputBlocked && !g.jumpNeedsRelease &&
+                     (g.jumpLatch || g.wheelJumpAt >= 0 || (g.autoHop && keys[SDL_SCANCODE_SPACE]));
+    if (g.player.onGround) g.wheelJumpAt = -1;  // (on the ground it jumps now: nothing left waiting)
     g.jumpLatch = false;
     g.defuseHeld = keys[SDL_SCANCODE_E];
     if (g.defuseStart >= 0) in = MoveInput{};  // like CS: you can't move while defusing
@@ -3650,7 +3852,7 @@ void simTick(Game& g, const Options& opt) {
         g.player.origin += g.player.velocity * kTickDt;
         g.player.onGround = false;
     } else {
-        float maxSpeed = wd.maxSpeed * (g.zoom > 0 ? 0.5f : 1.0f);  // scoped = half speed
+        const float maxSpeed = moveSpeedFor(wd, g.zoom > 0, g.player.ducked);  // (scoped AWP half; crouched: no scope slowdown)
         playerMove(g.player, in, float(g.viewYaw), maxSpeed, g.world, g.moveParams);
         // Walking up or down a step pops the hull by up to stepSize in one tick. The camera eases
         // over it instead (cosmetic only; the simulation is unchanged).
@@ -6697,7 +6899,7 @@ int main(int argc, char** argv) {
                     break;
                 case SDL_EVENT_MOUSE_WHEEL:
                     if (!paused) {
-                        g.jumpLatch = true;
+                        g.wheelJumpAt = g.simTime;  // (waits a moment for the ground: scroll bhops)
                     } else if (e.wheel.y != 0) {
                         menuUse(g_menu.sel, e.wheel.y > 0 ? 1 : -1, false, false);
                     }

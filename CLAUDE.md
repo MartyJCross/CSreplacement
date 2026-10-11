@@ -153,7 +153,9 @@ plays, throws, STUCK bots). The idle test player can't die, so **its side wins a
 
 See `prototype/README.md` for full details. Each item lists where its code lives.
 
-**Movement** (`MoveParams` in `movement.h`): gravity 1000, accelerate 6.48 (owner: 10% under 7.2), friction 5.6, air
+**Movement** (`MoveParams` in `movement.h`; v0.23.6: scroll-wheel jumps buffered 0.1 s (`Game::wheelJumpAt`), a hop
+on the landing tick takes `hopPenalty` 0.25 of the landing slowdown (`PlayerState::landKeep`, applied next tick); run
+speed `moveSpeedFor`: scoped AWP 100, SSG 08 230, crouched no scope slowdown; bots run at their gun's maxSpeed): gravity 1000, accelerate 6.48 (owner: 10% under 7.2), friction 5.6, air
 accelerate 12; 57-unit jump, crouch-jump reaches 64-unit crates; bhop off by default (`bhop` 1 = hold-to-hop, no
 stamina); real ramps (`Box::slope`/`lowZ` wedges, swept Quake-style). After any spawn a held Space must come up
 before it jumps again (`Game::jumpNeedsRelease`); no jumps while input is blocked.
@@ -293,7 +295,7 @@ player's; set each frame). Spectating draws `Game::specVm` (their weapon, shots 
 **v0.22 polish** (main.cpp unless noted): `matchCues` (Sfx RoundStart/BombPlanted/RoundWin/RoundLose), round banner +
 MVP (`Comp::mvp/mvpWhy/plantedBy/defusedBy`), match-end screen (phase 3, 15 s; `--rounds N` ends matches sooner for
 tests), CS top bar (`kTeamColor`), kill feed icons (`FeedEntry` killer/victim/weapon, `drawGunIcon` from `gunModel`,
-`drawSkull`), kill toast, LowAmmo/LastRound sounds, side rifles (`buyEntries(cat, side)`, `buySide`, `fullBuyRifle`),
+`drawSkull`; v0.23.6: hand-drawn silhouettes on a 10-unit grid, `gunModel` detailed), kill toast, LowAmmo/LastRound sounds, side rifles (`buyEntries(cat, side)`, `buySide`, `fullBuyRifle`),
 2 flashes in full buys, drops (`Game::Drop`, `dropGun`, `pickUp`, `dropsTick`, E = `useLatch`; net kDrop/kPickup;
 `--drop W`), calls (`playerCall`, Z, `--call N AT`), bullet holes (`bulletHole`, `makeBulletHole`: alpha 16, shrink
 in the VS by `uTime`), contact shadows (world.cpp: decor with `kMatShade`, alpha 30..37; blobs `makeBlobShadow` 46..49;
