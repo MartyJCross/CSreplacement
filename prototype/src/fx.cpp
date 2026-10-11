@@ -814,11 +814,57 @@ struct Anim {
 };
 
 // The draws for weapon `w` (knife `knife`) in model space `world`, with its skin.
+// A gun's main block (receiver / frame): where a StatTrak counter goes.
+const Part* gunBody(ViewWeapon w) {
+    switch (w) {
+        case ViewWeapon::Rifle: return &kRifleBody[0];
+        case ViewWeapon::Sniper: return &kSniperBody[0];
+        case ViewWeapon::Pistol: return &kPistolBody[0];
+        case ViewWeapon::Deagle: return &kDeagleBody[0];
+        case ViewWeapon::Mac10: return &kMac10Body[0];
+        case ViewWeapon::M4A1S: return &kM4Body[0];
+        case ViewWeapon::Galil: return &kGalilBody[0];
+        case ViewWeapon::Ssg08: return &kSsgBody[0];
+        case ViewWeapon::Ump45: return &kUmpBody[0];
+        case ViewWeapon::Nova: return &kNovaBody[0];
+        case ViewWeapon::Xm1014: return &kXmBody[0];
+        default: return nullptr;
+    }
+}
+
+// StatTrak: a dark plate on the left of the body (the side you see) with the kills in six glowing orange
+// seven-segment digits, front to back.
+void addKillCounter(std::vector<BoxInstance>& out, const Part& body, int kills) {
+    static const uint8_t kSeg[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};  // bits a..g
+    const float h = std::min(0.75f, (body.maxs.y - body.mins.y) * 0.5f), dw = h * 0.55f, gap = dw * 0.4f, t = h * 0.14f;
+    const float x = body.mins.x, v0 = (body.mins.y + body.maxs.y) * 0.5f - h * 0.5f;
+    const float u0 = body.mins.z + 0.5f, len = 6.0f * dw + 5.0f * gap;
+    out.push_back(makeBox({x - 0.05f, v0 - h * 0.25f, u0 - gap}, {x + 0.02f, v0 + h * 1.25f, u0 + len + gap}, 0x101114, false));
+    char digits[8];
+    std::snprintf(digits, sizeof(digits), "%06d", std::clamp(kills, 0, 999999));
+    for (int k = 0; k < 6; ++k) {
+        const uint8_t m = kSeg[digits[k] - '0'];
+        const float u = u0 + float(k) * (dw + gap);
+        auto seg = [&](int bit, float za, float ya, float zb, float yb) {
+            if (m & (1 << bit)) out.push_back(makeEmissive({x - 0.08f, ya, za}, {x - 0.05f, yb, zb}, 0xff8a1e));
+        };
+        seg(0, u, v0 + h - t, u + dw, v0 + h);                // a: top
+        seg(1, u + dw - t, v0 + h * 0.5f, u + dw, v0 + h);    // b: top right
+        seg(2, u + dw - t, v0, u + dw, v0 + h * 0.5f);        // c: bottom right
+        seg(3, u, v0, u + dw, v0 + t);                        // d: bottom
+        seg(4, u, v0, u + t, v0 + h * 0.5f);                  // e: bottom left
+        seg(5, u, v0 + h * 0.5f, u + t, v0 + h);              // f: top left
+        seg(6, u, v0 + (h - t) * 0.5f, u + dw, v0 + (h + t) * 0.5f);  // g: middle
+    }
+}
+
 void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4& world, const Anim& a, DrawList& out) {
     PaintParams paint = skinIn;
     paintSpan(w, paint);
     const PaintParams* pp = paint.pattern >= 0 ? &paint : nullptr;  // (the skin, if there is one)
     auto add = [&](const Mat4& m) -> std::vector<BoxInstance>& { return out.add(m, paint).boxes; };
+    if (paint.stKills >= 0)
+        if (const Part* b = gunBody(w)) addKillCounter(add(world), *b, paint.stKills);
     switch (w) {
         case ViewWeapon::Rifle:
         case ViewWeapon::Sniper:

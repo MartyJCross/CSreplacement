@@ -1257,6 +1257,27 @@ void testCases() {
           "inventory round trip");
     std::remove(path.c_str());
     CHECK(std::string(wearName(0.01f)) == "FACTORY NEW" && std::string(wearName(0.5f)) == "BATTLE-SCARRED", "wear names");
+    // v0.28 (owner): every skin factory new; StatTrak about one in ten, its kills saved with it.
+    {
+        uint32_t r2 = 99;
+        int st = 0, worn = 0;
+        for (int k = 0; k < 20000; ++k) {
+            const Item it = k % 2 ? rollCase(r2) : rollKnifeCase(r2);
+            st += it.st;
+            worn += it.wear >= 0.07f;
+        }
+        std::printf("  StatTrak %.1f%% of 20000 rolls, %d not factory new\n", st / 200.0, worn);
+        CHECK(worn == 0 && st > 1700 && st < 2300, "factory new, StatTrak one in ten");
+        Inventory sinv;
+        sinv.items.push_back({findSkin("DEAGLE_BLAZE"), 0.02f, true, 42});
+        sinv.equip[kWDeagle] = sinv.items[0];
+        CHECK(sinv.save(path), "save StatTrak");
+        Inventory sback;
+        CHECK(sback.load(path) && sback.items.size() == 1 && sback.items[0].st && sback.items[0].kills == 42 &&
+                  sback.equip[kWDeagle].st && sback.equip[kWDeagle].kills == 42,
+              "StatTrak round trip");
+        std::remove(path.c_str());
+    }
     // Knife cases (owner, v0.27): one every 100 kills, only knives, every kind of knife comes up; saved.
     Inventory kinv;
     int knifeCases = 0;

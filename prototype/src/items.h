@@ -64,20 +64,22 @@ const std::vector<SkinDef>& allSkins();
 int findSkin(const std::string& key);  // -1 if unknown
 
 // Wear 0..1 (the "float"): FACTORY NEW < 0.07 < MINIMAL WEAR < 0.15 < FIELD-TESTED < 0.38 < WELL-WORN < 0.45
-// < BATTLE-SCARRED. More wear, more scratches.
+// < BATTLE-SCARRED. Since v0.28 every skin is factory new (owner): the float only offsets the pattern, so two of a
+// skin rarely look exactly alike; cases roll it under 0.07.
 const char* wearName(float wear);
 const char* wearShort(float wear);  // FN, MW, FT, WW, BS
 
 struct Item {
     int skin = -1;
     float wear = 0;
+    bool st = false;  // StatTrak: counts your kills with it (shown on the gun)
+    int kills = 0;
 };
 
-// What you hold: a skin and wear per weapon (skin -1 = plain).
-struct Equipped {
-    int skin = -1;
-    float wear = 0;
-};
+// What you hold: an item per weapon (skin -1 = plain).
+using Equipped = Item;
+
+constexpr float kStatTrakOdds = 0.1f;  // a case's gun or knife is StatTrak one time in ten, like CS
 
 constexpr int kSlots = 14;  // one per WeaponId (items.cpp checks it against kWeaponCount)
 

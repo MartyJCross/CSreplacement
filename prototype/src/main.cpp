@@ -59,6 +59,7 @@ struct Options {
     int menuScreen = 0;                          // --menu N: open menu screen N (screenshots)
     int menuRow = 0;                             // --menu-row N: with the row N highlighted
     std::string skin;                            // --skin KEY: that skin on its weapon (with --menu 11: on the stage)
+    int stKills = -1;                            // --stattrak N: that skin StatTrak with N kills
     bool throwSmoke = false, bots = false;       // --smoke [frame N: --throw-frame N], --bots (for screenshots)
     int throwFrame = 30;
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
@@ -149,6 +150,8 @@ Options parseArgs(int argc, char** argv) {
             o.menuRow = std::atoi(next());
         } else if (a == "--skin") {
             o.skin = next();
+        } else if (a == "--stattrak") {
+            o.stKills = std::atoi(next());
         } else if (a == "--zoom") {
             o.startZoom = std::atoi(next());
         } else if (a == "--weapon") {
@@ -1032,7 +1035,8 @@ void makeNoise(Game& g, const Vec3& pos, float radius, int side = -1) {
 
 // ---- Combat record ----
 void addMoney(Game& g, int id, int amount);
-void countCaseKill(Game& g);
+void countCaseKill(Game& g, const char* weapon);
+void refreshChoices();
 int nextTeammate(const Game& g, int from, int dir);
 
 bool g_onlineNames = false;  // online: dummies are players, not bots
@@ -1120,7 +1124,7 @@ void recordDamage(Game& g, int attacker, int victim, float amount, bool head, co
     for (size_t a = 0; a < n; ++a)
         if (int(a) - 1 != attacker && row[a] >= 41.0f) statsOf(g, int(a) - 1).assists++;
     std::fill(row, row + n, 0.0f);
-    if (attacker == -1 && victim >= 0) countCaseKill(g);  // towards your next case
+    if (attacker == -1 && victim >= 0) countCaseKill(g, weapon);  // towards your next case, and StatTrak
     if (netHost(g) && victim >= kNetMaxPlayers)  // the host's bots: everyone hears how they died
         g.net.sendDeath(uint8_t(victim), localToNet(g, attacker), head, netWeaponCode(weapon));
     if (g.mode == 3) {  // kill reward by weapon (CS: sniper 100, SMG 600, shotgun 900, the rest 300)
@@ -3803,8 +3807,9 @@ PaintParams paintFor(const Equipped& e) {
         o.gloss = l.gloss;
     }
     for (int r = 0; r < kSkinRegions; ++r) p.regionLayer[r] = s.regions[r];
-    p.wear = e.wear;
+    p.wear = 0;  // every skin factory new (owner, v0.28): the float only offsets the pattern
     p.seed = std::fmod(e.wear * 977.0f, 10.0f);
+    p.stKills = e.st ? e.kills : -1;
     return p;
 }
 
@@ -3832,8 +3837,22 @@ void validateEquips(Game& g) {
 
 // A kill of yours in a mode that counts (deathmatch, retakes, competitive, online; not the range, the aim
 // drill or prefire): towards the next case.
-void countCaseKill(Game& g) {
+void countCaseKill(Game& g, const char* weapon) {
     if (g.mapId != 1 || !(g.mode == 1 || g.mode == 2 || g.mode == 3 || g.mode == 5)) return;
+    // StatTrak: the gun (or knife) it was, if what you have on it counts kills; the item in your inventory too.
+    for (int id = 0; id < kWeaponCount; ++id) {
+        Equipped& e = g_inv.equip[id];
+        if (!weapon || std::strcmp(weaponDef(id).name, weapon) != 0 || !e.st || e.skin < 0) continue;
+        for (Item& it : g_inv.items)
+            if (it.skin == e.skin && it.st && it.wear == e.wear && it.kills == e.kills) {
+                it.kills++;
+                break;
+            }
+        e.kills++;
+        applySkins(g);
+        refreshChoices();
+        break;
+    }
     if (g_inv.addKill(g_caseKills)) {
         pushHitLog(g, "+1 CASE   ESC, INVENTORY TO OPEN IT", 0xe4ae39);
         sound(g, Sfx::UiClick, 0.8f, 0.0f, 0.7f);
@@ -3859,13 +3878,13 @@ struct SkinChoice {
 };
 SkinChoice g_choices[kInvRows];
 
-// "WILDFIRE (FT)", or for knives "KARAMBIT | FADE (FN)".
+// "WILDFIRE", "ST WILDFIRE (42)" for a StatTrak one with 42 kills, or for knives "KARAMBIT | FADE".
 std::string choiceName(const Equipped& e) {
     if (e.skin < 0) return "DEFAULT";
     const SkinDef& s = allSkins()[size_t(e.skin)];
     std::string n = s.name;
     if (s.weapon != kWKnife) n = n.substr(n.find("| ") + 2);
-    return n + " (" + wearShort(e.wear) + ")";
+    return e.st ? "ST " + n + " (" + std::to_string(e.kills) + ")" : n;
 }
 
 // Rebuilds every row's choices from what you own (or every skin, unlocked), selecting what's equipped.
@@ -3880,13 +3899,13 @@ void refreshChoices() {
                 if (skins[k].weapon == w) ch.opts.push_back({int(k), 0.02f});
         } else {
             for (const Item& it : g_inv.items)
-                if (it.skin >= 0 && skins[size_t(it.skin)].weapon == w) ch.opts.push_back({it.skin, it.wear});
+                if (it.skin >= 0 && skins[size_t(it.skin)].weapon == w) ch.opts.push_back(it);
         }
         const Equipped& on = g_inv.equip[w];
         ch.sel = 0;
         for (size_t k = 0; k < ch.opts.size(); ++k)
-            if (ch.opts[k].skin == on.skin && (g_allSkins || ch.opts[k].wear == on.wear)) ch.sel = int(k);
-        if (g_allSkins && on.skin >= 0 && ch.sel > 0) ch.opts[size_t(ch.sel)].wear = on.wear;
+            if (ch.opts[k].skin == on.skin && (g_allSkins || (ch.opts[k].wear == on.wear && ch.opts[k].st == on.st))) ch.sel = int(k);
+        if (g_allSkins && on.skin >= 0 && ch.sel > 0) ch.opts[size_t(ch.sel)] = on;
         ch.names.clear();
         for (const Equipped& e : ch.opts) ch.names.push_back(choiceName(e));
         ch.labels.clear();
@@ -5731,7 +5750,7 @@ Stage showcaseStage(const Config& cfg, int w, int h) {
         const Item& it = g_inv.items[size_t(g_case.item)];
         st.show = true;
         st.weapon = allSkins()[size_t(it.skin)].weapon;
-        st.item = {it.skin, it.wear};
+        st.item = it;
     }
     return st;
 }
@@ -5748,7 +5767,7 @@ void drawStageHud(HudBatch& hud, const Stage& st, int s) {
     }
     hud.rect(st.x, st.y, st.w, 2.0f * fs, 0x2A2F38FF);
     if (!st.show) return;
-    std::string name = st.item.skin >= 0 ? allSkins()[size_t(st.item.skin)].name
+    std::string name = st.item.skin >= 0 ? (st.item.st ? "STATTRAK " : "") + allSkins()[size_t(st.item.skin)].name
                        : st.weapon == kWKnife  ? std::string("KNIFE (DEFAULT)")
                                                : std::string(weaponDef(st.weapon).name) + " (DEFAULT)";
     const uint32_t col = st.item.skin >= 0 ? (rarityColor(allSkins()[size_t(st.item.skin)].rarity) << 8) | 0xFF : 0xC8C8C8FF;
@@ -5758,8 +5777,11 @@ void drawStageHud(HudBatch& hud, const Stage& st, int s) {
     hud.text(st.x + 12.0f * fs, ty, name, col, s * 2);
     if (st.item.skin >= 0) {
         char line[96];
-        std::snprintf(line, sizeof(line), "%s   %s   FLOAT %.4f", rarityName(allSkins()[size_t(st.item.skin)].rarity),
-                      wearName(st.item.wear), double(st.item.wear));
+        if (st.item.st)
+            std::snprintf(line, sizeof(line), "%s   FACTORY NEW   STATTRAK: %d KILLS", rarityName(allSkins()[size_t(st.item.skin)].rarity),
+                          st.item.kills);
+        else
+            std::snprintf(line, sizeof(line), "%s   FACTORY NEW", rarityName(allSkins()[size_t(st.item.skin)].rarity));
         hud.text(st.x + 12.0f * fs, ty + 20.0f * fs, line, 0xB0B0B0FF);
     }
 }
@@ -6738,8 +6760,8 @@ int main(int argc, char** argv) {
     if (!opt.skin.empty() && findSkin(opt.skin) >= 0) {  // (screenshots: that skin, owned and on, its row highlighted)
         g_invPath.clear();  // (never saved over your inventory)
         const int idx = findSkin(opt.skin), w = allSkins()[size_t(idx)].weapon;
-        g_inv.items.push_back({idx, 0.02f});
-        g_inv.equip[w] = {idx, 0.02f};
+        g_inv.items.push_back({idx, 0.02f, opt.stKills >= 0, std::max(0, opt.stKills)});
+        g_inv.equip[w] = g_inv.items.back();
         for (int r = 0; r < kInvRows; ++r)
             if (kInvWeapons[r] == w) opt.menuRow = r + 2;
     }
@@ -6989,7 +7011,7 @@ int main(int argc, char** argv) {
             case kActEquipNew:
                 if (g_case.item >= 0 && size_t(g_case.item) < g_inv.items.size()) {
                     const Item& it2 = g_inv.items[size_t(g_case.item)];
-                    g_inv.equip[allSkins()[size_t(it2.skin)].weapon] = {it2.skin, it2.wear};
+                    g_inv.equip[allSkins()[size_t(it2.skin)].weapon] = it2;
                     applySkins(g);
                     saveInventory();
                     refreshChoices();

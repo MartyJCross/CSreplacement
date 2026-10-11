@@ -293,7 +293,8 @@ Item rollCase(uint32_t& rng) {
         if (s[k].rarity == rarity) pool.push_back(int(k));
     Item it;
     it.skin = pool[std::min(pool.size() - 1, size_t(rollUnit(rng) * float(pool.size())))];
-    it.wear = rollUnit(rng);
+    it.wear = rollUnit(rng) * 0.07f;  // factory new
+    it.st = rollUnit(rng) < kStatTrakOdds;
     return it;
 }
 
@@ -304,7 +305,8 @@ Item rollKnifeCase(uint32_t& rng) {
         if (s[k].weapon == kWKnife) pool.push_back(int(k));
     Item it;
     it.skin = pool[std::min(pool.size() - 1, size_t(rollUnit(rng) * float(pool.size())))];
-    it.wear = rollUnit(rng);
+    it.wear = rollUnit(rng) * 0.07f;  // factory new
+    it.st = rollUnit(rng) < kStatTrakOdds;
     return it;
 }
 
@@ -337,7 +339,7 @@ int Inventory::open(uint32_t& rng) {
 }
 
 // The file: "cases N", "progress N", "knife_cases N", "knife_progress N", "item KEY WEAR" and "equip WEAPON KEY WEAR"
-// lines.
+// lines (a StatTrak one ends "st KILLS").
 bool Inventory::save(const std::string& path) const {
     std::ofstream out(path);
     if (!out) return false;
@@ -349,12 +351,16 @@ bool Inventory::save(const std::string& path) const {
     for (const Item& it : items) {
         if (it.skin < 0 || size_t(it.skin) >= s.size()) continue;
         std::snprintf(w, sizeof(w), "%.6f", double(it.wear));
-        out << "item " << s[size_t(it.skin)].key << " " << w << "\n";
+        out << "item " << s[size_t(it.skin)].key << " " << w;
+        if (it.st) out << " st " << it.kills;
+        out << "\n";
     }
     for (int k = 0; k < kSlots; ++k) {
         if (equip[k].skin < 0 || size_t(equip[k].skin) >= s.size()) continue;
         std::snprintf(w, sizeof(w), "%.6f", double(equip[k].wear));
-        out << "equip " << k << " " << s[size_t(equip[k].skin)].key << " " << w << "\n";
+        out << "equip " << k << " " << s[size_t(equip[k].skin)].key << " " << w;
+        if (equip[k].st) out << " st " << equip[k].kills;
+        out << "\n";
     }
     return bool(out);
 }
@@ -381,8 +387,15 @@ bool Inventory::load(const std::string& path) {
             const int skin = findSkin(skinKey);
             if (skin < 0) continue;  // (a skin that's gone from the game)
             wear = std::clamp(wear, 0.0f, 1.0f);
-            if (key == "item") items.push_back({skin, wear});
-            else if (slot >= 0 && slot < kSlots) equip[slot] = {skin, wear};
+            Item it{skin, wear};
+            std::string tag;
+            if (ss >> tag && tag == "st") {
+                it.st = true;
+                ss >> it.kills;
+                it.kills = std::max(0, it.kills);
+            }
+            if (key == "item") items.push_back(it);
+            else if (slot >= 0 && slot < kSlots) equip[slot] = it;
         }
     }
     cases = std::max(0, cases);

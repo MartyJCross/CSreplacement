@@ -44,6 +44,7 @@ struct PaintParams {
     uint8_t regionLayer[kPaintRegions] = {};  // the layer per region (255: left in the weapon's own colours)
     float wear = 0, seed = 0;
     float zMin = -24, zMax = 16;
+    int stKills = -1;  // a StatTrak skin's kills, shown on the gun (-1: not StatTrak)
 };
 // Turns a box around the vertical axis through `pivot` (player models facing a direction).
 inline void yawBox(BoxInstance& b, const Vec3& pivot, float yawRad) {
