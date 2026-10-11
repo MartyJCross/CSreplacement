@@ -632,6 +632,142 @@ bool isPistolLike(ViewWeapon w) { return w == ViewWeapon::Pistol || w == ViewWea
 bool isGun(ViewWeapon w) { return w != ViewWeapon::Knife && w != ViewWeapon::Grenade; }
 bool ringKnife(int k) { return k == kKnifeKarambit || k == kKnifeTalon; }
 
+// ---- Knife animations (CS:GO-like): draws, three inspects a knife, idle tricks. ----
+
+// A knife's pose on top of its hold: the whole hand (pos, yaw / pitch / roll); the knife on its own, out of the
+// hand (off: tossed; spinX end over end, spinZ round its length: twirled in the fingers); the butterfly's handle
+// and blade; the ring knives' spin round the finger. Every spin ends on whole turns, so it lands back in the hold.
+struct KnifePose {
+    Vec3 pos;
+    float yaw = 0, pitch = 0, roll = 0;
+    Vec3 off;
+    float spinX = 0, spinZ = 0, bite = 0, blade = 0, ring = 0;
+};
+// 0 -> 1 -> 0 over [a, b].
+float bump(float t, float a, float b) { return std::sin(kPi * std::clamp((t - a) / (b - a), 0.0f, 1.0f)); }
+// A toss: up `h` and back down into the hand over [a, b].
+float toss(float t, float a, float b, float h) {
+    const float x = std::clamp((t - a) / (b - a), 0.0f, 1.0f);
+    return 4.0f * h * x * (1.0f - x);
+}
+constexpr int kKnifeInspects = 3;
+constexpr float kKnifeDrawTime = 1.0f, kFidgetTime = 1.1f;
+
+float knifeInspectLength(int knife, int v) {
+    static const float kLen[3][kKnifeInspects] = {{3.2f, 3.6f, 3.8f},   // butterfly
+                                                  {3.2f, 3.4f, 3.3f},   // karambit, talon
+                                                  {3.0f, 3.9f, 3.4f}};  // straight knives
+    return kLen[knife == kKnifeButterfly ? 0 : ringKnife(knife) ? 1 : 2][std::clamp(v, 0, kKnifeInspects - 1)];
+}
+
+KnifePose knifeInspect(int knife, int v, float t, float L) {
+    KnifePose p;
+    const float in = ramp(t, 0.0f, 0.35f) * (1.0f - ramp(t, L - 0.45f, L));  // brought in to show it off
+    p.pos = Vec3{-3.0f, 2.0f, 2.0f} * in;
+    const float look = ramp(t, L - 1.3f, L - 1.0f) * (1.0f - ramp(t, L - 0.6f, L - 0.3f));  // a last look at the blade
+    p.yaw += 65.0f * look;
+    p.pitch -= 10.0f * look;
+    p.roll -= 20.0f * look;
+    if (knife == kKnifeButterfly) {
+        if (v == 0) {  // aerials: the handles fan round and round while the wrist twists under them
+            p.roll += 15.0f * in + 360.0f * ramp(t, 0.35f, 1.6f);
+            p.bite = 1080.0f * ramp(t, 0.35f, 1.55f);
+            p.blade = -720.0f * ramp(t, 0.4f, 1.6f);
+            p.pitch += 25.0f * bump(t, 0.5f, 1.4f);
+        } else if (v == 1) {  // the fan: the blade whips out and round between the handles three times, then a toss
+            for (int k = 0; k < 3; ++k) {
+                const float a = 0.4f + 0.42f * float(k);
+                p.blade += 360.0f * ramp(t, a, a + 0.36f);
+                p.bite -= 360.0f * ramp(t, a + 0.06f, a + 0.4f);
+                p.roll += 18.0f * bump(t, a, a + 0.42f) * (k % 2 ? -1.0f : 1.0f);
+            }
+            p.off.y = toss(t, 1.75f, 2.35f, 4.0f);
+            p.spinX = 360.0f * ramp(t, 1.75f, 2.35f);
+        } else {  // folded, tossed up spinning, caught, flicked open
+            p.blade = 180.0f * ramp(t, 0.3f, 0.6f) * (1.0f - ramp(t, 1.9f, 2.4f));
+            p.bite = 360.0f * ramp(t, 1.9f, 2.4f);
+            p.off.y = toss(t, 0.7f, 1.6f, 5.5f);
+            p.spinX = 720.0f * ramp(t, 0.7f, 1.6f);
+            p.pos.y -= 1.2f * bump(t, 1.55f, 1.85f);  // the catch
+        }
+    } else if (ringKnife(knife)) {
+        // (the hand turns side on and lifts while it spins, so you see the claw go round)
+        const float show = ramp(t, 0.2f, 0.45f) * (1.0f - ramp(t, v == 1 ? 2.0f : 1.6f, v == 1 ? 2.3f : 1.9f));
+        if (v != 2) {
+            p.yaw += 75.0f * show;
+            p.pos += Vec3{-2.0f, 2.5f, -2.0f} * show;
+            p.pitch -= 10.0f * show;
+        }
+        if (v == 0) {  // round the finger, faster and faster, then the claw shown off
+            p.ring = (knife == kKnifeKarambit ? 1080.0f : 720.0f) * ramp(t, 0.35f, 1.7f);
+            p.roll += 10.0f * in;
+        } else if (v == 1) {  // backwards round the finger, then the hand rolls it over and it spins on
+            p.ring = -720.0f * ramp(t, 0.35f, 1.15f) + 360.0f * ramp(t, 1.4f, 2.0f);
+            p.roll += 360.0f * ramp(t, 1.25f, 2.05f);
+        } else {  // flicked off the finger, spinning, caught on it again
+            p.off.y = toss(t, 0.5f, 1.4f, 5.0f);
+            p.spinX = -720.0f * ramp(t, 0.5f, 1.4f);
+            p.ring = 360.0f * ramp(t, 1.45f, 2.0f);
+            p.pos.y -= 1.0f * bump(t, 1.35f, 1.65f);
+        }
+    } else {  // straight knives
+        if (v == 0) {  // tossed end over end, caught, then turned to the light
+            p.off.y = toss(t, 0.45f, 1.3f, 5.5f);
+            p.spinX = 720.0f * ramp(t, 0.45f, 1.3f);
+            p.pos.y -= 1.2f * bump(t, 1.25f, 1.55f);
+        } else if (v == 1) {  // twirled in the fingers, flipped to a reverse grip, shown, flipped back
+            p.spinZ = 720.0f * ramp(t, 0.35f, 1.3f);
+            p.spinX = 180.0f * ramp(t, 1.45f, 1.75f) + 180.0f * ramp(t, 2.3f, 2.6f);
+        } else {  // the hand rolls it over twice, the blade flashing past, then a twirl
+            p.roll += 720.0f * ramp(t, 0.4f, 1.5f);
+            p.pitch -= 20.0f * bump(t, 0.4f, 1.5f);
+            p.spinZ = 360.0f * ramp(t, 1.6f, 2.2f);
+        }
+    }
+    return p;
+}
+
+// The draw (d: 0..1 over kKnifeDrawTime): every knife comes out with a flourish.
+KnifePose knifeDraw(int knife, float d) {
+    KnifePose p;
+    if (knife == kKnifeButterfly) {  // flicked open: the handle fans round twice while the blade swings out
+        p.bite = 720.0f * ramp(d, 0.05f, 0.85f);
+        p.blade = 180.0f - 540.0f * ramp(d, 0.1f, 0.9f);
+        p.roll -= 360.0f * (1.0f - ramp(d, 0.05f, 0.8f));
+    } else if (ringKnife(knife)) {  // spun round the finger into the hand
+        p.ring = 720.0f * ramp(d, 0.1f, 0.85f);
+        p.roll -= 30.0f * bump(d, 0.1f, 0.85f);
+    } else {  // flipped end over end into the hand
+        p.spinX = -360.0f * (1.0f - ramp(d, 0.1f, 0.85f));
+        p.roll += 180.0f * (1.0f - ramp(d, 0.05f, 0.7f));
+    }
+    return p;
+}
+
+// An idle trick (f: seconds into it, kFidgetTime long): kind 0 or 1.
+KnifePose knifeFidget(int knife, int kind, float f) {
+    KnifePose p;
+    if (knife == kKnifeButterfly) {
+        if (kind == 0) {  // a quick close and open
+            p.blade = 360.0f * ramp(f, 0.1f, 0.9f);
+            p.bite = 360.0f * ramp(f, 0.15f, 0.95f);
+        } else {  // the handle fanned twice
+            p.bite = 720.0f * ramp(f, 0.1f, 0.9f);
+            p.roll += 12.0f * bump(f, 0.1f, 0.9f);
+        }
+    } else if (ringKnife(knife)) {
+        p.ring = (kind == 0 ? 360.0f : -360.0f) * ramp(f, 0.1f, 0.75f);
+        p.yaw += 30.0f * bump(f, 0.0f, 0.9f);
+        p.pos.y += 1.0f * bump(f, 0.0f, 0.9f);
+    } else if (kind == 0) {  // twirled in the fingers
+        p.spinZ = 360.0f * ramp(f, 0.1f, 0.8f);
+    } else {  // a little flip
+        p.off.y = toss(f, 0.1f, 0.75f, 2.5f);
+        p.spinX = 360.0f * ramp(f, 0.1f, 0.75f);
+    }
+    return p;
+}
+
 // The skin's z extent for each model (fades and flames run front to back over it).
 void paintSpan(ViewWeapon w, PaintParams& p) {
     switch (w) {
@@ -656,6 +792,8 @@ struct Anim {
     Vec3 magOffset;
     bool magVisible = true, arms = true;
     float bladeAngle = 0, biteAngle = 0, ringSpin = 0, pumpZ = 0;
+    Vec3 knifeOff;                       // knives: tossed out of the hand (the hand stays)
+    float knifeSpinX = 0, knifeSpinZ = 0;  // end over end, round its length
     float shell = -1;  // Nova reload: 0..1 the shell going in, < 0 none
     Vec3 bolt;         // the snipers: the bolt handle's offset (up, then back, as it cycles)
     int grenade = 0;
@@ -780,20 +918,24 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
             break;
         }
         case ViewWeapon::Knife: {
+            // The knife on its own (tossed, twirled) round its balance point; the hand stays put.
+            const Vec3 pivot = knife == kKnifeButterfly ? Vec3{0, 0, 2.5f} : ringKnife(knife) ? Vec3{0, -0.3f, 1.5f} : Vec3{0, 0, 1.0f};
+            const Mat4 held = world * translation(a.knifeOff + pivot) * rotationX(a.knifeSpinX) * rotationZ(a.knifeSpinZ) *
+                              translation(-pivot);
             if (knife == kKnifeButterfly) {
                 if (a.arms) addParts(add(world), kButterflyHand);
-                addParts(add(world), kButterflySafe, pp, true);
-                addParts(add(world * rotationX(a.biteAngle)), kButterflyBite, pp, true);
-                addParts(add(world * rotationX(a.bladeAngle)), kButterflyBlade, pp, true);
+                addParts(add(held), kButterflySafe, pp, true);
+                addParts(add(held * rotationX(a.biteAngle)), kButterflyBite, pp, true);
+                addParts(add(held * rotationX(a.bladeAngle)), kButterflyBlade, pp, true);
             } else if (ringKnife(knife)) {
                 const Vec3 ring{0, -0.1f, knife == kKnifeKarambit ? 5.4f : 5.8f};
                 if (a.arms) addParts(add(world), kKnifeHand);
-                std::vector<BoxInstance>& blade = add(world * translation(ring) * rotationX(a.ringSpin) * translation(-ring));
+                std::vector<BoxInstance>& blade = add(held * translation(ring) * rotationX(a.ringSpin) * translation(-ring));
                 if (knife == kKnifeKarambit) addParts(blade, kKarambit, pp, true);
                 else addParts(blade, kTalon, pp, true);
             } else {
                 if (a.arms) addParts(add(world), kKnifeHand);
-                std::vector<BoxInstance>& blade = add(world);
+                std::vector<BoxInstance>& blade = add(held);
                 if (knife == kKnifeM9) addParts(blade, kM9, pp, true);
                 else if (knife == kKnifeBowie) addParts(blade, kBowie, pp, true);
                 else if (knife == kKnifeKukri) addParts(blade, kKukri, pp, true);
@@ -836,7 +978,7 @@ void ViewModel::onDraw(ViewWeapon w) {
 
 float ViewModel::inspectLength() const {
     switch (weapon_) {
-        case ViewWeapon::Knife: return knife_ == kKnifeButterfly || ringKnife(knife_) ? 2.6f : 2.8f;
+        case ViewWeapon::Knife: return knifeInspectLength(knife_, inspectVariant_);
         case ViewWeapon::Grenade: return 1.4f;
         case ViewWeapon::Pistol:
         case ViewWeapon::Berettas:
@@ -846,7 +988,10 @@ float ViewModel::inspectLength() const {
 }
 
 void ViewModel::inspect() {
-    if (drawT_ >= 1.0f && reloadT_ < 0) inspectT_ = 0;
+    if (drawT_ < 1.0f || reloadT_ >= 0) return;
+    if (weapon_ == ViewWeapon::Knife && inspectT_ < 0) inspectVariant_ = (inspectVariant_ + 1) % kKnifeInspects;
+    inspectT_ = 0;
+    fidgetT_ = -1;
 }
 
 void ViewModel::update(const ViewModelInput& in) {
@@ -885,7 +1030,25 @@ void ViewModel::update(const ViewModelInput& in) {
     landDip_ += landVel_ * dt;
 
     // The butterfly flips open (slower draw); everything else just raises.
-    drawT_ = std::min(1.0f, drawT_ + dt / (weapon_ == ViewWeapon::Knife ? 0.8f : 0.35f));
+    drawT_ = std::min(1.0f, drawT_ + dt / (weapon_ == ViewWeapon::Knife ? kKnifeDrawTime : 0.35f));
+    // Knife tricks while it's out and idle: one every 2.5-6 s.
+    if (weapon_ == ViewWeapon::Knife && fidget_ && inspectT_ < 0 && drawT_ >= 1.0f) {
+        if (fidgetT_ >= 0) {
+            if ((fidgetT_ += dt) > kFidgetTime) {
+                fidgetT_ = -1;
+                knifeIdle_ = 0;
+                trickRng_ = trickRng_ * 1664525u + 1013904223u;
+                nextFidget_ = 2.5f + float(trickRng_ >> 8) / float(1u << 24) * 3.5f;
+            }
+        } else if ((knifeIdle_ += dt) >= nextFidget_) {
+            fidgetT_ = 0;
+            trickRng_ = trickRng_ * 1664525u + 1013904223u;
+            fidgetKind_ = int(trickRng_ >> 30) & 1;
+        }
+    } else {
+        fidgetT_ = -1;
+        knifeIdle_ = 0;
+    }
     if (inspectT_ >= 0) inspectT_ += dt;
     if (inspectT_ > inspectLength() || in.reloadProgress >= 0) inspectT_ = -1;
     flashLeft_ -= dt;
@@ -990,8 +1153,8 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     }
 
     // Inspect (F). Guns follow keyframes: left side, roll over to the right side, look at the mag.
-    // A breathing sway rides on top so the hold never looks frozen. Smoke: a toss and catch. Knives:
-    // the butterfly does aerials, the karambit and talon spin round the finger ring, the others are tossed.
+    // A breathing sway rides on top so the hold never looks frozen. Smoke: a toss and catch. Knives: below
+    // (knifeInspect).
     if (inspectT_ >= 0) {
         const float t = inspectT_;
         if (gun) {
@@ -1006,41 +1169,25 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
             pos.y += 5.0f * up;
             roll += 360.0f * ramp(t, 0.25f, 1.05f);
             pitch += 20.0f * up;
-        } else {
-            float in = ramp(t, 0.0f, 0.35f) * (1.0f - ramp(t, inspectLength() - 0.4f, inspectLength()));
-            pos += Vec3{-3.0f * in, 2.0f * in, 2.0f * in};
-            float look = ramp(t, 1.6f, 1.9f) * (1.0f - ramp(t, 2.1f, 2.4f));
-            if (knife_ == kKnifeButterfly) {  // two aerials, then a look at the blade
-                roll += 15.0f * in + 360.0f * ramp(t, 0.4f, 1.6f);
-                a.biteAngle = 720.0f * ramp(t, 0.4f, 1.6f);
-                a.bladeAngle = -720.0f * ramp(t, 0.45f, 1.55f);
-                yaw += 70.0f * look;
-                pitch -= 10.0f * look;
-            } else if (ringKnife(knife_)) {  // spins round the finger, then shows the claw
-                a.ringSpin = (knife_ == kKnifeKarambit ? 720.0f : 540.0f) * ramp(t, 0.35f, 1.45f);
-                roll += 10.0f * in;
-                yaw += 60.0f * look;
-                roll -= 25.0f * look;
-            } else {  // straight knives: tossed up end over end, caught, then turned to the light
-                float air = std::sin(kPi * std::clamp((t - 0.4f) / 0.8f, 0.0f, 1.0f));
-                pos.y += 7.0f * air;
-                pitch += 360.0f * ramp(t, 0.4f, 1.2f);
-                float turn = ramp(t, 1.4f, 1.8f) * (1.0f - ramp(t, 2.3f, 2.7f));
-                yaw -= 55.0f * turn;
-                roll += 35.0f * turn;
-            }
         }
     }
-    if (weapon_ == ViewWeapon::Knife && drawT_ < 1.0f) {
-        if (knife_ == kKnifeButterfly) {
-            // Flip open: the bite handle fans a full turn while the blade spins out of the handles.
-            a.biteAngle += 360.0f * ramp(drawT_, 0.1f, 0.85f);
-            a.bladeAngle += 180.0f - 540.0f * ramp(drawT_, 0.15f, 0.9f);
-        } else if (ringKnife(knife_)) {
-            a.ringSpin += 360.0f * ramp(drawT_, 0.1f, 0.85f);
-        } else {
-            roll += 360.0f * (1.0f - ramp(drawT_, 0.1f, 0.85f));
-        }
+    // Knives: the inspect (each press of F the next one), the draw's flourish, the idle tricks.
+    auto apply = [&](const KnifePose& p) {
+        pos += p.pos;
+        yaw += p.yaw;
+        pitch += p.pitch;
+        roll += p.roll;
+        a.biteAngle += p.bite;
+        a.bladeAngle += p.blade;
+        a.ringSpin += p.ring;
+        a.knifeOff += p.off;
+        a.knifeSpinX += p.spinX;
+        a.knifeSpinZ += p.spinZ;
+    };
+    if (weapon_ == ViewWeapon::Knife) {
+        if (inspectT_ >= 0) apply(knifeInspect(knife_, inspectVariant_, inspectT_, inspectLength()));
+        if (drawT_ < 1.0f) apply(knifeDraw(knife_, drawT_));
+        if (fidgetT_ >= 0) apply(knifeFidget(knife_, fidgetKind_, fidgetT_));
     }
 
     Mat4 world = cameraBasis(eye, pitchDeg, yawDeg) * translation(pos) * rotationY(yaw) * rotationX(pitch) *

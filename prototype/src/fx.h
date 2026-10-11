@@ -57,8 +57,12 @@ public:
     void onShot(uint32_t seed);
     void onLand(float fallSpeed);
     void onDraw(ViewWeapon w);
-    // Inspect (F): show the weapon off. Cancelled by firing, reloading or switching.
+    // Inspect (F): show the weapon off (knives: each press the next of their inspects). Cancelled by firing,
+    // reloading or switching.
     void inspect();
+    // Knife tricks while it's out and idle: a quick flip, spin or twirl every few seconds (config knife_fidget).
+    void setFidget(bool on) { fidget_ = on; }
+    void setInspectVariant(int v) { inspectVariant_ = v; }  // (screenshots: the next F plays the one after v)
     // Cosmetics: the knife (items.h KnifeType) and the skin on each weapon (pattern -1 = plain).
     void setKnife(int k) { knife_ = k; }
     void setSkin(ViewWeapon w, const PaintParams& p) { skins_[int(w)] = p; }
@@ -92,6 +96,11 @@ private:
     float sinceShot_ = 1;      // seconds since the last shot
     int shotsInRow_ = 0;       // consecutive shots in this spray (kick builds up)
     float inspectT_ = -1;      // seconds into the inspect animation, < 0 when not inspecting
+    int inspectVariant_ = 2;   // knives: which of their inspects (the first F plays the first)
+    bool fidget_ = false;
+    float fidgetT_ = -1, knifeIdle_ = 0, nextFidget_ = 3.0f;  // knife tricks: playing (seconds in), idle time, when
+    int fidgetKind_ = 0;
+    uint32_t trickRng_ = 0x9E3779B9u;
     int knife_ = 0, grenade_ = 0;
     PaintParams skins_[kViewWeapons];
 

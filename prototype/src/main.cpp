@@ -65,6 +65,7 @@ struct Options {
     bool benchRaw = false;
     std::string careerFile;                      // --career FILE: show this career (screenshots; never written)                       // --bench-raw S: the same without glFinish (frames queue like play)
     int inspectFrame = -1;                       // --inspect N: start an inspect on frame N (screenshots)
+    int inspectVariant = -1;                     // --inspect-variant V: a knife plays its inspect V (0..2)
     int nadeType = 0;                            // --nade T: grenade type for --smoke (0 smoke .. 3 molotov)
     int dieFrame = -1;                           // --die N: you die on frame N (screenshots of death / spectating)
     int dieBy = -2;                              // --killer I: bot I killed you (--die; shows the killcam)
@@ -129,6 +130,8 @@ Options parseArgs(int argc, char** argv) {
 
         } else if (a == "--inspect") {
             o.inspectFrame = std::atoi(next());
+        } else if (a == "--inspect-variant") {
+            o.inspectVariant = std::atoi(next());
         } else if (a == "--career") {
             o.careerFile = next();
         } else if (a == "--bench" || a == "--bench-raw") {
@@ -1167,6 +1170,7 @@ float zoomSensScale(const Game& g, const Config& cfg) {
 
 void applyConfig(Game& g, const Config& cfg) {
     g.moveParams = MoveParams{};
+    g.vm.setFidget(cfg.knife_fidget != 0);
     g.dmBots = std::clamp(cfg.dm_bots, 1, 16);       // takes effect at the next match
     g.dmMinutes = std::clamp(cfg.dm_minutes, 1, 60);
     g.rtBots = std::clamp(cfg.rt_bots, 1, 6);
@@ -5253,6 +5257,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"VIEWMODEL FOV", &c.viewmodel_fov, nullptr, 1.0f, 50.0f, 90.0f},
                     {"VIEWMODEL BOB", &c.viewmodel_bob, nullptr, 0.1f, 0.0f, 2.0f},
                     {"SHOW VIEWMODEL", nullptr, &c.show_viewmodel, 1, 0, 1, kOnOff},
+                    {"KNIFE TRICKS WHEN IDLE", nullptr, &c.knife_fidget, 1, 0, 1, kOnOff},
                     back};
         case kMenuVideo:
             return {{"VISUAL STYLE", nullptr, &c.art_style, 1, 0, 1, kStyleNames},
@@ -7602,7 +7607,10 @@ int main(int argc, char** argv) {
             g.nadeType = std::clamp(opt.nadeType, 0, Game::kNadeTypes - 1);
             g.throwLatch = true;
         }
-        if (automated && frame == opt.inspectFrame) g.vm.inspect();
+        if (automated && frame == opt.inspectFrame) {
+            if (opt.inspectVariant >= 0) g.vm.setInspectVariant(opt.inspectVariant + 2);  // (the next F: +1, wrapped)
+            g.vm.inspect();
+        }
         if (automated && opt.buyCat >= 0 && frame == 60) {  // (screenshots: the wheel, the mouse on its first wedge)
             g.buyMenu = true;
             g.buyCategory = opt.buyCat;

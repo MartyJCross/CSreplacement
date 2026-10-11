@@ -42,6 +42,8 @@ viewmodel_offset_y 0
 viewmodel_offset_z 0
 viewmodel_bob 1
 show_viewmodel 1
+// 1 = with the knife out and idle, a trick every few seconds (a flip, a spin, a twirl).
+knife_fidget 1
 // Spread: moving, jumping and noscoping always scatter your shots (stop to shoot, like CS); standing still the AK,
 // M4A1-S, AWP, SSG 08 and Deagle are dead on and the cheaper guns scatter a little. Sprays follow the fixed recoil
 // pattern; set spread_spray to 1 to add CS-like random spread that grows during a spray.
@@ -128,7 +130,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nvolume " << c.volume << "\nviewmodel_fov " << c.viewmodel_fov
         << "\nviewmodel_offset_x " << c.viewmodel_offset_x << "\nviewmodel_offset_y " << c.viewmodel_offset_y
         << "\nviewmodel_offset_z " << c.viewmodel_offset_z << "\nviewmodel_bob " << c.viewmodel_bob
-        << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
+        << "\nshow_viewmodel " << c.show_viewmodel << "\nknife_fidget " << c.knife_fidget << "\nspread_spray " << c.spread_spray
         << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\ncase_kills " << c.case_kills << "\nall_skins " << c.all_skins << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
@@ -201,6 +203,7 @@ Config loadConfig(const std::string& path) {
         else if (key == "viewmodel_offset_z") c.viewmodel_offset_z = v;
         else if (key == "viewmodel_bob") c.viewmodel_bob = v;
         else if (key == "show_viewmodel") i(c.show_viewmodel);
+        else if (key == "knife_fidget") i(c.knife_fidget);
         else if (key == "spread_spray") i(c.spread_spray);
         else if (key == "bhop") i(c.bhop);
         else if (key == "camera_extrapolate") i(c.camera_extrapolate);
