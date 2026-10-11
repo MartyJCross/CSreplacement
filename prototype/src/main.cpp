@@ -58,6 +58,7 @@ struct Options {
     int startZoom = 0;                           // --zoom 1|2 (sniper scope, for screenshots)
     int menuScreen = 0;                          // --menu N: open menu screen N (screenshots)
     int menuRow = 0;                             // --menu-row N: with the row N highlighted
+    std::string skin;                            // --skin KEY: that skin on its weapon (with --menu 11: on the stage)
     bool throwSmoke = false, bots = false;       // --smoke [frame N: --throw-frame N], --bots (for screenshots)
     int throwFrame = 30;
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
@@ -137,6 +138,8 @@ Options parseArgs(int argc, char** argv) {
             o.menuScreen = std::atoi(next());
         } else if (a == "--menu-row") {
             o.menuRow = std::atoi(next());
+        } else if (a == "--skin") {
+            o.skin = next();
         } else if (a == "--zoom") {
             o.startZoom = std::atoi(next());
         } else if (a == "--weapon") {
@@ -3702,12 +3705,20 @@ PaintParams paintFor(const Equipped& e) {
         out[1] = float((c >> 8) & 0xFF) / 255.0f;
         out[2] = float(c & 0xFF) / 255.0f;
     };
-    p.pattern = s.pattern;
-    rgb(s.a, p.a);
-    rgb(s.b, p.b);
-    rgb(s.c, p.c);
+    static_assert(kPaintLayers == kSkinLayers && kPaintRegions == kSkinRegions, "skins and the renderer agree");
+    p.pattern = 0;
+    for (int k = 0; k < kSkinLayers; ++k) {
+        const SkinLayer& l = s.layers[k];
+        PaintLayer& o = p.layers[k];
+        o.pattern = l.pattern;
+        rgb(l.a, o.a);
+        rgb(l.b, o.b);
+        rgb(l.c, o.c);
+        o.scale = l.scale;
+        o.gloss = l.gloss;
+    }
+    for (int r = 0; r < kSkinRegions; ++r) p.regionLayer[r] = s.regions[r];
     p.wear = e.wear;
-    p.gloss = s.gloss;
     p.seed = std::fmod(e.wear * 977.0f, 10.0f);
     return p;
 }
@@ -5609,7 +5620,13 @@ Stage showcaseStage(const Config& cfg, int w, int h) {
 // The stage's backdrop and the item's name, rarity and wear (the weapon itself is 3D, drawn after the HUD).
 void drawStageHud(HudBatch& hud, const Stage& st, int s) {
     const float fs = float(s);
-    hud.rect(st.x, st.y, st.w, st.h, 0x0C0E12F0);
+    // A studio backdrop: light grey-blue at the top shading down (dark guns stand out against it).
+    constexpr int kBands = 24;
+    for (int k = 0; k < kBands; ++k) {
+        const float f = float(k) / float(kBands - 1);
+        const uint32_t c = lerpColor(0x5a6270, 0x1c1f25, f);
+        hud.rect(st.x, st.y + st.h * float(k) / kBands, st.w, st.h / kBands + 1.0f, (c << 8) | 0xF8);
+    }
     hud.rect(st.x, st.y, st.w, 2.0f * fs, 0x2A2F38FF);
     if (!st.show) return;
     std::string name = st.item.skin >= 0 ? allSkins()[size_t(st.item.skin)].name
@@ -6596,6 +6613,14 @@ int main(int argc, char** argv) {
     g_allSkins = cfg.all_skins != 0;
     g_caseRng ^= uint32_t(SDL_GetPerformanceCounter()) | 1u;
     for (int k = 0; k < opt.giveCases; ++k) g_inv.addKill(1);  // (tests: --give-cases N)
+    if (!opt.skin.empty() && findSkin(opt.skin) >= 0) {  // (screenshots: that skin, owned and on, its row highlighted)
+        g_invPath.clear();  // (never saved over your inventory)
+        const int idx = findSkin(opt.skin), w = allSkins()[size_t(idx)].weapon;
+        g_inv.items.push_back({idx, 0.02f});
+        g_inv.equip[w] = {idx, 0.02f};
+        for (int r = 0; r < kInvRows; ++r)
+            if (kInvWeapons[r] == w) opt.menuRow = r + 1;
+    }
     validateEquips(g);
     g.mode = cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     renderer.setDepthPrepass(cfg.depth_prepass != 0);

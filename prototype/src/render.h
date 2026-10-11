@@ -24,16 +24,25 @@ BoxInstance makeEmissive(const Vec3& mins, const Vec3& maxs, uint32_t rgb);
 BoxInstance makeBulletHole(const Vec3& mins, const Vec3& maxs, uint32_t rgb, float t);
 // A soft round shadow on the floor under someone: `floorRgb` the floor's colour, `paved` the sites' paving.
 BoxInstance makeBlobShadow(const Vec3& centre, float radius, uint32_t floorRgb, bool paved);
-// A skin-painted part (alpha 64): drawn with the model's PaintParams pattern; `shade` (grey) darkens it a
-// little for grips and furniture so the parts still read apart.
-BoxInstance makePainted(const Vec3& mins, const Vec3& maxs, uint8_t shade = 255);
+// A skin-painted part (alpha 56 + region): drawn with the layer the model's PaintParams gives that region (the
+// barrel, the mag...: items.h SkinRegion); `shade` (grey) darkens it a little for grips and furniture so the parts
+// still read apart.
+BoxInstance makePainted(const Vec3& mins, const Vec3& maxs, uint8_t shade = 255, int region = 0);
 
-// A skin for one drawModel call: the pattern (items.h Pattern), its colours, wear, polish and the model's
-// length along z (fades and flames run along it).
-struct PaintParams {
-    int pattern = -1;  // -1 = no paint (painted parts then just use their shade)
+// A skin for one drawModel call: up to kPaintLayers paints (a pattern from items.h Pattern, its three colours, its
+// scale, how polished) and which of them each region of the weapon gets; its wear, a seed, and the model's length
+// along z (fades and flames run along it).
+constexpr int kPaintLayers = 4, kPaintRegions = 12;
+struct PaintLayer {
+    int pattern = 0;
     float a[3] = {1, 1, 1}, b[3] = {1, 1, 1}, c[3] = {1, 1, 1};
-    float wear = 0, gloss = 0, seed = 0;
+    float scale = 1, gloss = 0;
+};
+struct PaintParams {
+    int pattern = -1;  // -1 = no skin; >= 0 painted with the layers
+    PaintLayer layers[kPaintLayers];
+    uint8_t regionLayer[kPaintRegions] = {};  // the layer per region (255: left in the weapon's own colours)
+    float wear = 0, seed = 0;
     float zMin = -24, zMax = 16;
 };
 // Turns a box around the vertical axis through `pivot` (player models facing a direction).
@@ -144,7 +153,8 @@ private:
     unsigned shadowTex_ = 0, shadowFbo_ = 0;
     int uShadowTex_ = -1, uShadowVP_ = -1, uHasShadow_ = -1, uSun_ = -1, uShadowTexel_ = -1;
     void buildShadows(const std::vector<BoxInstance>& boxes);
-    int uPaint_ = -1, uPA_ = -1, uPB_ = -1, uPC_ = -1, uPaintMisc_ = -1, uPaintZ_ = -1;
+    int uPaint_ = -1, uPaintMisc_ = -1, uPaintZ_ = -1;
+    int uLayerPat_ = -1, uLayerA_ = -1, uLayerB_ = -1, uLayerC_ = -1, uLayerMisc_ = -1, uRegionLayer_ = -1;
     void setPaint(const PaintParams* p);
 
     unsigned cubeVbo_ = 0;

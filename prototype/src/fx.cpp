@@ -16,33 +16,34 @@ constexpr uint32_t kSilver = 0x9aa0a8;
 // Detail: the dark of an open port or a vent, lens glass, the fingers and cuffs of the gloves.
 constexpr uint32_t kHole = 0x121315, kGlass = 0x5a86b0, kFinger = 0x343434, kCuff = 0x1b1b1c;
 
-struct Part { Vec3 mins, maxs; uint32_t color; };
+// A box of a weapon, in its colour; `region`: which part of a gun it is, for a skin (items.h SkinRegion: barrel, mag...).
+struct Part { Vec3 mins, maxs; uint32_t color; int region = kRegBody; };
 
 // Rifle in gun-local space: x right, y up, z back (muzzle points to -z). Units ~ inches.
 const Part kRifleBody[] = {
-    {{-0.9f, -1.1f, -6.0f}, {0.9f, 1.1f, 6.0f}, kMetal},          // receiver
-    {{-0.8f, 1.1f, -5.0f}, {0.8f, 1.6f, 5.5f}, kMetalLight},      // dust cover
-    {{-0.5f, 1.6f, -4.5f}, {0.5f, 2.2f, -3.5f}, kMetal},          // rear sight
-    {{-1.05f, -1.2f, -13.0f}, {1.05f, 0.6f, -6.0f}, kWood},       // lower handguard
-    {{-0.7f, 0.6f, -12.5f}, {0.7f, 1.3f, -6.0f}, kWoodDark},      // upper handguard
-    {{-0.32f, -0.1f, -22.0f}, {0.32f, 0.55f, -13.0f}, kMetal},    // barrel
-    {{-0.45f, 0.55f, -20.5f}, {0.45f, 2.0f, -19.5f}, kMetal},     // front sight
-    {{-0.5f, -0.3f, -23.5f}, {0.5f, 0.75f, -22.0f}, kMetalLight}, // muzzle brake
-    {{-0.2f, -2.0f, 0.2f}, {0.2f, -1.1f, 2.8f}, kMetal},          // trigger guard
-    {{-0.65f, -4.6f, 2.6f}, {0.65f, -1.1f, 4.6f}, kWoodDark},     // pistol grip
-    {{-0.75f, -1.6f, 6.0f}, {0.75f, 1.0f, 15.0f}, kWood},         // stock
-    {{-0.75f, -3.2f, 10.0f}, {0.75f, -1.6f, 15.0f}, kWood},       // stock heel
-    {{-0.8f, -3.25f, 14.9f}, {0.8f, 1.05f, 15.3f}, kMetal},       // butt plate
-    {{0.9f, 0.1f, -2.6f}, {0.96f, 0.9f, 1.6f}, kHole},            // ejection port
-    {{0.9f, -0.35f, -4.2f}, {1.02f, 0.1f, 1.8f}, kMetalLight},    // selector lever
-    {{0.9f, -0.9f, 3.6f}, {0.98f, -0.7f, 3.8f}, kMetalLight},     // rivets
-    {{0.9f, -0.9f, -5.2f}, {0.98f, -0.7f, -5.0f}, kMetalLight},
-    {{-0.45f, 0.35f, -14.2f}, {0.45f, 1.35f, -12.6f}, kMetal},    // gas block
-    {{-0.12f, -0.5f, -21.6f}, {0.12f, -0.22f, -13.0f}, kMetalLight}, // cleaning rod
-    {{-0.55f, 1.4f, -20.6f}, {-0.42f, 2.15f, -19.4f}, kMetal},    // front sight ears
-    {{0.42f, 1.4f, -20.6f}, {0.55f, 2.15f, -19.4f}, kMetal},
-    {{-0.06f, -0.3f, -23.4f}, {0.06f, 0.75f, -22.2f}, kHole},     // muzzle brake slot
-    {{-0.8f, -1.75f, 8.0f}, {-0.75f, -1.2f, 9.2f}, kMetal},       // sling swivel
+    {{-0.9f, -1.1f, -6.0f}, {0.9f, 1.1f, 6.0f}, kMetal, kRegBody},          // receiver
+    {{-0.8f, 1.1f, -5.0f}, {0.8f, 1.6f, 5.5f}, kMetalLight, kRegTop},      // dust cover
+    {{-0.5f, 1.6f, -4.5f}, {0.5f, 2.2f, -3.5f}, kMetal, kRegAccent},          // rear sight
+    {{-1.05f, -1.2f, -13.0f}, {1.05f, 0.6f, -6.0f}, kWood, kRegFore},       // lower handguard
+    {{-0.7f, 0.6f, -12.5f}, {0.7f, 1.3f, -6.0f}, kWoodDark, kRegFore},      // upper handguard
+    {{-0.32f, -0.1f, -22.0f}, {0.32f, 0.55f, -13.0f}, kMetal, kRegBarrel},    // barrel
+    {{-0.45f, 0.55f, -20.5f}, {0.45f, 2.0f, -19.5f}, kMetal, kRegAccent},     // front sight
+    {{-0.5f, -0.3f, -23.5f}, {0.5f, 0.75f, -22.0f}, kMetalLight, kRegMuzzle}, // muzzle brake
+    {{-0.2f, -2.0f, 0.2f}, {0.2f, -1.1f, 2.8f}, kMetal, kRegGrip},          // trigger guard
+    {{-0.65f, -4.6f, 2.6f}, {0.65f, -1.1f, 4.6f}, kWoodDark, kRegGrip},     // pistol grip
+    {{-0.75f, -1.6f, 6.0f}, {0.75f, 1.0f, 15.0f}, kWood, kRegStock},         // stock
+    {{-0.75f, -3.2f, 10.0f}, {0.75f, -1.6f, 15.0f}, kWood, kRegStock},       // stock heel
+    {{-0.8f, -3.25f, 14.9f}, {0.8f, 1.05f, 15.3f}, kMetal, kRegStock},       // butt plate
+    {{0.9f, 0.1f, -2.6f}, {0.96f, 0.9f, 1.6f}, kHole, kRegAccent},            // ejection port
+    {{0.9f, -0.35f, -4.2f}, {1.02f, 0.1f, 1.8f}, kMetalLight, kRegAccent},    // selector lever
+    {{0.9f, -0.9f, 3.6f}, {0.98f, -0.7f, 3.8f}, kMetalLight, kRegAccent},     // rivets
+    {{0.9f, -0.9f, -5.2f}, {0.98f, -0.7f, -5.0f}, kMetalLight, kRegAccent},
+    {{-0.45f, 0.35f, -14.2f}, {0.45f, 1.35f, -12.6f}, kMetal, kRegBarrel},    // gas block
+    {{-0.12f, -0.5f, -21.6f}, {0.12f, -0.22f, -13.0f}, kMetalLight, kRegBarrel}, // cleaning rod
+    {{-0.55f, 1.4f, -20.6f}, {-0.42f, 2.15f, -19.4f}, kMetal, kRegAccent},    // front sight ears
+    {{0.42f, 1.4f, -20.6f}, {0.55f, 2.15f, -19.4f}, kMetal, kRegAccent},
+    {{-0.06f, -0.3f, -23.4f}, {0.06f, 0.75f, -22.2f}, kHole, kRegMuzzle},     // muzzle brake slot
+    {{-0.8f, -1.75f, 8.0f}, {-0.75f, -1.2f, 9.2f}, kMetal, kRegStock},       // sling swivel
 };
 const Part kRifleArms[] = {
     {{-1.3f, -4.2f, 2.2f}, {1.4f, -1.4f, 5.0f}, kGlove},          // right hand
@@ -51,29 +52,29 @@ const Part kRifleArms[] = {
     {{-5.5f, -6.5f, -9.5f}, {-1.2f, -2.6f, -3.0f}, kSleeve},      // left forearm
 };
 const Part kRifleMag[] = {
-    {{-0.65f, -5.0f, -4.2f}, {0.65f, -1.1f, -1.4f}, kMetal},
-    {{-0.65f, -8.2f, -5.6f}, {0.65f, -4.6f, -2.6f}, kMetal},
-    {{-0.7f, -3.8f, -3.9f}, {0.7f, -3.5f, -1.7f}, kMetalLight},   // ribs
-    {{-0.7f, -6.4f, -5.0f}, {0.7f, -6.1f, -2.9f}, kMetalLight},
-    {{-0.7f, -8.4f, -5.7f}, {0.7f, -8.1f, -2.5f}, kMetalLight},   // floor plate
+    {{-0.65f, -5.0f, -4.2f}, {0.65f, -1.1f, -1.4f}, kMetal, kRegMag},
+    {{-0.65f, -8.2f, -5.6f}, {0.65f, -4.6f, -2.6f}, kMetal, kRegMag},
+    {{-0.7f, -3.8f, -3.9f}, {0.7f, -3.5f, -1.7f}, kMetalLight, kRegMag},   // ribs
+    {{-0.7f, -6.4f, -5.0f}, {0.7f, -6.1f, -2.9f}, kMetalLight, kRegMag},
+    {{-0.7f, -8.4f, -5.7f}, {0.7f, -8.1f, -2.5f}, kMetalLight, kRegMag},   // floor plate
 };
 const Part kPistolBody[] = {
-    {{-0.55f, 0.2f, -8.5f}, {0.55f, 1.5f, 1.0f}, kMetal},         // slide
-    {{-0.5f, -0.6f, -7.5f}, {0.5f, 0.2f, 0.5f}, kPolymer},        // frame
-    {{-0.25f, 0.5f, -9.0f}, {0.25f, 1.1f, -8.5f}, kMetalLight},   // barrel crown
-    {{-0.42f, 0.38f, -15.2f}, {0.42f, 1.22f, -9.0f}, kMetal},     // suppressor
-    {{-0.45f, 0.35f, -10.0f}, {0.45f, 1.25f, -9.6f}, kMetalLight}, // its rings
-    {{-0.45f, 0.35f, -14.8f}, {0.45f, 1.25f, -14.4f}, kMetalLight},
-    {{-0.1f, 1.5f, -8.0f}, {0.1f, 1.8f, -7.6f}, kMetal},          // front sight
-    {{-0.4f, 1.5f, 0.2f}, {0.4f, 1.8f, 0.8f}, kMetal},            // rear sight
-    {{-0.55f, -4.2f, -1.0f}, {0.55f, -0.6f, 1.2f}, kPolymer},     // grip
-    {{-0.15f, -1.4f, -3.0f}, {0.15f, -0.6f, -0.8f}, kPolymer},    // trigger guard
-    {{0.55f, 0.45f, -0.6f}, {0.6f, 1.3f, -0.45f}, kHole},         // slide serrations
-    {{0.55f, 0.45f, -0.25f}, {0.6f, 1.3f, -0.1f}, kHole},
-    {{0.55f, 0.45f, 0.1f}, {0.6f, 1.3f, 0.25f}, kHole},
-    {{0.55f, 0.7f, -4.6f}, {0.6f, 1.4f, -2.4f}, kHole},           // ejection port
-    {{-0.56f, -3.6f, -0.9f}, {0.56f, -3.4f, 1.1f}, kMetal},       // grip texture
-    {{-0.56f, -2.6f, -0.9f}, {0.56f, -2.4f, 1.1f}, kMetal},
+    {{-0.55f, 0.2f, -8.5f}, {0.55f, 1.5f, 1.0f}, kMetal, kRegTop},         // slide
+    {{-0.5f, -0.6f, -7.5f}, {0.5f, 0.2f, 0.5f}, kPolymer, kRegBody},        // frame
+    {{-0.25f, 0.5f, -9.0f}, {0.25f, 1.1f, -8.5f}, kMetalLight, kRegMuzzle},   // barrel crown
+    {{-0.42f, 0.38f, -15.2f}, {0.42f, 1.22f, -9.0f}, kMetal, kRegMuzzle},     // suppressor
+    {{-0.45f, 0.35f, -10.0f}, {0.45f, 1.25f, -9.6f}, kMetalLight, kRegMuzzle}, // its rings
+    {{-0.45f, 0.35f, -14.8f}, {0.45f, 1.25f, -14.4f}, kMetalLight, kRegMuzzle},
+    {{-0.1f, 1.5f, -8.0f}, {0.1f, 1.8f, -7.6f}, kMetal, kRegAccent},          // front sight
+    {{-0.4f, 1.5f, 0.2f}, {0.4f, 1.8f, 0.8f}, kMetal, kRegAccent},            // rear sight
+    {{-0.55f, -4.2f, -1.0f}, {0.55f, -0.6f, 1.2f}, kPolymer, kRegGrip},     // grip
+    {{-0.15f, -1.4f, -3.0f}, {0.15f, -0.6f, -0.8f}, kPolymer, kRegGrip},    // trigger guard
+    {{0.55f, 0.45f, -0.6f}, {0.6f, 1.3f, -0.45f}, kHole, kRegTop},         // slide serrations
+    {{0.55f, 0.45f, -0.25f}, {0.6f, 1.3f, -0.1f}, kHole, kRegTop},
+    {{0.55f, 0.45f, 0.1f}, {0.6f, 1.3f, 0.25f}, kHole, kRegTop},
+    {{0.55f, 0.7f, -4.6f}, {0.6f, 1.4f, -2.4f}, kHole, kRegAccent},           // ejection port
+    {{-0.56f, -3.6f, -0.9f}, {0.56f, -3.4f, 1.1f}, kMetal, kRegGrip},       // grip texture
+    {{-0.56f, -2.6f, -0.9f}, {0.56f, -2.4f, 1.1f}, kMetal, kRegGrip},
 };
 const Part kPistolArms[] = {
     {{-1.2f, -4.0f, -1.4f}, {1.3f, -1.0f, 1.6f}, kGlove},         // right hand
@@ -82,35 +83,35 @@ const Part kPistolArms[] = {
     {{-4.5f, -6.8f, 1.0f}, {-1.0f, -3.8f, 10.0f}, kSleeve},       // left forearm
 };
 const Part kPistolMag[] = {
-    {{-0.45f, -4.5f, -0.8f}, {0.45f, -0.7f, 1.0f}, kMetalLight},
+    {{-0.45f, -4.5f, -0.8f}, {0.45f, -0.7f, 1.0f}, kMetalLight, kRegMag},
 };
 
 const Part kSniperBody[] = {
-    {{-0.8f, -1.0f, -5.0f}, {0.8f, 1.0f, 6.0f}, kOlive},             // receiver
-    {{-1.0f, -1.2f, -14.0f}, {1.0f, 0.4f, -5.0f}, kOlive},           // forend
-    {{-0.35f, -0.1f, -30.0f}, {0.35f, 0.55f, -14.0f}, kMetal},       // barrel
-    {{-0.55f, -0.3f, -32.0f}, {0.55f, 0.75f, -30.0f}, kMetalLight},  // muzzle brake
-    {{-0.9f, -2.6f, 6.0f}, {0.9f, 1.2f, 17.0f}, kOlive},             // stock
-    {{-0.65f, -4.2f, 5.0f}, {0.65f, -1.0f, 7.0f}, kOliveDark},       // grip
-    {{-0.75f, 1.6f, -6.0f}, {0.75f, 3.0f, 5.0f}, kMetal},            // scope tube
-    {{-1.0f, 1.4f, -8.0f}, {1.0f, 3.2f, -6.0f}, kMetal},             // objective bell
-    {{-0.9f, 1.5f, 5.0f}, {0.9f, 3.1f, 6.5f}, kMetal},               // eyepiece
-    {{-0.4f, 1.0f, -3.0f}, {0.4f, 1.6f, -2.0f}, kMetalLight},        // front mount
-    {{-0.4f, 1.0f, 2.0f}, {0.4f, 1.6f, 3.0f}, kMetalLight},          // rear mount
-    {{-0.85f, 1.55f, -8.05f}, {0.85f, 3.05f, -7.95f}, kGlass},       // the lenses
-    {{-0.75f, 1.65f, 6.45f}, {0.75f, 2.95f, 6.55f}, kGlass},
-    {{-0.25f, 3.0f, -1.0f}, {0.25f, 3.5f, 0.0f}, kMetalLight},       // turrets
-    {{0.75f, 2.0f, -1.0f}, {1.25f, 2.6f, 0.0f}, kMetalLight},
-    {{-0.95f, 1.2f, 9.0f}, {0.95f, 1.7f, 14.0f}, kOliveDark},        // cheek rest
-    {{-0.95f, -1.4f, 9.5f}, {-0.85f, 0.2f, 12.5f}, kHole},           // thumbhole
-    {{0.85f, -1.4f, 9.5f}, {0.95f, 0.2f, 12.5f}, kHole},
-    {{-0.4f, 0.1f, -28.0f}, {0.4f, 0.45f, -16.0f}, kMetalLight},     // barrel flutes
-    {{-0.08f, -0.3f, -31.9f}, {0.08f, 0.75f, -30.1f}, kHole},        // brake ports
-    {{-0.95f, -2.75f, 16.6f}, {0.95f, 1.3f, 17.2f}, kOliveDark},     // recoil pad
+    {{-0.8f, -1.0f, -5.0f}, {0.8f, 1.0f, 6.0f}, kOlive, kRegBody},             // receiver
+    {{-1.0f, -1.2f, -14.0f}, {1.0f, 0.4f, -5.0f}, kOlive, kRegFore},           // forend
+    {{-0.35f, -0.1f, -30.0f}, {0.35f, 0.55f, -14.0f}, kMetal, kRegBarrel},       // barrel
+    {{-0.55f, -0.3f, -32.0f}, {0.55f, 0.75f, -30.0f}, kMetalLight, kRegMuzzle},  // muzzle brake
+    {{-0.9f, -2.6f, 6.0f}, {0.9f, 1.2f, 17.0f}, kOlive, kRegStock},             // stock
+    {{-0.65f, -4.2f, 5.0f}, {0.65f, -1.0f, 7.0f}, kOliveDark, kRegGrip},       // grip
+    {{-0.75f, 1.6f, -6.0f}, {0.75f, 3.0f, 5.0f}, kMetal, kRegScope},            // scope tube
+    {{-1.0f, 1.4f, -8.0f}, {1.0f, 3.2f, -6.0f}, kMetal, kRegScope},             // objective bell
+    {{-0.9f, 1.5f, 5.0f}, {0.9f, 3.1f, 6.5f}, kMetal, kRegScope},               // eyepiece
+    {{-0.4f, 1.0f, -3.0f}, {0.4f, 1.6f, -2.0f}, kMetalLight, kRegScope},        // front mount
+    {{-0.4f, 1.0f, 2.0f}, {0.4f, 1.6f, 3.0f}, kMetalLight, kRegScope},          // rear mount
+    {{-0.85f, 1.55f, -8.05f}, {0.85f, 3.05f, -7.95f}, kGlass, kRegScope},       // the lenses
+    {{-0.75f, 1.65f, 6.45f}, {0.75f, 2.95f, 6.55f}, kGlass, kRegScope},
+    {{-0.25f, 3.0f, -1.0f}, {0.25f, 3.5f, 0.0f}, kMetalLight, kRegScope},       // turrets
+    {{0.75f, 2.0f, -1.0f}, {1.25f, 2.6f, 0.0f}, kMetalLight, kRegScope},
+    {{-0.95f, 1.2f, 9.0f}, {0.95f, 1.7f, 14.0f}, kOliveDark, kRegStock},        // cheek rest
+    {{-0.95f, -1.4f, 9.5f}, {-0.85f, 0.2f, 12.5f}, kHole, kRegStock},           // thumbhole
+    {{0.85f, -1.4f, 9.5f}, {0.95f, 0.2f, 12.5f}, kHole, kRegStock},
+    {{-0.4f, 0.1f, -28.0f}, {0.4f, 0.45f, -16.0f}, kMetalLight, kRegBarrel},     // barrel flutes
+    {{-0.08f, -0.3f, -31.9f}, {0.08f, 0.75f, -30.1f}, kHole, kRegMuzzle},        // brake ports
+    {{-0.95f, -2.75f, 16.6f}, {0.95f, 1.3f, 17.2f}, kOliveDark, kRegStock},     // recoil pad
 };
 const Part kSniperBolt[] = {  // cycles back and forward after each shot
-    {{0.8f, 0.2f, 2.0f}, {2.2f, 0.6f, 2.6f}, kMetalLight},           // handle
-    {{2.0f, 0.0f, 1.9f}, {2.6f, 0.8f, 2.7f}, kMetal},                // knob
+    {{0.8f, 0.2f, 2.0f}, {2.2f, 0.6f, 2.6f}, kMetalLight, kRegAccent},           // handle
+    {{2.0f, 0.0f, 1.9f}, {2.6f, 0.8f, 2.7f}, kMetal, kRegAccent},                // knob
 };
 const Part kSniperArms[] = {
     {{-1.3f, -4.0f, 4.5f}, {1.4f, -1.2f, 7.5f}, kGlove},             // right hand
@@ -119,22 +120,22 @@ const Part kSniperArms[] = {
     {{-5.5f, -6.5f, -10.0f}, {-1.2f, -2.6f, -3.5f}, kSleeve},        // left forearm
 };
 const Part kSniperMag[] = {
-    {{-0.6f, -3.2f, -3.0f}, {0.6f, -1.0f, 0.5f}, kMetal},
+    {{-0.6f, -3.2f, -3.0f}, {0.6f, -1.0f, 0.5f}, kMetal, kRegMag},
 };
 
 // Dual Berettas: two pistols, the right at x 0 and the left 8.5 inches over. Silver slides with the barrel
 // showing through the open top, dark frames, wooden grips.
 constexpr float kLeftGun = -8.5f;
 #define BERETTA(xo)                                                                                  \
-    {{xo - 0.5f, 0.75f, -8.0f}, {xo + 0.5f, 1.4f, 0.8f}, kMetalLight},     /* slide (open top) */   \
-    {{xo - 0.5f, 0.2f, -7.6f}, {xo - 0.2f, 0.75f, 0.8f}, kMetalLight},                            \
-    {{xo + 0.2f, 0.2f, -7.6f}, {xo + 0.5f, 0.75f, 0.8f}, kMetalLight},                            \
-    {{xo - 0.22f, 0.3f, -8.7f}, {xo + 0.22f, 0.95f, -0.5f}, kMetal},       /* barrel */             \
+    {{xo - 0.5f, 0.75f, -8.0f}, {xo + 0.5f, 1.4f, 0.8f}, kMetalLight, kRegTop},     /* slide (open top) */   \
+    {{xo - 0.5f, 0.2f, -7.6f}, {xo - 0.2f, 0.75f, 0.8f}, kMetalLight, kRegTop},                            \
+    {{xo + 0.2f, 0.2f, -7.6f}, {xo + 0.5f, 0.75f, 0.8f}, kMetalLight, kRegTop},                            \
+    {{xo - 0.22f, 0.3f, -8.7f}, {xo + 0.22f, 0.95f, -0.5f}, kMetal, kRegBarrel},       /* barrel */             \
     {{xo - 0.48f, -0.6f, -7.0f}, {xo + 0.48f, 0.2f, 0.6f}, kMetal},        /* frame */              \
-    {{xo - 0.52f, -4.1f, -0.9f}, {xo + 0.52f, -0.6f, 1.2f}, kWoodDark},    /* grip */               \
-    {{xo - 0.14f, -1.4f, -3.0f}, {xo + 0.14f, -0.6f, -0.8f}, kMetal},      /* trigger guard */      \
-    {{xo - 0.1f, 1.4f, -7.6f}, {xo + 0.1f, 1.65f, -7.2f}, kMetal},         /* front sight */        \
-    {{xo - 0.35f, 1.4f, 0.2f}, {xo + 0.35f, 1.65f, 0.7f}, kMetal}          /* rear sight */
+    {{xo - 0.52f, -4.1f, -0.9f}, {xo + 0.52f, -0.6f, 1.2f}, kWoodDark, kRegGrip},    /* grip */               \
+    {{xo - 0.14f, -1.4f, -3.0f}, {xo + 0.14f, -0.6f, -0.8f}, kMetal, kRegGrip},      /* trigger guard */      \
+    {{xo - 0.1f, 1.4f, -7.6f}, {xo + 0.1f, 1.65f, -7.2f}, kMetal, kRegAccent},         /* front sight */        \
+    {{xo - 0.35f, 1.4f, 0.2f}, {xo + 0.35f, 1.65f, 0.7f}, kMetal, kRegAccent}          /* rear sight */
 const Part kBerettasBody[] = {BERETTA(0.0f), BERETTA(kLeftGun)};
 const Part kBerettasArms[] = {
     {{-1.2f, -4.0f, -1.4f}, {1.3f, -1.0f, 1.6f}, kGlove},
@@ -143,28 +144,28 @@ const Part kBerettasArms[] = {
     {{kLeftGun - 3.2f, -6.5f, 1.6f}, {kLeftGun - 0.4f, -3.5f, 11.0f}, kSleeve},
 };
 const Part kBerettasMag[] = {
-    {{-0.42f, -4.4f, -0.7f}, {0.42f, -0.7f, 0.9f}, kMetalLight},
-    {{kLeftGun - 0.42f, -4.4f, -0.7f}, {kLeftGun + 0.42f, -0.7f, 0.9f}, kMetalLight},
+    {{-0.42f, -4.4f, -0.7f}, {0.42f, -0.7f, 0.9f}, kMetalLight, kRegMag},
+    {{kLeftGun - 0.42f, -4.4f, -0.7f}, {kLeftGun + 0.42f, -0.7f, 0.9f}, kMetalLight, kRegMag},
 };
 #undef BERETTA
 
 // Deagle: a big flat-sided slide with a rib on top and the hammer at the back, rubber grip.
 const Part kDeagleBody[] = {
-    {{-0.68f, 0.2f, -10.5f}, {0.68f, 1.9f, 1.2f}, kMetal},         // slide
-    {{-0.36f, 1.9f, -10.2f}, {0.36f, 2.15f, 0.8f}, kMetalLight},   // top rib
-    {{-0.42f, 0.5f, -11.0f}, {0.42f, 1.35f, -10.5f}, kMetalLight}, // muzzle
-    {{-0.7f, 0.9f, -6.0f}, {0.7f, 1.2f, -1.0f}, kMetalLight},      // slide flat
-    {{-0.56f, -0.7f, -8.5f}, {0.56f, 0.2f, 0.8f}, kMetal},         // frame
-    {{-0.64f, -4.8f, -0.9f}, {0.64f, -0.7f, 1.7f}, kPolymer},      // grip
-    {{-0.16f, -1.7f, -3.8f}, {0.16f, -0.7f, -0.6f}, kMetal},       // trigger guard
-    {{-0.2f, 1.2f, 1.2f}, {0.2f, 2.0f, 1.8f}, kMetalLight},        // hammer
-    {{-0.12f, 2.15f, -9.8f}, {0.12f, 2.45f, -9.3f}, kMetal},       // front sight
-    {{-0.42f, 2.15f, 0.2f}, {0.42f, 2.45f, 0.8f}, kMetal},         // rear sight
-    {{0.68f, 0.5f, -0.3f}, {0.73f, 1.7f, -0.15f}, kHole},          // slide serrations
-    {{0.68f, 0.5f, 0.1f}, {0.73f, 1.7f, 0.25f}, kHole},
-    {{0.68f, 0.5f, 0.5f}, {0.73f, 1.7f, 0.65f}, kHole},
-    {{0.68f, 1.25f, -5.6f}, {0.73f, 1.85f, -2.6f}, kHole},         // ejection port
-    {{0.56f, -0.5f, -7.8f}, {0.62f, 0.05f, -1.2f}, kMetalLight},   // frame flat
+    {{-0.68f, 0.2f, -10.5f}, {0.68f, 1.9f, 1.2f}, kMetal, kRegTop},         // slide
+    {{-0.36f, 1.9f, -10.2f}, {0.36f, 2.15f, 0.8f}, kMetalLight, kRegAccent},   // top rib
+    {{-0.42f, 0.5f, -11.0f}, {0.42f, 1.35f, -10.5f}, kMetalLight, kRegMuzzle}, // muzzle
+    {{-0.7f, 0.9f, -6.0f}, {0.7f, 1.2f, -1.0f}, kMetalLight, kRegTop},      // slide flat
+    {{-0.56f, -0.7f, -8.5f}, {0.56f, 0.2f, 0.8f}, kMetal, kRegBody},         // frame
+    {{-0.64f, -4.8f, -0.9f}, {0.64f, -0.7f, 1.7f}, kPolymer, kRegGrip},      // grip
+    {{-0.16f, -1.7f, -3.8f}, {0.16f, -0.7f, -0.6f}, kMetal, kRegGrip},       // trigger guard
+    {{-0.2f, 1.2f, 1.2f}, {0.2f, 2.0f, 1.8f}, kMetalLight, kRegAccent},        // hammer
+    {{-0.12f, 2.15f, -9.8f}, {0.12f, 2.45f, -9.3f}, kMetal, kRegAccent},       // front sight
+    {{-0.42f, 2.15f, 0.2f}, {0.42f, 2.45f, 0.8f}, kMetal, kRegAccent},         // rear sight
+    {{0.68f, 0.5f, -0.3f}, {0.73f, 1.7f, -0.15f}, kHole, kRegTop},          // slide serrations
+    {{0.68f, 0.5f, 0.1f}, {0.73f, 1.7f, 0.25f}, kHole, kRegTop},
+    {{0.68f, 0.5f, 0.5f}, {0.73f, 1.7f, 0.65f}, kHole, kRegTop},
+    {{0.68f, 1.25f, -5.6f}, {0.73f, 1.85f, -2.6f}, kHole, kRegAccent},         // ejection port
+    {{0.56f, -0.5f, -7.8f}, {0.62f, 0.05f, -1.2f}, kMetalLight, kRegBody},   // frame flat
 };
 const Part kDeagleArms[] = {
     {{-1.3f, -4.4f, -1.4f}, {1.4f, -1.0f, 1.8f}, kGlove},
@@ -173,25 +174,25 @@ const Part kDeagleArms[] = {
     {{-4.6f, -7.0f, 1.2f}, {-1.0f, -3.9f, 10.0f}, kSleeve},
 };
 const Part kDeagleMag[] = {
-    {{-0.5f, -4.9f, -0.6f}, {0.5f, -0.7f, 1.4f}, kMetalLight},
+    {{-0.5f, -4.9f, -0.6f}, {0.5f, -0.7f, 1.4f}, kMetalLight, kRegMag},
 };
 
 // Nova: pump shotgun. The forend (and the left hand on it) slides back and forward after each shot.
 const Part kNovaBody[] = {
-    {{-0.85f, -1.0f, -4.0f}, {0.85f, 1.3f, 5.0f}, kMetal},          // receiver
-    {{-0.42f, 0.2f, -26.0f}, {0.42f, 1.05f, -4.0f}, kMetal},        // barrel
-    {{-0.38f, -0.75f, -22.0f}, {0.38f, 0.05f, -4.0f}, kMetalLight}, // magazine tube
-    {{-0.12f, 1.05f, -25.6f}, {0.12f, 1.35f, -25.2f}, kMetalLight}, // front bead
-    {{-0.3f, 1.3f, -2.0f}, {0.3f, 1.6f, 4.0f}, kMetalLight},        // top rail
-    {{-0.75f, -1.8f, 5.0f}, {0.75f, 0.9f, 16.0f}, kPolymer},        // stock
-    {{-0.75f, -3.4f, 10.0f}, {0.75f, -1.8f, 16.0f}, kPolymer},      // stock heel
-    {{-0.65f, -3.6f, 4.0f}, {0.65f, -1.0f, 6.2f}, kPolymer},        // grip
-    {{-0.2f, -2.0f, 0.8f}, {0.2f, -1.0f, 3.5f}, kMetal},            // trigger guard
+    {{-0.85f, -1.0f, -4.0f}, {0.85f, 1.3f, 5.0f}, kMetal, kRegBody},          // receiver
+    {{-0.42f, 0.2f, -26.0f}, {0.42f, 1.05f, -4.0f}, kMetal, kRegBarrel},        // barrel
+    {{-0.38f, -0.75f, -22.0f}, {0.38f, 0.05f, -4.0f}, kMetalLight, kRegBarrel}, // magazine tube
+    {{-0.12f, 1.05f, -25.6f}, {0.12f, 1.35f, -25.2f}, kMetalLight, kRegBarrel}, // front bead
+    {{-0.3f, 1.3f, -2.0f}, {0.3f, 1.6f, 4.0f}, kMetalLight, kRegAccent},        // top rail
+    {{-0.75f, -1.8f, 5.0f}, {0.75f, 0.9f, 16.0f}, kPolymer, kRegStock},        // stock
+    {{-0.75f, -3.4f, 10.0f}, {0.75f, -1.8f, 16.0f}, kPolymer, kRegStock},      // stock heel
+    {{-0.65f, -3.6f, 4.0f}, {0.65f, -1.0f, 6.2f}, kPolymer, kRegGrip},        // grip
+    {{-0.2f, -2.0f, 0.8f}, {0.2f, -1.0f, 3.5f}, kMetal, kRegGrip},            // trigger guard
 };
 const Part kNovaPump[] = {
-    {{-0.78f, -1.3f, -17.0f}, {0.78f, 0.35f, -10.0f}, kPolymer},    // forend
-    {{-0.8f, -1.35f, -16.0f}, {0.8f, -1.05f, -15.4f}, kMetal},      // grip ribs
-    {{-0.8f, -1.35f, -13.0f}, {0.8f, -1.05f, -12.4f}, kMetal},
+    {{-0.78f, -1.3f, -17.0f}, {0.78f, 0.35f, -10.0f}, kPolymer, kRegFore},    // forend
+    {{-0.8f, -1.35f, -16.0f}, {0.8f, -1.05f, -15.4f}, kMetal, kRegFore},      // grip ribs
+    {{-0.8f, -1.35f, -13.0f}, {0.8f, -1.05f, -12.4f}, kMetal, kRegFore},
 };
 const Part kNovaArms[] = {
     {{-1.3f, -4.0f, 3.6f}, {1.4f, -1.2f, 6.6f}, kGlove},             // right hand
@@ -208,18 +209,18 @@ const Part kNovaShell[] = {  // reloading: a red shell pushed up into the loadin
 
 // MAC-10: a boxy little SMG, the long mag in the grip, the wire stock folded along its sides.
 const Part kMac10Body[] = {
-    {{-0.9f, -1.3f, -5.5f}, {0.9f, 1.4f, 3.5f}, kMetal},            // body
-    {{-0.4f, 1.4f, -5.0f}, {0.4f, 1.8f, 3.0f}, kMetalLight},        // top rail
-    {{-0.3f, 0.0f, -8.5f}, {0.3f, 0.6f, -5.5f}, kMetal},            // barrel
-    {{-0.38f, -0.1f, -9.2f}, {0.38f, 0.7f, -8.5f}, kMetalLight},    // muzzle
-    {{-0.62f, -4.5f, -1.4f}, {0.62f, -1.3f, 0.8f}, kPolymer},       // grip
-    {{-0.4f, -2.4f, -5.2f}, {0.4f, -1.3f, -4.2f}, kPolymer},        // hand stop
-    {{-0.15f, -2.0f, -3.4f}, {0.15f, -1.3f, -1.6f}, kMetal},        // trigger guard
-    {{0.95f, -0.3f, -4.0f}, {1.15f, 0.0f, 3.5f}, kMetalLight},      // folded stock rods
-    {{-1.15f, -0.3f, -4.0f}, {-0.95f, 0.0f, 3.5f}, kMetalLight},
-    {{-1.15f, -1.0f, 3.5f}, {1.15f, 0.4f, 3.9f}, kMetalLight},      // butt plate
-    {{-0.25f, 1.8f, -4.6f}, {0.25f, 2.2f, -4.2f}, kMetal},          // sights
-    {{-0.35f, 1.8f, 2.2f}, {0.35f, 2.2f, 2.8f}, kMetal},
+    {{-0.9f, -1.3f, -5.5f}, {0.9f, 1.4f, 3.5f}, kMetal, kRegBody},            // body
+    {{-0.4f, 1.4f, -5.0f}, {0.4f, 1.8f, 3.0f}, kMetalLight, kRegAccent},        // top rail
+    {{-0.3f, 0.0f, -8.5f}, {0.3f, 0.6f, -5.5f}, kMetal, kRegBarrel},            // barrel
+    {{-0.38f, -0.1f, -9.2f}, {0.38f, 0.7f, -8.5f}, kMetalLight, kRegMuzzle},    // muzzle
+    {{-0.62f, -4.5f, -1.4f}, {0.62f, -1.3f, 0.8f}, kPolymer, kRegGrip},       // grip
+    {{-0.4f, -2.4f, -5.2f}, {0.4f, -1.3f, -4.2f}, kPolymer, kRegGrip},        // hand stop
+    {{-0.15f, -2.0f, -3.4f}, {0.15f, -1.3f, -1.6f}, kMetal, kRegGrip},        // trigger guard
+    {{0.95f, -0.3f, -4.0f}, {1.15f, 0.0f, 3.5f}, kMetalLight, kRegStock},      // folded stock rods
+    {{-1.15f, -0.3f, -4.0f}, {-0.95f, 0.0f, 3.5f}, kMetalLight, kRegStock},
+    {{-1.15f, -1.0f, 3.5f}, {1.15f, 0.4f, 3.9f}, kMetalLight, kRegStock},      // butt plate
+    {{-0.25f, 1.8f, -4.6f}, {0.25f, 2.2f, -4.2f}, kMetal, kRegAccent},          // sights
+    {{-0.35f, 1.8f, 2.2f}, {0.35f, 2.2f, 2.8f}, kMetal, kRegAccent},
 };
 const Part kMac10Arms[] = {
     {{-1.3f, -4.0f, -1.8f}, {1.4f, -1.2f, 1.2f}, kGlove},           // right hand on the grip
@@ -228,61 +229,61 @@ const Part kMac10Arms[] = {
     {{-5.2f, -6.6f, -5.0f}, {-1.1f, -2.8f, 1.0f}, kSleeve},
 };
 const Part kMac10Mag[] = {
-    {{-0.5f, -8.2f, -1.1f}, {0.5f, -4.5f, 0.5f}, kMetal},
-    {{-0.55f, -8.5f, -1.2f}, {0.55f, -8.2f, 0.6f}, kMetalLight},
+    {{-0.5f, -8.2f, -1.1f}, {0.5f, -4.5f, 0.5f}, kMetal, kRegMag},
+    {{-0.55f, -8.5f, -1.2f}, {0.55f, -8.2f, 0.6f}, kMetalLight, kRegMag},
 };
 
 // M4A1-S: black, flat-top with a rail, a square quad-rail handguard, the A-frame front sight, a long
 // suppressor and a collapsible stock on its buffer tube; a straighter mag than the AK's.
 const Part kM4Body[] = {
-    {{-0.85f, -1.0f, -6.0f}, {0.85f, 1.1f, 5.5f}, kMetal},           // receiver
-    {{-0.6f, 1.1f, -6.0f}, {0.6f, 1.5f, 5.0f}, kMetalLight},         // flat-top rail
-    {{-0.35f, 1.5f, 3.0f}, {0.35f, 2.4f, 4.4f}, kMetal},             // rear sight
-    {{-1.0f, -1.1f, -14.0f}, {1.0f, 1.0f, -6.0f}, kPolymer},         // handguard
-    {{-0.5f, 1.0f, -13.5f}, {0.5f, 1.35f, -6.0f}, kMetalLight},      // its top rail
-    {{-1.05f, -0.2f, -13.0f}, {1.05f, 0.2f, -7.0f}, kMetalLight},    // side rails
-    {{-0.3f, -0.05f, -20.0f}, {0.3f, 0.5f, -14.0f}, kMetal},         // barrel
-    {{-0.4f, 0.5f, -17.0f}, {0.4f, 2.4f, -16.2f}, kMetal},           // front sight post
-    {{-0.62f, -0.4f, -31.0f}, {0.62f, 0.85f, -20.0f}, kMetal},       // suppressor
-    {{-0.66f, -0.44f, -21.0f}, {0.66f, 0.89f, -20.2f}, kMetalLight}, // its collar and end cap
-    {{-0.66f, -0.44f, -31.0f}, {0.66f, 0.89f, -30.4f}, kMetalLight},
-    {{-0.2f, -2.0f, 0.5f}, {0.2f, -1.0f, 2.8f}, kMetal},             // trigger guard
-    {{-0.6f, -4.4f, 2.6f}, {0.6f, -1.0f, 4.4f}, kPolymer},           // pistol grip
-    {{-0.35f, -0.4f, 5.5f}, {0.35f, 0.4f, 9.0f}, kMetal},            // buffer tube
-    {{-0.75f, -1.8f, 8.5f}, {0.75f, 0.9f, 14.0f}, kPolymer},         // stock
-    {{0.85f, 0.2f, 0.0f}, {1.15f, 0.7f, 2.2f}, kMetalLight},         // ejection port cover
-    {{0.85f, 0.3f, 3.0f}, {1.25f, 0.85f, 4.0f}, kMetal},             // forward assist
-    {{-0.62f, 1.5f, -4.8f}, {0.62f, 1.62f, -4.4f}, kMetal},          // rail teeth
-    {{-0.62f, 1.5f, -3.4f}, {0.62f, 1.62f, -3.0f}, kMetal},
-    {{-0.62f, 1.5f, -2.0f}, {0.62f, 1.62f, -1.6f}, kMetal},
-    {{-0.62f, 1.5f, -0.6f}, {0.62f, 1.62f, -0.2f}, kMetal},
-    {{-0.62f, 1.5f, 0.8f}, {0.62f, 1.62f, 1.2f}, kMetal},
-    {{-1.06f, -0.9f, -12.0f}, {1.06f, -0.75f, -8.0f}, kHole},        // handguard vents
-    {{-0.8f, -1.9f, 13.6f}, {0.8f, 1.0f, 14.2f}, kMetal},            // butt pad
-    {{-0.64f, -0.45f, -26.0f}, {0.64f, 0.9f, -25.6f}, kMetalLight},  // suppressor ring
+    {{-0.85f, -1.0f, -6.0f}, {0.85f, 1.1f, 5.5f}, kMetal, kRegBody},           // receiver
+    {{-0.6f, 1.1f, -6.0f}, {0.6f, 1.5f, 5.0f}, kMetalLight, kRegTop},         // flat-top rail
+    {{-0.35f, 1.5f, 3.0f}, {0.35f, 2.4f, 4.4f}, kMetal, kRegAccent},             // rear sight
+    {{-1.0f, -1.1f, -14.0f}, {1.0f, 1.0f, -6.0f}, kPolymer, kRegFore},         // handguard
+    {{-0.5f, 1.0f, -13.5f}, {0.5f, 1.35f, -6.0f}, kMetalLight, kRegFore},      // its top rail
+    {{-1.05f, -0.2f, -13.0f}, {1.05f, 0.2f, -7.0f}, kMetalLight, kRegFore},    // side rails
+    {{-0.3f, -0.05f, -20.0f}, {0.3f, 0.5f, -14.0f}, kMetal, kRegBarrel},         // barrel
+    {{-0.4f, 0.5f, -17.0f}, {0.4f, 2.4f, -16.2f}, kMetal, kRegAccent},           // front sight post
+    {{-0.62f, -0.4f, -31.0f}, {0.62f, 0.85f, -20.0f}, kMetal, kRegMuzzle},       // suppressor
+    {{-0.66f, -0.44f, -21.0f}, {0.66f, 0.89f, -20.2f}, kMetalLight, kRegMuzzle}, // its collar and end cap
+    {{-0.66f, -0.44f, -31.0f}, {0.66f, 0.89f, -30.4f}, kMetalLight, kRegMuzzle},
+    {{-0.2f, -2.0f, 0.5f}, {0.2f, -1.0f, 2.8f}, kMetal, kRegGrip},             // trigger guard
+    {{-0.6f, -4.4f, 2.6f}, {0.6f, -1.0f, 4.4f}, kPolymer, kRegGrip},           // pistol grip
+    {{-0.35f, -0.4f, 5.5f}, {0.35f, 0.4f, 9.0f}, kMetal, kRegStock},            // buffer tube
+    {{-0.75f, -1.8f, 8.5f}, {0.75f, 0.9f, 14.0f}, kPolymer, kRegStock},         // stock
+    {{0.85f, 0.2f, 0.0f}, {1.15f, 0.7f, 2.2f}, kMetalLight, kRegAccent},         // ejection port cover
+    {{0.85f, 0.3f, 3.0f}, {1.25f, 0.85f, 4.0f}, kMetal, kRegAccent},             // forward assist
+    {{-0.62f, 1.5f, -4.8f}, {0.62f, 1.62f, -4.4f}, kMetal, kRegAccent},          // rail teeth
+    {{-0.62f, 1.5f, -3.4f}, {0.62f, 1.62f, -3.0f}, kMetal, kRegAccent},
+    {{-0.62f, 1.5f, -2.0f}, {0.62f, 1.62f, -1.6f}, kMetal, kRegAccent},
+    {{-0.62f, 1.5f, -0.6f}, {0.62f, 1.62f, -0.2f}, kMetal, kRegAccent},
+    {{-0.62f, 1.5f, 0.8f}, {0.62f, 1.62f, 1.2f}, kMetal, kRegAccent},
+    {{-1.06f, -0.9f, -12.0f}, {1.06f, -0.75f, -8.0f}, kHole, kRegFore},        // handguard vents
+    {{-0.8f, -1.9f, 13.6f}, {0.8f, 1.0f, 14.2f}, kMetal, kRegStock},            // butt pad
+    {{-0.64f, -0.45f, -26.0f}, {0.64f, 0.9f, -25.6f}, kMetalLight, kRegMuzzle},  // suppressor ring
 };
 const Part kM4Mag[] = {
-    {{-0.6f, -5.0f, -4.0f}, {0.6f, -1.0f, -1.6f}, kMetal},
-    {{-0.6f, -8.0f, -4.6f}, {0.6f, -4.8f, -2.2f}, kMetal},
-    {{-0.65f, -6.6f, -4.5f}, {0.65f, -6.35f, -2.3f}, kMetalLight},  // a rib
-    {{-0.65f, -8.25f, -4.7f}, {0.65f, -7.95f, -2.1f}, kMetalLight}, // floor plate
+    {{-0.6f, -5.0f, -4.0f}, {0.6f, -1.0f, -1.6f}, kMetal, kRegMag},
+    {{-0.6f, -8.0f, -4.6f}, {0.6f, -4.8f, -2.2f}, kMetal, kRegMag},
+    {{-0.65f, -6.6f, -4.5f}, {0.65f, -6.35f, -2.3f}, kMetalLight, kRegMag},  // a rib
+    {{-0.65f, -8.25f, -4.7f}, {0.65f, -7.95f, -2.1f}, kMetalLight, kRegMag}, // floor plate
 };
 
 // XM1014: the auto shotgun. A long receiver, a barrel over a full-length tube magazine, a ventilated rib,
 // a pistol-grip stock; no pump (it cycles itself).
 const Part kXmBody[] = {
-    {{-0.85f, -1.1f, -6.0f}, {0.85f, 1.3f, 5.0f}, kMetal},           // receiver
-    {{-0.42f, 0.25f, -27.0f}, {0.42f, 1.05f, -6.0f}, kMetal},        // barrel
-    {{-0.18f, 1.05f, -26.5f}, {0.18f, 1.3f, -6.0f}, kMetalLight},    // vent rib
-    {{-0.45f, -0.8f, -23.0f}, {0.45f, 0.15f, -6.0f}, kMetalLight},   // magazine tube
-    {{-0.85f, -1.2f, -15.0f}, {0.85f, 0.4f, -6.0f}, kPolymer},       // forend
-    {{-0.55f, -0.85f, -25.0f}, {0.55f, 0.2f, -23.0f}, kMetal},       // tube cap / barrel clamp
-    {{-0.12f, 1.3f, -26.6f}, {0.12f, 1.6f, -26.2f}, kMetalLight},    // front bead
-    {{0.85f, 0.2f, -3.5f}, {1.4f, 0.7f, -2.5f}, kMetalLight},        // charging handle
-    {{-0.2f, -2.0f, 0.8f}, {0.2f, -1.1f, 3.5f}, kMetal},             // trigger guard
-    {{-0.65f, -3.8f, 4.0f}, {0.65f, -1.1f, 6.0f}, kPolymer},         // grip
-    {{-0.8f, -1.8f, 5.0f}, {0.8f, 1.0f, 16.0f}, kPolymer},           // stock
-    {{-0.8f, -3.4f, 10.0f}, {0.8f, -1.8f, 16.0f}, kPolymer},         // stock heel
+    {{-0.85f, -1.1f, -6.0f}, {0.85f, 1.3f, 5.0f}, kMetal, kRegBody},           // receiver
+    {{-0.42f, 0.25f, -27.0f}, {0.42f, 1.05f, -6.0f}, kMetal, kRegBarrel},        // barrel
+    {{-0.18f, 1.05f, -26.5f}, {0.18f, 1.3f, -6.0f}, kMetalLight, kRegBarrel},    // vent rib
+    {{-0.45f, -0.8f, -23.0f}, {0.45f, 0.15f, -6.0f}, kMetalLight, kRegBarrel},   // magazine tube
+    {{-0.85f, -1.2f, -15.0f}, {0.85f, 0.4f, -6.0f}, kPolymer, kRegFore},       // forend
+    {{-0.55f, -0.85f, -25.0f}, {0.55f, 0.2f, -23.0f}, kMetal, kRegBarrel},       // tube cap / barrel clamp
+    {{-0.12f, 1.3f, -26.6f}, {0.12f, 1.6f, -26.2f}, kMetalLight, kRegBarrel},    // front bead
+    {{0.85f, 0.2f, -3.5f}, {1.4f, 0.7f, -2.5f}, kMetalLight, kRegAccent},        // charging handle
+    {{-0.2f, -2.0f, 0.8f}, {0.2f, -1.1f, 3.5f}, kMetal, kRegGrip},             // trigger guard
+    {{-0.65f, -3.8f, 4.0f}, {0.65f, -1.1f, 6.0f}, kPolymer, kRegGrip},         // grip
+    {{-0.8f, -1.8f, 5.0f}, {0.8f, 1.0f, 16.0f}, kPolymer, kRegStock},           // stock
+    {{-0.8f, -3.4f, 10.0f}, {0.8f, -1.8f, 16.0f}, kPolymer, kRegStock},         // stock heel
 };
 const Part kXmArms[] = {
     {{-1.3f, -4.2f, 3.6f}, {1.4f, -1.3f, 6.6f}, kGlove},             // right hand
@@ -294,81 +295,81 @@ const Part kXmArms[] = {
 // Galil AR: a dark receiver with a tall rear sight and a raised charging handle, a dark wooden handguard,
 // a skeleton folding stock, a long curved mag.
 const Part kGalilBody[] = {
-    {{-0.9f, -1.1f, -6.5f}, {0.9f, 1.1f, 6.0f}, kMetal},             // receiver
-    {{-0.8f, 1.1f, -5.5f}, {0.8f, 1.5f, 5.5f}, kMetalLight},         // top cover
-    {{-0.3f, 1.5f, 3.5f}, {0.3f, 2.5f, 4.5f}, kMetal},               // rear sight
-    {{-1.05f, -1.2f, -13.0f}, {1.05f, 0.7f, -6.5f}, kWoodDark},      // handguard
-    {{-0.32f, -0.1f, -21.0f}, {0.32f, 0.55f, -13.0f}, kMetal},       // barrel
-    {{-0.4f, 0.55f, -19.5f}, {0.4f, 2.1f, -18.7f}, kMetal},          // front sight
-    {{-0.45f, -0.3f, -22.5f}, {0.45f, 0.75f, -21.0f}, kMetalLight},  // muzzle
-    {{-0.2f, -2.0f, 0.4f}, {0.2f, -1.1f, 2.8f}, kMetal},             // trigger guard
-    {{-0.6f, -4.5f, 2.6f}, {0.6f, -1.1f, 4.5f}, kPolymer},           // grip
-    {{-0.55f, 0.2f, 6.0f}, {0.55f, 0.8f, 15.0f}, kMetal},            // folding stock: top tube
-    {{-0.55f, -2.6f, 6.0f}, {0.55f, -2.0f, 15.0f}, kMetal},          // bottom tube
-    {{-0.7f, -2.8f, 14.0f}, {0.7f, 0.9f, 15.2f}, kPolymer},          // butt plate
-    {{0.9f, 0.0f, -2.5f}, {1.6f, 0.5f, -1.5f}, kMetal},              // charging handle
-    {{0.9f, 0.1f, -1.0f}, {0.96f, 0.9f, 3.0f}, kHole},               // ejection port
-    {{0.9f, -0.5f, 1.0f}, {1.0f, -0.1f, 4.2f}, kMetalLight},         // selector
-    {{-1.06f, -0.6f, -12.0f}, {1.06f, -0.45f, -7.5f}, kHole},        // handguard groove
-    {{-0.45f, 0.4f, -14.0f}, {0.45f, 1.2f, -12.8f}, kMetal},         // gas block
+    {{-0.9f, -1.1f, -6.5f}, {0.9f, 1.1f, 6.0f}, kMetal, kRegBody},             // receiver
+    {{-0.8f, 1.1f, -5.5f}, {0.8f, 1.5f, 5.5f}, kMetalLight, kRegTop},         // top cover
+    {{-0.3f, 1.5f, 3.5f}, {0.3f, 2.5f, 4.5f}, kMetal, kRegAccent},               // rear sight
+    {{-1.05f, -1.2f, -13.0f}, {1.05f, 0.7f, -6.5f}, kWoodDark, kRegFore},      // handguard
+    {{-0.32f, -0.1f, -21.0f}, {0.32f, 0.55f, -13.0f}, kMetal, kRegBarrel},       // barrel
+    {{-0.4f, 0.55f, -19.5f}, {0.4f, 2.1f, -18.7f}, kMetal, kRegAccent},          // front sight
+    {{-0.45f, -0.3f, -22.5f}, {0.45f, 0.75f, -21.0f}, kMetalLight, kRegMuzzle},  // muzzle
+    {{-0.2f, -2.0f, 0.4f}, {0.2f, -1.1f, 2.8f}, kMetal, kRegGrip},             // trigger guard
+    {{-0.6f, -4.5f, 2.6f}, {0.6f, -1.1f, 4.5f}, kPolymer, kRegGrip},           // grip
+    {{-0.55f, 0.2f, 6.0f}, {0.55f, 0.8f, 15.0f}, kMetal, kRegStock},            // folding stock: top tube
+    {{-0.55f, -2.6f, 6.0f}, {0.55f, -2.0f, 15.0f}, kMetal, kRegStock},          // bottom tube
+    {{-0.7f, -2.8f, 14.0f}, {0.7f, 0.9f, 15.2f}, kPolymer, kRegStock},          // butt plate
+    {{0.9f, 0.0f, -2.5f}, {1.6f, 0.5f, -1.5f}, kMetal, kRegAccent},              // charging handle
+    {{0.9f, 0.1f, -1.0f}, {0.96f, 0.9f, 3.0f}, kHole, kRegAccent},               // ejection port
+    {{0.9f, -0.5f, 1.0f}, {1.0f, -0.1f, 4.2f}, kMetalLight, kRegAccent},         // selector
+    {{-1.06f, -0.6f, -12.0f}, {1.06f, -0.45f, -7.5f}, kHole, kRegFore},        // handguard groove
+    {{-0.45f, 0.4f, -14.0f}, {0.45f, 1.2f, -12.8f}, kMetal, kRegBarrel},         // gas block
 };
 const Part kGalilMag[] = {
-    {{-0.6f, -5.0f, -4.4f}, {0.6f, -1.1f, -1.6f}, kMetal},
-    {{-0.6f, -8.0f, -6.0f}, {0.6f, -4.8f, -2.9f}, kMetal},
-    {{-0.6f, -10.0f, -7.4f}, {0.6f, -7.8f, -4.4f}, kMetal},
+    {{-0.6f, -5.0f, -4.4f}, {0.6f, -1.1f, -1.6f}, kMetal, kRegMag},
+    {{-0.6f, -8.0f, -6.0f}, {0.6f, -4.8f, -2.9f}, kMetal, kRegMag},
+    {{-0.6f, -10.0f, -7.4f}, {0.6f, -7.8f, -4.4f}, kMetal, kRegMag},
 };
 
 // SSG 08: slim and light, a thin fluted barrel, a polymer stock, a smaller scope than the big sniper's.
 const Part kSsgBody[] = {
-    {{-0.7f, -0.9f, -4.5f}, {0.7f, 0.9f, 5.5f}, kMetal},             // receiver
-    {{-0.9f, -1.4f, -13.0f}, {0.9f, 0.3f, -4.5f}, kPolymer},         // forend
-    {{-0.28f, -0.05f, -29.0f}, {0.28f, 0.5f, -13.0f}, kMetal},       // barrel
-    {{-0.34f, 0.5f, -26.0f}, {0.34f, 0.6f, -15.0f}, kMetalLight},    // flutes
-    {{-0.4f, -0.15f, -30.5f}, {0.4f, 0.6f, -29.0f}, kMetalLight},    // muzzle
-    {{-0.8f, -1.6f, 5.5f}, {0.8f, 0.9f, 9.0f}, kPolymer},            // wrist
-    {{-0.6f, -4.0f, 4.5f}, {0.6f, -1.4f, 6.5f}, kPolymer},           // grip
-    {{-0.85f, -3.6f, 9.0f}, {0.85f, 1.0f, 16.5f}, kPolymer},         // stock
-    {{-0.6f, 1.4f, -5.5f}, {0.6f, 2.6f, 4.5f}, kMetal},              // scope tube
-    {{-0.85f, 1.25f, -7.5f}, {0.85f, 2.75f, -5.5f}, kMetal},         // objective
-    {{-0.75f, 1.3f, 4.5f}, {0.75f, 2.7f, 6.0f}, kMetal},             // eyepiece
-    {{-0.25f, 2.6f, -1.0f}, {0.25f, 3.0f, 0.0f}, kMetalLight},       // turret
-    {{-0.3f, 0.9f, -3.0f}, {0.3f, 1.4f, -2.0f}, kMetalLight},        // mounts
-    {{-0.3f, 0.9f, 2.0f}, {0.3f, 1.4f, 3.0f}, kMetalLight},
-    {{-0.7f, 1.4f, -7.55f}, {0.7f, 2.6f, -7.45f}, kGlass},           // the lenses
-    {{-0.6f, 1.45f, 5.95f}, {0.6f, 2.55f, 6.05f}, kGlass},
-    {{-0.45f, -0.5f, 5.5f}, {0.45f, 0.5f, 6.4f}, kMetalLight},       // bolt shroud
-    {{-0.86f, -3.7f, 16.3f}, {0.86f, 1.05f, 16.8f}, kHole},          // recoil pad
-    {{-0.92f, -2.4f, 10.5f}, {-0.84f, -0.4f, 13.5f}, kHole},         // stock cut-outs
-    {{0.84f, -2.4f, 10.5f}, {0.92f, -0.4f, 13.5f}, kHole},
+    {{-0.7f, -0.9f, -4.5f}, {0.7f, 0.9f, 5.5f}, kMetal, kRegBody},             // receiver
+    {{-0.9f, -1.4f, -13.0f}, {0.9f, 0.3f, -4.5f}, kPolymer, kRegFore},         // forend
+    {{-0.28f, -0.05f, -29.0f}, {0.28f, 0.5f, -13.0f}, kMetal, kRegBarrel},       // barrel
+    {{-0.34f, 0.5f, -26.0f}, {0.34f, 0.6f, -15.0f}, kMetalLight, kRegBarrel},    // flutes
+    {{-0.4f, -0.15f, -30.5f}, {0.4f, 0.6f, -29.0f}, kMetalLight, kRegMuzzle},    // muzzle
+    {{-0.8f, -1.6f, 5.5f}, {0.8f, 0.9f, 9.0f}, kPolymer, kRegStock},            // wrist
+    {{-0.6f, -4.0f, 4.5f}, {0.6f, -1.4f, 6.5f}, kPolymer, kRegGrip},           // grip
+    {{-0.85f, -3.6f, 9.0f}, {0.85f, 1.0f, 16.5f}, kPolymer, kRegStock},         // stock
+    {{-0.6f, 1.4f, -5.5f}, {0.6f, 2.6f, 4.5f}, kMetal, kRegScope},              // scope tube
+    {{-0.85f, 1.25f, -7.5f}, {0.85f, 2.75f, -5.5f}, kMetal, kRegScope},         // objective
+    {{-0.75f, 1.3f, 4.5f}, {0.75f, 2.7f, 6.0f}, kMetal, kRegScope},             // eyepiece
+    {{-0.25f, 2.6f, -1.0f}, {0.25f, 3.0f, 0.0f}, kMetalLight, kRegScope},       // turret
+    {{-0.3f, 0.9f, -3.0f}, {0.3f, 1.4f, -2.0f}, kMetalLight, kRegScope},        // mounts
+    {{-0.3f, 0.9f, 2.0f}, {0.3f, 1.4f, 3.0f}, kMetalLight, kRegScope},
+    {{-0.7f, 1.4f, -7.55f}, {0.7f, 2.6f, -7.45f}, kGlass, kRegScope},           // the lenses
+    {{-0.6f, 1.45f, 5.95f}, {0.6f, 2.55f, 6.05f}, kGlass, kRegScope},
+    {{-0.45f, -0.5f, 5.5f}, {0.45f, 0.5f, 6.4f}, kMetalLight, kRegAccent},       // bolt shroud
+    {{-0.86f, -3.7f, 16.3f}, {0.86f, 1.05f, 16.8f}, kHole, kRegStock},          // recoil pad
+    {{-0.92f, -2.4f, 10.5f}, {-0.84f, -0.4f, 13.5f}, kHole, kRegStock},         // stock cut-outs
+    {{0.84f, -2.4f, 10.5f}, {0.92f, -0.4f, 13.5f}, kHole, kRegStock},
 };
 const Part kSsgBolt[] = {
-    {{0.7f, 0.1f, 2.0f}, {2.0f, 0.5f, 2.5f}, kMetalLight},
-    {{1.8f, -0.1f, 1.9f}, {2.4f, 0.6f, 2.6f}, kMetal},
+    {{0.7f, 0.1f, 2.0f}, {2.0f, 0.5f, 2.5f}, kMetalLight, kRegAccent},
+    {{1.8f, -0.1f, 1.9f}, {2.4f, 0.6f, 2.6f}, kMetal, kRegAccent},
 };
 const Part kSsgMag[] = {
-    {{-0.55f, -2.6f, -2.5f}, {0.55f, -0.9f, 0.5f}, kMetal},
+    {{-0.55f, -2.6f, -2.5f}, {0.55f, -0.9f, 0.5f}, kMetal, kRegMag},
 };
 
 // UMP-45: a boxy polymer SMG, a straight mag, a folding stock.
 const Part kUmpBody[] = {
-    {{-0.9f, -1.4f, -7.0f}, {0.9f, 1.2f, 4.0f}, kPolymer},           // receiver
-    {{-0.5f, 1.2f, -6.5f}, {0.5f, 1.6f, 3.5f}, kMetal},              // top rail
-    {{-0.35f, 1.6f, 2.0f}, {0.35f, 2.3f, 3.0f}, kMetal},             // rear sight
-    {{-0.35f, 1.6f, -6.0f}, {0.35f, 2.3f, -5.2f}, kMetal},           // front sight
-    {{-0.35f, -0.1f, -10.5f}, {0.35f, 0.5f, -7.0f}, kMetal},         // barrel
-    {{-0.5f, -0.3f, -11.0f}, {0.5f, 0.7f, -10.0f}, kMetalLight},     // muzzle
-    {{-0.25f, -2.4f, -0.3f}, {0.25f, -1.4f, 2.0f}, kPolymer},        // trigger guard
-    {{-0.6f, -4.6f, 1.8f}, {0.6f, -1.4f, 3.8f}, kPolymer},           // grip
-    {{-0.5f, -0.2f, 4.0f}, {0.5f, 0.6f, 12.0f}, kPolymer},           // stock arm
-    {{-0.5f, -2.6f, 10.5f}, {0.5f, 0.6f, 12.5f}, kPolymer},          // butt
-    {{0.9f, 0.3f, -5.5f}, {1.4f, 0.8f, -4.5f}, kMetal},              // charging handle
-    {{-0.52f, 1.6f, -5.4f}, {0.52f, 1.72f, -5.0f}, kMetalLight},     // rail teeth
-    {{-0.52f, 1.6f, -3.6f}, {0.52f, 1.72f, -3.2f}, kMetalLight},
-    {{-0.52f, 1.6f, -1.8f}, {0.52f, 1.72f, -1.4f}, kMetalLight},
-    {{-0.52f, 1.6f, 0.0f}, {0.52f, 1.72f, 0.4f}, kMetalLight},
-    {{0.9f, -0.9f, -6.5f}, {0.96f, -0.5f, -3.0f}, kHole},            // vents
-    {{-0.96f, -0.9f, -6.5f}, {-0.9f, -0.5f, -3.0f}, kHole},
-    {{0.9f, 0.2f, -2.0f}, {0.96f, 0.9f, 1.0f}, kHole},               // ejection port
+    {{-0.9f, -1.4f, -7.0f}, {0.9f, 1.2f, 4.0f}, kPolymer, kRegBody},           // receiver
+    {{-0.5f, 1.2f, -6.5f}, {0.5f, 1.6f, 3.5f}, kMetal, kRegAccent},              // top rail
+    {{-0.35f, 1.6f, 2.0f}, {0.35f, 2.3f, 3.0f}, kMetal, kRegAccent},             // rear sight
+    {{-0.35f, 1.6f, -6.0f}, {0.35f, 2.3f, -5.2f}, kMetal, kRegAccent},           // front sight
+    {{-0.35f, -0.1f, -10.5f}, {0.35f, 0.5f, -7.0f}, kMetal, kRegBarrel},         // barrel
+    {{-0.5f, -0.3f, -11.0f}, {0.5f, 0.7f, -10.0f}, kMetalLight, kRegMuzzle},     // muzzle
+    {{-0.25f, -2.4f, -0.3f}, {0.25f, -1.4f, 2.0f}, kPolymer, kRegGrip},        // trigger guard
+    {{-0.6f, -4.6f, 1.8f}, {0.6f, -1.4f, 3.8f}, kPolymer, kRegGrip},           // grip
+    {{-0.5f, -0.2f, 4.0f}, {0.5f, 0.6f, 12.0f}, kPolymer, kRegStock},           // stock arm
+    {{-0.5f, -2.6f, 10.5f}, {0.5f, 0.6f, 12.5f}, kPolymer, kRegStock},          // butt
+    {{0.9f, 0.3f, -5.5f}, {1.4f, 0.8f, -4.5f}, kMetal, kRegAccent},              // charging handle
+    {{-0.52f, 1.6f, -5.4f}, {0.52f, 1.72f, -5.0f}, kMetalLight, kRegAccent},     // rail teeth
+    {{-0.52f, 1.6f, -3.6f}, {0.52f, 1.72f, -3.2f}, kMetalLight, kRegAccent},
+    {{-0.52f, 1.6f, -1.8f}, {0.52f, 1.72f, -1.4f}, kMetalLight, kRegAccent},
+    {{-0.52f, 1.6f, 0.0f}, {0.52f, 1.72f, 0.4f}, kMetalLight, kRegAccent},
+    {{0.9f, -0.9f, -6.5f}, {0.96f, -0.5f, -3.0f}, kHole, kRegAccent},            // vents
+    {{-0.96f, -0.9f, -6.5f}, {-0.9f, -0.5f, -3.0f}, kHole, kRegAccent},
+    {{0.9f, 0.2f, -2.0f}, {0.96f, 0.9f, 1.0f}, kHole, kRegAccent},               // ejection port
 };
 const Part kUmpArms[] = {
     {{-1.3f, -4.4f, 1.4f}, {1.4f, -1.4f, 4.2f}, kGlove},             // right hand
@@ -377,7 +378,7 @@ const Part kUmpArms[] = {
     {{-5.5f, -6.5f, -5.0f}, {-1.2f, -2.6f, 1.5f}, kSleeve},          // left forearm
 };
 const Part kUmpMag[] = {
-    {{-0.6f, -6.8f, -2.9f}, {0.6f, -1.4f, -0.6f}, kMetal},
+    {{-0.6f, -6.8f, -2.9f}, {0.6f, -1.4f, -0.6f}, kMetal, kRegMag},
 };
 
 // ---- Knives. Blades are steel with a bright edge bevel and a darker fuller (a skin paints all three). ----
@@ -519,27 +520,39 @@ const Part kKnifeHand[] = {
     {{-1.6f, -2.2f, 4.3f}, {1.6f, 1.6f, 14.0f}, kSleeve},
 };
 
-// A part's box: painted by the skin (shaded by its role) when there is one, else its own colour.
-BoxInstance partBox(const Part& p, bool gunPaint, bool bladePaint) {
-    if (gunPaint) {
+// A part's box: painted by the skin when the skin paints its region (shaded by its role, so the parts still read
+// apart), else its own colour. Guns: the metal, wood and polymer parts (not ports, glass or gloves). Knives
+// (`knife`): the blade's steel is the blade region; the handle's dark parts the handle region (light inlays - pins,
+// brass, ivory - and the glove keep their own colours).
+BoxInstance partBox(const Part& p, const PaintParams* paint, bool knife) {
+    if (paint && paint->pattern >= 0) {
         const uint32_t c = p.color;
-        if (c == kMetal) return makePainted(p.mins, p.maxs, 225);
-        if (c == kMetalLight) return makePainted(p.mins, p.maxs, 255);
-        if (c == kWood || c == kOlive) return makePainted(p.mins, p.maxs, 215);
-        if (c == kWoodDark || c == kOliveDark) return makePainted(p.mins, p.maxs, 180);
-        if (c == kPolymer) return makePainted(p.mins, p.maxs, 195);
-    }
-    if (bladePaint) {
-        if (p.color == kBlade) return makePainted(p.mins, p.maxs, 230);
-        if (p.color == kBladeEdge) return makePainted(p.mins, p.maxs, 255);
-        if (p.color == kBladeFuller) return makePainted(p.mins, p.maxs, 165);
+        int region = p.region, shade = 0;
+        if (knife) {
+            region = kRegBlade;
+            if (c == kBlade) shade = 230;
+            else if (c == kBladeEdge) shade = 255;
+            else if (c == kBladeFuller) shade = 165;
+            else if (c != kGlove && c != kSleeve && c != kFinger && c != kCuff) {
+                const float lum = (0.3f * float(c >> 16 & 255) + 0.59f * float(c >> 8 & 255) + 0.11f * float(c & 255)) / 255.0f;
+                if (lum < 0.45f) {
+                    region = kRegHandle;
+                    shade = int(190.0f + 120.0f * lum);
+                }
+            }
+        } else if (c == kMetal) shade = 225;
+        else if (c == kMetalLight) shade = 255;
+        else if (c == kWood || c == kOlive) shade = 215;
+        else if (c == kWoodDark || c == kOliveDark) shade = 180;
+        else if (c == kPolymer) shade = 195;
+        if (shade > 0 && paint->regionLayer[region] != kRegionPlain) return makePainted(p.mins, p.maxs, uint8_t(shade), region);
     }
     return makeBox(p.mins, p.maxs, p.color, false);
 }
 
 template <size_t N>
-void addParts(std::vector<BoxInstance>& out, const Part (&parts)[N], bool gunPaint = false, bool bladePaint = false) {
-    for (const Part& p : parts) out.push_back(partBox(p, gunPaint, bladePaint));
+void addParts(std::vector<BoxInstance>& out, const Part (&parts)[N], const PaintParams* paint = nullptr, bool knife = false) {
+    for (const Part& p : parts) out.push_back(partBox(p, paint, knife));
 }
 
 // Gloved hands, built over a hand's block: on a grip, the three lower fingers wrap its front, the trigger finger
@@ -652,7 +665,7 @@ struct Anim {
 void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4& world, const Anim& a, DrawList& out) {
     PaintParams paint = skinIn;
     paintSpan(w, paint);
-    const bool painted = paint.pattern >= 0;
+    const PaintParams* pp = paint.pattern >= 0 ? &paint : nullptr;  // (the skin, if there is one)
     auto add = [&](const Mat4& m) -> std::vector<BoxInstance>& { return out.add(m, paint).boxes; };
     switch (w) {
         case ViewWeapon::Rifle:
@@ -669,7 +682,7 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
             static std::vector<BoxInstance> mag, bolt;  // (drawn only sometimes: built aside, copied in)
             mag.clear();
             bolt.clear();
-            if (w == ViewWeapon::Rifle) { addParts(body, kRifleBody, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kRifleMag, painted); }
+            if (w == ViewWeapon::Rifle) { addParts(body, kRifleBody, pp); if (a.arms) addParts(body, kRifleArms); addParts(mag, kRifleMag, pp); }
             if (a.arms && (w == ViewWeapon::Rifle || w == ViewWeapon::M4A1S || w == ViewWeapon::Galil)) {
                 addGripHand(body, kRifleArms[0], -1.7f, 0.9f);
                 addSupportHand(body, kRifleArms[2], 1.05f);
@@ -695,40 +708,40 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
                 addSupportHand(body, kMac10Arms[2], 0.9f);
             }
             if (w == ViewWeapon::Sniper) {
-                addParts(body, kSniperBody, painted);
+                addParts(body, kSniperBody, pp);
                 if (a.arms) addParts(body, kSniperArms);
-                addParts(mag, kSniperMag, painted);
-                addParts(bolt, kSniperBolt, painted);
+                addParts(mag, kSniperMag, pp);
+                addParts(bolt, kSniperBolt, pp);
             }
-            if (w == ViewWeapon::M4A1S) { addParts(body, kM4Body, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kM4Mag, painted); }
-            if (w == ViewWeapon::Galil) { addParts(body, kGalilBody, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kGalilMag, painted); }
+            if (w == ViewWeapon::M4A1S) { addParts(body, kM4Body, pp); if (a.arms) addParts(body, kRifleArms); addParts(mag, kM4Mag, pp); }
+            if (w == ViewWeapon::Galil) { addParts(body, kGalilBody, pp); if (a.arms) addParts(body, kRifleArms); addParts(mag, kGalilMag, pp); }
             if (w == ViewWeapon::Ssg08) {
-                addParts(body, kSsgBody, painted);
+                addParts(body, kSsgBody, pp);
                 if (a.arms) addParts(body, kSniperArms);
-                addParts(mag, kSsgMag, painted);
-                addParts(bolt, kSsgBolt, painted);
+                addParts(mag, kSsgMag, pp);
+                addParts(bolt, kSsgBolt, pp);
             }
-            if (w == ViewWeapon::Ump45) { addParts(body, kUmpBody, painted); if (a.arms) addParts(body, kUmpArms); addParts(mag, kUmpMag, painted); }
-            if (w == ViewWeapon::Pistol) { addParts(body, kPistolBody, painted); if (a.arms) addParts(body, kPistolArms); addParts(mag, kPistolMag, painted); }
-            if (w == ViewWeapon::Deagle) { addParts(body, kDeagleBody, painted); if (a.arms) addParts(body, kDeagleArms); addParts(mag, kDeagleMag, painted); }
+            if (w == ViewWeapon::Ump45) { addParts(body, kUmpBody, pp); if (a.arms) addParts(body, kUmpArms); addParts(mag, kUmpMag, pp); }
+            if (w == ViewWeapon::Pistol) { addParts(body, kPistolBody, pp); if (a.arms) addParts(body, kPistolArms); addParts(mag, kPistolMag, pp); }
+            if (w == ViewWeapon::Deagle) { addParts(body, kDeagleBody, pp); if (a.arms) addParts(body, kDeagleArms); addParts(mag, kDeagleMag, pp); }
             if (w == ViewWeapon::Berettas) {
                 if (a.arms) {
-                    addParts(body, kBerettasBody, painted);
+                    addParts(body, kBerettasBody, pp);
                     addParts(body, kBerettasArms);
-                    addParts(mag, kBerettasMag, painted);
+                    addParts(mag, kBerettasMag, pp);
                 } else {  // the showcase: one of the pair (side on, the other would sit in front of it)
-                    for (size_t k = 0; k < std::size(kBerettasBody) / 2; ++k) body.push_back(partBox(kBerettasBody[k], painted, false));
-                    mag.push_back(partBox(kBerettasMag[0], painted, false));
+                    for (size_t k = 0; k < std::size(kBerettasBody) / 2; ++k) body.push_back(partBox(kBerettasBody[k], pp, false));
+                    mag.push_back(partBox(kBerettasMag[0], pp, false));
                 }
             }
-            if (w == ViewWeapon::Mac10) { addParts(body, kMac10Body, painted); if (a.arms) addParts(body, kMac10Arms); addParts(mag, kMac10Mag, painted); }
+            if (w == ViewWeapon::Mac10) { addParts(body, kMac10Body, pp); if (a.arms) addParts(body, kMac10Arms); addParts(mag, kMac10Mag, pp); }
             if (a.magVisible) add(world * translation(a.magOffset)).assign(mag.begin(), mag.end());
             if (!bolt.empty()) add(world * translation(a.bolt)).assign(bolt.begin(), bolt.end());
             break;
         }
         case ViewWeapon::Xm1014: {
             std::vector<BoxInstance>& body = add(world);
-            addParts(body, kXmBody, painted);
+            addParts(body, kXmBody, pp);
             if (a.arms) {
                 addParts(body, kXmArms);
                 addGripHand(body, kXmArms[0], -1.6f, 1.4f);
@@ -740,12 +753,12 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
         case ViewWeapon::Nova: {
             std::vector<BoxInstance>& body = add(world);
             std::vector<BoxInstance>& pump = add(world * translation({0, 0, a.pumpZ}));
-            addParts(body, kNovaBody, painted);
+            addParts(body, kNovaBody, pp);
             if (a.arms) {
                 addParts(body, kNovaArms);
                 addGripHand(body, kNovaArms[0], -1.6f, 1.4f);
             }
-            addParts(pump, kNovaPump, painted);
+            addParts(pump, kNovaPump, pp);
             if (a.arms) {
                 addParts(pump, kNovaPumpArm);
                 addSupportHand(pump, kNovaPumpArm[0], 0.78f);
@@ -769,21 +782,21 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
         case ViewWeapon::Knife: {
             if (knife == kKnifeButterfly) {
                 if (a.arms) addParts(add(world), kButterflyHand);
-                addParts(add(world), kButterflySafe);
-                addParts(add(world * rotationX(a.biteAngle)), kButterflyBite);
-                addParts(add(world * rotationX(a.bladeAngle)), kButterflyBlade, false, painted);
+                addParts(add(world), kButterflySafe, pp, true);
+                addParts(add(world * rotationX(a.biteAngle)), kButterflyBite, pp, true);
+                addParts(add(world * rotationX(a.bladeAngle)), kButterflyBlade, pp, true);
             } else if (ringKnife(knife)) {
                 const Vec3 ring{0, -0.1f, knife == kKnifeKarambit ? 5.4f : 5.8f};
                 if (a.arms) addParts(add(world), kKnifeHand);
                 std::vector<BoxInstance>& blade = add(world * translation(ring) * rotationX(a.ringSpin) * translation(-ring));
-                if (knife == kKnifeKarambit) addParts(blade, kKarambit, false, painted);
-                else addParts(blade, kTalon, false, painted);
+                if (knife == kKnifeKarambit) addParts(blade, kKarambit, pp, true);
+                else addParts(blade, kTalon, pp, true);
             } else {
                 if (a.arms) addParts(add(world), kKnifeHand);
                 std::vector<BoxInstance>& blade = add(world);
-                if (knife == kKnifeM9) addParts(blade, kM9, false, painted);
-                else if (knife == kKnifeBowie) addParts(blade, kBowie, false, painted);
-                else if (knife == kKnifeKukri) addParts(blade, kKukri, false, painted);
+                if (knife == kKnifeM9) addParts(blade, kM9, pp, true);
+                else if (knife == kKnifeBowie) addParts(blade, kBowie, pp, true);
+                else if (knife == kKnifeKukri) addParts(blade, kKukri, pp, true);
                 else addParts(blade, kDefaultKnife);
             }
             break;

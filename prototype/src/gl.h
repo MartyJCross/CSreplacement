@@ -161,6 +161,9 @@ typedef struct __GLsync* GLsync;
     X(void, Uniform2f, (GLint loc, GLfloat a, GLfloat b))                                            \
     X(void, Uniform3f, (GLint loc, GLfloat a, GLfloat b, GLfloat c))                                 \
     X(void, Uniform4f, (GLint loc, GLfloat a, GLfloat b, GLfloat c, GLfloat d))                      \
+    X(void, Uniform1iv, (GLint loc, GLsizei n, const GLint* v))                                      \
+    X(void, Uniform2fv, (GLint loc, GLsizei n, const GLfloat* v))                                    \
+    X(void, Uniform3fv, (GLint loc, GLsizei n, const GLfloat* v))                                    \
     X(void, UniformMatrix4fv, (GLint loc, GLsizei n, GLboolean transpose, const GLfloat* m))        \
     X(GLsync, FenceSync, (GLenum condition, GLbitfield flags))                                       \
     X(GLenum, ClientWaitSync, (GLsync sync, GLbitfield flags, GLuint64 timeout))                     \

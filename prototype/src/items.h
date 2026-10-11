@@ -12,25 +12,53 @@ uint32_t rarityColor(int rarity);  // 0xRRGGBB
 // Odds out of 10000 (79.92%, 15.98%, 3.2%, 0.64%, 0.26%).
 int rarityOdds(int rarity);
 
-// Paint patterns, drawn per pixel by the box shader in the weapon's own space.
+// Paint patterns, drawn per pixel by the box shader in the weapon's own space (render.cpp skin()).
 enum Pattern {
     kPatSolid, kPatFade, kPatCamo, kPatTiger, kPatMarble, kPatHardened, kPatWeb, kPatHazard, kPatFlames, kPatCarbon,
-    kPatNeon, kPatTwoTone, kPatterns
+    kPatNeon, kPatTwoTone,
+    kPatPrint,      // pearl under sweeping ribbons of fine ink lines, an ink wave from below (a printed look)
+    kPatLotus,      // flowers outlined in gold on a leafy ground
+    kPatHalftone,   // dots growing along the gun
+    kPatFacets,     // crystal shards with bright edges
+    kPatWaves,      // overlapping fans of arcs
+    kPatHolo,       // shimmers through the rainbow as it turns
+    kPatDecals,     // lines of tiny text, bar codes, tags
+    kPatDamascus,   // folded steel
+    kPatGalaxy,     // a swirling nebula with stars
+    kPatScales,     // rows of overlapping scales
+    kPatSplatter,   // thrown paint and drips
+    kPatStripes,    // racing stripes
+    kPatGradient,   // bottom-to-top colour, with a flake
+    kPatBlocks,     // bold mecha panels on the slant
+    kPatterns
 };
+
+// The parts of a weapon a skin paints separately (fx.cpp tags every part of every gun; knives: blade, handle).
+enum SkinRegion { kRegBody, kRegTop, kRegBarrel, kRegMuzzle, kRegFore, kRegStock, kRegGrip, kRegMag, kRegScope, kRegAccent,
+                  kRegBlade, kRegHandle, kSkinRegions };
+// One paint: a pattern, its three colours, its scale (1 = as designed; smaller = finer), how polished (0..1).
+struct SkinLayer {
+    int pattern = kPatSolid;
+    uint32_t a = 0x808080, b = 0x404040, c = 0x202020;
+    float gloss = 0.3f, scale = 1.0f;
+};
+constexpr int kSkinLayers = 4;
+constexpr uint8_t kRegionPlain = 255;  // a region the skin leaves in the weapon's own colours
 
 // Knives: the default one everybody has, and the six from cases.
 enum KnifeType { kKnifeDefault, kKnifeButterfly, kKnifeKarambit, kKnifeM9, kKnifeTalon, kKnifeBowie, kKnifeKukri, kKnifeTypes };
 const char* knifeName(int type);
 
+// A skin: up to kSkinLayers paints and which one each region of the weapon gets (barrel, mag, stock...: kRegionPlain
+// leaves it in its own colours), so a design can be a print on the body, a gloss-black barrel and a decal-covered mag.
 struct SkinDef {
     std::string key;   // stable id in the save file
     std::string name;  // shown, e.g. "DEAGLE | BLAZE" or "KARAMBIT | FADE"
     int weapon;        // WeaponId (kWKnife = 2 for knives)
     int knife;         // knives: KnifeType; guns: -1
     int rarity;
-    int pattern;
-    uint32_t a, b, c;  // the pattern's colours
-    float gloss;       // 0 matte .. 1 polished
+    SkinLayer layers[kSkinLayers];
+    uint8_t regions[kSkinRegions];
 };
 const std::vector<SkinDef>& allSkins();
 int findSkin(const std::string& key);  // -1 if unknown

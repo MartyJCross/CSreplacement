@@ -90,10 +90,14 @@ in vec4 vColor;
 uniform vec3 uEye;
 uniform sampler2DArray uTex;  // layers: 0 sandstone, 1 plaster, 2 sand, 3 paving, 4 planks, 5 shutter, 6 plate
 uniform int uHasTex;
-// Skins (weapon models): the pattern (items.h Pattern, -1 none), its colours, wear/gloss/seed, z extent.
+// Skins (weapon models): uPaint >= 0 = painted. Up to four layers (a pattern from items.h Pattern, three colours,
+// scale and polish); each region of the weapon (barrel, mag...: the painted box's alpha, 56 + region) takes one.
 uniform int uPaint;
-uniform vec3 uPA, uPB, uPC;
-uniform vec3 uPaintMisc;  // wear, gloss, seed
+uniform int uLayerPat[4];
+uniform vec3 uLayerA[4], uLayerB[4], uLayerC[4];
+uniform vec2 uLayerMisc[4];  // scale, gloss
+uniform int uRegionLayer[12];
+uniform vec3 uPaintMisc;  // wear, -, seed
 uniform vec2 uPaintZ;     // the model's z range (back..front runs along it)
 uniform vec4 uFlash;      // the muzzle light: position, strength (0 = off)
 uniform int uStyle;       // 1 = the clean stylized look: flat colour (textures only a hint), soft height gradient
@@ -167,72 +171,201 @@ float joint(float p, float size, float width) {
 }
 // A hard-ish edge between two colours at `edge`, anti-aliased.
 float cut(float v, float edge) { float w = fwidth(v) * 0.75 + 1e-4; return smoothstep(edge - w, edge + w, v); }
-// The skin's colour at this point (model units: inches; z runs muzzle (-) to stock (+)). `glow` > 0: unlit.
-vec3 skin(out float glow) {
+float fbm(vec2 p) { return noise(p) * 0.5 + noise(p * 2.03 + 7.1) * 0.25 + noise(p * 4.01 + 3.3) * 0.125 + noise(p * 8.05 + 1.7) * 0.0625; }
+vec2 hash22(vec2 p) { return vec2(hash12(p), hash12(p + 17.31)); }
+// Cells round scattered points: the nearest one's distance, the second nearest's, and the nearest cell's id (0..1).
+vec3 voronoi(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    float d1 = 8.0, d2 = 8.0, id = 0.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) {
+            vec2 g = vec2(x, y), r = g + hash22(i + g) - f;
+            float d = dot(r, r);
+            if (d < d1) { d2 = d1; d1 = d; id = hash12(i + g); } else if (d < d2) d2 = d;
+        }
+    return vec3(sqrt(d1), sqrt(d2), id);
+}
+// A line where v crosses 0, `w` wide (anti-aliased).
+float edge1(float v, float w) { return 1.0 - smoothstep(w, w + fwidth(v) + 1e-4, abs(v)); }
+// Fans in overlapping rows (waves, scales): circles of radius 0.5 a cell apart, rows a quarter cell apart and every
+// other one half a cell over; each row covers the one behind it (above), so only the tops of the back rows show.
+// Returns the distance from the centre of the fan in front at g (0 centre .. 0.5 rim).
+float fans(vec2 g) {
+    float r0 = floor(g.y * 4.0);
+    for (int j = -1; j <= 2; ++j) {  // the front-most (lowest) row whose fan covers g
+        float row = r0 + float(j), cy = row * 0.25, off = mod(row, 2.0) * 0.5;
+        float cx = floor(g.x - off + 0.5) + off;
+        float r = length(g - vec2(cx, cy));
+        if (r < 0.5) return r;
+    }
+    return 0.5;
+}
+// The skin's colour at this point (model units: inches; z runs muzzle (-) to stock (+)). `glow` > 0: unlit; `gloss`:
+// how polished its layer is.
+vec3 skin(out float glow, out float gloss) {
     glow = 0.0;
+    int region = clamp(int(vColor.a * 255.0 + 0.5) - 56, 0, 11);
+    int L = uRegionLayer[region];
+    int pat = uLayerPat[L];
+    vec3 A = uLayerA[L], B = uLayerB[L], C = uLayerC[L];
+    float sc = max(uLayerMisc[L].x, 0.05);
+    gloss = uLayerMisc[L].y;
     vec3 n = vLocalN;
-    vec2 uv = abs(n.x) > 0.5 ? vLocal.zy : (abs(n.y) > 0.5 ? vLocal.zx : vLocal.xy);
     float seed = uPaintMisc.z;
-    uv += vec2(seed * 7.13, seed * 3.71);
+    vec3 q = vLocal / sc;  // model space at the layer's scale
+    vec2 uv = (abs(n.x) > 0.5 ? q.zy : (abs(n.y) > 0.5 ? q.zx : q.xy)) + vec2(seed * 7.13, seed * 3.71);
     float t = clamp((vLocal.z - uPaintZ.x) / max(uPaintZ.y - uPaintZ.x, 1.0), 0.0, 1.0);  // 0 front .. 1 back
-    if (uPaint == 1) {  // fade: front colour into the middle into the back
-        return t < 0.5 ? mix(uPA, uPB, smoothstep(0.0, 0.5, t)) : mix(uPB, uPC, smoothstep(0.5, 1.0, t));
-    } else if (uPaint == 2) {  // camo: three-colour blotches
+    if (pat == 1) {  // fade: front colour into the middle into the back
+        return t < 0.5 ? mix(A, B, smoothstep(0.0, 0.5, t)) : mix(B, C, smoothstep(0.5, 1.0, t));
+    } else if (pat == 2) {  // camo: three-colour blotches
         float a = noise(uv * 0.32) * 0.7 + noise(uv * 0.9) * 0.3;
         float b = noise(uv * 0.45 + 11.0) * 0.7 + noise(uv * 1.3 + 5.0) * 0.3;
-        vec3 c = mix(uPA, uPB, cut(a, 0.52));
-        return mix(c, uPC, cut(b, 0.62));
-    } else if (uPaint == 3) {  // tiger: wavy stripes across the gun
-        float w = vLocal.z * 0.85 + noise(uv * 0.35) * 5.0 + noise(uv * 1.1) * 1.2;
-        return mix(uPA, uPB, cut(sin(w), 0.45));
-    } else if (uPaint == 4) {  // marble: swirled liquid colour with bright veins
+        return mix(mix(A, B, cut(a, 0.52)), C, cut(b, 0.62));
+    } else if (pat == 3) {  // tiger: wavy stripes across the gun
+        float w = q.z * 0.85 + noise(uv * 0.35) * 5.0 + noise(uv * 1.1) * 1.2;
+        return mix(A, B, cut(sin(w), 0.45));
+    } else if (pat == 4) {  // marble: swirled liquid colour with bright veins
         float m = noise(uv * 0.22) * 0.65 + noise(uv * 0.55) * 0.35;
-        float s = sin(m * 11.0 + vLocal.z * 0.25);
-        vec3 c = mix(uPB, uPA, smoothstep(-0.55, 0.55, s));
-        return mix(c, uPC, smoothstep(0.82, 0.97, s));
-    } else if (uPaint == 5) {  // case hardened: blue, gold and bare patina in patches
+        float s = sin(m * 11.0 + q.z * 0.25);
+        return mix(mix(B, A, smoothstep(-0.55, 0.55, s)), C, smoothstep(0.82, 0.97, s));
+    } else if (pat == 5) {  // case hardened: blue, gold and bare patina in patches
         float h = noise(uv * 0.28) * 0.6 + noise(uv * 0.8) * 0.4;
-        vec3 c = mix(uPA, uPC, smoothstep(0.38, 0.5, h));
-        return mix(c, uPB, smoothstep(0.58, 0.7, h));
-    } else if (uPaint == 6) {  // web: a dark lattice over a deep colour
+        return mix(mix(A, C, smoothstep(0.38, 0.5, h)), B, smoothstep(0.58, 0.7, h));
+    } else if (pat == 6) {  // web: a dark lattice over a deep colour
         float l = max(max(joint(uv.x + uv.y * 0.55, 3.2, 0.12), joint(uv.y - uv.x * 0.35, 2.7, 0.12)), joint(length(uv - vec2(2.0, 0.5)), 2.2, 0.1));
-        return mix(mix(uPA, uPC, noise(uv * 0.5) * 0.5), uPB, l);
-    } else if (uPaint == 7) {  // hazard: bold blocks of colour down the gun, a stripe of the accent
-        float band = fract(vLocal.z / 11.0 + seed * 0.37);
-        vec3 c = band < 0.58 ? uPA : (band < 0.8 ? uPB : uPC);
-        float diag = fract((vLocal.z + vLocal.y * 1.5) / 3.0);
-        if (band >= 0.58 && band < 0.8 && diag < 0.18) c = uPC;
+        return mix(mix(A, C, noise(uv * 0.5) * 0.5), B, l);
+    } else if (pat == 7) {  // hazard: bold blocks of colour down the gun, a stripe of the accent
+        float band = fract(q.z / 11.0 + seed * 0.37);
+        vec3 c = band < 0.58 ? A : (band < 0.8 ? B : C);
+        if (band >= 0.58 && band < 0.8 && fract((q.z + q.y * 1.5) / 3.0) < 0.18) c = C;
         return c;
-    } else if (uPaint == 8) {  // flames: licking back from the muzzle over a dark body
-        float f = 1.0 - t + noise(vec2(uv.x * 0.6, vLocal.z * 0.12)) * 0.6 - 0.25 + noise(uv * 1.4) * 0.15;
-        vec3 c = mix(uPC, uPB, smoothstep(0.42, 0.55, f));
-        return mix(c, uPA, smoothstep(0.7, 0.85, f));
-    } else if (uPaint == 9) {  // carbon: a fine weave, one accent stripe along the side
-        float ch = mod(floor(uv.x * 2.2) + floor(uv.y * 2.2), 2.0);
-        vec3 c = mix(uPA, uPB, ch);
-        if (abs(n.x) > 0.5 && abs(vLocal.y - 0.15) < 0.22) c = uPC;
+    } else if (pat == 8) {  // flames: licking back from the muzzle over a dark body
+        float f = 1.0 - t + noise(vec2(uv.x * 0.6, q.z * 0.12)) * 0.6 - 0.25 + noise(uv * 1.4) * 0.15;
+        return mix(mix(C, B, smoothstep(0.42, 0.55, f)), A, smoothstep(0.7, 0.85, f));
+    } else if (pat == 9) {  // carbon: a fine weave, one accent stripe along the side
+        vec3 c = mix(A, B, mod(floor(uv.x * 2.2) + floor(uv.y * 2.2), 2.0));
+        if (abs(n.x) > 0.5 && abs(q.y - 0.15) < 0.22) c = C;
         return c;
-    } else if (uPaint == 10) {  // neon: a dark body with glowing circuit lines
+    } else if (pat == 10) {  // neon: a dark body with glowing circuit lines
         float l = max(joint(uv.x, 2.6, 0.07), joint(uv.y + floor(uv.x / 2.6) * 0.9, 1.9, 0.07));
         float on = l * step(0.45, noise(floor(uv / 2.6) + 3.0));
         glow = on;
-        return mix(uPA, uPB, on);
-    } else if (uPaint == 11) {  // two-tone: top and bottom halves, a seam of the accent
-        float y = vLocal.y + noise(uv * 0.6) * 0.15;
-        vec3 c = mix(uPB, uPA, cut(y, 0.1));
-        if (abs(y - 0.1) < 0.12) c = uPC;
+        return mix(A, B, on);
+    } else if (pat == 11) {  // two-tone: top and bottom halves, a seam of the accent
+        float y = q.y + noise(uv * 0.6) * 0.15;
+        vec3 c = mix(B, A, cut(y, 0.1));
+        if (abs(y - 0.1) < 0.12) c = C;
         return c;
+    } else if (pat == 12) {  // print: wide sweeps alternating fine ink lines on pearl (A) and pearl lines on ink (B), C edges
+        vec3 V = normalize(uEye - vWorld), N = normalize(vNormal);
+        float flow = q.z * 0.18 + q.y * 0.8 + sin(q.z * 0.12 + seed * 4.0) * 1.6 + fbm(uv * 0.08) * 2.5;
+        float band = fract(flow * 0.22);
+        float dark = smoothstep(0.47, 0.5, band) * (1.0 - smoothstep(0.85, 0.88, band));
+        float fine = joint(flow * 2.6, 1.0, 0.09);
+        vec3 pearl = A * (0.93 + 0.07 * sin(flow * 2.0 + q.x)) + 0.05 * cos(6.2832 * (dot(N, V) * 0.8 + vec3(0.0, 0.33, 0.67)));
+        vec3 c = mix(pearl, B, fine * 0.85);
+        c = mix(c, mix(B, A, fine * 0.9), dark);
+        return mix(c, C, max(edge1(band - 0.485, 0.01), edge1(band - 0.865, 0.01)));
+    } else if (pat == 13) {  // lotus: flowers (B petals paling at the tips, C outlines and hearts) on a leafy ground (A)
+        vec2 g = uv * 0.42;
+        g.x += mod(floor(g.y), 2.0) * 0.5;
+        vec2 id = floor(g), f = fract(g) - 0.5 + (hash22(id) - 0.5) * 0.18;
+        float size = 0.75 + 0.45 * hash12(id + 3.0);
+        vec2 pf = f / size;
+        float r = length(pf) * 2.0, th = atan(pf.y, pf.x) + hash12(id) * 6.2832;
+        float outer = (0.45 + 0.55 * pow(abs(cos(th * 2.5)), 0.7)) * 0.95;
+        float inner = 0.25 + 0.3 * pow(abs(cos(th * 2.5 + 1.2566)), 0.7);
+        vec3 c = A * (0.7 + 0.6 * fbm(uv * 0.25));
+        float leaf = smoothstep(0.55, 0.6, fbm(uv * 0.16 + 5.0));
+        c = mix(c, A * 1.7 + vec3(0.02, 0.07, 0.03), leaf * 0.55);
+        c = mix(c, A * 0.5, joint(fbm(uv * 0.3) * 6.0, 1.0, 0.05) * leaf);  // leaf veins
+        if (r < outer) c = mix(B, mix(B, vec3(1.0), 0.6), smoothstep(0.25, outer, r));
+        if (r < inner) c = mix(B * 0.7, B, r / max(inner, 0.01));
+        c = mix(c, C, edge1(r - outer, 0.04));
+        c = mix(c, C, edge1(r - inner, 0.03) * step(r, outer + 0.1));
+        return mix(c, C * 1.15, 1.0 - smoothstep(0.08, 0.12, r));
+    } else if (pat == 14) {  // halftone: B dots on A, growing along the gun and in drifts; a C stripe through them
+        vec2 f = fract(uv * 1.3) - 0.5;
+        float k = clamp(t * 1.3 - 0.15 + (fbm(uv * 0.1) - 0.5) * 0.8, 0.0, 1.0);
+        vec3 c = mix(B, A, smoothstep(-0.03, 0.03, length(f) - 0.55 * k));
+        return mix(c, C, edge1(q.y + 0.3 * sin(q.z * 0.2), 0.12));
+    } else if (pat == 15) {  // facets: crystal shards of A, B and C with bright edges
+        vec3 v = voronoi(uv * 0.35);
+        vec3 c = v.z < 0.45 ? A : v.z < 0.8 ? B : C;
+        c *= 0.75 + 0.45 * hash12(vec2(v.z * 91.0, 3.0));
+        return mix(c, vec3(1.0), (1.0 - smoothstep(0.0, 0.05, v.y - v.x)) * 0.55);
+    } else if (pat == 16) {  // waves: overlapping fans of arcs, B lines on A, C in the hollows
+        float r = fans(uv * 0.45);
+        vec3 c = mix(C, A, smoothstep(0.08, 0.14, r));
+        return mix(c, B, joint(r, 0.1, 0.014));
+    } else if (pat == 17) {  // holographic: A shimmering through the rainbow as it turns, B foil lines
+        vec3 V = normalize(uEye - vWorld), N = normalize(vNormal);
+        float h = dot(N, V) * 1.4 + q.z * 0.04 + fbm(uv * 0.15) * 0.6 + seed;
+        vec3 rainbow = 0.55 + 0.45 * cos(6.2832 * (h + vec3(0.0, 0.33, 0.67)));
+        vec3 c = mix(A, rainbow * mix(vec3(1.0), C, 0.3), 0.6);
+        glow = 0.12;
+        return mix(c, B, joint(uv.x * 0.7 + uv.y * 0.7, 1.2, 0.07) * 0.7);
+    } else if (pat == 18) {  // decals: blocks of small printed text (B) on A, bar codes, a C tag now and then
+        vec2 g = uv * vec2(3.0, 4.5);
+        vec2 id = floor(g), f = fract(g);
+        float para = step(0.35, noise(vec2(id.x * 0.08, id.y * 0.25) + 3.0));  // text comes in blocks
+        float row = step(0.25, hash12(vec2(1.0, id.y)));
+        float word = step(0.32, noise(vec2(id.x * 0.4, id.y * 5.1)));
+        float glyph = step(0.25, hash12(id)) * step(0.18, f.x) * step(f.x, 0.82) * step(0.25, f.y) * step(f.y, 0.72);
+        vec3 c = mix(A, B, glyph * word * row * para);
+        float bars = step(0.45, hash12(vec2(floor(uv.x * 7.0), 7.0))) * step(fract(uv.y * 0.09 + seed), 0.07);
+        c = mix(c, B, bars);
+        vec2 tg = fract(uv * 0.18);
+        return mix(c, C, step(0.8, hash12(floor(uv * 0.18) + 9.0)) * step(0.1, tg.x) * step(tg.x, 0.55) * step(0.35, tg.y) * step(tg.y, 0.5));
+    } else if (pat == 19) {  // damascus: folded steel, wavy light (A) and dark (B) layers, C bright seams
+        float w = q.y * 2.2 + fbm(uv * 0.22) * 4.0 + sin(q.z * 0.45 + fbm(uv * 0.4) * 3.0) * 0.8;
+        float s = sin(w * 6.2832);
+        return mix(mix(A, B, smoothstep(-0.25, 0.25, s)), C, smoothstep(0.9, 1.0, s) * 0.6);
+    } else if (pat == 20) {  // galaxy: a swirling nebula of A into B and C, scattered stars
+        vec2 w = uv * 0.12;
+        w += vec2(fbm(w * 2.0), fbm(w * 2.0 + 4.0)) * 1.5;
+        float nb = fbm(w * 1.5);
+        vec3 c = mix(mix(A, B, smoothstep(0.35, 0.65, nb)), C, smoothstep(0.62, 0.8, nb));
+        vec2 sg = uv * 3.0;
+        float star = step(0.94, hash12(floor(sg))) * (1.0 - smoothstep(0.02, 0.12, length(fract(sg) - 0.5)));
+        glow = star * 0.8;
+        return c + vec3(star);
+    } else if (pat == 21) {  // scales: rows of overlapping scales, A shading to B at their rims, C edges
+        float r = fans(uv * 0.7);
+        return mix(mix(A, B, smoothstep(0.1, 0.48, r)), C, edge1(r - 0.47, 0.025));
+    } else if (pat == 22) {  // splatter: paint thrown over A, big B splats, C spatter, B drips
+        vec3 c = mix(A, B, cut(fbm(uv * 0.22 + 3.0), 0.58));
+        c = mix(c, C, cut(fbm(uv * 0.7 + 9.0), 0.68));
+        float col = floor(uv.x * 1.5);
+        float drip = step(0.82, hash12(vec2(col, 3.0))) * step(abs(fract(uv.x * 1.5) - 0.5), 0.18) *
+                     step(fract(uv.y * 0.04 + hash12(vec2(col, 1.0))), 0.35);
+        return mix(c, B, drip);
+    } else if (pat == 23) {  // racing stripes: A with two C stripes along the gun, B pinstripes beside them
+        float across = abs(n.y) > 0.5 ? q.x : abs(n.x) > 0.5 ? q.y - 0.15 : q.x;
+        float d = abs(abs(across) - 0.28);
+        vec3 c = mix(A, C, 1.0 - cut(d, 0.11));
+        return mix(c, B, edge1(d - 0.16, 0.03));
+    } else if (pat == 24) {  // gradient: A at the bottom through B into C at the top, a fine flake
+        float h = clamp(q.y * 0.35 + 0.5 + (t - 0.5) * 0.4, 0.0, 1.0);
+        vec3 c = h < 0.5 ? mix(A, B, h * 2.0) : mix(B, C, h * 2.0 - 1.0);
+        return c * (0.94 + 0.12 * hash12(floor(uv * 14.0)));
+    } else if (pat == 25) {  // blocks: bold mecha panels of A, B and C cut on the slant, dark seams, panel lines
+        float d = q.z * 0.6 + q.y * 1.2;
+        float h = hash12(vec2(floor(d / 3.0 + seed), 2.0));
+        vec3 c = h < 0.5 ? A : h < 0.8 ? B : C;
+        c = mix(c, vec3(0.05), joint(d, 3.0, 0.06));
+        return mix(c, c * 0.7, joint(q.z, 5.0, 0.04));
     }
-    return mix(uPA, uPB, noise(uv * 0.4) * 0.18);  // solid, with a faint mottle
+    return mix(A, B, noise(uv * 0.4) * 0.18);  // solid, with a faint mottle
 }
 void main() {
     if (vColor.a > 0.4 && vColor.a < 0.6) { oColor = vec4(vColor.rgb, edgeCode()); return; }  // emissive
     if (vColor.a > 0.2 && vColor.a < 0.3 && uPaint >= 0) {  // a skin-painted weapon part
-        float glow;
-        vec3 p = skin(glow);
+        float glow, gloss;
+        vec3 p = skin(glow, gloss);
         vec3 n = vLocalN;
         vec2 uv = abs(n.x) > 0.5 ? vLocal.zy : (abs(n.y) > 0.5 ? vLocal.zx : vLocal.xy);
-        float wear = uPaintMisc.x, gloss = uPaintMisc.y;
+        float wear = uPaintMisc.x;
         // Wear: scratches and chips down to bare steel, more of them the higher the float; edges first.
         float scratch = noise(uv * vec2(4.0, 0.7) + uPaintMisc.z * 5.0) * noise(uv * 0.5 + 9.0);
         float chips = noise(uv * 1.6 + 4.0);
@@ -608,9 +741,9 @@ BoxInstance makeBlobShadow(const Vec3& centre, float radius, uint32_t floorRgb, 
     return b;
 }
 
-BoxInstance makePainted(const Vec3& mins, const Vec3& maxs, uint8_t shade) {
+BoxInstance makePainted(const Vec3& mins, const Vec3& maxs, uint8_t shade, int region) {
     BoxInstance b = makeBox(mins, maxs, (uint32_t(shade) << 16) | (uint32_t(shade) << 8) | shade, false);
-    b.rgba[3] = 64;
+    b.rgba[3] = uint8_t(56 + std::clamp(region, 0, kPaintRegions - 1));  // (56..67: the box shader's painted range)
     return b;
 }
 
@@ -736,9 +869,12 @@ bool Renderer::init(std::string& err) {
     uSkyUp_ = glGetUniformLocation(skyProgram_, "uUp");
     glGenVertexArrays(1, &skyVao_);  // no vertex data: the triangle comes from gl_VertexID
     uPaint_ = glGetUniformLocation(boxProgram_, "uPaint");
-    uPA_ = glGetUniformLocation(boxProgram_, "uPA");
-    uPB_ = glGetUniformLocation(boxProgram_, "uPB");
-    uPC_ = glGetUniformLocation(boxProgram_, "uPC");
+    uLayerPat_ = glGetUniformLocation(boxProgram_, "uLayerPat");
+    uLayerA_ = glGetUniformLocation(boxProgram_, "uLayerA");
+    uLayerB_ = glGetUniformLocation(boxProgram_, "uLayerB");
+    uLayerC_ = glGetUniformLocation(boxProgram_, "uLayerC");
+    uLayerMisc_ = glGetUniformLocation(boxProgram_, "uLayerMisc");
+    uRegionLayer_ = glGetUniformLocation(boxProgram_, "uRegionLayer");
     uPaintMisc_ = glGetUniformLocation(boxProgram_, "uPaintMisc");
     uPaintZ_ = glGetUniformLocation(boxProgram_, "uPaintZ");
     uViewProj_ = glGetUniformLocation(boxProgram_, "uViewProj");
@@ -1149,10 +1285,27 @@ void Renderer::uploadDynamic(const std::vector<BoxInstance>& boxes, int n) {
 void Renderer::setPaint(const PaintParams* p) {
     glUniform1i(uPaint_, p ? p->pattern : -1);
     if (!p || p->pattern < 0) return;
-    glUniform3f(uPA_, p->a[0], p->a[1], p->a[2]);
-    glUniform3f(uPB_, p->b[0], p->b[1], p->b[2]);
-    glUniform3f(uPC_, p->c[0], p->c[1], p->c[2]);
-    glUniform3f(uPaintMisc_, p->wear, p->gloss, p->seed);
+    GLint pat[kPaintLayers], reg[kPaintRegions];
+    GLfloat ca[kPaintLayers * 3], cb[kPaintLayers * 3], cc[kPaintLayers * 3], misc[kPaintLayers * 2];
+    for (int k = 0; k < kPaintLayers; ++k) {
+        const PaintLayer& l = p->layers[k];
+        pat[k] = l.pattern;
+        for (int q = 0; q < 3; ++q) {
+            ca[k * 3 + q] = l.a[q];
+            cb[k * 3 + q] = l.b[q];
+            cc[k * 3 + q] = l.c[q];
+        }
+        misc[k * 2] = l.scale;
+        misc[k * 2 + 1] = l.gloss;
+    }
+    for (int k = 0; k < kPaintRegions; ++k) reg[k] = std::min(int(p->regionLayer[k]), kPaintLayers - 1);
+    glUniform1iv(uLayerPat_, kPaintLayers, pat);
+    glUniform3fv(uLayerA_, kPaintLayers, ca);
+    glUniform3fv(uLayerB_, kPaintLayers, cb);
+    glUniform3fv(uLayerC_, kPaintLayers, cc);
+    glUniform2fv(uLayerMisc_, kPaintLayers, misc);
+    glUniform1iv(uRegionLayer_, kPaintRegions, reg);
+    glUniform3f(uPaintMisc_, p->wear, 0.0f, p->seed);
     glUniform2f(uPaintZ_, p->zMin, p->zMax);
 }
 
