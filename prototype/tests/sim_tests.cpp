@@ -1391,53 +1391,63 @@ void testSpawnsOffMid() {
     CHECK(seen == 0 && closest > 500.0f, "spawns must be out of mid's sight and a run away (%d seen, %.0f)", seen, double(closest));
 }
 
-void testNoMidFights() {
-    std::printf("no mid fights from spawn\n");
+// The Ts' ways onto the sites (owner, v0.26: short, lowers and mid to B are plays now that mid is open): every
+// staging point has a route from T spawn, and the route from it to its site crosses the way's own area (short goes
+// over catwalk, lowers through the lower tunnels, mid to B through B doors); the mid-control spots are reachable.
+void testCompWays() {
+    std::printf("competitive ways in\n");
     const float keep = townScale();
     int bad = 0;
     for (int town = 0; town < 2; ++town)
-        for (float sc : {0.6f, 0.8f, 0.95f}) {
+        for (float sc : {0.6f, 0.8f, 0.9f, 0.95f}) {
             if (town == 1 && sc != 0.6f) continue;  // (Harbor has one size)
             setTownMap(town);
             setDustScale(sc);
             const World w = buildTown();
             NavGrid nav;
             nav.build(townGrid(), w, townSpawn().pos);
-            nav.setAvoid(townMidCells());  // (as competitive does)
             const TownTactics& tac = townTactics();
+            const Vec3 spawn = townTeamSpawns(0)[0];
             std::vector<Vec3> path;
-            auto midCells = [&](const Vec3& from, const Vec3& to) {
-                Vec3 goal = to;
-                if (!nav.findPath(from, goal, path)) {
-                    Vec3 alt;
-                    if (!nav.nearestRoamable(goal, 6, alt) || !nav.findPath(from, alt, path)) return -1;
-                }
-                int n = 0;
-                for (const Vec3& c : path) n += midArea(townCallout(c));
-                return n;
+            auto len = [&](const std::vector<Vec3>& p) {
+                float l = 0;
+                for (size_t k = 1; k < p.size(); ++k) l += length2d(p[k] - p[k - 1]);
+                return l;
             };
-            auto report = [&](const char* what, const Vec3& from, const Vec3& to) {
-                const int n = midCells(from, to);
-                if (n != 0) {
+            for (const TownWay& way : tac.ways) {
+                const Vec3 stage = townPoint(way.stage[0], way.stage[1]);
+                const RetakeSite& site = townRetakeSites()[size_t(way.site)];
+                const Vec3 bomb = townPoint(site.bombX, site.bombY);
+                if (!nav.findPath(spawn, stage, path)) {
                     ++bad;
-                    std::printf("    %s %.0f%%: %s to %s (%s) %s\n", townMapName(town), double(sc * 100), what, townCallout(from), townCallout(to),
-                                n < 0 ? "no route" : (std::to_string(n) + " cells in mid").c_str());
+                    std::printf("    %s %.0f%%: no route from T spawn to the %s stage\n", townMapName(town), double(sc * 100), way.name);
+                    continue;
                 }
-            };
-            for (int k = 0; k < 5; ++k)
-                for (const Vec3& sp : townTeamSpawns(0)) report("T stage", sp, townPoint(tac.stages[k][0], tac.stages[k][1]));
-            for (int role = 0; role < kCtRoles; ++role)
-                for (const RetakeSpot& h : townCtSpots(role))
-                    for (const Vec3& sp : townTeamSpawns(1)) report("CT spot", sp, townPoint(h.x, h.y));
-            for (int k : {0, 2})
-                for (const Vec3& sp : townTeamSpawns(1)) report("CT push", sp, townPoint(tac.pushes[k].x, tac.pushes[k].y));
-            // (The CT mid holder no longer has to hide from mid: the owner reopened mid once the spawns were walled
-            // off from it, v0.26. testSpawnsOffMid keeps the spawns out of its sight.)
+                const float toStage = len(path);
+                if (!nav.findPath(stage, bomb, path)) {
+                    ++bad;
+                    std::printf("    %s %.0f%%: no route from the %s stage to %s\n", townMapName(town), double(sc * 100), way.name, site.name);
+                    continue;
+                }
+                bool crosses = false;
+                for (const Vec3& c : path) crosses |= std::strcmp(townCallout(c), way.through) == 0;
+                if (!crosses) {
+                    ++bad;
+                    std::printf("    %s %.0f%%: %s's route to %s misses %s\n", townMapName(town), double(sc * 100), way.name, site.name, way.through);
+                }
+                if (sc == 0.9f || town == 1)
+                    std::printf("    %s: %-9s spawn -> stage %4.1f s, stage -> %s %4.1f s\n", townMapName(town), way.name,
+                                double(toStage / kBotRunSpeed), site.name, double(len(path) / kBotRunSpeed));
+            }
+            for (const auto& m : tac.mid)
+                if (!nav.findPath(spawn, townPoint(m[0], m[1]), path)) {
+                    ++bad;
+                    std::printf("    %s %.0f%%: a mid-control spot has no route\n", townMapName(town), double(sc * 100));
+                }
         }
     setTownMap(0);
     setDustScale(keep);
-    std::printf("  stages, CT spots, pushes and their routes checked on both maps: %d go into mid\n", bad);
-    CHECK(bad == 0, "%d plans or routes go into mid", bad);
+    CHECK(bad == 0, "%d ways in are broken", bad);
 }
 
 // Fire: a bot caught in a molotov steps out within a second (holding an angle or walking through), and one walking
@@ -1567,7 +1577,8 @@ void testHarbor() {
         spots.push_back({"peek", ps.peek});
     }
     const TownTactics& tac = townTactics();
-    for (const auto& st : tac.stages) spots.push_back({"stage", townPoint(st[0], st[1])});
+    for (const TownWay& wy : tac.ways) spots.push_back({wy.name, townPoint(wy.stage[0], wy.stage[1])});
+    for (const auto& m : tac.mid) spots.push_back({"mid control", townPoint(m[0], m[1])});
     for (const RetakeSpot& h : tac.pushes) spots.push_back({"push", P(h)});
     int bad = 0, unreachable = 0;
     std::vector<Vec3> path;
@@ -1907,7 +1918,7 @@ int main() {
     testBotArsenal();
     testBotFire();
     testSpawnsOffMid();
-    testNoMidFights();
+    testCompWays();
     testHarbor();
     testReplay();
     testBotCover();

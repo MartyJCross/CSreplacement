@@ -108,16 +108,14 @@ bool setDustScale(float scale);
 float townScale();
 const MapGrid& townGrid();
 const char* townCallout(const Vec3& p);  // area name under p ("" in walls)
-// Mid (Dust: mid, top mid, mid doors, catwalk; Harbor: mid, mid doors, the market): where the competitive bots don't
-// go from spawn (owner: no mid fights). townMidCells: per grid cell, 1 in mid (for NavGrid::setAvoid).
-bool townMidArea(const Vec3& p);
-std::vector<uint8_t> townMidCells();
 // The floor under p: its colour, whether it's paved (the sites) and whether it's flat (not a ramp). False in walls.
 bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat);
 struct MapSpawn { Vec3 pos; float yaw; };
 MapSpawn townSpawn();
 // A point given in real-Dust2 coordinates, at the map's current scale, on the floor.
 Vec3 townPoint(float x, float y);
+// Mid (Dust: mid, top mid, mid doors, catwalk; Harbor: mid, mid doors, the market): deathmatch never spawns you there.
+bool townMidArea(const Vec3& p);
 // Competitive: five spawn spots per side (0 = T, 1 = CT), at the current scale.
 std::vector<Vec3> townTeamSpawns(int side);
 
@@ -136,14 +134,23 @@ const std::vector<RetakeSite>& townRetakeSites();
 enum CtRole { kCtMid, kCtShort, kCtLong, kCtA, kCtB, kCtRoles };
 const std::vector<RetakeSpot>& townCtSpots(int role);
 
+// A way onto a site for the Ts (Dust: long, short, tunnels, lowers, mid to B): where a group gathers before the
+// execute, the utility it throws as it goes (a smoke to cut the defenders' view, a flash over where they hold), and
+// the area its route passes through (tested). Real map coordinates (townPoint()).
+struct TownWay {
+    const char* name;    // radio name: "LONG", "SHORT", ...
+    int site;            // 0 A, 1 B
+    bool fromMid;        // its way in starts from mid (Dust: short, lowers, mid to B): the mid-control play's hit
+    float stage[2];
+    float smoke[3], flash[3];  // x, y, height above the floor
+    const char* through;  // an area every route from the stage to the site crosses
+};
 // Competitive bot tactics for the active town map (its real coordinates: townPoint()).
 struct TownTactics {
-    float stages[5][2];       // T staging: 0 A main, 1 A's second way, 2 B main, 3 B's second way (from mid), 4 mid
-    float util[3][2][3];      // the utility for a way in (A main, A second, B): smoke, flash (x, y, height)
-    RetakeSpot pushes[3];     // CT early pushes: A main, mid, B main (the role: long, mid, B)
+    std::vector<TownWay> ways;  // A's ways first, then B's; ways[0] is A's main, the first B one B's main
+    float mid[2][2];            // mid control: where two Ts hold mid (Dust: xbox and top mid)
+    RetakeSpot pushes[3];       // CT early pushes: A main, mid, B main (the role: long, mid, B)
     const char* pushCalls[3];
-    const char* splitA;       // the radio calls for the split plays
-    const char* splitB;
 };
 const TownTactics& townTactics();
 

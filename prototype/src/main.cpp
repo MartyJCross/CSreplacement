@@ -344,18 +344,23 @@ struct Game {
         double executeAt = 0;
         const char* lastSpot = "";          // teammate radio: the last place an enemy was called out
         double lastSpotAt = -100;
-        int route = 0;                      // the main group's way in: 0 A long, 1 A short (catwalk), 2 B tunnels, 3 mid to B
-        // The round's plays. Ts: a staging point per bot (stages, stageOf), then the execute. A rush goes as
-        // soon as anyone reaches their point; a fake has the fakers throw utility at the other site first and
-        // the team goes a few seconds later (goAt); a default spreads out for map control and executes late.
+        int route = 0;                      // the main group's way in (an index into townTactics().ways)
+        // The round's plays (CompPlay). Ts: groups, each with a staging point (stages; stageOf per bot) and the way
+        // whose utility it throws when it goes (groupWay, -1 none), then the execute: each group goes at its own
+        // groupGoAt so that they all hit the site together (a split's far group earlier). A rush goes as soon as
+        // anyone reaches their point; a fake has the fakers throw utility at the other site first and the team goes
+        // a few seconds later; a default spreads out for map control and executes late.
         // CTs: now and then one pushes for an early pick (pushers) and falls back to its spot (pushBack) at
         // pushUntil or when the Ts execute.
         int play = 0;
         std::vector<Vec3> stages;
         std::vector<int> stageOf;
-        std::vector<char> faker;
-        bool rush = false, sent = false;
-        int fakeRoute = -1;
+        std::vector<int> groupWay;
+        std::vector<double> groupGoAt;
+        std::vector<char> groupSent, faker;
+        bool rush = false, sent = false;  // sent: every group has gone
+        int fakeRoute = -1;               // the fake's way at the other site (-1: not a fake)
+        int holdNext = 0;                 // the next site hold spot to hand out
         double goAt = 0;
         std::vector<int> pushers;
         std::vector<RetakeSpot> pushBack;
@@ -1888,7 +1893,19 @@ uint8_t roundWhyCode(const char* why) {
 
 // The T side's plays (Comp::play): a plain execute, a rush, a split of A or B, a fake, a default (map control,
 // then a late execute).
-enum CompPlay { kPlayExecute, kPlayRush, kPlaySplitA, kPlaySplitB, kPlayFake, kPlayDefault };
+// The Ts' plays: an execute (everyone one way), a rush (the same without waiting for each other), a split (two ways
+// onto the site, timed to hit together), a fake (two throw utility at the other site, the team hits a few seconds
+// later), mid control (two take mid and hit from there with the rest), a default (spread out, a late execute).
+enum CompPlay { kPlayExecute, kPlayRush, kPlaySplit, kPlayFake, kPlayDefault, kPlayMid };
+
+// The ways onto `site` (indices into townTactics().ways); `fromMid`: only those from mid (-1: any).
+std::vector<int> waysTo(int site, int fromMid = -1) {
+    std::vector<int> out;
+    const std::vector<TownWay>& ways = townTactics().ways;
+    for (size_t k = 0; k < ways.size(); ++k)
+        if (ways[k].site == site && (fromMid < 0 || int(ways[k].fromMid) == fromMid)) out.push_back(int(k));
+    return out;
+}
 
 // A line on the team radio (top right) from a bot on your side.
 void teamRadio(Game& g, int bot, const std::string& msg) {
@@ -1977,37 +1994,66 @@ void startCompRound(Game& g) {
         if (g.team[i] == 0 && g.dummies[i].alive()) ts.push_back(int(i));
     c.carrier = ts.empty() ? -3 : ts[size_t(rnd(g) * float(ts.size())) % ts.size()];
     if (c.carrier == -1) pushHitLog(g, "YOU HAVE THE BOMB", 0xffd060);
-    // Ts: the round's play. Staging points on the way in: 0 A long, 1 A short (catwalk), 2 B tunnels, 3 mid
-    // by the doors (mid to B), 4 lower mid. Then the execute (compTick).
+    // Ts: the round's play (CompPlay) and its groups: a staging point each on a way in (or in mid), and the way whose
+    // utility the group throws when it goes. Then the execute (compTick). Any way onto the site can be the play's:
+    // Dust's long, short, tunnels, lowers or mid to B (owner, v0.26: mid is open now the spawns are walled off).
     const TownTactics& tac = townTactics();
-    const auto& stages = tac.stages;
     const float pr = rnd(g);
-    const int play = pr < 0.30f ? kPlayExecute : pr < 0.45f ? kPlayRush : pr < 0.58f ? kPlaySplitA
-                   : pr < 0.68f ? kPlaySplitB : pr < 0.84f ? kPlayFake : kPlayDefault;
-    if (play == kPlaySplitA) c.siteTarget = 0;
-    if (play == kPlaySplitB) c.siteTarget = 1;
-    const int route = c.siteTarget == 1 ? 2 : (rnd(g) < 0.5f ? 0 : 1);
+    const int play = pr < 0.22f ? kPlayExecute : pr < 0.34f ? kPlayRush : pr < 0.56f ? kPlaySplit
+                   : pr < 0.70f ? kPlayFake : pr < 0.84f ? kPlayMid : kPlayDefault;
+    auto pick = [&](const std::vector<int>& from, int notThis = -1) {
+        std::vector<int> v;
+        for (int w : from)
+            if (w != notThis) v.push_back(w);
+        return v.empty() ? (from.empty() ? 0 : from[0]) : v[size_t(rnd(g) * float(v.size())) % v.size()];
+    };
+    const std::vector<int> siteWays = waysTo(c.siteTarget);
+    // Mid control: the rest come a way that isn't from mid; the mid group hits from mid.
+    const int route = play == kPlayMid ? pick(waysTo(c.siteTarget, 0)) : pick(siteWays);
     c.play = play;
     c.route = route;
     c.rush = play == kPlayRush;
     c.sent = false;
     c.goAt = 0;
-    c.fakeRoute = play == kPlayFake ? (c.siteTarget == 1 ? (rnd(g) < 0.5f ? 0 : 1) : 2) : -1;
+    c.holdNext = 0;
+    c.fakeRoute = play == kPlayFake ? pick(waysTo(1 - c.siteTarget)) : -1;
     c.stages.clear();
-    auto addStage = [&](int r) { c.stages.push_back(townPoint(stages[r][0], stages[r][1])); };
+    c.groupWay.clear();
+    auto addGroup = [&](const float* at, int way) {
+        c.stages.push_back(townPoint(at[0], at[1]));
+        c.groupWay.push_back(way);
+    };
+    auto addWay = [&](int w, bool util) { addGroup(tac.ways[size_t(w)].stage, util ? w : -1); };
+    int second = -1;  // a split's second way, mid control's way from mid
     switch (play) {
-        case kPlaySplitA: addStage(0); addStage(1); break;          // long and short together
-        case kPlaySplitB: addStage(2); addStage(3); break;          // tunnels and through mid doors
-        case kPlayFake: addStage(route); addStage(c.fakeRoute); break;  // group 1: the fakers
-        case kPlayDefault: addStage(route); addStage(4); addStage(route == 2 ? 0 : 2); addStage(1); break;  // map control
-        default: addStage(route); break;                            // execute, rush: one group
+        case kPlaySplit:
+            second = pick(siteWays, route);
+            addWay(route, true);
+            addWay(second, true);
+            break;
+        case kPlayMid:
+            second = pick(waysTo(c.siteTarget, 1));
+            addWay(route, true);
+            addGroup(tac.mid[0], second);
+            break;
+        case kPlayFake: addWay(route, true); addWay(c.fakeRoute, false); break;  // group 1: the fakers
+        case kPlayDefault: {  // map control: the main way, mid, a way onto the other site
+            addWay(route, true);
+            addGroup(tac.mid[0], -1);
+            addWay(pick(waysTo(1 - c.siteTarget)), false);
+            addGroup(tac.mid[1], -1);
+            break;
+        }
+        default: addWay(route, true); break;  // execute, rush: one group
     }
     c.stagePoint = c.stages[0];
+    c.groupGoAt.assign(c.stages.size(), 0.0);
+    c.groupSent.assign(c.stages.size(), 0);
     c.stageOf.assign(g.dummies.size(), 0);
     c.faker.assign(g.dummies.size(), 0);
     c.throws.clear();
     c.executing = c.rotated = false;
-    c.executeAt = g.simTime + g.freezeTime + (play == kPlayRush ? 0.0 : play == kPlayDefault ? 32.0 : 14.0);
+    c.executeAt = g.simTime + g.freezeTime + (play == kPlayRush ? 0.0 : play == kPlayDefault ? 32.0 : play == kPlayMid ? 20.0 : 14.0);
     c.pushers.clear();
     c.pushBack.clear();
     c.pushUntil = -1;
@@ -2069,7 +2115,7 @@ void startCompRound(Game& g) {
         const Push pushes[3] = {{kCtLong, tac.pushes[0], tac.pushCalls[0]},
                                 {kCtMid, tac.pushes[1], tac.pushCalls[1]},
                                 {kCtB, tac.pushes[2], tac.pushCalls[2]}};
-        const Push& p = pushes[rnd(g) < 0.5f ? 0 : 2];  // long or B: never into mid (no mid fights from spawn)
+        const Push& p = pushes[size_t(rnd(g) * 3.0f) % 3];  // long, mid or B
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             if (ctRole[i] != p.role) continue;
             BotBrain& b = g.bots[i];
@@ -2088,13 +2134,13 @@ void startCompRound(Game& g) {
         int caller = -1;
         for (size_t i = 0; i < g.dummies.size() && caller < 0; ++i)
             if (isBot(g, i) && g.dummies[i].alive() && g.team[i] == 0) caller = int(i);
-        const char* site = c.siteTarget == 0 ? "A" : "B";
-        std::string call = play == kPlayRush     ? std::string("RUSH ") + site
-                           : play == kPlaySplitA  ? townTactics().splitA
-                           : play == kPlaySplitB  ? townTactics().splitB
-                           : play == kPlayFake    ? std::string("FAKE ") + (c.siteTarget == 0 ? "B" : "A") + ", GO " + site
-                           : play == kPlayDefault ? std::string("DEFAULT, THEN ") + site
-                                                  : std::string("EXECUTE ") + site;
+        const std::string site = c.siteTarget == 0 ? "A" : "B", way = tac.ways[size_t(route)].name;
+        std::string call = play == kPlayRush    ? "RUSH " + site + " " + way
+                           : play == kPlaySplit ? "SPLIT " + site + ": " + way + " AND " + tac.ways[size_t(second)].name
+                           : play == kPlayFake  ? std::string("FAKE ") + (c.siteTarget == 0 ? "B" : "A") + ", GO " + site + " " + way
+                           : play == kPlayMid   ? "TAKE MID, THEN " + site + ": " + tac.ways[size_t(second)].name + " AND " + way
+                           : play == kPlayDefault ? "DEFAULT, THEN " + site
+                                                  : "EXECUTE " + site + " " + way;
         if (caller >= 0) teamRadio(g, caller, call);
         if (!g_compLog.empty()) std::ofstream(g_compLog, std::ios::app) << "  play: " << call << "\n";
     }
@@ -2485,13 +2531,17 @@ void playerCall(Game& g, int call) {
             // The Ts head for the site's way in and execute straight away (a rush: no waiting for each other).
             const int site = call == kCallGoB || call == kCallRushB ? 1 : 0;
             const bool rush = call == kCallRushA || call == kCallRushB;
-            const auto& stages = townTactics().stages;
+            const TownWay& w = townTactics().ways[size_t(waysTo(site)[0])];  // the site's main way
             c.siteTarget = site;
-            c.route = site == 1 ? 2 : (c.route == 1 ? 1 : 0);
+            c.route = waysTo(site)[0];
             c.play = rush ? kPlayRush : kPlayExecute;
             c.rush = rush;
             c.fakeRoute = -1;
-            c.stages.assign(1, townPoint(stages[c.route][0], stages[c.route][1]));
+            c.stages.assign(1, townPoint(w.stage[0], w.stage[1]));
+            c.groupWay.assign(1, c.route);
+            c.groupGoAt.assign(1, 0.0);
+            c.groupSent.assign(1, 0);
+            c.holdNext = 0;
             c.stagePoint = c.stages[0];
             std::fill(c.stageOf.begin(), c.stageOf.end(), 0);
             std::fill(c.faker.begin(), c.faker.end(), char(0));
@@ -2717,33 +2767,6 @@ void compTick(Game& g) {
     if (late && !c.executing) c.executeAt = now;
     for (size_t i = 0; i < g.dummies.size(); ++i)
         g.bots[i].urgent = g.team[i] == 0 ? (late || (c.executing && int(i) == c.carrier)) : c.planted;
-    if (!g_compLog.empty()) {  // automated runs: a bot that dies in mid before the execute (MID DEATH; there should be none)
-        static std::vector<char> wasAlive;
-        wasAlive.resize(g.dummies.size(), 0);
-        for (size_t i = 0; i < g.dummies.size(); ++i) {
-            const bool up = g.dummies[i].alive();
-            if (wasAlive[i] && !up && !c.executing && !c.planted && townMidArea(g.dummies[i].pos))
-                std::ofstream(g_compLog, std::ios::app) << "  MID DEATH bot " << i << " (" << (g.team[i] == 0 ? "T" : "CT") << ") at "
-                                                        << townCallout(g.dummies[i].pos) << " t=" << int(now) << "s" << char(10);
-            wasAlive[i] = up;
-        }
-    }
-    // No mid fights from spawn (owner): until the execute (or a plant) a bot doesn't go looking for someone in mid; it
-    // goes back to its spot instead.
-    if (!c.executing && !c.planted)
-        for (size_t i = 0; i < g.dummies.size(); ++i) {
-            BotBrain& b = g.bots[i];
-            if (!isBot(g, i) || !g.dummies[i].alive() || b.state != 3 || !townMidArea(b.lastSeen)) continue;
-            b.path.clear();
-            if (b.hasHome) {
-                b.goal = b.home;
-                b.hasGoal = true;
-                b.state = 0;
-            } else {
-                b.state = 1;
-                b.timer = 1.0f;
-            }
-        }
     // Planting or defusing: the bot kneels (crouched: its hitboxes too, like CS) with its hands down.
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         Dummy& d = g.dummies[i];
@@ -2803,20 +2826,20 @@ void compTick(Game& g) {
             radio(int(i), c.ctNade[i] == Game::kMolotov ? "MOLLY OUT" : "HE OUT");
             c.ctNade[i] = -1;
         }
-    // Utility for a way in (`route`): a smoke to cut the defenders' view, then a flash over where they hold,
-    // thrown by the two T bots nearest that way's staging point (fakers only, or everyone but the fakers).
-    auto siteUtility = [&](int route, bool byFakers) {
-        const auto& kUtil = townTactics().util;
-        const int r = route >= 2 ? 2 : route;
-        const Vec3 from0 = townPoint(townTactics().stages[r][0], townTactics().stages[r][1]);
+    // Utility for way `way`: a smoke to cut the defenders' view, then a flash over where they hold, thrown by the
+    // two T bots of group `group` nearest its staging point (not the carrier).
+    auto siteUtility = [&](int way, int group) {
+        if (way < 0 || group < 0 || size_t(group) >= c.stages.size()) return;
+        const TownWay& w = townTactics().ways[size_t(way)];
+        const Vec3 from0 = c.stages[size_t(group)];
         std::vector<std::pair<float, size_t>> near;
         for (size_t i = 0; i < g.dummies.size(); ++i)
-            if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && int(i) != c.carrier &&
-                (i >= c.faker.size() || (c.faker[i] != 0) == byFakers))
+            if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && int(i) != c.carrier && i < c.stageOf.size() &&
+                c.stageOf[i] == group)
                 near.push_back({length2d(g.dummies[i].pos - from0), i});
         std::sort(near.begin(), near.end());
         for (size_t q = 0; q < near.size() && q < 2; ++q) {
-            const float* u = kUtil[r][q];
+            const float* u = q == 0 ? w.smoke : w.flash;
             const Vec3 target = townPoint(u[0], u[1]) + Vec3{0, 0, u[2]};
             const double from = now + 0.3 + 0.7 * double(q);
             c.throws.push_back({int(near[q].second), q == 0 ? Game::kSmokeNade : Game::kFlashNade, target, from, from + 10.0, from});
@@ -2855,7 +2878,7 @@ void compTick(Game& g) {
                     << " t=" << int(g.simTime) << "s\n";
             c.goAt = now;
             if (c.fakeRoute >= 0) {  // the fake: their utility goes in on the other site, the team goes after
-                siteUtility(c.fakeRoute, true);
+                siteUtility(c.fakeRoute, 1);
                 for (size_t i = 0; i < g.dummies.size(); ++i)
                     if (i < c.faker.size() && c.faker[i] && g.dummies[i].alive()) {
                         radio(int(i), "FAKING");
@@ -2863,25 +2886,56 @@ void compTick(Game& g) {
                     }
                 c.goAt = now + 4.5;
             }
+            // Each group goes so that they all reach the site together: the one with the longest way first, the
+            // others held back by the difference (at most 8 s).
+            std::vector<float> trip(c.stages.size(), 0.0f);
+            float longest = 0;
+            std::vector<Vec3> route;
+            for (size_t k = 0; k < c.stages.size(); ++k) {
+                Vec3 from = c.stages[k];  // (where the group is: its first member's position)
+                for (size_t i = 0; i < g.dummies.size(); ++i)
+                    if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && i < c.stageOf.size() && c.stageOf[i] == int(k)) {
+                        from = g.dummies[i].pos;
+                        break;
+                    }
+                float len = 0;
+                if (g.nav.findPath(from, bombSpot, route))
+                    for (size_t z = 1; z < route.size(); ++z) len += length2d(route[z] - route[z - 1]);
+                trip[k] = len / kBotRunSpeed;
+                longest = std::max(longest, trip[k]);
+            }
+            for (size_t k = 0; k < c.stages.size(); ++k)
+                c.groupGoAt[k] = c.goAt + double(std::min(8.0f, longest - trip[k]));
+            if (!g_compLog.empty() && c.stages.size() > 1) {
+                std::ofstream log(g_compLog, std::ios::app);
+                log << "  groups go:";
+                for (size_t k = 0; k < c.stages.size(); ++k) log << " +" << int((c.groupGoAt[k] - now) * 10.0) / 10.0 << "s";
+                log << "\n";
+            }
         }
     }
-    if (c.executing && !c.sent && !c.planted && now >= c.goAt) {
-        c.sent = true;
-        radio(c.carrier >= 0 ? c.carrier : firstAlive(0), c.siteTarget == 0 ? "GOING A" : "GOING B");
-        siteUtility(c.route, false);
-        {
-            const RetakeSite& s = sites[size_t(c.siteTarget)];
-            int k = 0;
+    if (c.executing && !c.sent && !c.planted) {
+        const RetakeSite& s = sites[size_t(c.siteTarget)];
+        bool all = true;
+        for (size_t k = 0; k < c.stages.size(); ++k) {
+            if (c.groupSent[k]) continue;
+            if (now < c.groupGoAt[k]) { all = false; continue; }
+            c.groupSent[k] = 1;
+            if (k == 0) radio(c.carrier >= 0 ? c.carrier : firstAlive(0), c.siteTarget == 0 ? "GOING A" : "GOING B");
+            if (c.groupWay[k] >= 0 && townTactics().ways[size_t(c.groupWay[k])].site == c.siteTarget) siteUtility(c.groupWay[k], int(k));
             for (size_t i = 0; i < g.dummies.size(); ++i) {
                 if (!g.dummies[i].alive() || !isBot(g, i) || g.team[i] != 0) continue;
+                const int grp = i < c.stageOf.size() ? c.stageOf[i] : 0;
+                if (size_t(grp) != k && !(size_t(grp) >= c.stages.size() && k == 0)) continue;
                 if (int(i) == c.carrier) {
                     sendBot(g, i, bombSpot, true);
                 } else {
-                    const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
+                    const RetakeSpot& h = s.holds[size_t(c.holdNext++) % s.holds.size()];
                     sendBot(g, i, townPoint(h.x, h.y), true, &h);
                 }
             }
         }
+        c.sent = all;
     }
     for (size_t q = 0; q < c.throws.size();) {
         Game::Comp::Throw& t = c.throws[q];
@@ -3303,7 +3357,6 @@ void loadMap(Game& g, Renderer& r, int id) {
     r.setGrade(id == 1 ? 1 + townMap() : 0);
     r.clearDecals();
     if (id == 1) g.nav.build(townGrid(), g.world, townSpawn().pos);
-    if (id == 1 && g.mode == 3) g.nav.setAvoid(townMidCells());  // competitive: no mid fights from spawn (owner)
     if (id == 1) buildRadar(g);
     g.spottedUntil.assign(g.dummies.size(), -1.0);
     if (id == 1)  // particles land on Dust's floors (which aren't all at height 0)

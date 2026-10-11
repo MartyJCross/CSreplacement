@@ -610,14 +610,6 @@ bool townMidArea(const Vec3& p) {
     return false;
 }
 
-std::vector<uint8_t> townMidCells() {
-    const MapGrid& m = townGrid();
-    std::vector<uint8_t> cells(m.floor.size(), 0);
-    for (int j = 0; j < m.h; ++j)
-        for (int i = 0; i < m.w; ++i) cells[size_t(m.index(i, j))] = townMidArea(m.center(i, j)) ? 1 : 0;
-    return cells;
-}
-
 bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat) {
     const MapGrid& m = townGrid();
     int i, j;
@@ -716,7 +708,7 @@ const std::vector<RetakeSite>& townRetakeSites() {
 
 const std::vector<RetakeSpot>& townCtSpots(int role) {
     static const std::vector<RetakeSpot> harbor[kCtRoles] = {
-        {{-370, 600, 0, 620}, {350, 640, 0, 620}, {-290, 600, 0, 620}},              // mid: beside the doors, out of sight
+        {{-370, 600, 0, 620}, {350, 640, 0, 620}, {-290, 600, 0, 620}, {0, 620, 0, -300}},  // mid: beside the doors, or in them
         {{650, 1050, 620, 500}, {760, 1150, 620, 500}, {720, 1350, 620, 600}},        // short: down A short
         {{1100, 1050, 1050, 0}, {1380, 1150, 1050, 300}, {1000, 1350, 1050, 600}},    // long: down the docks
         {{1240, 1450, 1050, 800}, {820, 1450, 1000, 900}, {1200, 1100, 1050, 500}},   // an extra on A
@@ -725,11 +717,12 @@ const std::vector<RetakeSpot>& townCtSpots(int role) {
     };
     if (g_town == 1) return harbor[std::clamp(role, 0, kCtRoles - 1)];
     static const std::vector<RetakeSpot> spots[kCtRoles] = {
-        {   // mid: beside mid doors on the CT side, or back towards B: watching the way out of the doors, out of
-            // sight of anyone in mid (no mid fights from spawn; testNoMidFights)
+        {   // mid: beside mid doors on the CT side, or back towards B, watching the way out of the doors; or in the
+            // doors, contesting mid (owner, v0.26: mid is open)
             {-620, 2000, -180, 1960},
             {-500, 1960, -180, 1960},
             {-980, 2120, -400, 2050},
+            {-150, 1990, -150, 900},
         },
         {   // short: on short looking down the catwalk, or back on the site
             {550, 2550, 170, 1700},
@@ -855,26 +848,30 @@ MapSpawn townSpawn() {
 }
 
 const TownTactics& townTactics() {
+    // (v0.26, owner: mid is open now the spawns are walled off from it; short and lowers are plays.)
     static const TownTactics kTactics[2] = {
         {   // Dust2
-            // (Nothing in mid, owner: no mid fights from spawn. A: two waves down long; B: two through tunnels; the
-            // default's map control: outside long.)
-            {{1500, 1100}, {535, 300}, {-2070, 1150}, {-1985, 0}, {430, -720}},
-            {{{1450, 2300, 0}, {1400, 2650, 140}},    // A long: smoke the top of the ramp, flash the site
-             {{850, 2850, 0}, {450, 2520, 140}},      // short: smoke CT side of A, flash short
-             {{-1450, 2210, 0}, {-1800, 2450, 140}}}, // B: smoke the doors, flash the site
+            {
+                {"LONG", 0, false, {1500, 1100}, {1450, 2300, 0}, {1400, 2650, 140}, "LONG A"},        // smoke the ramp's top
+                {"SHORT", 0, true, {150, 1150}, {850, 2850, 0}, {450, 2520, 140}, "CATWALK"},          // smoke CT, flash short
+                {"TUNNELS", 1, false, {-2070, 1150}, {-1450, 2210, 0}, {-1800, 2450, 140}, "UPPER TUNNELS"},  // smoke the doors
+                {"LOWERS", 1, true, {-1150, 1150}, {-1450, 2210, 0}, {-1800, 2450, 140}, "LOWER TUNNELS"},
+                {"MID TO B", 1, true, {-180, 1700}, {-180, 2100, 0}, {-1600, 2450, 120}, "B DOORS"},  // smoke CT mid
+            },
+            {{-200, 950}, {-150, 300}},  // xbox, top mid
             {{1150, 500, 720, 380}, {-120, 1100, -120, 100}, {-2070, 1750, -2070, 900}},
             {"PUSHING LONG", "PUSHING MID", "PUSHING B TUNNELS"},
-            "A LONG, TWO WAVES", "B TUNNELS, TWO WAVES",
         },
         {   // Harbor
-            {{1050, 450}, {1050, -600}, {-1050, 250}, {-1050, -1000}, {750, -1350}},  // (nothing in mid either)
-            {{{1050, 1150, 0}, {1000, 1250, 140}},    // the docks: smoke the top of the ramp, flash the site
-             {{700, 1500, 0}, {650, 1050, 140}},      // short: smoke the CT side, flash the top of short
-             {{-650, 1400, 0}, {-1150, 1050, 140}}},  // B: smoke the CT path, flash the site
+            {
+                {"DOCKS", 0, false, {1050, 450}, {1050, 1150, 0}, {1000, 1250, 140}, "DOCKS"},         // smoke the ramp's top
+                {"SHORT", 0, true, {300, 300}, {700, 1500, 0}, {650, 1050, 140}, "A SHORT"},           // smoke the CT side
+                {"UNDERPASS", 1, false, {-1050, 250}, {-650, 1400, 0}, {-1150, 1050, 140}, "UNDERPASS"},  // smoke the CT path
+                {"ALLEY", 1, true, {-550, 120}, {-650, 1400, 0}, {-1100, 950, 140}, "B ALLEY"},
+            },
+            {{0, 0}, {150, -250}},  // mid, the market's end
             {{1050, 500, 1050, -600}, {0, 300, 0, -600}, {-1050, 300, -1050, -600}},
             {"PUSHING DOCKS", "PUSHING MID", "PUSHING UNDERPASS"},
-            "A DOCKS, TWO WAVES", "B UNDERPASS, TWO WAVES",
         },
     };
     return kTactics[g_town];
