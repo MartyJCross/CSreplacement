@@ -11,6 +11,8 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <initializer_list>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -2224,10 +2226,22 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
 // number. Outside competitive only the guns (1-5).
 // Competitive: during buy time in your spawn, for money. Everywhere else: guns for free, any time.
 struct BuyEntry { const char* name; int weapon; int gear; int price; };  // a gun (WeaponId) or gear (0..7)
+// A buy category's entries (4 at most): a fixed list, since the buy wheel asks for them every frame.
+struct BuyList {
+    BuyEntry items[4] = {};
+    size_t n = 0;
+    BuyList() = default;
+    BuyList(std::initializer_list<BuyEntry> l) {
+        for (const BuyEntry& e : l)
+            if (n < std::size(items)) items[n++] = e;
+    }
+    size_t size() const { return n; }
+    const BuyEntry& operator[](size_t k) const { return items[k]; }
+};
 enum BuyCategory { kCatPistols = 1, kCatShotguns, kCatSmgs, kCatRifles, kCatSnipers, kCatGear, kCatGrenades };
 // `side`: competitive, the side you're on (0 T, 1 CT): like CS the rifles are by side (the AK and the Galil for Ts,
 // the M4A1-S for CTs); -1 everywhere else (any gun).
-std::vector<BuyEntry> buyEntries(int category, int side = -1) {
+BuyList buyEntries(int category, int side = -1) {
     auto gun = [](int id) { return BuyEntry{weaponDef(id).name, id, -1, weaponDef(id).price}; };
     switch (category) {
         case kCatPistols: return {gun(kWPistol), gun(kWBerettas), gun(kWDeagle)};
@@ -2252,7 +2266,7 @@ int fullBuyRifle(const Game& g) { return buySide(g) == 1 ? kWM4A1S : kWRifle; }
 
 // Where gun `id` sits in a buy category (-1 if it isn't there).
 int buyIndexOf(int category, int id, int side = -1) {
-    const std::vector<BuyEntry> e = buyEntries(category, side);
+    const BuyList e = buyEntries(category, side);
     for (size_t k = 0; k < e.size(); ++k)
         if (e[k].weapon == id) return int(k);
     return -1;
@@ -2295,7 +2309,7 @@ int buyPrice(const Game& g, const BuyEntry& e) {
 // Buys entry `item` (0-based) of the open category. Returns a message for the hit log.
 const char* compBuy(Game& g, int category, int item) {
     Game::Comp& c = g.comp;
-    const std::vector<BuyEntry> entries = buyEntries(category, buySide(g));
+    const BuyList entries = buyEntries(category, buySide(g));
     if (item < 0 || item >= int(entries.size())) return "";
     const BuyEntry& e = entries[size_t(item)];
     if (buyOwned(g, e)) return "CAN'T CARRY MORE";
@@ -5185,7 +5199,7 @@ const char* buyPick(Game& g, int slot) {
         return "";
     }
     if (comp) return compBuy(g, g.buyCategory, slot);
-    const std::vector<BuyEntry> entries = buyEntries(g.buyCategory, buySide(g));
+    const BuyList entries = buyEntries(g.buyCategory, buySide(g));
     if (entries[size_t(slot)].weapon < 0) return "";
     takeGun(g, entries[size_t(slot)].weapon);
     g.buyMenu = false;
@@ -5199,7 +5213,7 @@ void drawBuyWheel(HudBatch& hud, const Game& g, int w, int h, int s) {
     const BuyWheel wh = buyWheel(w, h, s);
     const float fs = float(s);
     const int n = buySlotCount(g), hover = buySlotAt(g, w, h, s, g.buyMouseX, g.buyMouseY);
-    const std::vector<BuyEntry> entries = buyEntries(g.buyCategory, buySide(g));
+    const BuyList entries = buyEntries(g.buyCategory, buySide(g));
     hud.rect(0, 0, float(w), float(h), 0x00000060);  // dim the game a little
     const float span = 2.0f * kPi / float(std::max(n, 1)), gap = 0.012f;
     auto at = [&](float a, float r) { return std::pair<float, float>{wh.cx + std::sin(a) * r, wh.cy - std::cos(a) * r}; };
@@ -6933,9 +6947,9 @@ int main(int argc, char** argv) {
     std::vector<Vec3> nadePath;  // grenade preview, reused every frame
     int frame = 0;
     double hitMarkerShownUntil = 0;
-    std::vector<ModelDraw> modelDraws;
-    std::vector<ModelDraw> deadDraws;
-    std::vector<ModelDraw> dropDraws;  // guns on the floor (kept between frames: no allocations)
+    DrawList modelDraws;  // (DrawLists keep their buffers between frames: no allocations)
+    DrawList deadDraws;
+    DrawList dropDraws;   // guns on the floor
     ReplayFrame replayNow;  // a replay: everyone at the moment playing (reused every frame)  // bodies falling over (each one model, so it can tilt)
 
     if (g.audio) g.audio->loadMusic(std::string(base ? base : "") + "assets/music/menu.ogg");  // (on a thread)
@@ -7507,10 +7521,8 @@ int main(int argc, char** argv) {
                 const float fall = std::clamp((t - 0.08f) / 0.42f, 0.0f, 1.0f);  // ...then down
                 const float tip = 84.0f * fall * fall, slide = 8.0f + 10.0f * fall * (2.0f - fall);
                 const float sink = t > 2.6f ? (t - 2.6f) * 60.0f : 0.0f;
-                deadDraws.push_back({translation(p + hd * slide - Vec3{0, 0, sink}) * rotationZ(hYaw) * rotationY(tip) *
-                                         translation({-8.0f, 0, 0}) * rotationZ(shownYaw - 180.0f - hYaw),
-                                     {}, {}});
-                body = &deadDraws.back();
+                body = &deadDraws.add(translation(p + hd * slide - Vec3{0, 0, sink}) * rotationZ(hYaw) * rotationY(tip) *
+                                      translation({-8.0f, 0, 0}) * rotationZ(shownYaw - 180.0f - hYaw));
             }
             const float ms = modelScale();
             auto part = [&](Vec3 mn, Vec3 mx, uint32_t c) {
@@ -7651,15 +7663,13 @@ int main(int argc, char** argv) {
             g.earYaw = camYaw;
         }
         // Guns on the floor: the held model, lying on its side.
-        dropDraws.resize(replayView ? 0 : g.drops.size());
-        for (size_t k = 0; k < dropDraws.size(); ++k) {
+        dropDraws.clear();
+        for (size_t k = 0; k < (replayView ? 0 : g.drops.size()); ++k) {
             const Game::Drop& dr = g.drops[k];
             const float y = dr.yaw * kDegToRad, ms = modelScale();
             const Vec3 ax{std::cos(y), std::sin(y), 0}, ay{0, 0, 1}, az{std::sin(y), -std::cos(y), 0};
             const Vec3 centre = Vec3{-18.0f, 0.0f, 47.5f} * ms;
-            ModelDraw& md = dropDraws[k];
-            md.model = fromBasis(ax, ay, az, dr.pos + Vec3{0, 0, 1.8f} - (ax * centre.x + ay * centre.y + az * centre.z));
-            md.boxes.clear();
+            ModelDraw& md = dropDraws.add(fromBasis(ax, ay, az, dr.pos + Vec3{0, 0, 1.8f} - (ax * centre.x + ay * centre.y + az * centre.z)));
             gunModel(dr.weapon, [&](Vec3 mn, Vec3 mx, uint32_t c) { md.boxes.push_back(makeBox(mn * ms, mx * ms, c, false)); });
         }
 

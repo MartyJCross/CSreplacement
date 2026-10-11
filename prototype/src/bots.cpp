@@ -18,8 +18,8 @@ float turnToward(float yaw, float target, float maxStep) {
 }
 
 bool sightClear(const BotSenses& s, const Vec3& a, const Vec3& b) {
-    if (s.world->traceRay(a, b).fraction < 1.0f) return false;
-    return !(s.blocked && s.blocked(s.blockCtx, a, b));
+    if (s.blocked && s.blocked(s.blockCtx, a, b)) return false;  // (smokes first: far cheaper than the trace)
+    return s.world->traceRay(a, b).fraction >= 1.0f;
 }
 
 // Walkable in a straight line from a to b: standing room all the way, no step higher than a stair.

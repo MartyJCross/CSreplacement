@@ -61,6 +61,8 @@ struct World {
 
 private:
     template <class Fn> void forCandidates(float x0, float y0, float x1, float y1, Fn&& fn) const;
+    template <class Fn> void forSweep(const Vec3& start, const Vec3& end, const Vec3& mins, const Vec3& maxs, Fn&& fn) const;
+    template <class Fn> void visitCell(size_t c, Fn& fn) const;
     float idxX0_ = 0, idxY0_ = 0, idxCell_ = 0;
     int idxW_ = 0, idxH_ = 0;
     std::vector<uint32_t> idxStart_, idxItems_;  // per-cell ranges into idxItems_ (box indices)

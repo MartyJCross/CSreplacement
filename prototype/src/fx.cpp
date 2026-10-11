@@ -541,13 +541,6 @@ template <size_t N>
 void addParts(std::vector<BoxInstance>& out, const Part (&parts)[N], bool gunPaint = false, bool bladePaint = false) {
     for (const Part& p : parts) out.push_back(partBox(p, gunPaint, bladePaint));
 }
-template <size_t N>
-std::vector<BoxInstance> toBoxes(const Part (&parts)[N], bool gunPaint = false, bool bladePaint = false) {
-    std::vector<BoxInstance> out;
-    out.reserve(N);
-    addParts(out, parts, gunPaint, bladePaint);
-    return out;
-}
 
 // Gloved hands, built over a hand's block: on a grip, the three lower fingers wrap its front, the trigger finger
 // lies along the guard (at `triggerY`, reaching forward to `triggerZ`), the thumb rests along the left side and a cuff
@@ -656,12 +649,11 @@ struct Anim {
 };
 
 // The draws for weapon `w` (knife `knife`) in model space `world`, with its skin.
-void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4& world, const Anim& a,
-                 std::vector<ModelDraw>& out) {
+void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4& world, const Anim& a, DrawList& out) {
     PaintParams paint = skinIn;
     paintSpan(w, paint);
     const bool painted = paint.pattern >= 0;
-    auto add = [&](const Mat4& m, std::vector<BoxInstance> boxes) { out.push_back({m, std::move(boxes), paint}); };
+    auto add = [&](const Mat4& m) -> std::vector<BoxInstance>& { return out.add(m, paint).boxes; };
     switch (w) {
         case ViewWeapon::Rifle:
         case ViewWeapon::Sniper:
@@ -673,7 +665,10 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
         case ViewWeapon::Galil:
         case ViewWeapon::Ssg08:
         case ViewWeapon::Ump45: {
-            std::vector<BoxInstance> body, mag, bolt;
+            std::vector<BoxInstance>& body = add(world);
+            static std::vector<BoxInstance> mag, bolt;  // (drawn only sometimes: built aside, copied in)
+            mag.clear();
+            bolt.clear();
             if (w == ViewWeapon::Rifle) { addParts(body, kRifleBody, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kRifleMag, painted); }
             if (a.arms && (w == ViewWeapon::Rifle || w == ViewWeapon::M4A1S || w == ViewWeapon::Galil)) {
                 addGripHand(body, kRifleArms[0], -1.7f, 0.9f);
@@ -727,25 +722,24 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
                 }
             }
             if (w == ViewWeapon::Mac10) { addParts(body, kMac10Body, painted); if (a.arms) addParts(body, kMac10Arms); addParts(mag, kMac10Mag, painted); }
-            add(world, std::move(body));
-            if (a.magVisible) add(world * translation(a.magOffset), std::move(mag));
-            if (!bolt.empty()) add(world * translation(a.bolt), std::move(bolt));
+            if (a.magVisible) add(world * translation(a.magOffset)).assign(mag.begin(), mag.end());
+            if (!bolt.empty()) add(world * translation(a.bolt)).assign(bolt.begin(), bolt.end());
             break;
         }
         case ViewWeapon::Xm1014: {
-            std::vector<BoxInstance> body;
+            std::vector<BoxInstance>& body = add(world);
             addParts(body, kXmBody, painted);
             if (a.arms) {
                 addParts(body, kXmArms);
                 addGripHand(body, kXmArms[0], -1.6f, 1.4f);
                 addSupportHand(body, kXmArms[2], 0.85f);
             }
-            add(world, std::move(body));
-            if (a.shell >= 0) add(world * translation({0, 2.0f * a.shell, -1.5f * a.shell}), toBoxes(kNovaShell));
+            if (a.shell >= 0) addParts(add(world * translation({0, 2.0f * a.shell, -1.5f * a.shell})), kNovaShell);
             break;
         }
         case ViewWeapon::Nova: {
-            std::vector<BoxInstance> body, pump;
+            std::vector<BoxInstance>& body = add(world);
+            std::vector<BoxInstance>& pump = add(world * translation({0, 0, a.pumpZ}));
             addParts(body, kNovaBody, painted);
             if (a.arms) {
                 addParts(body, kNovaArms);
@@ -756,41 +750,41 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
                 addParts(pump, kNovaPumpArm);
                 addSupportHand(pump, kNovaPumpArm[0], 0.78f);
             }
-            add(world, std::move(body));
-            add(world * translation({0, 0, a.pumpZ}), std::move(pump));
-            if (a.shell >= 0) add(world * translation({0, 2.0f * a.shell, -1.5f * a.shell}), toBoxes(kNovaShell));
+            if (a.shell >= 0) addParts(add(world * translation({0, 2.0f * a.shell, -1.5f * a.shell})), kNovaShell);
             break;
         }
         case ViewWeapon::Grenade: {
             // One body, tinted per type: smoke grey-green, flash pale grey, HE olive, molotov bottle brown.
             const uint32_t body[4] = {0x4f5a4a, 0xc9ccd0, 0x55602e, 0x7a4a1a};
-            std::vector<BoxInstance> boxes = toBoxes(kGrenade);
+            std::vector<BoxInstance>& boxes = add(world);
+            addParts(boxes, kGrenade);
             boxes[0] = makeBox(kGrenade[0].mins, kGrenade[0].maxs, body[std::clamp(a.grenade, 0, 3)], false);
             if (a.grenade == 3) {  // molotov: taller bottle with a burning rag
                 boxes[0] = makeBox({-1.1f, -1.1f, -4.6f}, {1.1f, 1.1f, 2.4f}, body[3], false);
                 boxes.push_back(makeEmissive({-0.5f, -0.5f, -6.2f}, {0.5f, 0.5f, -4.6f}, 0xffa030));
             }
             if (!a.arms) boxes.resize(boxes.size() - (a.grenade == 3 ? 3 : 2));
-            add(world, std::move(boxes));
             break;
         }
         case ViewWeapon::Knife: {
             if (knife == kKnifeButterfly) {
-                if (a.arms) add(world, toBoxes(kButterflyHand));
-                add(world, toBoxes(kButterflySafe));
-                add(world * rotationX(a.biteAngle), toBoxes(kButterflyBite));
-                add(world * rotationX(a.bladeAngle), toBoxes(kButterflyBlade, false, painted));
+                if (a.arms) addParts(add(world), kButterflyHand);
+                addParts(add(world), kButterflySafe);
+                addParts(add(world * rotationX(a.biteAngle)), kButterflyBite);
+                addParts(add(world * rotationX(a.bladeAngle)), kButterflyBlade, false, painted);
             } else if (ringKnife(knife)) {
                 const Vec3 ring{0, -0.1f, knife == kKnifeKarambit ? 5.4f : 5.8f};
-                if (a.arms) add(world, toBoxes(kKnifeHand));
-                add(world * translation(ring) * rotationX(a.ringSpin) * translation(-ring),
-                    knife == kKnifeKarambit ? toBoxes(kKarambit, false, painted) : toBoxes(kTalon, false, painted));
+                if (a.arms) addParts(add(world), kKnifeHand);
+                std::vector<BoxInstance>& blade = add(world * translation(ring) * rotationX(a.ringSpin) * translation(-ring));
+                if (knife == kKnifeKarambit) addParts(blade, kKarambit, false, painted);
+                else addParts(blade, kTalon, false, painted);
             } else {
-                if (a.arms) add(world, toBoxes(kKnifeHand));
-                add(world, knife == kKnifeM9      ? toBoxes(kM9, false, painted)
-                           : knife == kKnifeBowie ? toBoxes(kBowie, false, painted)
-                           : knife == kKnifeKukri ? toBoxes(kKukri, false, painted)
-                                                  : toBoxes(kDefaultKnife));
+                if (a.arms) addParts(add(world), kKnifeHand);
+                std::vector<BoxInstance>& blade = add(world);
+                if (knife == kKnifeM9) addParts(blade, kM9, false, painted);
+                else if (knife == kKnifeBowie) addParts(blade, kBowie, false, painted);
+                else if (knife == kKnifeKukri) addParts(blade, kKukri, false, painted);
+                else addParts(blade, kDefaultKnife);
             }
             break;
         }
@@ -888,7 +882,7 @@ void ViewModel::update(const ViewModelInput& in) {
 }
 
 void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX, float offY, float offZ,
-                      float bobScale, std::vector<ModelDraw>& out) const {
+                      float bobScale, DrawList& out) const {
     const bool sniper = weapon_ == ViewWeapon::Sniper;
     const bool pistol = isPistolLike(weapon_), mac = weapon_ == ViewWeapon::Mac10 || weapon_ == ViewWeapon::Ump45;
     const bool rifle = isGun(weapon_) && !pistol && !mac;  // rifle, sniper, nova
@@ -1057,17 +1051,16 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
                       : weapon_ == ViewWeapon::Berettas ? Vec3{(shotIndex_ & 1) ? kLeftGun : 0.0f, 0.6f, -9.5f}
                                                         : Vec3{0, 0.8f, -15.6f};  // the suppressor's end
         if (weapon_ == ViewWeapon::Pistol || weapon_ == ViewWeapon::M4A1S) s *= 0.3f;  // suppressed: barely a flash
-        ModelDraw flash{world * translation(muzzle) * rotationZ(spin), {}, {}};
-        flash.boxes.push_back(makeEmissive({-0.9f * s, -0.9f * s, -1.6f}, {0.9f * s, 0.9f * s, 1.0f}, 0xfff4c0));
-        flash.boxes.push_back(makeEmissive({-2.8f * s, -0.22f, -0.6f}, {2.8f * s, 0.22f, 0.6f}, 0xffc24a));
-        flash.boxes.push_back(makeEmissive({-0.22f, -2.8f * s, -0.6f}, {0.22f, 2.8f * s, 0.6f}, 0xffc24a));
-        flash.boxes.push_back(makeEmissive({-0.5f, -0.5f, -4.0f * s}, {0.5f, 0.5f, -1.0f}, 0xffe08a));
-        out.push_back(flash);
+        std::vector<BoxInstance>& flash = out.add(world * translation(muzzle) * rotationZ(spin)).boxes;
+        flash.push_back(makeEmissive({-0.9f * s, -0.9f * s, -1.6f}, {0.9f * s, 0.9f * s, 1.0f}, 0xfff4c0));
+        flash.push_back(makeEmissive({-2.8f * s, -0.22f, -0.6f}, {2.8f * s, 0.22f, 0.6f}, 0xffc24a));
+        flash.push_back(makeEmissive({-0.22f, -2.8f * s, -0.6f}, {0.22f, 2.8f * s, 0.6f}, 0xffc24a));
+        flash.push_back(makeEmissive({-0.5f, -0.5f, -4.0f * s}, {0.5f, 0.5f, -1.0f}, 0xffe08a));
     }
 }
 
 void ViewModel::buildShowcase(ViewWeapon w, int knife, const PaintParams& paint, const Vec3& eye, float pitchDeg,
-                              float yawDeg, float spinDeg, const Vec3& centre, float size, std::vector<ModelDraw>& out) {
+                              float yawDeg, float spinDeg, const Vec3& centre, float size, DrawList& out) {
     // Side on, turning slowly, scaled so its length is `size`; centred on the middle of the model.
     PaintParams span;
     paintSpan(w, span);
@@ -1200,12 +1193,11 @@ void Effects::appendParticles(std::vector<BoxInstance>& out) const {
     }
 }
 
-void Effects::appendTracers(std::vector<ModelDraw>& out) const {
+void Effects::appendTracers(DrawList& out) const {
     for (const Debris& d : debris_) {  // a helmet: the shell and its crown
-        ModelDraw md{translation(d.pos) * rotationZ(d.spin) * rotationX(d.tilt), {}, {}};
-        md.boxes.push_back(makeBox({-4.5f, -4.5f, -2.0f}, {4.5f, 4.5f, 2.0f}, d.color, false));
-        md.boxes.push_back(makeBox({-3.4f, -3.4f, 2.0f}, {3.4f, 3.4f, 3.4f}, d.color, false));
-        out.push_back(std::move(md));
+        std::vector<BoxInstance>& boxes = out.add(translation(d.pos) * rotationZ(d.spin) * rotationX(d.tilt)).boxes;
+        boxes.push_back(makeBox({-4.5f, -4.5f, -2.0f}, {4.5f, 4.5f, 2.0f}, d.color, false));
+        boxes.push_back(makeBox({-3.4f, -3.4f, 2.0f}, {3.4f, 3.4f, 3.4f}, d.color, false));
     }
     for (const Tracer& t : tracers_) {
         float head = std::min(t.travelled, t.length), tail = std::max(0.0f, t.travelled - 160.0f);
@@ -1213,6 +1205,6 @@ void Effects::appendTracers(std::vector<ModelDraw>& out) const {
         Vec3 up = std::fabs(t.dir.z) > 0.95f ? Vec3{1, 0, 0} : Vec3{0, 0, 1};
         Vec3 r = normalize(cross(t.dir, up)), u = cross(t.dir, r);
         Mat4 m = fromBasis(r, u, t.dir, t.start + t.dir * tail);
-        out.push_back({m, {makeEmissive({-0.16f, -0.16f, 0}, {0.16f, 0.16f, head - tail}, 0xffe39a)}});
+        out.add(m).boxes.push_back(makeEmissive({-0.16f, -0.16f, 0}, {0.16f, 0.16f, head - tail}, 0xffe39a));
     }
 }

@@ -1,6 +1,7 @@
 // Headless tests for the simulation core: movement feel numbers, collision, weapon determinism.
 // Prints the measured values so tuning changes are visible in CI logs.
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -661,6 +662,25 @@ void testDustBroadphase() {
     }
     std::printf("  4000 random traces + fits: %d mismatches\n", mismatches);
     CHECK(mismatches == 0, "%d", mismatches);
+    // What the index buys on long sight lines and bullets (a bot's shot traces 5000 units): time per trace.
+    auto timeRays = [&](const World& w) {
+        uint32_t seed = 999u;
+        auto q = [&](float lo, float hi) {
+            seed = seed * 1664525u + 1013904223u;
+            return lo + (hi - lo) * float(seed >> 8) / float(1u << 24);
+        };
+        float sum = 0;
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int k = 0; k < 20000; ++k) {
+            const Vec3 a{q(-2400, 1950), q(-1200, 3250), q(-50, 150)}, b{q(-2400, 1950), q(-1200, 3250), q(-50, 150)};
+            sum += w.traceRay(a, b).fraction;
+        }
+        const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count() / 20000.0;
+        return std::make_pair(us, sum);
+    };
+    const auto fast = timeRays(dust()), slow = timeRays(brute);
+    std::printf("  long rays: %.2f us each indexed, %.2f us brute force\n", fast.first, slow.first);
+    CHECK(fast.second == slow.second, "indexed and brute-force long rays disagree");
 }
 
 // Deathmatch: spawns land all over the map, bots left alone roam the whole map, and a bot walking a

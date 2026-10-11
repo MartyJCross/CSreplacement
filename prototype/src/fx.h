@@ -1,7 +1,9 @@
 // Cosmetic-only visuals: first-person weapon model + animation, tracers, impact debris.
 // Nothing here affects gameplay or hit registration.
 #pragma once
+#include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <vector>
 #include "render.h"
 #include "vecmath.h"
@@ -28,6 +30,28 @@ struct ModelDraw {
     PaintParams paint;  // the skin on its painted parts (pattern -1: none)
 };
 
+// Draws rebuilt every frame without allocating: clear() forgets them but keeps each one's box buffer for the next
+// frame. A reference from add() stays valid until clear() (a deque never moves its elements as it grows).
+class DrawList {
+public:
+    void clear() { n_ = 0; }
+    ModelDraw& add(const Mat4& model, const PaintParams& paint = {}) {
+        if (n_ == draws_.size()) draws_.emplace_back();
+        ModelDraw& d = draws_[n_++];
+        d.model = model;
+        d.boxes.clear();
+        d.paint = paint;
+        return d;
+    }
+    size_t size() const { return n_; }
+    std::deque<ModelDraw>::const_iterator begin() const { return draws_.begin(); }
+    std::deque<ModelDraw>::const_iterator end() const { return draws_.begin() + std::ptrdiff_t(n_); }
+
+private:
+    std::deque<ModelDraw> draws_;
+    size_t n_ = 0;
+};
+
 class ViewModel {
 public:
     void onShot(uint32_t seed);
@@ -42,14 +66,14 @@ public:
     // A weapon on its own, turning slowly in front of the camera (the inventory and case screens), centred
     // at `centre` in camera space (x right, y up, -z ahead), `size` = its length on screen in those units.
     static void buildShowcase(ViewWeapon w, int knife, const PaintParams& paint, const Vec3& eye, float pitchDeg,
-                              float yawDeg, float spinDeg, const Vec3& centre, float size, std::vector<ModelDraw>& out);
+                              float yawDeg, float spinDeg, const Vec3& centre, float size, DrawList& out);
     void setGrenade(int type) { grenade_ = type; }  // 0 smoke, 1 flash, 2 HE, 3 molotov
     // Grenade pin pulled, waiting for the release: 0 no, 1 overhand (Mouse 1), 2 underhand lob (Mouse 2), 3 both.
     void setPrimed(int how) { primed_ = how; if (how) primedPose_ = how; }
     void update(const ViewModelInput& in);
     // Builds the weapon in world space for the given camera basis.
     void build(const Vec3& eye, float pitchDeg, float yawDeg, float offX, float offY, float offZ, float bobScale,
-               std::vector<ModelDraw>& out) const;
+               DrawList& out) const;
     // World-space muzzle point (approximate, for tracers).
     Vec3 muzzleWorld(const Vec3& eye, float pitchDeg, float yawDeg) const;
 
@@ -115,7 +139,7 @@ public:
     void helmet(const Vec3& pos, const Vec3& dir, uint32_t color);
     void update(float dt);
     void appendParticles(std::vector<BoxInstance>& out) const;
-    void appendTracers(std::vector<ModelDraw>& out) const;  // (and the debris)
+    void appendTracers(DrawList& out) const;  // (and the debris)
 
 private:
     float rnd();  // -1..1

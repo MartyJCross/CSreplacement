@@ -114,6 +114,16 @@ bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin
 }
 
 template <class Fn>
+void World::visitCell(size_t c, Fn& fn) const {
+    for (uint32_t k = idxStart_[c]; k < idxStart_[c + 1]; ++k) {
+        const uint32_t b = idxItems_[k];
+        if (stamp_[b] == stampId_) continue;  // (already tested: it spans several cells)
+        stamp_[b] = stampId_;
+        fn(solids[b]);
+    }
+}
+
+template <class Fn>
 void World::forCandidates(float x0, float y0, float x1, float y1, Fn&& fn) const {
     if (idxW_ == 0) {
         for (size_t k = 0; k < solids.size(); ++k) fn(solids[k]);
@@ -127,15 +137,42 @@ void World::forCandidates(float x0, float y0, float x1, float y1, Fn&& fn) const
         stampId_ = 1;
     }
     for (int j = j0; j <= j1; ++j)
-        for (int i = i0; i <= i1; ++i) {
-            size_t c = size_t(j * idxW_ + i);
-            for (uint32_t k = idxStart_[c]; k < idxStart_[c + 1]; ++k) {
-                uint32_t b = idxItems_[k];
-                if (stamp_[b] == stampId_) continue;
-                stamp_[b] = stampId_;
-                fn(solids[b]);
-            }
+        for (int i = i0; i <= i1; ++i) visitCell(size_t(j * idxW_ + i), fn);
+}
+
+// The boxes a box (mins..maxs) swept from `start` to `end` could touch. Row by row of the index it visits only the
+// cells the sweep crosses in that row, so a long diagonal trace (a sight line, a bullet) tests a band of cells
+// instead of its whole bounding rectangle.
+template <class Fn>
+void World::forSweep(const Vec3& start, const Vec3& end, const Vec3& mins, const Vec3& maxs, Fn&& fn) const {
+    if (idxW_ == 0) {
+        for (size_t k = 0; k < solids.size(); ++k) fn(solids[k]);
+        return;
+    }
+    auto cellX = [&](float x) { return std::clamp(int(std::floor((x - idxX0_) / idxCell_)), 0, idxW_ - 1); };
+    auto cellY = [&](float y) { return std::clamp(int(std::floor((y - idxY0_) / idxCell_)), 0, idxH_ - 1); };
+    const int j0 = cellY(std::min(start.y, end.y) + mins.y), j1 = cellY(std::max(start.y, end.y) + maxs.y);
+    if (++stampId_ == 0) {
+        std::fill(stamp_.begin(), stamp_.end(), 0u);
+        stampId_ = 1;
+    }
+    constexpr float kSlack = 1.0f;  // (rounding: a box is filed in every cell within 1 unit of it too)
+    const float dx = end.x - start.x, dy = end.y - start.y;
+    for (int j = j0; j <= j1; ++j) {
+        // The part of the path whose swept box reaches this row's y range, and the x it covers there.
+        float t0 = 0.0f, t1 = 1.0f;
+        if (std::fabs(dy) > 1e-6f) {
+            const float ya = idxY0_ + float(j) * idxCell_ - kSlack, yb = ya + idxCell_ + 2.0f * kSlack;
+            float ta = (ya - maxs.y - start.y) / dy, tb = (yb - mins.y - start.y) / dy;
+            if (ta > tb) std::swap(ta, tb);
+            t0 = std::max(ta, 0.0f);
+            t1 = std::min(tb, 1.0f);
+            if (t0 > t1) continue;
         }
+        const float xa = start.x + dx * t0, xb = start.x + dx * t1;
+        const int i0 = cellX(std::min(xa, xb) + mins.x - kSlack), i1 = cellX(std::max(xa, xb) + maxs.x + kSlack);
+        for (int i = i0; i <= i1; ++i) visitCell(size_t(j * idxW_ + i), fn);
+    }
 }
 
 void World::buildIndex(float cellSize) {
@@ -216,8 +253,7 @@ TraceResult World::traceBox(const Vec3& start, const Vec3& end, const Vec3& mins
             tr.box = int(&b - solids.data());
         }
     };
-    forCandidates(std::min(start.x, end.x) + mins.x, std::min(start.y, end.y) + mins.y,
-                  std::max(start.x, end.x) + maxs.x, std::max(start.y, end.y) + maxs.y, test);
+    forSweep(start, end, mins, maxs, test);
 
     if (bestT < 1.0f) {
         // Pull back so we stay kDistEpsilon off the surface.
