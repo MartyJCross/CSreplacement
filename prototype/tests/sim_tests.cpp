@@ -225,6 +225,26 @@ void testNoAutoBhop() {
     const float hopped = afterLanding(true), stayed = afterLanding(false);
     std::printf("  one landing: hop on the landing tick %.1f, stay on the ground %.1f\n", hopped, stayed);
     CHECK(hopped > 235.0f && hopped > stayed + 15.0f, "a perfect hop keeps most of its speed");
+    // A scroll-wheel hop lands a few ticks late: inside the grace window it still keeps its speed; well after, the
+    // ground has slowed you. A chain of grace-window hops with air strafing keeps going.
+    auto hopAfter = [&](int ticks) {
+        PlayerState p = spawnAt({-400, 0, 0});
+        MoveInput m;
+        m.forward = 1;
+        run(p, m, 0, 250, kTickRate);
+        m.jumpPressed = true;
+        playerMove(p, m, 0, 250, lab());
+        p.velocity.x = 320.0f;  // (going faster than you can run, as after air-strafing)
+        m.jumpPressed = false;
+        while (!p.onGround) playerMove(p, m, 0, 250, lab());
+        for (int k = 0; k < ticks; ++k) playerMove(p, m, 0, 250, lab());
+        m.jumpPressed = true;
+        playerMove(p, m, 0, 250, lab());
+        return length2d(p.velocity);
+    };
+    const float late4 = hopAfter(4), late20 = hopAfter(20);
+    std::printf("  landing at 320: hop 4 ticks later %.1f, 20 ticks later %.1f\n", late4, late20);
+    CHECK(late4 > 300.0f && late20 < 270.0f, "the hop grace window: %.1f %.1f", late4, late20);
 }
 
 void testBhop() {

@@ -23,8 +23,10 @@ struct MoveParams {
     float staminaLandCost = 12.0f;
     float staminaMax = 80.0f;
     float staminaRecover = 60.0f;    // per second
-    float hopPenalty = 0.25f;        // a hop on the landing tick takes this share of the landing slowdown (owner:
+    float hopPenalty = 0.25f;        // a hop just after landing takes this share of the landing slowdown (owner:
                                      // scroll-wheel bhops should be easy without auto-hop)
+    int hopGrace = 6;                // ...when it comes within this many ticks of landing (47 ms): it keeps the
+                                     // landing's speed (no friction meanwhile); later, the ground has slowed you
 };
 
 struct MoveInput {
@@ -42,7 +44,10 @@ struct PlayerState {
     bool ducked = false;
     float duckAmount = 0;  // 0 standing .. 1 fully crouched (eye height only)
     float stamina = 0;
-    float landKeep = 1;  // the speed a landing keeps, applied on the next tick (a hop on that tick keeps more)
+    float landKeep = 1;     // the speed the last landing keeps (its slowdown, taken the tick after landing)
+    float landedKeep = 1;   // ... remembered for a hop in the grace window
+    int sinceLand = 1000;   // ticks on the ground since landing
+    Vec3 landVel;           // the velocity at that landing
 };
 
 constexpr float kHullHalfWidth = 16.0f;

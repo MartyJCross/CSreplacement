@@ -146,16 +146,22 @@ void playerMove(PlayerState& ps, const MoveInput& in, float yawDeg, float weapon
     if (ps.ducked) wishSpeed *= mp.duckScale;
     else if (in.walk) wishSpeed *= mp.walkScale;
 
-    // The last landing's slowdown: all of it if you stay on the ground, a share if you hop straight away.
+    // The last landing's slowdown, the tick after landing (a hop in the grace window gets most of it back, below).
+    if (ps.onGround) ++ps.sinceLand;
     if (ps.landKeep < 1.0f) {
-        const float keep = in.jumpPressed && ps.onGround ? 1.0f - (1.0f - ps.landKeep) * mp.hopPenalty : ps.landKeep;
-        ps.velocity.x *= keep;
-        ps.velocity.y *= keep;
+        ps.velocity.x *= ps.landKeep;
+        ps.velocity.y *= ps.landKeep;
         ps.landKeep = 1.0f;
     }
 
-    // Jump.
+    // Jump. Within hopGrace ticks of landing it's a hop: you leave with the speed you landed with, less a share
+    // of the landing's slowdown (no friction in between), so a scroll-wheel bhop chains.
     if (in.jumpPressed && ps.onGround) {
+        if (ps.sinceLand <= mp.hopGrace) {
+            const float keep = 1.0f - (1.0f - ps.landedKeep) * mp.hopPenalty;
+            ps.velocity.x = ps.landVel.x * keep;
+            ps.velocity.y = ps.landVel.y * keep;
+        }
         ps.velocity.z = mp.jumpImpulse;
         ps.onGround = false;
         ps.stamina = std::min(mp.staminaMax, ps.stamina + mp.staminaJumpCost);
@@ -185,7 +191,9 @@ void playerMove(PlayerState& ps, const MoveInput& in, float yawDeg, float weapon
         if (!wasOnGround) {
             // Landing: lose some horizontal speed according to stamina (anti bunny-hop).
             ps.stamina = std::min(mp.staminaMax, ps.stamina + mp.staminaLandCost);
-            ps.landKeep = 1.0f - ps.stamina / 100.0f;  // (taken next tick: see the top)
+            ps.landKeep = ps.landedKeep = 1.0f - ps.stamina / 100.0f;  // (taken next tick: see the top)
+            ps.landVel = ps.velocity;
+            ps.sinceLand = 0;
         }
         ps.velocity.z = 0;
         ps.onGround = true;

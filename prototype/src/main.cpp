@@ -192,7 +192,7 @@ struct Game {
     // Input latches so quick taps between ticks are never lost.
     bool fireHeld = false, fireLatch = false, jumpLatch = false, reloadLatch = false;
     // Scroll-wheel jumps (bhop without auto-hop, owner): a notch in the air waits up to kWheelJumpBuffer for the
-    // ground and jumps on the landing tick.
+    // ground and jumps on landing; a notch just after landing is a hop too (MoveParams::hopGrace).
     double wheelJumpAt = -1;
     TriggerBuffer trigger;  // a semi-auto click waiting for the gun to be ready
     const WeaponState* triggerFor = nullptr;
@@ -3596,7 +3596,7 @@ void simTick(Game& g, const Options& opt) {
     in.duck = keys[SDL_SCANCODE_LCTRL];
     if (g.inputBlocked) in = MoveInput{};  // online with the menu open: you stand still, the game goes on
     if (g.jumpNeedsRelease && !keys[SDL_SCANCODE_SPACE]) g.jumpNeedsRelease = false;
-    constexpr double kWheelJumpBuffer = 0.1;
+    constexpr double kWheelJumpBuffer = 0.15;
     if (g.wheelJumpAt >= 0 && g.simTime - g.wheelJumpAt > kWheelJumpBuffer) g.wheelJumpAt = -1;
     in.jumpPressed = !g.inputBlocked && !g.jumpNeedsRelease &&
                      (g.jumpLatch || g.wheelJumpAt >= 0 || (g.autoHop && keys[SDL_SCANCODE_SPACE]));
