@@ -136,7 +136,8 @@ played never waits on the mixer.
   (competitive, deathmatch, retakes, prefire, practice) with a line about the highlighted one; picking one opens its
   setup - the map (and Dust's size), the mode's own options, START. PLAY ONLINE is your name, HOST A GAME (you set the
   game up in your lobby), your friend's address and JOIN, and the port. SETTINGS: mouse + view, crosshair + HUD,
-  weapons + skins, video, sound, gameplay, controls. The pause menu offers NEW GAME.
+  weapons + skins, video, sound, gameplay, controls, and RESET TO DEFAULTS (press it twice: every setting back to
+  its default, keeping your name, your friend's address, the port and unlocked skins). The pause menu offers NEW GAME.
 - **Testing options gone from the menus:** reload config, random spray spread, player model size, zero-lag camera,
   smooth stairs, "all skins unlocked" (their config keys still work). Noclip (V) only in practice. The top-left speed /
   spread / shots readouts show in practice only; the FPS counter is Settings -> Video -> SHOW FPS.

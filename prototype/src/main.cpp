@@ -4702,7 +4702,7 @@ enum MenuScreen {
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
                   kActReplay, kActLobbyTeam, kActLobbyStart, kActInfo,  // kActInfo: a line of text (does nothing)
-                  kActOpenCase, kActSkipCase, kActEquipNew,
+                  kActOpenCase, kActSkipCase, kActEquipNew, kActResetSettings,
                   kActPickMode = 50,  // + a mode: the PLAY screen's choice, on to its setup
                   kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
@@ -4712,6 +4712,8 @@ constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button
 struct MenuState { int screen = kMenuNone, sel = 0, root = kMenuMain; };
 MenuState g_menu;
 bool g_replayAvailable = false;  // the pause menu offers WATCH REPLAY (something's recorded, offline)
+double g_resetArmedAt = -100.0;  // SETTINGS -> RESET TO DEFAULTS was pressed once (a second press within 3 s resets)
+double g_resetDoneAt = -100.0;   // ... and when it last reset (the button says so for a moment)
 
 const char* const kOnOff[] = {"OFF", "ON"};
 const char* const kShadowNames[] = {"OFF", "ON", "SHARP"};
@@ -4918,11 +4920,16 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
             return {name, button("HOST A GAME", kActHost), addr, button("JOIN", kActJoin),
                     {"PORT", nullptr, &c.net_port, 1, 1024, 65535}, back};
         }
-        case kMenuSettings:
+        case kMenuSettings: {
+            const bool armed = g_uiTime - g_resetArmedAt < 3.0, done = g_uiTime - g_resetDoneAt < 2.0;
             return {button("MOUSE + VIEW", goTo(kMenuMouse)), button("CROSSHAIR + HUD", goTo(kMenuCrosshair)),
                     button("WEAPONS + SKINS", goTo(kMenuWeapon)), button("VIDEO", goTo(kMenuVideo)),
                     button("SOUND", goTo(kMenuSound)), button("GAMEPLAY", goTo(kMenuGameplay)),
-                    button("CONTROLS", goTo(kMenuControls)), back};
+                    button("CONTROLS", goTo(kMenuControls)),
+                    button(armed ? "PRESS AGAIN TO RESET EVERY SETTING" : done ? "DONE: EVERYTHING IS BACK TO DEFAULT" : "RESET TO DEFAULTS",
+                           kActResetSettings),
+                    back};
+        }
         case kMenuControls: return {back};
         case kMenuStats: return {back};
         case kMenuMouse:
@@ -5075,7 +5082,7 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
         const bool sel = int(k) == g_menu.sel;
         if (sel) hud.rect(L.x - 6 * fs, y - 3 * fs, L.w + 12 * fs, L.rowH, 0x3A5F9AC0);
         const bool go = it.action == kActStart || it.action == kActLobbyStart || it.action == kActHost || it.action == kActJoin;
-        const uint32_t col = sel ? 0xFFFFFFFF : go ? 0x80FF80FF : 0xC8C8C8FF;
+        const uint32_t col = sel ? 0xFFFFFFFF : go ? 0x80FF80FF : it.action == kActResetSettings ? 0xFF9070FF : 0xC8C8C8FF;
         hud.text(L.x, y, it.name, col);
         std::string v;
         if (it.action >= kActGoto) {
@@ -6497,6 +6504,28 @@ int main(int argc, char** argv) {
                 cfg = loadConfig(cfgPath);
                 settingsChanged();
                 pushHitLog(g, "CONFIG RELOADED", 0x80ff80);
+                break;
+            case kActResetSettings:  // every setting back to its default (a second press within 3 s confirms)
+                if (g_uiTime - g_resetArmedAt >= 3.0) {
+                    g_resetArmedAt = g_uiTime;
+                    break;
+                }
+                g_resetArmedAt = -100.0;
+                g_resetDoneAt = g_uiTime;
+                {
+                    Config fresh;  // keeps who you are and where your friends are, and your unlocked skins
+                    fresh.player_name = cfg.player_name;
+                    fresh.net_address = cfg.net_address;
+                    fresh.net_port = cfg.net_port;
+                    fresh.all_skins = cfg.all_skins;
+                    cfg = fresh;
+                }
+                settingsChanged();
+                saveConfig(cfgPath, cfg);
+                for (int k = 0; k < 6; ++k)
+                    if (kCrosshairColors[k] == (uint32_t(cfg.crosshair_r) << 16 | uint32_t(cfg.crosshair_g) << 8 | uint32_t(cfg.crosshair_b)))
+                        g_crosshairPreset = k;
+                pushHitLog(g, "SETTINGS RESET TO DEFAULTS (ANTI-ALIASING AND POST-PROCESSING ON RESTART)", 0x80ff80);
                 break;
             case kActQuit: running = false; break;
             case kActOpenCase:

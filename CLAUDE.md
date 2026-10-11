@@ -270,7 +270,8 @@ ONLINE, INVENTORY, STATS, SETTINGS, QUIT); PLAY = the modes (`kPlayModes`, `kMod
 `kMenuSetup` (map, size, the mode's options, START; `kActPickMode`); `kMenuOnline` (name, HOST A GAME -> lobby, address,
 JOIN, port); SETTINGS pages mouse, crosshair, weapons, video, sound (`kMenuSound`), gameplay, controls; pause menu
 (RESUME, NEW GAME, replay, inventory, settings, main menu). New screens are appended to the enum (`--menu N` numbers:
-15 setup, 16 online, 17 sound). No testing rows in the menus (owner); dev readouts only in practice; `show_fps`.
+15 setup, 16 online, 17 sound). No testing rows in the menus (owner); dev readouts only in practice; `show_fps`. SETTINGS -> RESET TO DEFAULTS
+(`kActResetSettings`, press twice within 3 s) = a fresh `Config` keeping name, address, port, all_skins.
 Every change saves config.cfg.
 
 **v0.23 premium pass** (details in §8's checklist): sun shadows (render.cpp `buildShadows`, `kSunDir`), post pass

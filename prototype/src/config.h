@@ -32,7 +32,7 @@ struct Config {
     int camera_extrapolate = 1;  // 1 = zero-lag camera (render your position at "now", not 1 tick behind)
     int view_shake = 1;          // 1 = slight camera roll per shot (around the crosshair: aim is unaffected)
     int case_kills = 25;         // kills (deathmatch, retakes, competitive, online) for each case
-    int all_skins = 0;           // 1 = every skin to pick from without opening cases (testing)
+    int all_skins = 0;           // 1 = every skin to pick from without opening cases (testing; kept by RESET TO DEFAULTS)
     int radar = 1;               // 1 = radar top-left on Dust
     int hitmarker = 1;         // 1 = X on the crosshair when you hit (red = head, big = kill)
     int hitsound = 1;            // 1 = a tick sound when you hit
