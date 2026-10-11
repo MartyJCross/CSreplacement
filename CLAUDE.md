@@ -181,6 +181,10 @@ pistol (suppressed USP-like), Dual Berettas, Deagle; knife; grenades.
   inventory row (`kInvWeapons`), its sound (`gunshotPitch` + the shot branch), `items.h kSlots == kWeaponCount`.
 - Snipers (`WeaponDef::scope`): a shot drops the scope and it comes back (`resumeZoom`), the viewmodel cycles the bolt,
   zoom eases in (`shownFov`), `Sfx::Zoom`; a noscope always scatters (`noscopeInaccuracy`).
+- Refunds (v0.27.2, owner): `Comp::bought` (Purchase: loadout before/after, price), `compRefund` undoes the newest
+  buy while the loadout still matches its after and the gun is unfired; R with the wheel open / the REFUND button
+  (`kBuyRefund`); cleared at round start; `--refund-test N` prints a full buy then N refunds. Q (`lastWeapon`) only
+  goes to a weapon you still have.
 - Buy wheel (B; `drawBuyWheel`, `buySlotAt`, `buyPick`, `BuyCategory`: pistols, shotguns, SMGs, rifles, snipers, gear,
   grenades; full buys on 8 / 9: `fullBuy`). Competitive: in spawn during buy time for money; elsewhere free.
 - Armor `armoredDamage(dmg, group, armor, helmet, ratio)`; material wallbangs (wood ×0.5, metal ×1.5); **collats**

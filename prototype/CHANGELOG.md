@@ -3,6 +3,16 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.27.2: refunds, the butterfly redone, a Q fix
+
+- **Refunds:** in competitive, with the buy wheel open, **R** (or the REFUND button under the full buys) sells back
+  your newest buy this round for what you paid, while it's untouched; press again for the one before.
+- **The butterfly's animations redone:** the draw, the three inspects and the idle tricks now play side on, the knife
+  across the screen, so the handles and blade swing round in front of you (they turned towards and away from you, a
+  thin stick waving about); one movement at a time, slower, and the toss stays on screen.
+- **Fix:** after picking up a gun in place of another, Q could switch to the gun you'd dropped. Q now only goes to a
+  weapon you still have.
+
 ## v0.27.1: T bots stay on the site after a plant
 
 - A T bot that was in a fight when the bomb went down walked back to spawn afterwards and stood there: the plant

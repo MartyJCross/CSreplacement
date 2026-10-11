@@ -665,32 +665,42 @@ KnifePose knifeInspect(int knife, int v, float t, float L) {
     const float in = ramp(t, 0.0f, 0.35f) * (1.0f - ramp(t, L - 0.45f, L));  // brought in to show it off
     p.pos = Vec3{-3.0f, 2.0f, 2.0f} * in;
     const float look = ramp(t, L - 1.3f, L - 1.0f) * (1.0f - ramp(t, L - 0.6f, L - 0.3f));  // a last look at the blade
+    if (knife == kKnifeButterfly) {
+        // The whole inspect side on, the knife across the screen, so its flips turn in the screen's plane (owner,
+        // v0.27.2: they turned towards and away from you, a thin stick waving about). One movement at a time:
+        // closed = the blade between the handles (blade 180), open = blade out (0); the bite handle swings round.
+        p.yaw += 70.0f * in;
+        p.pitch -= 10.0f * in;
+        p.roll -= 20.0f * in;
+        p.pos += Vec3{1.0f, 0.8f, -1.0f} * in;
+        if (v == 0) {  // aerials: the bite handle fans round twice, the blade folds in and swings back out, a fan again
+            p.bite = 720.0f * ramp(t, 0.4f, 1.3f);
+            p.blade = 180.0f * bump(t, 1.35f, 2.15f);
+            p.bite += 360.0f * ramp(t, 1.35f, 2.15f);
+            p.bite += 360.0f * ramp(t, 2.25f, 2.75f);
+            p.roll += 8.0f * bump(t, 0.4f, 1.3f);
+        } else if (v == 1) {  // the fan: the blade whips round between the handles three times, then a toss
+            for (int k = 0; k < 3; ++k) {
+                const float a = 0.4f + 0.45f * float(k);
+                p.blade += 360.0f * ramp(t, a, a + 0.4f);
+                p.bite += 360.0f * ramp(t, a + 0.08f, a + 0.45f);
+            }
+            p.off.y = toss(t, 1.95f, 2.6f, 3.0f);
+            p.spinX = 360.0f * ramp(t, 1.95f, 2.6f);
+            p.pos.y -= 0.8f * bump(t, 2.55f, 2.8f);  // the catch
+        } else {  // folded, tossed up spinning, caught, flicked open
+            p.blade = 180.0f * ramp(t, 0.3f, 0.65f) * (1.0f - ramp(t, 1.95f, 2.45f));
+            p.bite = 360.0f * ramp(t, 1.95f, 2.45f);
+            p.off.y = toss(t, 0.75f, 1.6f, 3.5f);
+            p.spinX = 720.0f * ramp(t, 0.75f, 1.6f);
+            p.pos.y -= 1.0f * bump(t, 1.55f, 1.85f);  // the catch
+        }
+        return p;
+    }
     p.yaw += 65.0f * look;
     p.pitch -= 10.0f * look;
     p.roll -= 20.0f * look;
-    if (knife == kKnifeButterfly) {
-        if (v == 0) {  // aerials: the handles fan round and round while the wrist twists under them
-            p.roll += 15.0f * in + 360.0f * ramp(t, 0.35f, 1.6f);
-            p.bite = 1080.0f * ramp(t, 0.35f, 1.55f);
-            p.blade = -720.0f * ramp(t, 0.4f, 1.6f);
-            p.pitch += 25.0f * bump(t, 0.5f, 1.4f);
-        } else if (v == 1) {  // the fan: the blade whips out and round between the handles three times, then a toss
-            for (int k = 0; k < 3; ++k) {
-                const float a = 0.4f + 0.42f * float(k);
-                p.blade += 360.0f * ramp(t, a, a + 0.36f);
-                p.bite -= 360.0f * ramp(t, a + 0.06f, a + 0.4f);
-                p.roll += 18.0f * bump(t, a, a + 0.42f) * (k % 2 ? -1.0f : 1.0f);
-            }
-            p.off.y = toss(t, 1.75f, 2.35f, 4.0f);
-            p.spinX = 360.0f * ramp(t, 1.75f, 2.35f);
-        } else {  // folded, tossed up spinning, caught, flicked open
-            p.blade = 180.0f * ramp(t, 0.3f, 0.6f) * (1.0f - ramp(t, 1.9f, 2.4f));
-            p.bite = 360.0f * ramp(t, 1.9f, 2.4f);
-            p.off.y = toss(t, 0.7f, 1.6f, 5.5f);
-            p.spinX = 720.0f * ramp(t, 0.7f, 1.6f);
-            p.pos.y -= 1.2f * bump(t, 1.55f, 1.85f);  // the catch
-        }
-    } else if (ringKnife(knife)) {
+    if (ringKnife(knife)) {
         // (the hand turns side on and lifts while it spins, so you see the claw go round)
         const float show = ramp(t, 0.2f, 0.45f) * (1.0f - ramp(t, v == 1 ? 2.0f : 1.6f, v == 1 ? 2.3f : 1.9f));
         if (v != 2) {
@@ -730,10 +740,12 @@ KnifePose knifeInspect(int knife, int v, float t, float L) {
 // The draw (d: 0..1 over kKnifeDrawTime): every knife comes out with a flourish.
 KnifePose knifeDraw(int knife, float d) {
     KnifePose p;
-    if (knife == kKnifeButterfly) {  // flicked open: the handle fans round twice while the blade swings out
-        p.bite = 720.0f * ramp(d, 0.05f, 0.85f);
-        p.blade = 180.0f - 540.0f * ramp(d, 0.1f, 0.9f);
-        p.roll -= 360.0f * (1.0f - ramp(d, 0.05f, 0.8f));
+    if (knife == kKnifeButterfly) {  // turned side on, flicked open (the blade out, the handle round), a fan, back
+        const float side = ramp(d, 0.0f, 0.12f) * (1.0f - ramp(d, 0.75f, 1.0f));
+        p.yaw += 60.0f * side;
+        p.roll -= 15.0f * side;
+        p.blade = 180.0f * (1.0f - ramp(d, 0.12f, 0.5f));
+        p.bite = 360.0f * ramp(d, 0.1f, 0.5f) + 360.0f * ramp(d, 0.5f, 0.8f);
     } else if (ringKnife(knife)) {  // spun round the finger into the hand
         p.ring = 720.0f * ramp(d, 0.1f, 0.85f);
         p.roll -= 30.0f * bump(d, 0.1f, 0.85f);
@@ -748,12 +760,14 @@ KnifePose knifeDraw(int knife, float d) {
 KnifePose knifeFidget(int knife, int kind, float f) {
     KnifePose p;
     if (knife == kKnifeButterfly) {
+        const float side = bump(f, 0.0f, 1.05f);  // (turned side on so the trick faces you)
+        p.yaw += 45.0f * side;
+        p.roll -= 10.0f * side;
         if (kind == 0) {  // a quick close and open
-            p.blade = 360.0f * ramp(f, 0.1f, 0.9f);
-            p.bite = 360.0f * ramp(f, 0.15f, 0.95f);
+            p.blade = 180.0f * bump(f, 0.15f, 0.9f);
+            p.bite = 360.0f * ramp(f, 0.15f, 0.9f);
         } else {  // the handle fanned twice
-            p.bite = 720.0f * ramp(f, 0.1f, 0.9f);
-            p.roll += 12.0f * bump(f, 0.1f, 0.9f);
+            p.bite = 720.0f * ramp(f, 0.15f, 0.9f);
         }
     } else if (ringKnife(knife)) {
         p.ring = (kind == 0 ? 360.0f : -360.0f) * ramp(f, 0.1f, 0.75f);

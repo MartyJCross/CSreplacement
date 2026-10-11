@@ -73,6 +73,7 @@ struct Options {
     int giveCases = 0;                           // --give-cases N: N cases to open (tests)
     int giveKnifeCases = 0;                      // --give-knife-cases N: N knife cases (with --menu 12: one opening)
     int buyCat = -1;                             // --buy N: the buy wheel open on category N (0 = the categories)
+    int refundTest = -1;                         // --refund-test N: competitive, a full buy then N refunds (frame 59)
     bool startCT = false;                        // --ct: competitive starts with you on CT (testing)
     bool netHost = false;                        // --host: host an online game straight away
     int lobbyStartFrame = -1;                    // --host-lobby F: host into the lobby, START at frame F (tests)
@@ -130,6 +131,8 @@ Options parseArgs(int argc, char** argv) {
             o.giveKnifeCases = std::atoi(next());
         } else if (a == "--buy") {
             o.buyCat = std::atoi(next());
+        } else if (a == "--refund-test") {
+            o.refundTest = std::atoi(next());
 
         } else if (a == "--inspect") {
             o.inspectFrame = std::atoi(next());
@@ -350,6 +353,20 @@ struct Game {
         int ownPrimary = -1;                // the primary you bought (WeaponId), -1 none; the pistol slot is
                                             // g.secondary (the starting pistol unless you bought another)
         int nades[4] = {0, 0, 0, 0};
+        struct Loadout {  // what you carry, to undo a buy
+            int ownPrimary = -1;
+            const WeaponState* primary = nullptr;
+            const WeaponState* secondary = nullptr;
+            float armor = 0;
+            bool helmet = false, kit = false;
+            int nades[4] = {0, 0, 0, 0};
+        };
+        struct Purchase {
+            Loadout before, after;
+            int price = 0, weapon = -1;
+            std::string name;
+        };
+        std::vector<Purchase> bought;       // this round's buys, newest last: REFUND sells back the newest (CS2)
         int siteTarget = 0;                 // the site the Ts go for this round
         Vec3 stagePoint;                    // where the T bots gather before they execute
         bool executing = false, rotated = false;  // rotated: the CTs heard the site get hit
@@ -1955,6 +1972,7 @@ void startCompRound(Game& g) {
     if (c.youDead) {  // you died last round: start over with a pistol
         c.armor = 0;
         c.helmet = c.kit = false;
+        c.bought.clear();
         c.ownPrimary = -1;
         for (int& n : c.nades) n = 0;
         g.primary = &g.guns[kWRifle];
@@ -2381,6 +2399,57 @@ bool buyOwned(const Game& g, const BuyEntry& e) {
     }
 }
 
+Game::Comp::Loadout loadoutOf(const Game& g) {
+    const Game::Comp& c = g.comp;
+    Game::Comp::Loadout l;
+    l.ownPrimary = c.ownPrimary;
+    l.primary = g.primary;
+    l.secondary = g.secondary;
+    l.armor = c.armor;
+    l.helmet = c.helmet;
+    l.kit = c.kit;
+    for (int k = 0; k < 4; ++k) l.nades[k] = c.nades[k];
+    return l;
+}
+
+bool sameLoadout(const Game::Comp::Loadout& a, const Game::Comp::Loadout& b) {
+    for (int k = 0; k < 4; ++k)
+        if (a.nades[k] != b.nades[k]) return false;
+    return a.ownPrimary == b.ownPrimary && a.primary == b.primary && a.secondary == b.secondary && a.armor == b.armor &&
+           a.helmet == b.helmet && a.kit == b.kit;
+}
+
+// Competitive: sells back your newest buy this round for what you paid, like CS2's refunds - only while it's
+// untouched (a gun not fired, armor not hit, the grenade not thrown, nothing swapped since). The buy wheel's
+// REFUND button and R with the wheel open.
+const char* compRefund(Game& g) {
+    Game::Comp& c = g.comp;
+    if (c.bought.empty()) return "NOTHING TO REFUND";
+    const Game::Comp::Purchase p = c.bought.back();
+    const bool fired = p.weapon >= 0 && weaponState(g, p.weapon).ammo < weaponDef(p.weapon).magSize;
+    if (fired || !sameLoadout(loadoutOf(g), p.after)) {
+        c.bought.clear();
+        return "CAN'T REFUND: ALREADY USED";
+    }
+    c.bought.pop_back();
+    c.money += p.price;
+    c.ownPrimary = p.before.ownPrimary;
+    g.primary = const_cast<WeaponState*>(p.before.primary);
+    g.secondary = const_cast<WeaponState*>(p.before.secondary);
+    c.armor = p.before.armor;
+    c.helmet = p.before.helmet;
+    c.kit = p.before.kit;
+    for (int k = 0; k < 4; ++k) c.nades[k] = p.before.nades[k];
+    // Not holding what's gone: the primary, else the pistol.
+    const bool held = g.weapon == &g.guns[kWKnife] || g.weapon == g.secondary ||
+                      (g.weapon == g.primary && c.ownPrimary >= 0) ||
+                      (g.weapon == &g.guns[kWGrenade] && c.nades[g.nadeType] > 0);
+    if (!held) g.switchTo = c.ownPrimary >= 0 ? 1 : 2;
+    static std::string msg;
+    msg = "REFUNDED " + p.name + " (+$" + std::to_string(p.price) + ")";
+    return msg.c_str();
+}
+
 int buyPrice(const Game& g, const BuyEntry& e) {
     return e.gear == 1 && g.comp.armor > 0 && !g.comp.helmet ? 350 : e.price;  // just the helmet
 }
@@ -2394,18 +2463,25 @@ const char* compBuy(Game& g, int category, int item) {
     if (buyOwned(g, e)) return "CAN'T CARRY MORE";
     const int price = buyPrice(g, e);
     if (c.money < price) return "NOT ENOUGH MONEY";
+    Game::Comp::Purchase p;
+    p.before = loadoutOf(g);
+    p.price = price;
+    p.weapon = e.weapon;
+    p.name = e.name;
     c.money -= price;
     if (e.weapon >= 0) {
         if (weaponDef(e.weapon).primary) c.ownPrimary = e.weapon;
         takeGun(g, e.weapon);
-        return e.name;
+    } else {
+        switch (e.gear) {
+            case 0: c.armor = 100; break;
+            case 1: c.armor = 100; c.helmet = true; break;
+            case 2: c.kit = true; break;
+            default: c.nades[e.gear - 3]++; break;
+        }
     }
-    switch (e.gear) {
-        case 0: c.armor = 100; break;
-        case 1: c.armor = 100; c.helmet = true; break;
-        case 2: c.kit = true; break;
-        default: c.nades[e.gear - 3]++; break;
-    }
+    p.after = loadoutOf(g);
+    c.bought.push_back(std::move(p));
     return e.name;
 }
 
@@ -3370,6 +3446,7 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     if (c.youDead || !playing) {
         c.armor = 0;
         c.helmet = c.kit = false;
+        c.bought.clear();
         c.ownPrimary = -1;
         for (int& n : c.nades) n = 0;
         g.primary = &g.guns[kWRifle];
@@ -3919,6 +3996,12 @@ void simTick(Game& g, const Options& opt) {
 
     // Weapon switching / reload.
     if (g.switchTo) {
+        // Q: the last weapon, if you still have it (a gun swapped on the floor or dropped is gone: owner, v0.27.2)
+        WeaponState* knife = &g.guns[kWKnife];
+        const bool hasPrimary = !compLive || g.comp.ownPrimary >= 0;
+        if ((g.lastWeapon != g.primary || !hasPrimary) && g.lastWeapon != g.secondary && g.lastWeapon != knife &&
+            g.lastWeapon != &g.guns[kWGrenade])
+            g.lastWeapon = g.weapon == knife && g.secondary ? g.secondary : knife;
         WeaponState* target = g.switchTo == 1   ? g.primary
                               : g.switchTo == 2 ? g.secondary
                               : g.switchTo == 4 ? &g.guns[kWGrenade]
@@ -5428,7 +5511,10 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
 
 // ---- The buy wheel (B), like CS:GO's: a ring of categories, then a ring of that category's items. The
 // mouse is free while it's open (hover and click); number keys work too. Two full-buy buttons underneath. ----
-constexpr int kBuyFullRifle = 100, kBuyFullSniper = 101, kBuyCentre = -1, kBuyNothing = -2;
+constexpr int kBuyFullRifle = 100, kBuyFullSniper = 101, kBuyRefund = 102, kBuyCentre = -1, kBuyNothing = -2;
+
+// The wheel shows REFUND (competitive, something bought this round).
+bool canRefund(const Game& g) { return g.mode == 3 && g.mapId == 1 && !g.comp.bought.empty(); }
 
 struct BuyWheel { float cx, cy, r0, r1; };
 BuyWheel buyWheel(int w, int h, int s) { return {float(w) * 0.5f, float(h) * 0.47f, 58.0f * float(s), 172.0f * float(s)}; }
@@ -5438,22 +5524,27 @@ int buySlotCount(const Game& g) {
     return g.buyCategory == 0 ? (comp ? kCatGrenades : kCatSnipers) : int(buyEntries(g.buyCategory, buySide(g)).size());
 }
 
-// The full-buy buttons under the wheel: x, y, width, height of button k (0 rifle, 1 sniper).
+// The buttons under the wheel: x, y, width, height of button k (0 full buy rifle, 1 sniper, 2 refund).
 void fullBuyButton(const BuyWheel& wh, int s, int k, float& x, float& y, float& bw, float& bh) {
     bw = 150.0f * float(s);
     bh = 22.0f * float(s);
     x = wh.cx + (k == 0 ? -bw - 6.0f * float(s) : 6.0f * float(s));
     y = wh.cy + wh.r1 + 18.0f * float(s);
+    if (k == 2) {  // centred under the two
+        bw = 220.0f * float(s);
+        x = wh.cx - bw * 0.5f;
+        y += bh + 6.0f * float(s);
+    }
 }
 
 // What's under (mx, my): a wedge (0..n-1), the centre, a full-buy button, or nothing.
 int buySlotAt(const Game& g, int w, int h, int s, float mx, float my) {
     const BuyWheel wh = buyWheel(w, h, s);
     if (g.buyCategory == 0)
-        for (int k = 0; k < 2; ++k) {
+        for (int k = 0; k < (canRefund(g) ? 3 : 2); ++k) {
             float x, y, bw, bh;
             fullBuyButton(wh, s, k, x, y, bw, bh);
-            if (mx >= x && mx <= x + bw && my >= y && my <= y + bh) return k == 0 ? kBuyFullRifle : kBuyFullSniper;
+            if (mx >= x && mx <= x + bw && my >= y && my <= y + bh) return k == 0 ? kBuyFullRifle : k == 1 ? kBuyFullSniper : kBuyRefund;
         }
     const float dx = mx - wh.cx, dy = my - wh.cy, r = std::sqrt(dx * dx + dy * dy);
     if (r < wh.r0) return kBuyCentre;
@@ -5492,6 +5583,7 @@ const char* fullBuy(Game& g, bool sniper) {
 const char* buyPick(Game& g, int slot) {
     const bool comp = g.mode == 3 && g.mapId == 1;
     if (slot == kBuyFullRifle || slot == kBuyFullSniper) return fullBuy(g, slot == kBuyFullSniper);
+    if (slot == kBuyRefund) return comp ? compRefund(g) : "";
     if (slot == kBuyCentre) {  // back to the categories (or shut it from there)
         if (g.buyCategory > 0) g.buyCategory = 0;
         else g.buyMenu = false;
@@ -5593,9 +5685,18 @@ void drawBuyWheel(HudBatch& hud, const Game& g, int w, int h, int s) {
             const std::string t = k == 0 ? std::string("8  FULL BUY: ") + weaponDef(fullBuyRifle(g)).name : "9  FULL BUY: AWP";
             hud.text(x + (bw - hud.textWidth(t)) * 0.5f, y + 7.0f * fs, t, 0xFFFFFFFF);
         }
+        if (canRefund(g)) {
+            float x, y, bw, bh;
+            fullBuyButton(wh, s, 2, x, y, bw, bh);
+            hud.rect(x, y, bw, bh, hover == kBuyRefund ? 0x7A3A3AF0 : 0x15181CE8);
+            hud.rect(x, y + bh - 2.0f * fs, bw, 2.0f * fs, 0xE06060FF);
+            const Game::Comp::Purchase& p = c.bought.back();
+            const std::string t = "R  REFUND " + p.name + " (+$" + std::to_string(p.price) + ")";
+            hud.text(x + (bw - hud.textWidth(t)) * 0.5f, y + 7.0f * fs, t, 0xFFFFFFFF);
+        }
     }
-    const char* hint = "CLICK OR 1-9   RIGHT CLICK / ESC BACK   B CLOSE";
-    hud.text(wh.cx - hud.textWidth(hint) * 0.5f, wh.cy + wh.r1 + 50.0f * fs, hint, 0x909090FF);
+    const char* hint = comp ? "CLICK OR 1-9   R REFUND   RIGHT CLICK / ESC BACK   B CLOSE" : "CLICK OR 1-9   RIGHT CLICK / ESC BACK   B CLOSE";
+    hud.text(wh.cx - hud.textWidth(hint) * 0.5f, wh.cy + wh.r1 + (canRefund(g) && g.buyCategory == 0 ? 78.0f : 50.0f) * fs, hint, 0x909090FF);
 }
 
 // The inventory and case screens: where the turning weapon is shown (pixels), and what goes there.
@@ -7507,6 +7608,11 @@ int main(int argc, char** argv) {
                             g.spec = -1;  // flying free
                             g.hudDirty = true;
                         } else if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
+                        else if (sc == SDL_SCANCODE_R && g.buyMenu && g.mode == 3 && g.mapId == 1) {  // refund
+                            pushHitLog(g, compRefund(g), 0xffd060);
+                            sound(g, Sfx::UiClick, 0.4f);
+                            g.hudDirty = true;
+                        }
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
                         else if (sc == SDL_SCANCODE_E) g.useLatch = true;
                         else if (g.callMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_7) {  // your call
@@ -7635,6 +7741,14 @@ int main(int argc, char** argv) {
         if (automated && frame == opt.inspectFrame) {
             if (opt.inspectVariant >= 0) g.vm.setInspectVariant(opt.inspectVariant + 2);  // (the next F: +1, wrapped)
             g.vm.inspect();
+        }
+        if (automated && opt.refundTest >= 0 && frame == 59 && g.mode == 3 && g.mapId == 1) {
+            g.comp.money = 16000;
+            std::printf("refund test: $%d", g.comp.money);
+            fullBuy(g, false);
+            std::printf(" -> full buy $%d (%d items)", g.comp.money, int(g.comp.bought.size()));
+            for (int k = 0; k < opt.refundTest; ++k) std::printf(" -> %s $%d", compRefund(g), g.comp.money);
+            std::printf("\n");
         }
         if (automated && opt.buyCat >= 0 && frame == 60) {  // (screenshots: the wheel, the mouse on its first wedge)
             g.buyMenu = true;
