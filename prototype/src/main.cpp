@@ -60,6 +60,7 @@ struct Options {
     int menuRow = 0;                             // --menu-row N: with the row N highlighted
     std::string skin;                            // --skin KEY: that skin on its weapon (with --menu 11: on the stage)
     int stKills = -1;                            // --stattrak N: that skin StatTrak with N kills
+    int stabFrame = -1;                          // --stab N: the knife stabs on frame N (screenshots)
     bool throwSmoke = false, bots = false;       // --smoke [frame N: --throw-frame N], --bots (for screenshots)
     int throwFrame = 30;
     float benchSeconds = 0;                      // --bench S: timed run at real speed, writes bench.txt
@@ -154,6 +155,8 @@ Options parseArgs(int argc, char** argv) {
             o.menuRow = std::atoi(next());
         } else if (a == "--skin") {
             o.skin = next();
+        } else if (a == "--stab") {
+            o.stabFrame = std::atoi(next());
         } else if (a == "--stattrak") {
             o.stKills = std::atoi(next());
         } else if (a == "--zoom") {
@@ -198,6 +201,7 @@ struct Game {
     float shownFov = 0;  // the FOV drawn: eases into a zoom over a few frames, snaps straight out
     double resumeZoomAt = -1, boltAt = -1;
     bool zoomLatch = false;
+    double knifeComboUntil = 0;   // a slash before this follows the last one (25 damage, like CS)
     bool autoHop = true;
     Vec3 spawn;
     float spawnYaw = 0;
@@ -4142,6 +4146,7 @@ void simTick(Game& g, const Options& opt) {
         g.hudDirty = true;
     }
     const bool lobLatch = g.zoomLatch && &ws == &g.guns[kWGrenade];
+    const bool stabLatch = g.zoomLatch && &ws == &g.guns[kWKnife];
     g.zoomLatch = false;
     if (g.resumeZoomAt >= 0 && g.simTime >= g.resumeZoomAt) {
         if (sniperOut && ws.reloadEndTime < 0 && g.deadUntil < 0) {
@@ -4217,6 +4222,54 @@ void simTick(Game& g, const Options& opt) {
     g.recoilIndexPrev = ws.recoilIndex;
 
     bool fired = false;
+    // The knife (owner, v0.28): Mouse 1 slashes, Mouse 2 stabs (held: again as soon as it can), CS:GO's numbers
+    // (combat.cpp knifeAttack). Hits are handled like a bullet's.
+    const bool knifeOut = wd.id == kWKnife && g.deadUntil < 0 && !(g.mode == 3 && g.mapId == 1 && g.comp.youDead);
+    if (knifeOut && (wantFire || g.fireHeld || g.zoomHeld || stabLatch) && g.simTime >= ws.nextFireTime) {
+        const bool stab = !(wantFire || g.fireHeld);
+        const ShotResult r = knifeAttack(stab, !stab && g.simTime < g.knifeComboUntil, g.lastRenderEye, float(g.viewPitch),
+                                         float(g.viewYaw), g.world, g.dummies, g.lastDummyRenderPos);
+        g.trigger.clear();
+        ws.nextFireTime = g.simTime + knifeRefire(stab, r.dummyIndex >= 0 || r.hitWorld);
+        g.knifeComboUntil = stab ? 0.0 : g.simTime + kKnifeComboTime;
+        g.vm.knifeAttack(stab);
+        sound(g, Sfx::KnifeSwing, 0.55f, 0.0f, stab ? 0.85f : 1.0f);
+        makeNoise(g, g.player.origin, 300.0f);
+        if (r.dummyIndex >= 0) {
+            const size_t v = size_t(r.dummyIndex);
+            sound(g, Sfx::KnifeHit, 0.85f);
+            g.fx.blood(r.end, normalize(r.end - r.start));
+            if (g.online && g.net.ready() && !(netHost(g) && isBot(g, v)))
+                g.net.sendHit(uint8_t(v), r.damage, uint8_t(r.group), uint8_t(kWKnife));
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "%s%s %d%s", r.backstab ? "BACKSTAB " : "", stab ? "STAB" : "SLASH",
+                          int(r.damage + 0.5f), r.kill ? "  KILL" : "");
+            pushHitLog(g, buf, r.backstab || r.kill ? 0xff6060 : 0xffffff);
+            const float hpBefore = g.dummies[v].hp + r.damage;
+            recordDamage(g, -1, r.dummyIndex, std::min(r.damage, std::max(0.0f, hpBefore)), false, wd.name, false, r.kill);
+            if (r.kill) botDied(g, v);
+            else if (g.mode >= 1) {  // hit but alive: it turns on you
+                BotBrain& b = g.bots[v];
+                b.alertUntil = g.simTime + 2.0;
+                b.lastSeen = g.player.origin;
+                if (g.mode == 1 && b.state != 2) { b.state = 3; b.path.clear(); }
+            }
+            if (r.kill && g.botsFire && g.hp < 100.0f && g.mode != 3 && g.mode != 4) {  // a kill heals you
+                g.hp = std::min(100.0f, g.hp + 40.0f);
+                pushHitLog(g, "+40 HP", 0x60ff60);
+            }
+            g.hits++;
+            g.hitMarkerStart = g.simTime;
+            g.hitMarkerUntil = g.simTime + (r.kill ? 0.22 : 0.14);
+            g.hitMarkerHead = false;
+            g.hitMarkerKill = r.kill;
+            if (g.hitSound) sound(g, Sfx::HitMarker, r.kill ? 0.5f : 0.35f, 0.0f, r.kill ? 0.85f : 1.0f);
+        } else if (r.hitWorld) {
+            if (g.audio) g.audio->play3D(Sfx::KnifeWall, r.end, g.earPos, g.earYaw, 900.0f, 0.6f);
+            g.fx.impact(r.end, r.normal, 0x8a8f96, 0.6f);
+        }
+        g.hudDirty = true;
+    }
     // The Nova loads shell by shell: firing with shells in it stops the reload.
     if (wantFire && wd.shellReload && ws.reloadEndTime >= 0 && ws.ammo > 0) ws.reloadEndTime = -1;
     ws.scoped = g.zoom > 0;  // (a noscope scatters)
@@ -7834,6 +7887,7 @@ int main(int argc, char** argv) {
             g.nadeType = std::clamp(opt.nadeType, 0, Game::kNadeTypes - 1);
             g.throwLatch = true;
         }
+        if (automated && frame == opt.stabFrame) g.zoomLatch = true;
         if (automated && frame == opt.inspectFrame) {
             if (opt.inspectVariant >= 0) g.vm.setInspectVariant(opt.inspectVariant + 2);  // (the next F: +1, wrapped)
             g.vm.inspect();

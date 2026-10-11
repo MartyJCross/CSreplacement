@@ -29,6 +29,7 @@ enum class Sfx {
     RoundStart, BombPlanted, RoundWin, RoundLose,  // the match's cues: "go", the alarm, the stings
     LowAmmo, LastRound,                     // your magazine: nearly empty (a tick), the last round (a ping)
     FootstepStone,                          // steps on the sites' paving and the Lab's concrete (sand is Footstep)
+    KnifeSwing, KnifeHit, KnifeWall,        // the knife: the swish, a blade going in, the blade on a wall
     Count
 };
 

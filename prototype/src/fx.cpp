@@ -782,6 +782,36 @@ KnifePose knifeFidget(int knife, int kind, float f) {
     return p;
 }
 
+// A knife attack (t seconds in): a slash sweeps the blade across the screen - forehand right to left, backhand
+// down and across the other way - and comes back; a stab draws back, drives forward, holds, comes back.
+KnifePose knifeSwing(bool stab, int side, float t) {
+    KnifePose p;
+    if (stab) {
+        const float back = ramp(t, 0.0f, 0.2f) * (1.0f - ramp(t, 0.22f, 0.3f));
+        const float drive = ramp(t, 0.24f, 0.34f) * (1.0f - ramp(t, 0.5f, 0.9f));
+        p.pos = Vec3{-3.5f * drive, 1.5f * back + 2.0f * drive, 3.0f * back - 11.0f * drive};
+        p.pitch = -12.0f * back + 14.0f * drive;
+        p.yaw = 18.0f * drive;
+        p.roll = -10.0f * back;
+        return p;
+    }
+    const float wind = ramp(t, 0.0f, 0.06f), swing = ramp(t, 0.06f, 0.19f), home = ramp(t, 0.22f, 0.4f);
+    const float u = (-0.35f * wind * (1.0f - swing) + swing) * (1.0f - home);  // -0.35 wound up .. 1 swung through
+    const float reach = bump(t, 0.03f, 0.32f);
+    if (side == 0) {  // forehand: right to left
+        p.pos = Vec3{-10.0f * u, 2.5f * reach, -5.0f * reach};
+        p.yaw = 55.0f * u;
+        p.roll = -65.0f * u;
+        p.pitch = -10.0f * u;
+    } else {  // backhand: high on the left, down and across to the right
+        p.pos = Vec3{-7.0f * (1.0f - u) * reach + 3.0f * u, 4.0f * reach - 6.0f * u, -5.0f * reach};
+        p.yaw = 40.0f * (1.0f - u) * reach - 20.0f * u;
+        p.roll = 70.0f * reach;
+        p.pitch = 35.0f * u;
+    }
+    return p;
+}
+
 // The skin's z extent for each model (fades and flames run front to back over it).
 void paintSpan(ViewWeapon w, PaintParams& p) {
     switch (w) {
@@ -1047,6 +1077,14 @@ float ViewModel::inspectLength() const {
     }
 }
 
+void ViewModel::knifeAttack(bool stab) {
+    attackT_ = 0;
+    attackStab_ = stab;
+    if (!stab) attackSide_ ^= 1;
+    inspectT_ = fidgetT_ = -1;
+    drawT_ = 1.0f;  // (an attack cuts the draw short)
+}
+
 void ViewModel::inspect() {
     if (drawT_ < 1.0f || reloadT_ >= 0) return;
     if (weapon_ == ViewWeapon::Knife && inspectT_ < 0) inspectVariant_ = (inspectVariant_ + 1) % kKnifeInspects;
@@ -1092,7 +1130,7 @@ void ViewModel::update(const ViewModelInput& in) {
     // The butterfly flips open (slower draw); everything else just raises.
     drawT_ = std::min(1.0f, drawT_ + dt / (weapon_ == ViewWeapon::Knife ? kKnifeDrawTime : 0.35f));
     // Knife tricks while it's out and idle: one every 2.5-6 s.
-    if (weapon_ == ViewWeapon::Knife && fidget_ && inspectT_ < 0 && drawT_ >= 1.0f) {
+    if (weapon_ == ViewWeapon::Knife && fidget_ && inspectT_ < 0 && attackT_ < 0 && drawT_ >= 1.0f) {
         if (fidgetT_ >= 0) {
             if ((fidgetT_ += dt) > kFidgetTime) {
                 fidgetT_ = -1;
@@ -1110,6 +1148,8 @@ void ViewModel::update(const ViewModelInput& in) {
         knifeIdle_ = 0;
     }
     if (inspectT_ >= 0) inspectT_ += dt;
+    if (attackT_ >= 0 && (attackT_ += dt) > (attackStab_ ? 1.0f : 0.42f)) attackT_ = -1;
+    if (weapon_ != ViewWeapon::Knife) attackT_ = -1;
     if (inspectT_ > inspectLength() || in.reloadProgress >= 0) inspectT_ = -1;
     flashLeft_ -= dt;
     primeT_ = std::clamp(primeT_ + (primed_ ? dt / 0.12f : -dt / 0.06f), 0.0f, 1.0f);  // wind up, snap out
@@ -1248,6 +1288,7 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
         if (inspectT_ >= 0) apply(knifeInspect(knife_, inspectVariant_, inspectT_, inspectLength()));
         if (drawT_ < 1.0f) apply(knifeDraw(knife_, drawT_));
         if (fidgetT_ >= 0) apply(knifeFidget(knife_, fidgetKind_, fidgetT_));
+        if (attackT_ >= 0) apply(knifeSwing(attackStab_, attackSide_, attackT_));
     }
 
     Mat4 world = cameraBasis(eye, pitchDeg, yawDeg) * translation(pos) * rotationY(yaw) * rotationX(pitch) *

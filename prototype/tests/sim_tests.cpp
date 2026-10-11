@@ -955,6 +955,41 @@ void testTurnedHitboxes() {
 
 // The added guns: the starting pistol and the Berettas can't one-tap a helmet, the Deagle can from across the
 // map; the Nova's pellets go in the same fixed pattern every time and kill up close but not far away.
+// The knife (owner, v0.28): CS:GO's damage and reach, backstabs from behind only, the fanned rays forgive a little.
+void testKnife() {
+    std::printf("knife\n");
+    World empty;
+    // One attack from the origin facing +X at a dummy `dist` units away, facing `yaw` (180: towards you).
+    auto attack = [&](bool stab, bool followUp, float dist, float yaw, float aimYaw, bool armor, ShotResult& r) {
+        std::vector<Dummy> dd(1);
+        dd[0].pos = dd[0].prevPos = {dist, 0, 0};
+        dd[0].yaw = dd[0].prevYaw = dd[0].shownYaw = yaw;
+        dd[0].armor = armor ? 100.0f : 0.0f;
+        std::vector<Vec3> pos{dd[0].pos};
+        r = knifeAttack(stab, followUp, {0, 0, 50}, 0, aimYaw, empty, dd, pos);
+        return r.dummyIndex == 0;
+    };
+    ShotResult r;
+    CHECK(attack(false, false, 40, 180, 0, false, r) && std::fabs(r.damage - 40.0f) < 0.01f && !r.backstab, "slash 40 (%.0f)", double(r.damage));
+    CHECK(attack(false, true, 40, 180, 0, false, r) && std::fabs(r.damage - 25.0f) < 0.01f, "follow-up slash 25 (%.0f)", double(r.damage));
+    CHECK(attack(false, false, 40, 0, 0, false, r) && r.backstab && std::fabs(r.damage - 90.0f) < 0.01f, "backstab slash 90 (%.0f)", double(r.damage));
+    CHECK(attack(true, false, 30, 180, 0, false, r) && std::fabs(r.damage - 65.0f) < 0.01f, "stab 65 (%.0f)", double(r.damage));
+    CHECK(attack(true, false, 30, 0, 0, true, r) && r.kill && r.backstab, "backstab stab kills through kevlar (%.0f)", double(r.damage));
+    CHECK(attack(false, false, 40, 180, 0, true, r) && std::fabs(r.damage - 34.0f) < 0.01f, "kevlar takes 15%% off (%.0f)", double(r.damage));
+    CHECK(!attack(true, false, 50, 180, 0, false, r) && attack(false, false, 50, 180, 0, false, r), "a stab is shorter than a slash");
+    CHECK(!attack(false, false, 80, 0, 0, false, r), "out of reach: a miss");
+    CHECK(attack(false, false, 40, 180, 9, false, r), "aimed a little beside the body still hits");
+    CHECK(!attack(false, false, 40, 180, 55, false, r), "aimed well away misses");
+    CHECK(attack(false, false, 40, 90, 0, false, r) && !r.backstab, "from the side is not a backstab");
+    World wall;
+    wall.solids.push_back({{20, -50, 0}, {30, 50, 100}, 0x808080});
+    std::vector<Dummy> none;
+    std::vector<Vec3> nopos;
+    r = knifeAttack(false, false, {0, 0, 50}, 0, 0, wall, none, nopos);
+    CHECK(r.hitWorld && r.dummyIndex < 0 && std::fabs(r.distance - 20.0f) < 0.5f, "a slash at a wall hits it (%.1f)", double(r.distance));
+    std::printf("  slash 40 / 25 / backstab 90, stab 65 / backstab 180, reach 48 / 32\n");
+}
+
 void testNewGuns() {
     std::printf("new guns\n");
     World empty;
@@ -2096,6 +2131,7 @@ int main() {
     testTurnedHitboxes();
     testCrouchedHitboxes();
     testNewGuns();
+    testKnife();
     testCases();
 
 

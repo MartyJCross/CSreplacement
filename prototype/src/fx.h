@@ -60,6 +60,8 @@ public:
     // Inspect (F): show the weapon off (knives: each press the next of their inspects). Cancelled by firing,
     // reloading or switching.
     void inspect();
+    // The knife attacks: a slash (alternating forehand / backhand, like CS) or a stab.
+    void knifeAttack(bool stab);
     // Knife tricks while it's out and idle: a quick flip, spin or twirl every few seconds (config knife_fidget).
     void setFidget(bool on) { fidget_ = on; }
     void setInspectVariant(int v) { inspectVariant_ = v; }  // (screenshots: the next F plays the one after v)
@@ -97,6 +99,9 @@ private:
     int shotsInRow_ = 0;       // consecutive shots in this spray (kick builds up)
     float inspectT_ = -1;      // seconds into the inspect animation, < 0 when not inspecting
     int inspectVariant_ = 2;   // knives: which of their inspects (the first F plays the first)
+    float attackT_ = -1;       // knives: seconds into a slash / stab (< 0: none)
+    bool attackStab_ = false;
+    int attackSide_ = 1;       // the slash's side: forehand (0) and backhand (1) take turns
     bool fidget_ = false;
     float fidgetT_ = -1, knifeIdle_ = 0, nextFidget_ = 3.0f;  // knife tricks: playing (seconds in), idle time, when
     int fidgetKind_ = 0;

@@ -273,6 +273,41 @@ std::vector<float> zoomSound(Rng& r) {
     return b;
 }
 
+std::vector<float> knifeSwing(Rng& r) {  // a swish: air noise swelling and rising, then gone
+    auto b = buffer(0.24f);
+    addNoise(b, 0, 0.7f, 350, 1500 * r.jitter(0.1f), 0.07f, r, 0.05f);
+    addNoise(b, 0.05f, 0.55f, 1100, 4200 * r.jitter(0.1f), 0.05f, r, 0.04f);
+    highpass(b, 250);
+    lowpass(b, 6500);
+    fadeTail(b);
+    normalize(b, 0.4f);
+    return b;
+}
+
+std::vector<float> knifeHit(Rng& r) {  // the blade going in: a dull thud with a wet tear on top
+    auto b = buffer(0.22f);
+    addNoise(b, 0, 0.9f, 160, 900 * r.jitter(0.1f), 0.035f, r, 0.002f);
+    addTone(b, 0, 0.35f, 150 * r.jitter(0.05f), 90, 0.04f);
+    addNoise(b, 0.01f, 0.35f, 1400, 4200, 0.025f, r, 0.003f);
+    highpass(b, 80);
+    lowpass(b, 6000);
+    fadeTail(b);
+    normalize(b, 0.7f);
+    return b;
+}
+
+std::vector<float> knifeWall(Rng& r) {  // steel on a wall: a bright tick and a short scrape
+    auto b = buffer(0.2f);
+    addTone(b, 0, 0.35f, 2600 * r.jitter(0.05f), 2450, 0.04f);
+    addTone(b, 0, 0.2f, 3900 * r.jitter(0.05f), 3800, 0.025f);
+    addNoise(b, 0, 0.6f, 1800, 8000, 0.012f, r, 0.0005f);
+    addNoise(b, 0.02f, 0.25f, 2500, 7000, 0.05f, r, 0.01f);
+    highpass(b, 400);
+    fadeTail(b);
+    normalize(b, 0.5f);
+    return b;
+}
+
 std::vector<float> sniperShot(Rng& r) {  // big: heavy boom, long rolling echo
     auto b = buffer(1.5f);
     addNoise(b, 0, 0.8f, 2200, 12000, 0.005f, r, 0.0002f);
@@ -622,7 +657,8 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
                                  "impact_metal", "helmet_hit", "whiz", "ui_click", "suppressed_shot", "zoom",
                                  "suppressed_rifle", "shotgun_shot", "galil_shot", "mac10_shot", "ump_shot",
                                  "ssg_shot", "xm_shot", "deagle_shot", "berettas_shot", "round_start", "bomb_planted",
-                                 "round_win", "round_lose", "low_ammo", "last_round", "footstep_stone"};
+                                 "round_win", "round_lose", "low_ammo", "last_round", "footstep_stone",
+                                 "knife_swing", "knife_hit", "knife_wall"};
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
 std::vector<float> ambienceBed(int which);  // (below, with the mixer)
@@ -691,6 +727,8 @@ SoundBank synthesize() {
         {Sfx::RoundStart, roundStart, 1},        {Sfx::BombPlanted, bombPlanted, 1},
         {Sfx::RoundWin, roundWin, 1},            {Sfx::RoundLose, roundLose, 1},
         {Sfx::LowAmmo, lowAmmo, 2},              {Sfx::LastRound, lastRound, 2},
+        {Sfx::KnifeSwing, knifeSwing, 3},        {Sfx::KnifeHit, knifeHit, 3},
+        {Sfx::KnifeWall, knifeWall, 2},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;

@@ -564,6 +564,67 @@ ShotResult fireBullet(WeaponState& ws, const Vec3& eye, float viewPitch, float v
     return res;
 }
 
+ShotResult knifeAttack(bool stab, bool followUp, const Vec3& eye, float viewPitch, float viewYaw, const World& world,
+                       std::vector<Dummy>& dummies, const std::vector<Vec3>& dummyRenderPos) {
+    const float range = stab ? kKnifeStabRange : kKnifeSlashRange;
+    ShotResult res;
+    res.start = eye;
+    const Vec3 aim = anglesToForward(viewPitch, viewYaw);
+    res.end = eye + aim * range;
+    res.distance = range;
+    // The aim first, then rays round it: the first one that meets a body is the hit.
+    static const float kFan[][2] = {{0, 0}, {0, -8}, {0, 8}, {-8, 0}, {8, 0}, {5, -6}, {5, 6}, {-5, -6}, {-5, 6}};
+    for (const auto& f : kFan) {
+        const Vec3 dir = anglesToForward(viewPitch + f[0], viewYaw + f[1]);
+        const TraceResult wt = world.traceRay(eye, eye + dir * range);
+        const float wallT = wt.fraction * range;
+        int who = -1;
+        float bestT = wallT;
+        HitGroup group = kChest;
+        for (size_t i = 0; i < dummies.size() && i < dummyRenderPos.size(); ++i) {
+            if (!dummies[i].alive() || dummies[i].friendly) continue;
+            float t;
+            HitGroup g;
+            if (rayHitsDummy(dummyRenderPos[i], dummies[i].shownYaw, dummies[i].shownCrouch, eye, dir, bestT, t, g) && t < bestT) {
+                bestT = t;
+                who = int(i);
+                group = g;
+            }
+        }
+        if (who < 0) {
+            if (f[0] == 0 && f[1] == 0 && wt.fraction < 1.0f) {  // (the aim met a wall: the blade's clang, unless a body's beside)
+                res.hitWorld = true;
+                res.worldBox = wt.box;
+                res.normal = wt.normal;
+                res.end = eye + dir * wallT;
+                res.distance = wallT;
+            }
+            continue;
+        }
+        Dummy& d = dummies[size_t(who)];
+        const float fy = d.shownYaw * kDegToRad;
+        Vec3 away{dummyRenderPos[size_t(who)].x - eye.x, dummyRenderPos[size_t(who)].y - eye.y, 0};
+        const float len = length(away);
+        res.backstab = len > 1e-3f && (std::cos(fy) * away.x + std::sin(fy) * away.y) / len > 0.475f;  // it faces away
+        const float base = stab ? (res.backstab ? 180.0f : 65.0f) : res.backstab ? 90.0f : followUp ? 25.0f : 40.0f;
+        const float dmg = armoredDamage(base, kChest, d.armor, d.helmet, 0.85f);
+        d.hp -= dmg;
+        d.flash[group] = 0.15f;
+        d.hitDir = dir;
+        res.dummyIndex = who;
+        res.group = group;
+        res.damage = dmg;
+        res.kill = d.hp <= 0;
+        if (res.kill) d.respawnLeft = d.randomRespawn ? 0.5f + rand01(d.respawns * 31u + 7u) * 0.9f : 1.0f;
+        res.hitWorld = false;
+        res.end = eye + dir * bestT;
+        res.distance = bestT;
+        res.normal = -dir;
+        return res;
+    }
+    return res;
+}
+
 RecoilStep pelletOffset(const WeaponDef& w, int k, uint32_t seed) {
     if (w.pellets <= 1) return {0, 0};
     // A random direction, and a random distance that favours the middle (uniform in radius, not in area).

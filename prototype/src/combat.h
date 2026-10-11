@@ -170,6 +170,7 @@ struct ShotResult {
     int collats = 0;
     BodyHit collat[2];
     bool isCollat = false;   // (the game's own copy of a collateral hit, made by collatResults)
+    bool backstab = false;   // a knife from behind
 };
 constexpr float kBodyThickness = 8.0f;  // how much wall a body counts as, for a bullet going through it
 
@@ -190,6 +191,17 @@ constexpr int kMaxPellets = 9;
 int firePellets(WeaponState& ws, const Vec3& eye, float viewPitch, float viewYaw, float horizSpeed, bool onGround,
                 bool ducked, const World& world, std::vector<Dummy>& dummies, const std::vector<Vec3>& dummyRenderPos,
                 ShotResult (&out)[kMaxPellets]);
+// The knife (owner, v0.28), CS:GO's numbers. A slash (Mouse 1) reaches 48 units: 40 damage, 25 for a slash that
+// follows another within kKnifeComboTime, 90 from behind; a stab (Mouse 2) reaches 32: 65, 180 from behind. Kevlar
+// takes 15% off (no hit groups: a knife doesn't headshot). Aimed at a body or a little beside it (rays fanned 8
+// degrees round the aim, like CS's hull check), the nearest hit counts; "from behind" = the victim faces away from
+// you (within ~60 degrees). Applied to the dummy like a bullet. The result's end is where it hit (or reached).
+constexpr float kKnifeSlashRange = 48.0f, kKnifeStabRange = 32.0f, kKnifeComboTime = 0.9f;
+ShotResult knifeAttack(bool stab, bool followUp, const Vec3& eye, float viewPitch, float viewYaw, const World& world,
+                       std::vector<Dummy>& dummies, const std::vector<Vec3>& dummyRenderPos);
+// Time until the knife can attack again (CS:GO: slash 0.4 s after a hit, 0.5 after a miss; stab 1.0 / 1.1).
+inline double knifeRefire(bool stab, bool hit) { return stab ? (hit ? 1.0 : 1.1) : (hit ? 0.4 : 0.5); }
+
 // Pellet k of shot `seed`: its offset from the aim in degrees (up, right), within def.pelletSpread and
 // gathered towards the middle (half the pellets land inside 40% of the spread).
 RecoilStep pelletOffset(const WeaponDef& w, int k, uint32_t seed);
