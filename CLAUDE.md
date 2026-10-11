@@ -250,7 +250,8 @@ shot). Grenades: smoke, flash (`flashBang`), HE, molotov; CS:GO throw physics sh
 
 **Replays & killcam** (`Game::replay`, `rv`, `recordReplay` every other tick, `replayShot`, `stepReplay`,
 `startReplayViewer`): the renderer swaps the recorded dummies/smokes/fx in for the world pass and restores them. The
-killcam (`killcam`) starts from `hurtPlayer` when a bot kills you; a click skips it. The viewer (pause menu) freezes
+killcam (`killcam`) starts from `hurtPlayer` when a bot kills you; a click skips it. Until it starts (or you respawn) the
+death view (`Game::deathView`, `deathEye`) holds the camera where you fell: no glimpse of the respawn. The viewer (pause menu) freezes
 the sim. `loadMap` clears it all.
 
 **Stats** (`stats.*`; `g_career`, `recordMatch`, `recordDeathmatch`; `kMenuStats`, `drawStatsPanel`): finished offline
