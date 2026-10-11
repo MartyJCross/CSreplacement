@@ -252,11 +252,16 @@ online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
   or B), rotations (`rotated`), urgency (`BotBrain::urgent`), trading (alerts within 600).
 - No stacking (v0.26): `keepGap` (bots.cpp, `BotSenses::mates`, `kBotGap` 110: wait up to 1 s behind a teammate just
   ahead), `BotBrain::via` (`sendBot(..., via)`), `spreadEntries` (a site's `RetakeSite::entries` spread over the bots;
-  a taken one costs 1500 more). CT retakes: each CT waits at its way in (`Comp::retakeEntry`, `retakeGoAt`,
-  `retakeSent`), all go in together; rotations come by different ways. Tests: `testBotSpacing`, `testRetakeSpread`.
+  a taken one costs 1500 more). CT retakes (v0.26.1): each CT goes straight through its way in (`Comp::retakeEntry`,
+  via), the ones with a shorter trip holding where they are until `retakeAt` (at most 4 s); no meeting point (one walked
+  back to spawn and stood there). After a plant a CT saves only if it can't make it or it's 1 vs 4. Rotations come by
+  different ways. Ways are picked weighted (`pick` in startCompRound: not from mid 3, from mid 1; owner: "7/10 they
+  all went mid"); automated runs log "Ts through mid before the execute". Tests: `testBotSpacing`, `testRetakeSpread`.
 - Preaim (v0.26): walking bots look at the nearest visible known angle ahead (`preaim`, `BotSenses::angles` from
   `Game::angles[side]`, built in loadMap), at head height (pitch too), else round the route's next corner; an enemy
-  spotted within 10 degrees of the aim (`BotBrain::sightOff`) gets 65% of the reaction time (`testBotPreaim`).
+  spotted within 10 degrees of the aim (`BotBrain::sightOff`) gets 65% of the reaction time (`testBotPreaim`). The angle
+  it's on is kept unless another scores 20 better, and bots turn with `easeToward` (time constant 45 ms fighting,
+  120 ms otherwise; pitch too): spectated bots' aim was jittery (v0.26.1).
   Bots never freeze (`pathTo` snaps unreachable goals, `nearestRoamable`; `backHome`); automated runs log STUCK.
 - Bot skill (`bots.h BotSkill`, `skillAt` blends levels): mate/enemy skill, `skill_variance` (0/1/2: ±0.5 or ±1 level
   per bot per match, `botSkillOf`). Reaction restarts only on losing sight; slower after a quiet spell (`surprise`).
@@ -330,7 +335,7 @@ MVP (`Comp::mvp/mvpWhy/plantedBy/defusedBy`), match-end screen (phase 3, 15 s; `
 tests), CS top bar (`kTeamColor`), kill feed icons (`FeedEntry` killer/victim/weapon, `drawGunIcon` from `gunModel`,
 `drawSkull`; v0.23.6: hand-drawn silhouettes on a 10-unit grid, `gunModel` detailed), kill toast, LowAmmo/LastRound sounds, side rifles (`buyEntries(cat, side)`, `buySide`, `fullBuyRifle`),
 2 flashes in full buys, drops (`Game::Drop`, `dropGun`, `pickUp`, `dropsTick`, E = `useLatch`; net kDrop/kPickup;
-`--drop W`), calls (`playerCall`, Z, `--call N AT`), bullet holes (`bulletHole`, `makeBulletHole`: alpha 16, shrink
+`--drop W`), calls (`playerCall`, Z, 7 a side: `kCallsPerSide`; TAKE MID, PUSH MID since v0.26.1; `--call N AT`), bullet holes (`bulletHole`, `makeBulletHole`: alpha 16, shrink
 in the VS by `uTime`), contact shadows (world.cpp: decor with `kMatShade`, alpha 30..37; blobs `makeBlobShadow` 46..49;
 `layOnRamp`, sheets in the VS), animation (Dummy `shotAt/reloadUntil/mag/busy/air/landedAt`; bots reload; net flags
 kNetReload/kNetDuck), lobby (`kMenuLobby`, `LobbyState g_lobby`, net kLobby/kTeamPick/kStart/kBye, `kNetLobbyOpen`

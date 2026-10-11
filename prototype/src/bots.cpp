@@ -13,8 +13,13 @@ float wrapDeg(float a) {
 
 float yawTo(const Vec3& from, const Vec3& to) { return std::atan2(to.y - from.y, to.x - from.x) / kDegToRad; }
 
-float turnToward(float yaw, float target, float maxStep) {
-    return wrapDeg(yaw + std::clamp(wrapDeg(target - yaw), -maxStep, maxStep));
+// Turns like a hand on a mouse: eases in on `target` (closing the gap with time constant `tau`) at no more than
+// `maxRate` degrees a second, so a small change of where it wants to look is a small smooth move, not a flick
+// (owner, v0.26.1: spectated bots' aim was jittery).
+float easeToward(float yaw, float target, float tau, float maxRate) {
+    const float gap = wrapDeg(target - yaw);
+    const float step = gap * (1.0f - std::exp(-float(kTickDt) / tau));
+    return wrapDeg(yaw + std::clamp(step, -maxRate * float(kTickDt), maxRate * float(kTickDt)));
 }
 
 bool sightClear(const BotSenses& s, const Vec3& a, const Vec3& b) {
@@ -119,8 +124,10 @@ bool keepGap(const Dummy& d, BotBrain& b, const BotSenses& s, const Vec3& toward
 void preaim(const Dummy& d, BotBrain& b, const BotSenses& s) {
     if (s.now < b.lookAgainAt) return;
     b.lookAgainAt = s.now + 0.0625;
-    b.hasLookAt = false;
-    if (b.next >= b.path.size()) return;
+    if (b.next >= b.path.size()) {
+        b.hasLookAt = b.lookAtAngle = false;
+        return;
+    }
     const float headZ = dummyEyeZ();
     const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
     // Its route 400 units on (the way it's going, and where to look when there's no angle to check).
@@ -137,25 +144,31 @@ void preaim(const Dummy& d, BotBrain& b, const BotSenses& s) {
         at = b.path[k];
     }
     const float wayYaw = yawTo(d.pos, b.path[std::min(b.next + 2, b.path.size() - 1)]);
-    float best = 1e30f;
+    // How good an angle is to check from here (lower is better; ahead of it and near first), -1 if it isn't one now.
+    auto score = [&](const Vec3& p, bool visibleKnown) {
+        const float dist = length2d(p - d.pos);
+        if (dist < 150.0f || dist > 1600.0f) return -1.0f;
+        const float off = std::fabs(wrapDeg(yawTo(d.pos, p) - wayYaw));
+        if (off > 100.0f) return -1.0f;
+        if (!visibleKnown && s.world->traceRay(eye, p + Vec3{0, 0, headZ}).fraction < 1.0f) return -1.0f;
+        return off + dist / 40.0f;
+    };
+    // The angle it's on stays while it's still one, unless another is clearly better (no flicking between two).
+    float current = b.hasLookAt && b.lookAtAngle ? score(b.lookAt - Vec3{0, 0, headZ}, false) : -1.0f;
+    float best = current >= 0 ? current - 20.0f : 1e30f;
+    bool found = current >= 0;
     if (s.angles)
         for (const Vec3& p : *s.angles) {
-            const float dist = length2d(p - d.pos);
-            if (dist < 150.0f || dist > 1600.0f) continue;
-            const float off = std::fabs(wrapDeg(yawTo(d.pos, p) - wayYaw));
-            if (off > 100.0f) continue;
-            const float score = off + dist / 40.0f;  // ahead of it and near first
-            if (score >= best) continue;
-            const Vec3 head = p + Vec3{0, 0, headZ};
-            if (s.world->traceRay(eye, head).fraction < 1.0f) continue;
-            best = score;
-            b.lookAt = head;
-            b.hasLookAt = true;
+            const float quick = score(p, true);  // (the trace only for one that would win)
+            if (quick < 0 || quick >= best) continue;
+            if (score(p, false) < 0) continue;
+            best = quick;
+            b.lookAt = p + Vec3{0, 0, headZ};
+            found = true;
         }
-    if (!b.hasLookAt) {
-        b.lookAt = ahead + Vec3{0, 0, headZ};
-        b.hasLookAt = true;
-    }
+    b.lookAtAngle = found;
+    if (!found) b.lookAt = ahead + Vec3{0, 0, headZ};
+    b.hasLookAt = true;
 }
 
 // Done chasing or fighting: a bot with a spot of its own walks back to it (else holds or looks around).
@@ -487,7 +500,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                        : walking && b.hasLookAt        ? yawTo(d.pos, b.lookAt)
                        : anchoring || length2d(mv) <= 0.01f ? idle
                                                            : std::atan2(mv.y, mv.x) / kDegToRad;
-    d.yaw = turnToward(d.yaw, want, (b.state == 2 ? 600.0f : 360.0f) * kTickDt);
+    d.yaw = b.state == 2 ? easeToward(d.yaw, want, 0.045f, 600.0f) : easeToward(d.yaw, want, 0.12f, 360.0f);
     b.aimed = b.sees && !b.strafing && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;  // they stop to shoot
 }
 

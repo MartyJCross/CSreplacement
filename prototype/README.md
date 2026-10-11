@@ -51,6 +51,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Mouse 2 | Sniper scope (AWP, SSG 08): 40 → 15 FOV → off. Like CS, a shot takes the scope down while the bolt cycles and it comes back up by itself. With a grenade out: hold for an underhand lob, thrown on release |
 | Tab | Scoreboard (deathmatch, retakes, competitive) |
 | G | Quick-throw the current grenade without switching (deterministic bounces, so lineups repeat) |
+| Z | Competitive: call a play for your team's bots, then 1-7. T: GO A, GO B, RUSH A, RUSH B, **TAKE MID** (two take mid, the rest wait on the site's other way, then both hit together), PLAY SLOW, SAVE. CT: STACK A, STACK B, DEFAULT SETUP, **PUSH MID** (one goes for an early pick in mid, back after 20 s), ROTATE A, ROTATE B, SAVE |
 | V | Noclip in practice (fly where you look; Shift = slow) |
 | C | Clear bullet decals |
 | Alt+Enter | Toggle fullscreen |
@@ -173,8 +174,9 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
   **pushes** for an early pick (long, mid or B tunnels) and falls back to its spot after about 20 s or when the Ts go.
 - **No stacking:** a bot walking somewhere keeps a gap behind a teammate just ahead instead of walking on its back.
   After a plant the CTs **retake from different sides** (Dust A: one through CT, one from short over catwalk; "RETAKE A
-  FROM CT SPAWN AND CATWALK"), each waiting at its way in out of sight, then all going in together; CTs rotating to a
-  site come by different ways too.
+  FROM CT SPAWN AND CATWALK"), each straight through its own way (the ones with a shorter trip hold a few seconds so
+  they arrive together); CTs rotating to a site come by different ways too. Most rounds the Ts keep out of mid: long
+  and tunnels come up three times as often as each way through mid.
 - **Crosshair placement:** walking, a bot keeps its crosshair at head height on the angles someone could be holding
   (CT spots and site holds for the Ts; the Ts' ways in for the CTs), or round the next corner of its way. Someone
   appearing right where it's aiming gets shot quicker (about a third faster); catch it looking the wrong way and it
@@ -357,7 +359,7 @@ Sounds come from where they are, the way two ears hear them (not a measured HRTF
 ## Replays and the killcam
 
 - **Killcam:** when a bot kills you (deathmatch, competitive), you see the last 3 seconds through its eyes, with its shots and their sound. A click (or Esc) skips it. In deathmatch you respawn when it ends; a jump key still held from before doesn't make you jump when you spawn (it has to come up first). Settings → Gameplay → KILLCAM.
-- **Watch a replay:** pause menu → WATCH REPLAY. The last 2.5 minutes (competitive: from the start of the round that just finished) with everyone where they were. The game waits while you watch. Mouse 1 / Mouse 2 change whose eyes you see through (you, bots, other players); F flies a free camera (WASD + mouse, Shift slow, Space / Ctrl up and down); Left / Right jump 5 s; Up / Down change the speed (x0.25 to x4); Space or P pauses; Esc goes back to the pause menu.
+- **Watch a replay:** pause menu → WATCH REPLAY. Through anyone's eyes you see their gun or grenade in first person (yours with your skins), and the grenades in the air and molotov fires are in it. The last 2.5 minutes (competitive: from the start of the round that just finished) with everyone where they were. The game waits while you watch. Mouse 1 / Mouse 2 change whose eyes you see through (you, bots, other players); F flies a free camera (WASD + mouse, Shift slow, Space / Ctrl up and down); Left / Right jump 5 s; Up / Down change the speed (x0.25 to x4); Space or P pauses; Esc goes back to the pause menu.
 - Recorded 64 times a second into a ring (`replay.h`): about 10 MB for the last 2.5 minutes, no allocations once it's full.
 
 ## Stats and rating

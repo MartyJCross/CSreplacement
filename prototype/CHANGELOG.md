@@ -3,6 +3,22 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.26.1: bot and replay fixes
+
+- **The Ts don't all go mid any more:** most rounds come through long or tunnels (each way through mid is picked a
+  third as often), the default play puts one group in mid instead of two. Automated matches: one round in eleven sent
+  everyone through mid (was about seven in ten).
+- **Replays show your gun and grenades:** through anyone's eyes you see their weapon in first person (yours with your
+  skins), and grenades in the air and molotov fires are recorded and shown. The grenade preview no longer shows in a
+  replay.
+- **CTs retake straight away:** no walking back to a meeting point (a CT went back to spawn and stood there); each
+  goes through its own way in, the ones with a shorter trip holding a few seconds so they arrive together. A CT with
+  a bomb to defuse only saves when it's alone against four.
+- **TAKE MID** is a call (Z, T side): two take mid, the rest wait on the site's other way, then both hit together.
+  CTs get **PUSH MID**. Seven calls a side now (1-7).
+- **Spectated bots aim smoothly:** they ease onto where they look instead of snapping, and keep the angle they're
+  checking instead of flicking between two.
+
 ## v0.26: smarter bots, wider doorways
 
 - **Harbor is back in competitive's MAP list** (it showed THE LAB / DUST, and picking "DUST" loaded Harbor).

@@ -11,6 +11,7 @@ struct ReplayAgent {
     Vec3 pos, hitDir;
     float yaw = 0, pitch = 0, crouch = 0, deadFor = 0, stepDist = 0;
     uint8_t weapon = 0;
+    uint8_t nade = 0;          // the grenade type in hand (when weapon is the grenade slot)
     bool alive = true, friendly = false, lostHelmet = false;
 };
 
@@ -20,6 +21,10 @@ struct ReplayFrame {
     std::vector<ReplayAgent> agents;
     struct Smoke { Vec3 pos; double start; };
     std::vector<Smoke> smokes;
+    struct Nade { Vec3 pos; uint8_t type; };   // grenades in the air
+    std::vector<Nade> nades;
+    struct Fire { Vec3 pos; double start; };   // molotov fires
+    std::vector<Fire> fires;
 };
 
 // A shot: tracer and sound in the replay. shooter: an agent index (you = the last agent).

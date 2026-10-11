@@ -364,11 +364,11 @@ struct Game {
         bool rush = false, sent = false;  // sent: every group has gone
         int fakeRoute = -1;               // the fake's way at the other site (-1: not a fake)
         int holdNext = 0;                 // the next site hold spot to hand out
-        // CT retake (after a plant): each CT bot waits at a way onto the site (retakeEntry: its RetakeSite entry, -1
-        // straight in), spread so teammates come from different sides; they all go in at retakeGoAt or once every
-        // one of them is in place.
+        // CT retake (after a plant): each CT bot comes through a way onto the site (retakeEntry: its RetakeSite entry,
+        // -1 straight in), spread so teammates come from different sides; one with a shorter trip holds where it is
+        // until its retakeAt (at most 4 s) so they get there together.
         std::vector<int> retakeEntry;
-        double retakeGoAt = 0;
+        std::vector<double> retakeAt;
         bool retakeSent = true;
         double goAt = 0;
         std::vector<int> pushers;
@@ -1634,9 +1634,12 @@ void recordReplay(Game& g) {
     you.pitch = float(g.viewPitch);
     you.crouch = g.player.ducked ? 1.0f : 0.0f;
     you.weapon = uint8_t(g.weapon->def->id);
+    you.nade = uint8_t(g.nadeType);
     you.alive = g.deadUntil < 0 && !(g.mode == 3 && g.comp.youDead);
     f.agents.push_back(you);
     for (const Game::Smoke& sm : g.smokes) f.smokes.push_back({sm.pos, sm.start});
+    for (const Game::Nade& n : g.nades) f.nades.push_back({n.pos, uint8_t(n.type)});
+    for (const Game::Fire& fi : g.fires) f.fires.push_back({fi.pos, fi.start});
 }
 
 // A shot for the replay (shooter: a dummy index, or -1 for you).
@@ -1819,6 +1822,7 @@ int& moneyOf(Game& g, int id) {
 void addMoney(Game& g, int id, int amount) { moneyOf(g, id) = std::clamp(moneyOf(g, id) + amount, 0, 16000); }
 
 std::string g_compLog;  // automated runs: one line per competitive round (testing)
+std::vector<char> g_tWasMid;  // automated runs: the T bots that went into mid this round, before the execute
 extern double g_uiTime;  // (defined with the menus)
 // Fades from black (cosmetic): a map loading or a competitive round starting fades in from g_fadeFrom over
 // kFadeIn; the main menu's camera fades through black between its shots (g_menuFade, 0..1).
@@ -2008,13 +2012,22 @@ void startCompRound(Game& g) {
     // Dust's long, short, tunnels, lowers or mid to B (owner, v0.26: mid is open now the spawns are walled off).
     const TownTactics& tac = townTactics();
     const float pr = rnd(g);
-    const int play = pr < 0.22f ? kPlayExecute : pr < 0.34f ? kPlayRush : pr < 0.56f ? kPlaySplit
-                   : pr < 0.70f ? kPlayFake : pr < 0.84f ? kPlayMid : kPlayDefault;
+    const int play = pr < 0.26f ? kPlayExecute : pr < 0.38f ? kPlayRush : pr < 0.60f ? kPlaySplit
+                   : pr < 0.76f ? kPlayFake : pr < 0.86f ? kPlayMid : kPlayDefault;
+    // A way from `from` (not `notThis`): the ones that keep out of mid three times as likely as each one through it
+    // (owner, v0.26.1: the Ts went through mid 7 rounds in 10).
     auto pick = [&](const std::vector<int>& from, int notThis = -1) {
-        std::vector<int> v;
+        float total = 0;
         for (int w : from)
-            if (w != notThis) v.push_back(w);
-        return v.empty() ? (from.empty() ? 0 : from[0]) : v[size_t(rnd(g) * float(v.size())) % v.size()];
+            if (w != notThis) total += tac.ways[size_t(w)].fromMid ? 1.0f : 3.0f;
+        if (total <= 0) return from.empty() ? 0 : from[0];
+        float r = rnd(g) * total;
+        for (int w : from) {
+            if (w == notThis) continue;
+            r -= tac.ways[size_t(w)].fromMid ? 1.0f : 3.0f;
+            if (r < 0) return w;
+        }
+        return from.back();
     };
     const std::vector<int> siteWays = waysTo(c.siteTarget);
     // Mid control: the rest come a way that isn't from mid; the mid group hits from mid.
@@ -2035,7 +2048,7 @@ void startCompRound(Game& g) {
     auto addWay = [&](int w, bool util) { addGroup(tac.ways[size_t(w)].stage, util ? w : -1); };
     int second = -1;  // a split's second way, mid control's way from mid
     switch (play) {
-        case kPlaySplit:
+        case kPlaySplit:  // (the main way first: a split is one way plus a second, often through mid)
             second = pick(siteWays, route);
             addWay(route, true);
             addWay(second, true);
@@ -2046,11 +2059,10 @@ void startCompRound(Game& g) {
             addGroup(tac.mid[0], second);
             break;
         case kPlayFake: addWay(route, true); addWay(c.fakeRoute, false); break;  // group 1: the fakers
-        case kPlayDefault: {  // map control: the main way, mid, a way onto the other site
+        case kPlayDefault: {  // map control: the main way, one or two in mid, a way onto the other site
             addWay(route, true);
             addGroup(tac.mid[0], -1);
             addWay(pick(waysTo(1 - c.siteTarget)), false);
-            addGroup(tac.mid[1], -1);
             break;
         }
         default: addWay(route, true); break;  // execute, rush: one group
@@ -2155,6 +2167,7 @@ void startCompRound(Game& g) {
     }
     c.planted = false;
     c.retakeSent = true;
+    g_tWasMid.assign(g.dummies.size(), 0);
     c.plantedBy = c.defusedBy = -3;
     c.planter = c.defuser = -3;
     c.plantStart = c.botDefuseStart = -1;
@@ -2509,13 +2522,15 @@ bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
 }
 
 // ---- Your calls (Z, competitive): the bots on your team play what you say. ----
-// T: go or rush a site now, play slow (a late execute), save. CT: stack a site, back to the default setup, rotate to
+// T: go or rush a site now, take mid (two hold it, the rest wait on a site's way, then a split hit), play slow (a late
+// execute), save. CT: stack a site, back to the default setup, push mid (one goes for an early pick there), rotate to
 // a site, save.
-enum PlayerCall { kCallGoA, kCallGoB, kCallRushA, kCallRushB, kCallSlow, kCallTSave,
-                  kCallStackA, kCallStackB, kCallSetup, kCallRotateA, kCallRotateB, kCallCtSave };
-const char* const kCallNames[] = {"GO A", "GO B", "RUSH A", "RUSH B", "PLAY SLOW", "SAVE",
-                                  "STACK A", "STACK B", "DEFAULT SETUP", "ROTATE A", "ROTATE B", "SAVE"};
-// The six calls your side has (the first of them, in PlayerCall).
+enum PlayerCall { kCallGoA, kCallGoB, kCallRushA, kCallRushB, kCallTakeMid, kCallSlow, kCallTSave,
+                  kCallStackA, kCallStackB, kCallSetup, kCallPushMid, kCallRotateA, kCallRotateB, kCallCtSave };
+const char* const kCallNames[] = {"GO A", "GO B", "RUSH A", "RUSH B", "TAKE MID", "PLAY SLOW", "SAVE",
+                                  "STACK A", "STACK B", "DEFAULT SETUP", "PUSH MID", "ROTATE A", "ROTATE B", "SAVE"};
+constexpr int kCallsPerSide = 7;
+// The calls your side has (the first of them, in PlayerCall).
 int firstCall(const Game& g) { return g.comp.youTeam == 0 ? kCallGoA : kCallStackA; }
 // Can you call now: competitive, the round on (or freeze time), and the bots are this game's (offline, or hosting).
 bool canCall(const Game& g) {
@@ -2565,6 +2580,56 @@ void playerCall(Game& g, int call) {
                 Vec3 p = c.stagePoint + Vec3{float(k % 3 - 1) * 48.0f, float(k / 3) * 48.0f, 0};
                 sendBot(g, i, g.nav.standable(p) ? p : c.stagePoint, true);
             });
+            break;
+        }
+        case kCallTakeMid: {
+            // Two take mid; the rest wait on the site's other way; in 18 s (or once they're in place) both groups hit
+            // the site together, the mid pair from mid (Dust A: short; B: mid to B or lowers).
+            const TownTactics& tac = townTactics();
+            const std::vector<int> fromMid = waysTo(c.siteTarget, 1), outside = waysTo(c.siteTarget, 0);
+            c.route = outside.empty() ? waysTo(c.siteTarget)[0] : outside[size_t(rnd(g) * float(outside.size())) % outside.size()];
+            const int second = fromMid.empty() ? c.route : fromMid[size_t(rnd(g) * float(fromMid.size())) % fromMid.size()];
+            c.play = kPlayMid;
+            c.rush = false;
+            c.fakeRoute = -1;
+            const TownWay& w = tac.ways[size_t(c.route)];
+            c.stages = {townPoint(w.stage[0], w.stage[1]), townPoint(tac.mid[0][0], tac.mid[0][1])};
+            c.groupWay = {c.route, second};
+            c.groupGoAt.assign(2, 0.0);
+            c.groupSent.assign(2, 0);
+            c.holdNext = 0;
+            c.stagePoint = c.stages[0];
+            std::fill(c.faker.begin(), c.faker.end(), char(0));
+            c.throws.clear();
+            c.executing = c.sent = c.rotated = false;
+            c.executeAt = live + 18.0;
+            int inMid = 0;
+            mates([&](size_t i, int k) {
+                if (c.saving.size() > i) c.saving[i] = 0;
+                const int grp = int(i) != c.carrier && inMid < 2 ? (++inMid, 1) : 0;
+                if (c.stageOf.size() > i) c.stageOf[i] = grp;
+                Vec3 p = c.stages[size_t(grp)] + Vec3{float(k % 3 - 1) * 48.0f, float(k / 3) * 48.0f, 0};
+                sendBot(g, i, g.nav.standable(p) ? p : c.stages[size_t(grp)], true);
+            });
+            break;
+        }
+        case kCallPushMid: {  // the CT nearest mid's push spot goes for an early pick there, back in 20 s
+            const RetakeSpot& p = townTactics().pushes[1];
+            const Vec3 at = townPoint(p.x, p.y);
+            int who = -1;
+            float best = 1e30f;
+            mates([&](size_t i, int) {
+                const float d = length2d(g.dummies[i].pos - at);
+                if (d < best) { best = d; who = int(i); }
+            });
+            if (who >= 0) {
+                BotBrain& b = g.bots[size_t(who)];
+                c.pushers.assign(1, who);
+                c.pushBack.assign(1, RetakeSpot{b.home.x / townScale(), b.home.y / townScale(), b.holdLook.x / townScale(),
+                                                b.holdLook.y / townScale()});
+                c.pushUntil = live + 20.0;
+                sendBot(g, size_t(who), at, true, &p);
+            }
             break;
         }
         case kCallSlow:  // hold the map, execute late (the clock still sends them with 45 s left)
@@ -2643,25 +2708,34 @@ void compPlanted(Game& g, const Vec3& at) {
     for (const RetakeSpot& e : s.entries) entries.push_back(townPoint(e.x, e.y));
     const std::vector<int> way = spreadEntries(g.nav, from, entries, at, 650.0f * townScale(), 2.5f, 1500.0f);
     c.retakeEntry.assign(g.dummies.size(), -1);
+    c.retakeAt.assign(g.dummies.size(), 0.0);
     c.retakeSent = false;
-    // They go in when the last one is in place, or a second after it should have been (4..18 s: time to defuse).
+    c.holdNext = 0;
+    // Each straight through its way in (no walking back to a meeting point: owner, v0.26.1, a CT went back to
+    // spawn and stood there); the ones with a shorter trip hold where they are a moment (up to 4 s) so they get
+    // there together. One CT alone just goes.
+    std::vector<float> trip(cts.size(), 0.0f);
     float longest = 0;
     {
         std::vector<Vec3> route;
-        for (size_t q = 0; q < cts.size(); ++q)
-            if (way[q] >= 0 && g.nav.findPath(from[q], entries[size_t(way[q])], route)) {
-                float len = 0;
-                for (size_t z = 1; z < route.size(); ++z) len += length2d(route[z] - route[z - 1]);
-                longest = std::max(longest, len);
-            }
+        auto len = [&](const Vec3& p, const Vec3& q) {
+            float l = 0;
+            if (g.nav.findPath(p, q, route))
+                for (size_t z = 1; z < route.size(); ++z) l += length2d(route[z] - route[z - 1]);
+            return l;
+        };
+        for (size_t q = 0; q < cts.size(); ++q) {
+            trip[q] = way[q] >= 0 ? len(from[q], entries[size_t(way[q])]) + len(entries[size_t(way[q])], at) : len(from[q], at);
+            longest = std::max(longest, trip[q]);
+        }
     }
-    c.retakeGoAt = g.simTime + double(std::clamp(longest / kBotRunSpeed + 1.0f, 4.0f, 18.0f));
     std::string called;
     for (size_t q = 0; q < cts.size(); ++q) {
         const size_t i = cts[q];
         c.retakeEntry[i] = way[q];
-        if (way[q] < 0) continue;  // (straight in, when compTick sends them)
-        sendBot(g, i, entries[size_t(way[q])], true);
+        c.retakeAt[i] = g.simTime + (cts.size() > 1 ? double(std::min(4.0f, (longest - trip[q]) / kBotRunSpeed)) : 0.0);
+        sendBot(g, i, g.dummies[i].pos, true);  // (holds until its time: compTick sends it)
+        if (way[q] < 0) continue;
         const char* where = townCallout(entries[size_t(way[q])]);
         if (called.find(where) == std::string::npos) called += std::string(called.empty() ? "" : " AND ") + where;
     }
@@ -2833,7 +2907,8 @@ void compTick(Game& g) {
             if (!g.dummies[i].alive() || !isBot(g, i) || i >= c.saving.size() || c.saving[i]) continue;
             if (weaponDef(c.botGun[i]).price < 1700) continue;  // a pistol or an SMG: play it out
             const int side = g.team[i];
-            bool lost = alive[side] == 1 && alive[1 - side] >= 3 && left < 50.0;
+            // (a CT with a bomb to defuse plays it out unless it's 1 against 4: owner, v0.26.1, one ran home)
+            bool lost = alive[side] == 1 && alive[1 - side] >= (side == 1 && c.planted ? 4 : 3) && left < 50.0;
             if (side == 0 && !c.planted) lost = lost || bombTrip > float(left);
             if (side == 1 && c.planted)  // can't reach the bomb and defuse in time
                 lost = lost || length2d(g.dummies[i].pos - g.bombPos) / kBotRunSpeed * 1.2f + 5.0f > float(left);
@@ -2914,6 +2989,12 @@ void compTick(Game& g) {
         if (c.play == kPlayDefault) gathered = false;  // map control until the clock says go
         if (gathered || now >= c.executeAt) {
             c.executing = true;
+            if (!g_compLog.empty()) {  // (owner: not everyone through mid every round)
+                int inMid = 0, ts = 0;
+                for (size_t i = 0; i < g.dummies.size() && i < g_tWasMid.size(); ++i)
+                    if (g.dummies[i].alive() && g.team[i] == 0 && isBot(g, i)) { ++ts; inMid += g_tWasMid[i]; }
+                std::ofstream(g_compLog, std::ios::app) << "  Ts through mid before the execute: " << inMid << "/" << ts << "\n";
+            }
             if (!g_compLog.empty())
                 std::ofstream(g_compLog, std::ios::app)
                     << "  execute " << (c.siteTarget == 0 ? "A" : "B") << (gathered ? " (gathered)" : " (timer)")
@@ -3083,26 +3164,22 @@ void compTick(Game& g) {
             endCompRound(g, 1, "THE BOMB HAS BEEN DEFUSED", true);
             return;
         }
-        // The CT retake goes in: once every waiting CT is at its way in (or the clock says go).
+        // The CT retake: each CT goes at its time, through its way in.
         if (!c.retakeSent) {
-            bool ready = true;
             const RetakeSite& s = sites[size_t(c.siteTarget)];
+            bool all = true;
             for (size_t i = 0; i < g.dummies.size() && i < c.retakeEntry.size(); ++i) {
-                if (c.retakeEntry[i] < 0 || !g.dummies[i].alive() || g.bots[i].state == 2) continue;
-                const RetakeSpot& e = s.entries[size_t(c.retakeEntry[i])];
-                if (length2d(g.dummies[i].pos - townPoint(e.x, e.y)) > 160.0f) ready = false;
+                if (g.team[i] != 1 || !isBot(g, i) || !g.dummies[i].alive() || c.retakeAt[i] < 0) continue;
+                if (now < c.retakeAt[i]) { all = false; continue; }
+                c.retakeAt[i] = -1;
+                const RetakeSpot& h = s.holds[size_t(c.holdNext++) % s.holds.size()];
+                Vec3 via;
+                if (c.retakeEntry[i] >= 0) via = townPoint(s.entries[size_t(c.retakeEntry[i])].x, s.entries[size_t(c.retakeEntry[i])].y);
+                sendBot(g, i, townPoint(h.x, h.y), true, &h, c.retakeEntry[i] >= 0 ? &via : nullptr);
             }
-            if (ready || now >= c.retakeGoAt) {
+            if (all) {
                 c.retakeSent = true;
-                int k = 0;
-                for (size_t i = 0; i < g.dummies.size(); ++i) {
-                    if (!g.dummies[i].alive() || g.team[i] != 1 || !isBot(g, i) || (i < c.saving.size() && c.saving[i])) continue;
-                    const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-                    sendBot(g, i, townPoint(h.x, h.y), true, &h);
-                }
-                radio(firstAlive(1), "GO GO GO");
-                if (!g_compLog.empty())
-                    std::ofstream(g_compLog, std::ios::app) << "  retake goes in" << (ready ? " (all in place)" : " (timer)") << " t=" << int(now) << "s\n";
+                if (!g_compLog.empty()) std::ofstream(g_compLog, std::ios::app) << "  retake all going t=" << int(now) << "s\n";
             }
         }
         // A CT bot defuses: the nearest one that isn't fighting walks to the bomb, then takes 5 s (once the retake goes).
@@ -3146,6 +3223,12 @@ void compTick(Game& g) {
         } else if (!defusing) {
             c.defuseHeard = false;
         }
+    }
+    // Automated runs: which T bots have been in mid this round (logged at the execute).
+    if (!g_compLog.empty() && c.phase == 1 && !c.executing) {
+        g_tWasMid.resize(g.dummies.size(), 0);
+        for (size_t i = 0; i < g.dummies.size(); ++i)
+            if (g.dummies[i].alive() && g.team[i] == 0 && townMidArea(g.dummies[i].pos)) g_tWasMid[i] = 1;
     }
     // Automated runs: two teammates walking on top of each other (within 64 units, both moving) for over 2 s in all
     // this round: STACK, once per pair and round (owner: bots shouldn't stack up).
@@ -4604,7 +4687,9 @@ void simTick(Game& g, const Options& opt) {
                                         : eye;
                     want = -std::atan2(at.z - eye.z, std::max(1.0f, length2d(at - eye))) / kDegToRad;
                 }
-                d.pitch += std::clamp(want - d.pitch, -360.0f * kTickDt, 360.0f * kTickDt);
+                // (eased in, like its yaw: no twitching)
+                const float tau = b.sees ? 0.045f : 0.12f;
+                d.pitch += std::clamp((want - d.pitch) * (1.0f - std::exp(-float(kTickDt) / tau)), -360.0f * kTickDt, 360.0f * kTickDt);
             }
             if (g.mode == 3) sense.noiseFresh = g.simTime - g.noiseAt < 1.5 * kTickDt;
         }
@@ -6237,9 +6322,9 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (g.buyMenu) drawBuyWheel(hud, g, w, h, s);
     if (g.callMenu && canCall(g)) {  // your calls: a small panel on the left, like CS's radio
         const float fs = float(s), px = 16.0f * fs, y0 = float(h) * 0.38f, rowH = 13.0f * fs;
-        hud.rect(px - 6 * fs, y0 - 18 * fs, 150 * fs, rowH * 6 + 26 * fs, 0x0E1014E0);
+        hud.rect(px - 6 * fs, y0 - 18 * fs, 150 * fs, rowH * float(kCallsPerSide) + 26 * fs, 0x0E1014E0);
         hud.text(px, y0 - 13 * fs, g.comp.youTeam == 0 ? "CALL (T)" : "CALL (CT)", 0xFFD060FF);
-        for (int k = 0; k < 6; ++k)
+        for (int k = 0; k < kCallsPerSide; ++k)
             hud.text(px, y0 + float(k) * rowH, std::to_string(k + 1) + "  " + kCallNames[firstCall(g) + k], 0xFFFFFFFF);
     }
     if (g.kzState == 2 || g.kzLast >= 0) {
@@ -7369,7 +7454,7 @@ int main(int argc, char** argv) {
                         } else if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
                         else if (sc == SDL_SCANCODE_E) g.useLatch = true;
-                        else if (g.callMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_6) {  // your call
+                        else if (g.callMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_7) {  // your call
                             playerCall(g, firstCall(g) + int(sc - SDL_SCANCODE_1));
                             g.callMenu = false;
                             g.hudDirty = true;
@@ -7621,7 +7706,7 @@ int main(int argc, char** argv) {
         // all swapped back right after the world is drawn.
         static std::vector<Dummy> replayDummies;
         static std::vector<Game::Smoke> replaySmokes;
-        static std::vector<Game::Nade> noNades;
+        static std::vector<Game::Nade> noNades;  // (in a replay: the recorded grenades and fires)
         static std::vector<Game::Fire> noFires;
         static std::vector<Vec3> keepRenderPos;
         static std::vector<int> keepTeam;
@@ -7647,6 +7732,16 @@ int main(int argc, char** argv) {
             }
             replaySmokes.clear();
             for (const ReplayFrame::Smoke& sm : replayNow.smokes) replaySmokes.push_back({sm.pos, sm.start});
+            noNades.clear();
+            for (const ReplayFrame::Nade& n : replayNow.nades) {
+                Game::Nade x;
+                x.pos = n.pos;
+                x.type = n.type;
+                x.ticks = 1000;  // (not "just thrown")
+                noNades.push_back(x);
+            }
+            noFires.clear();
+            for (const ReplayFrame::Fire& fi : replayNow.fires) noFires.push_back({fi.pos, fi.start, 1e18});
             std::swap(g.dummies, replayDummies);
             std::swap(g.smokes, replaySmokes);
             std::swap(g.nades, noNades);
@@ -7878,7 +7973,7 @@ int main(int argc, char** argv) {
         // Grenade trajectory preview (`nade_preview`): the exact flight a throw would take right now
         // (same code as the real grenade), as dots, with a cross where it goes off.
         const bool compMatch = g.mode == 3 && g.mapId == 1;
-        if (g.weapon == &g.guns[kWGrenade] && !paused && g.deadUntil < 0 && (cfg.nade_preview == 2 || (cfg.nade_preview == 1 && !compMatch)) &&
+        if (g.weapon == &g.guns[kWGrenade] && !paused && !replayView && g.deadUntil < 0 && (cfg.nade_preview == 2 || (cfg.nade_preview == 1 && !compMatch)) &&
             !(compMatch && (g.comp.youDead || g.comp.nades[g.nadeType] <= 0))) {
             const float strength = g.nadeHold == 2 ? kNadeLob : g.nadeHold == 3 ? kNadeMedium : 1.0f;  // what you're holding
             const Vec3 v = grenadeThrowVelocity(float(g.viewPitch), float(g.viewYaw), strength, g.player.velocity);
@@ -7991,6 +8086,7 @@ int main(int argc, char** argv) {
             const ViewWeapon want = thrown ? ViewWeapon::Grenade : viewWeaponFor(d.weapon);
             if (g.specVmFor != g.spec || g.specVmShown != int(want)) {
                 if (thrown) g.specVm.setGrenade(thrown->type);
+                g.specVm.setSkin(want, PaintParams{});  // (no skin carried over from a replay of you)
                 g.specVm.onDraw(want);
                 g.specVmShown = int(want);
                 if (g.specVmFor != g.spec) {
@@ -8012,12 +8108,45 @@ int main(int argc, char** argv) {
             g.specVmPitch = camPitch;
             g.specVm.update({paused ? 0.0f : fdt, yawDelta, pitchDelta, length2d(d.pos - d.prevPos) / kTickDt, d.air <= 0.0f,
                              float(reloading), reloadTime, 0.0f});
+        } else if (replayView && g.rv.pov >= 0 && size_t(g.rv.pov) < replayNow.agents.size() && replayNow.agents[size_t(g.rv.pov)].alive) {
+            // A replay through someone's eyes (you or anyone): their weapon in first person, kicking with their shots.
+            const ReplayAgent& a = replayNow.agents[size_t(g.rv.pov)];
+            const ViewWeapon want = viewWeaponFor(a.weapon);
+            const int key = 1000 + g.rv.pov;  // (apart from live spectating's)
+            if (g.specVmFor != key || g.specVmShown != int(want)) {
+                if (want == ViewWeapon::Grenade) g.specVm.setGrenade(a.nade);
+                const bool you = size_t(g.rv.pov) + 1 == replayNow.agents.size();
+                g.specVm.setSkin(want, you ? g.vm.skin(want) : PaintParams{});  // (your own skins on your guns)
+                g.specVm.onDraw(want);
+                g.specVmShown = int(want);
+                if (g.specVmFor != key) {
+                    g.specVmShot = replayNow.t;
+                    g.specVmYaw = camYaw;
+                    g.specVmPitch = camPitch;
+                }
+                g.specVmFor = key;
+            }
+            static std::vector<ReplayShot> shots;
+            g.replay.shotsBetween(g.specVmShot, replayNow.t, shots);
+            for (const ReplayShot& s : shots)
+                if (s.shooter == g.rv.pov) g.specVm.onShot(uint32_t(s.t * 1000.0) * 2654435761u);
+            g.specVmShot = std::max(g.specVmShot, replayNow.t);
+            if (replayNow.t < g.specVmShot - 0.5) g.specVmShot = replayNow.t;  // (jumped back)
+            const float yawDelta = wrapDeg(camYaw - g.specVmYaw), pitchDelta = camPitch - g.specVmPitch;
+            g.specVmYaw = camYaw;
+            g.specVmPitch = camPitch;
+            static Vec3 lastPos;
+            const float speed = std::min(260.0f, length2d(a.pos - lastPos) / std::max(1e-3f, fdt));
+            lastPos = a.pos;
+            g.specVm.update({paused ? 0.0f : fdt, yawDelta, pitchDelta, speed, true, -1.0f, 1.0f, 0.0f});
         } else {
             g.specVmFor = -1;
         }
 
-        // First-person weapon: own FOV and fresh depth so it never clips into walls (spectating: theirs).
-        if (cfg.show_viewmodel && spectating && !replayView && !menuCam) {
+        // First-person weapon: own FOV and fresh depth so it never clips into walls (spectating: theirs; a replay:
+        // whoever you watch through).
+        const bool replayVm = replayView && g.specVmFor >= 1000;
+        if (cfg.show_viewmodel && ((spectating && !replayView) || replayVm) && !menuCam) {
             float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
             Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
             modelDraws.clear();

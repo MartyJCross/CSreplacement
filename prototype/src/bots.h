@@ -46,7 +46,7 @@ struct BotBrain {
     // Crosshair placement (preaim): walking somewhere, where it looks - an angle an enemy could be holding, at head
     // height, or the next corner of its route. Picked again at lookAgainAt.
     Vec3 lookAt;
-    bool hasLookAt = false;
+    bool hasLookAt = false, lookAtAngle = false;  // lookAtAngle: it's one of the angles (kept while it's in view)
     double lookAgainAt = 0;
     // Its spot (an anchor's angle, the execute's hold): after a chase or a fight it walks back here
     // instead of standing wherever the chase ended.

@@ -31,6 +31,8 @@ ReplayFrame& Replay::next(double t) {
     f->t = t;
     f->agents.clear();  // (keeps their capacity)
     f->smokes.clear();
+    f->nades.clear();
+    f->fires.clear();
     // Shots older than what's kept go too.
     const double oldest = at(0).t;
     if (!shots_.empty() && shots_.front().t < oldest - 1.0)
@@ -60,6 +62,11 @@ bool Replay::sample(double t, ReplayFrame& out) const {
     const float k = b.t > a.t ? float((t - a.t) / (b.t - a.t)) : 0.0f;
     out.t = t;
     out.smokes = a.smokes;
+    out.fires = a.fires;
+    out.nades = a.nades;
+    if (b.nades.size() == a.nades.size())  // (the same grenades still flying: in between)
+        for (size_t i = 0; i < out.nades.size(); ++i)
+            if (b.nades[i].type == a.nades[i].type) out.nades[i].pos = a.nades[i].pos + (b.nades[i].pos - a.nades[i].pos) * k;
     out.agents.resize(a.agents.size());
     for (size_t i = 0; i < a.agents.size(); ++i) {
         ReplayAgent r = a.agents[i];
