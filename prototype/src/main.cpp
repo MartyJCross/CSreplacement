@@ -408,8 +408,10 @@ struct Game {
         std::vector<int> pushers;
         std::vector<RetakeSpot> pushBack;
         double pushUntil = -1;
-        // The execute's utility: a T bot throws `type` at `target` once it has a throw that gets there.
-        struct Throw { int bot; int type; Vec3 target; double from, until, nextTry; };
+        // The bots' utility: a bot throws `type` at `target` once it has a throw that gets there (the execute's
+        // are dropped once the bomb's down; afterPlant ones - the CTs' retake flashes, the Ts' molotov on a defuse -
+        // are thrown after it).
+        struct Throw { int bot; int type; Vec3 target; double from, until, nextTry; bool afterPlant = false; };
         std::vector<Throw> throws;
         int carrier = -3;                   // bomb: -1 you, i = bot i, -2 dropped on the floor, -3 nobody
         Vec3 dropped;
@@ -2609,8 +2611,8 @@ void sendBot(Game& g, size_t i, const Vec3& to, bool hold, const RetakeSpot* h =
 }
 
 // A bot throws a grenade of `type` to go off at `target`: it tries throws round the straight line (the same
-// flight as the real thing) and takes the one that ends closest. False if none gets within 150 units.
-bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
+// flight as the real thing) and takes the one that ends closest. False if none gets within `maxErr` units.
+bool botThrow(Game& g, size_t i, int type, const Vec3& target, float maxErr = 150.0f) {
     Dummy& d = g.dummies[i];
     const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
     const float yaw0 = yawTo(eye, target), dist = length2d(target - eye);
@@ -2626,7 +2628,7 @@ bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
                 const float err = length2d(end - target) + std::fabs(end.z - target.z) * 0.5f;
                 if (err < bestErr) { bestErr = err; bestStart = start; bestVel = v; }
             }
-    if (bestErr > 150.0f) return false;
+    if (bestErr > maxErr) return false;
     g.nades.push_back({bestStart, bestVel, type, 0, int(i)});
     if (netHost(g)) g.net.sendNade(type, bestStart, bestVel, int(i));
     d.yaw = d.prevYaw = yawTo(eye, target);
@@ -3078,7 +3080,8 @@ void compTick(Game& g) {
             c.ctNade[i] = -1;
         }
     // Utility for way `way`: a smoke to cut the defenders' view, then a flash over where they hold, thrown by the
-    // two T bots of group `group` nearest its staging point (not the carrier).
+    // two T bots of group `group` nearest its staging point (not the carrier); on a full buy (a third T with a rifle)
+    // a molotov onto the site's anchor spot to burn the CT out of it.
     auto siteUtility = [&](int way, int group) {
         if (way < 0 || group < 0 || size_t(group) >= c.stages.size()) return;
         const TownWay& w = townTactics().ways[size_t(way)];
@@ -3094,6 +3097,14 @@ void compTick(Game& g) {
             const Vec3 target = townPoint(u[0], u[1]) + Vec3{0, 0, u[2]};
             const double from = now + 0.3 + 0.7 * double(q);
             c.throws.push_back({int(near[q].second), q == 0 ? Game::kSmokeNade : Game::kFlashNade, target, from, from + 10.0, from});
+        }
+        const size_t mol = std::min(near.size(), size_t(3)) - (near.empty() ? 0 : 1);  // (the third, or the last one)
+        if (group == 0 && !near.empty() && weaponDef(c.botGun[near[mol].second]).price >= 2000) {
+            const std::vector<RetakeSpot>& anchor = townCtSpots(w.site == 0 ? kCtA : kCtB);
+            if (!anchor.empty()) {
+                const double from = now + (mol == 2 ? 1.4 : 2.2);
+                c.throws.push_back({int(near[mol].second), Game::kMolotov, townPoint(anchor[0].x, anchor[0].y), from, from + 10.0, from});
+            }
         }
     };
     // CT pushers fall back to their spots once their time's up or the Ts go.
@@ -3194,17 +3205,19 @@ void compTick(Game& g) {
         }
         c.sent = all;
     }
+    static const char* const kNadeLogName[] = {"smoke", "flash", "HE", "molotov"};
     for (size_t q = 0; q < c.throws.size();) {
         Game::Comp::Throw& t = c.throws[q];
         const size_t i = size_t(t.bot);
-        const bool gone = now > t.until || c.planted || !g.dummies[i].alive();
+        const bool gone = now > t.until || c.planted != t.afterPlant || !g.dummies[i].alive();
         bool done = gone;
         if (!gone && now >= t.nextTry && g.bots[i].state != 2) {
-            done = botThrow(g, i, t.type, t.target);
+            done = botThrow(g, i, t.type, t.target, t.afterPlant && t.type == Game::kFlashNade ? 350.0f : 150.0f);  // (a flash anywhere over the site)
             t.nextTry = now + 0.4;  // no throw from here yet: try again in a moment (it's still walking)
             if (done && !g_compLog.empty())
-                std::ofstream(g_compLog, std::ios::app) << "  bot threw a " << (t.type == Game::kSmokeNade ? "smoke" : "flash")
-                                                        << " t=" << int(now) << "s\n";
+                std::ofstream(g_compLog, std::ios::app) << "  " << (g.team[i] == 0 ? "T" : "CT") << " bot " << i << " threw a "
+                                                        << kNadeLogName[std::clamp(t.type, 0, 3)]
+                                                        << (t.afterPlant ? " after the plant" : "") << " t=" << int(now) << "s\n";
         }
         if (done) c.throws.erase(c.throws.begin() + long(q));
         else ++q;
@@ -3310,6 +3323,11 @@ void compTick(Game& g) {
                 Vec3 via;
                 if (c.retakeEntry[i] >= 0) via = townPoint(s.entries[size_t(c.retakeEntry[i])].x, s.entries[size_t(c.retakeEntry[i])].y);
                 sendBot(g, i, townPoint(h.x, h.y), true, &h, c.retakeEntry[i] >= 0 ? &via : nullptr);
+                // Retake utility: the first two in on a full buy pop a flash over the site on the way (owner, v0.28).
+                int flashes = 0;
+                for (const Game::Comp::Throw& t : c.throws) flashes += t.afterPlant && t.type == Game::kFlashNade;
+                if (flashes < 2 && weaponDef(c.botGun[i]).price >= 2000)
+                    c.throws.push_back({int(i), Game::kFlashNade, g.bombPos + Vec3{0, 0, 150}, now + 1.0, now + 9.0, now + 1.0, true});
             }
             if (all) {
                 c.retakeSent = true;
@@ -3317,7 +3335,8 @@ void compTick(Game& g) {
             }
         }
         // A CT bot defuses: the nearest one that isn't fighting walks to the bomb, then takes 5 s (once the retake goes).
-        if (c.defuser >= 0 && (!g.dummies[size_t(c.defuser)].alive() || g.bots[size_t(c.defuser)].sees)) {
+        if (c.defuser >= 0 && (!g.dummies[size_t(c.defuser)].alive() || g.bots[size_t(c.defuser)].sees ||
+                               length2d(g.dummies[size_t(c.defuser)].pos - g.bombPos) > 60.0f)) {  // (off it: out of a molotov)
             c.defuser = -3;
             c.botDefuseStart = -1;
         }
@@ -3354,6 +3373,18 @@ void compTick(Game& g) {
                     !(i < c.saving.size() && c.saving[i]) && length2d(g.dummies[i].pos - g.bombPos) < 2000.0f)
                     sendBot(g, i, g.bombPos, false);
             radio(firstAlive(0), "THEY'RE DEFUSING");
+            int molly = -1;  // ... and the nearest T on a full buy mollies the bomb (owner, v0.28: bot utility)
+            float best = 1500.0f;
+            for (size_t i = 0; i < g.dummies.size(); ++i)
+                if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 0 && weaponDef(c.botGun[i]).price >= 2000 &&
+                    length2d(g.dummies[i].pos - g.bombPos) < best) {
+                    best = length2d(g.dummies[i].pos - g.bombPos);
+                    molly = int(i);
+                }
+            if (molly >= 0) {
+                c.throws.push_back({molly, Game::kMolotov, g.bombPos, now, now + 4.0, now, true});
+                radio(molly, "MOLLY ON THE BOMB");
+            }
         } else if (!defusing) {
             c.defuseHeard = false;
         }
