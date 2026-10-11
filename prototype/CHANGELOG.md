@@ -3,6 +3,21 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.26: smarter bots, wider doorways
+
+- **Harbor is back in competitive's MAP list** (it showed THE LAB / DUST, and picking "DUST" loaded Harbor).
+- **Every doorway is one grid cell (32 units) wider** on Dust and Harbor: long doors, B doors, mid doors (its gap 44 ->
+  76 units), the spawn passages. The spawns are still out of mid's sight.
+- **Mid is open:** bots play mid from the start (the spawns are walled off from it): T plays through **short, lowers
+  and mid to B**, a **mid control** play, CTs contesting mid from the doors, the CT mid push.
+- **Real split executes:** two ways onto the same site at once (long and short, tunnels and mid to B, docks and
+  short...), timed so both groups hit together, each with its own smoke and flash.
+- **No stacking:** bots keep a gap behind a teammate ahead; CT retakes come from different sides (Dust A: CT and
+  short), waiting out of sight and going in together; rotations come by different ways. Automated matches: 36
+  stacked-up pairs in three matches before, 0 after.
+- **Preaim:** walking bots keep their crosshair at head height on the angles enemies hold (or round the next
+  corner), and shoot quicker when someone appears where they were already aiming.
+
 ## v0.25.4: lighter outlines, a much cheaper post pass
 
 - **The stylized outlines are thinner and lighter:** one pixel, just outside an object's silhouette, a dark tint of

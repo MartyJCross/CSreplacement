@@ -93,7 +93,8 @@ prototype/
    per-frame model draws go in a `DrawList`), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
 5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). Revisit before anything is shared publicly; Harbor is Crisp's own map and is free to share.
 6. **Keep it portable to MSVC.** C++20, standard library and SDL3 only. No GCC/Clang-only extensions. Code must compile warning-clean with `-Wall -Wextra -pedantic` (Linux/GCC: CI runs it; check locally, §10) and `/W4` (MSVC).
-7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`). If you change an area table, keep those passing and look at the printed run times.
+7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`,
+`testSpawnsOffMid`, `testCompWays`). If you change an area table, keep those passing and look at the printed run times.
 8. **Settings belong in the config and the menu.** A new tunable gets a `Config` field, load + save in `config.cpp`, the default config text, and if player-facing a row in `menuRows()` (the right settings page) in `main.cpp`.
 
 ## 5. Build and test
@@ -134,7 +135,8 @@ DIR` (what the game plays, recordings and derived sounds included), `--dump-spat
 direction as stereo WAVs). Analyse sounds with `python prototype/tools/sound_bands.py "DIR/*.wav"` (`--spatial DIR`).
 
 **Bot behaviour runs:** competitive with `--bots --frames 60000` (≈4 min of game) writes `comp_log.txt` (rounds,
-plays, throws, STUCK bots). The idle test player can't die, so **its side wins almost every round**: run once with
+plays, group go times, retakes, throws, and three must-stay-0 counts: STUCK (a bot frozen 8 s), STALL (saw its enemy
+2.5 s without firing), STACK (two teammates within 64 units, both moving, 2 s in a round)). The idle test player can't die, so **its side wins almost every round**: run once with
 `--ct` too before judging balance. `comp_enemies 4` / `comp_mates 4` for a fair 4v4.
 
 ## 6. The GitHub process
@@ -241,10 +243,20 @@ online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
   site's holds, off the bomb; `defuseHeard`: they rush the bomb when a defuse starts); saving (`Comp::saving`: lost
   round = no time to defuse/plant or 1 vs 3+, a gun worth $1700+ -> back to spawn, never the defuser). Bots step out
   of fire (`BotSenses::fires`, `fireExit`, waits at the edge; `testBotFire`).
-- T plays (`CompPlay`: execute, rush, split A, split B,
-  fake, default) with staging points and execute utility from `townTactics()` (`Comp::throws` + `botThrow` solving
-  throws with `predictGrenade`), called on the radio (`teamRadio`); CT setups by role (`townCtSpots`: mid, short, long,
-  A, B), pushes (`Comp::pushers`), rotations (`rotated`), urgency (`BotBrain::urgent`), trading (alerts within 600).
+- T plays (v0.26; `CompPlay`: execute, rush, split, fake, default, mid control) over **ways** onto the sites
+  (`townTactics().ways`, `TownWay`: stage, smoke, flash, the area its route crosses, `fromMid`; Dust long, short,
+  tunnels, lowers, mid to B; Harbor docks, short, underpass, alley; `waysTo`). The round's T groups (`Comp::stages`,
+  `stageOf`, `groupWay`) each go at `groupGoAt` so a split's groups hit together (the longer way first, up to 8 s),
+  each throwing its way's utility (`Comp::throws` + `botThrow` solving throws with `predictGrenade`); called on the
+  radio (`teamRadio`). CT setups by role (`townCtSpots`: mid, short, long, A, B), pushes (`Comp::pushers`: long, mid
+  or B), rotations (`rotated`), urgency (`BotBrain::urgent`), trading (alerts within 600).
+- No stacking (v0.26): `keepGap` (bots.cpp, `BotSenses::mates`, `kBotGap` 110: wait up to 1 s behind a teammate just
+  ahead), `BotBrain::via` (`sendBot(..., via)`), `spreadEntries` (a site's `RetakeSite::entries` spread over the bots;
+  a taken one costs 1500 more). CT retakes: each CT waits at its way in (`Comp::retakeEntry`, `retakeGoAt`,
+  `retakeSent`), all go in together; rotations come by different ways. Tests: `testBotSpacing`, `testRetakeSpread`.
+- Preaim (v0.26): walking bots look at the nearest visible known angle ahead (`preaim`, `BotSenses::angles` from
+  `Game::angles[side]`, built in loadMap), at head height (pitch too), else round the route's next corner; an enemy
+  spotted within 10 degrees of the aim (`BotBrain::sightOff`) gets 65% of the reaction time (`testBotPreaim`).
   Bots never freeze (`pathTo` snaps unreachable goals, `nearestRoamable`; `backHome`); automated runs log STUCK.
 - Bot skill (`bots.h BotSkill`, `skillAt` blends levels): mate/enemy skill, `skill_variance` (0/1/2: ±0.5 or ±1 level
   per bot per match, `botSkillOf`). Reaction restarts only on losing sight; slower after a quiet spell (`surprise`).
@@ -326,6 +338,10 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
 
+**Done in v0.26** (owner, 2026-10-11: "double down on the bot AI"): doorways one cell wider on both maps; the
+competitive MAP row's labels (showed THE LAB / DUST for Dust / Harbor); mid open, real splits, short / lowers / mid-to-B
+plays, mid control; no stacking (gaps, spread retakes and rotations); preaim and quicker pre-aimed shots.
+
 **Done in v0.24** (owner, 2026-10-11: spawns away from mid; "clean stylized" art direction chosen from three
 offered; more detail on the guns, especially the viewmodel). Pieces, each committed and pushed:
 - [x] 1. Spawns off mid: walls between T spawn and mid with a dog-leg "MID PATH" (Dust, Harbor), CT spawn behind a wall
@@ -379,10 +395,11 @@ practice tools (grenade lineups, spray-pattern overlay, CS-style console), a thi
   explain the why in one or two sentences.
 - **Spawns are their own area, out of mid's sight** (v0.24; `testSpawnsOffMid`). Don't put a spawn point, or an
   opening from spawn, where mid can see it.
-- **NO MID FIGHTS FROM SPAWN** (asked many times; fixed for real in v0.22.1): competitive bots never stage in, push into,
-  route through or chase into mid before the execute (`townMidArea`, `townMidCells` + `NavGrid::setAvoid`, T stages
-  off mid, CT mid spots out of sight of mid). `testNoMidFights` and the automated-run log ("MID DEATH", must stay 0)
-  guard it. Never add a plan, spot or push in mid again.
+- **Mid** (history): they asked ~10 times that bots stop fighting in mid straight out of spawn; v0.22.1 banned bots
+  from mid before the execute. Once v0.24 walled the spawns off from mid, the owner reopened it (2026-10-11, v0.26):
+  "they can go instantly with there now being no line of sight; short and lowers can be a play". Mid, short and lowers
+  plays are fine from round start; what must hold is the spawns staying out of mid's sight (`testSpawnsOffMid`).
+- **No stacking** (v0.26): bots shouldn't walk on each other's backs or all retake through one door (STACK must stay 0).
 - Bots must shoot when they see someone: automated runs log "STALL" (a bot that saw its enemy 2.5 s without firing;
   must stay 0).
 - Standing preferences: CS:GO feel above all; no tagging slowdown; guns only when they ask; no gimmicks (rejected
