@@ -5108,7 +5108,7 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
         } else if (!it.action) {
             char val[48];
             if (it.f) std::snprintf(val, sizeof(val), it.step < 0.1f ? "%.2f" : "%.1f", double(*it.f));
-            else if (it.labels) std::snprintf(val, sizeof(val), "%s", it.labels[*it.i - int(it.lo)]);
+            else if (it.labels) std::snprintf(val, sizeof(val), "%s", it.labels[*it.i]);  // (labels are by value: a row may start past 0)
             else std::snprintf(val, sizeof(val), "%d", *it.i);
             v = sel ? std::string("< ") + val + " >" : std::string(val);
         }
