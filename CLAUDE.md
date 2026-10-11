@@ -126,7 +126,8 @@ Options: `--spawn X Y YAW` (world coords: Dust is 90% of real Dust2 in the game!
 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10, 10 M4A1-S, 11 Galil, 12 SSG 08, 13 UMP-45, 14 XM1014), `--zoom 1|2`,
 `--autofire START END` (seconds), `--inspect N`, `--buy N` (the wheel on category N), `--smoke --nade T
 [--throw-frame N]`, `--bots`, `--menu N [--menu-row R]` (a `MenuScreen` index: 11 inventory, 12 case with
-`--give-cases N`, 13 stats with `--career FILE`), `--die N [--killer I]` (killcam when I is a bot),
+`--give-cases N` / `--give-knife-cases N`, 13 stats with `--career FILE`), `--skin KEY` (that skin equipped; with
+`--menu 11` on the stage), `--inspect N --inspect-variant V` (a knife's inspect V), `--die N [--killer I]` (killcam when I is a bot),
 `--replay-frame N`, `--ct`, `--host`, `--join ADDR`.
 
 **Measuring:** `--bench 10` (bench.txt: avg/1% low, time per part, GPU via glFinish), `--bench-raw 10` (no glFinish:
@@ -202,11 +203,18 @@ behind/below darker, above brighter, occlusion via `setOcclusion` with two rays:
 (`loadMusic` on a thread, `setMusic` fades, `music_volume`; plays while `g_menu.root == kMenuMain`). Impacts by
 material, helmet tink, near-miss whiz. The owner's ear: guns "too much bass" earlier; keep sub-bass cut.
 
-**Cosmetics** (`fx.cpp`): knives (default, butterfly, karambit, M9, talon, bowie, kukri); keyframed inspects; spray
-feedback; grenade models; particles; helmet debris. **Skins and cases** (`items.*`, main.cpp inventory block): painted
-per pixel by the box shader (`makePainted`, `PaintParams`); a case per `case_kills` (25) kills in modes 1/2/3/5;
-INVENTORY (`kMenuInventory`) and the case reel (`kMenuCase`); `all_skins` unlocks everything. Save keys are stable
-(the M4A1-S keeps "M4A4_..." keys).
+**Cosmetics** (`fx.cpp`): knives (default, butterfly, karambit, M9, talon, bowie, kukri); keyframed gun inspects;
+knife animations (v0.27: `KnifePose`, `knifeInspect` three a knife cycled by F (`inspectVariant_`), `knifeDraw`,
+`knifeFidget` idle tricks (`knife_fidget`); the knife has its own transform `Anim::knifeOff/knifeSpinX/knifeSpinZ` so
+tosses leave the hand); spray feedback; grenade models; particles; helmet debris. **Skins and cases** (`items.*`,
+main.cpp inventory block): v0.27 part by part: every gun part has a `Part::region` (items.h `SkinRegion`: body, top,
+barrel, muzzle, fore, stock, grip, mag, scope, accent; knives blade, handle by colour in `partBox`); a `SkinDef` is up
+to 4 `SkinLayer`s (pattern, 3 colours, gloss, scale) and a 12-char region string (layer digit or '-' plain); the box
+shader gets them as uniform arrays (`setPaint`) and reads the region from the painted box's alpha (56 + region);
+26 patterns (`Pattern`, render.cpp `skin()`). A case per `case_kills` (25) kills, a knife case per `kKillsPerKnifeCase`
+(100) kills, in modes 1/2/3/5; INVENTORY (`kMenuInventory`: case, knife case, then a row per weapon) and the case reel
+(`kMenuCase`, `CaseOpening::knife`); `all_skins` unlocks everything. Save keys are stable (the M4A1-S keeps
+"M4A4_..." keys; keep every old key when redesigning). Automated runs never save inventory.txt.
 
 **Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor; `Game::mapId` is 1 for both town maps):
 - The Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course.

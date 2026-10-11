@@ -3,6 +3,22 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.27: skins reimagined, knife animations, knife cases
+
+- **Skins are painted part by part:** body, slide / dust cover, barrel, muzzle or suppressor, handguard, stock, grip,
+  mag, scope and the small parts each take their own paint (or keep their metal, wood or polymer); knives paint blade
+  and handle. 14 new paints: a printed look (sweeping ink lines on pearl, gold edges), lotus flowers outlined in gold,
+  halftone, crystal facets, seigaiha waves, holographic, printed decals, damascus, a starry galaxy, scales, splatter,
+  racing stripes, gradients, mecha panels. Every skin is redesigned (same names, your inventory keeps them) and there
+  are new ones: LOTUS GARDEN, PRESSWORK, NEBULA, KOI, KOI POND, KUMICHO, SPLASH, PRISM, AURORA, MECHA, STREET ART,
+  MOMENTUM, LOTUS; knives get galaxy dopplers and six new finishes (LOTUS, PRESSWORK, DAMASCUS, NEBULA, SCALEWORK,
+  PRISM). The inventory stage has a light backdrop.
+- **Knife animations:** a flourish on every draw, three inspects a knife (F plays the next one): aerials, fans and
+  tosses for the butterfly, finger spins and flicks for the karambit and talon, tosses, twirls and hand rolls for
+  the straight knives; tossed knives leave the hand. Idle tricks every few seconds (Settings -> Weapons + skins ->
+  KNIFE TRICKS WHEN IDLE).
+- **Knife cases:** one every 100 kills, knives only.
+
 ## v0.26.1: bot and replay fixes
 
 - **The Ts don't all go mid any more:** most rounds come through long or tunnels (each way through mid is picked a
