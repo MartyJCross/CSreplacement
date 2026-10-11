@@ -118,7 +118,7 @@ cmake --build build
 `crisp --windowed 1280 720 --screenshot out.bmp --frames N [options]`. The map/mode come from `config.cfg` (`map 0|1|2`,
 `mode`, `fullscreen 0`). Screenshot mode runs a fixed 240 FPS timestep (frame N = N/240 s of game time; the FPS
 counter is meaningless). Convert BMP to PNG (Pillow) to look at it, and **look before claiming a visual change works**.
-Options: `--spawn X Y YAW` (world coords: Dust is scaled by `dust_scale`!), `--weapon 1..14` (4 AWP, 5 grenade,
+Options: `--spawn X Y YAW` (world coords: Dust is 90% of real Dust2 in the game!), `--weapon 1..14` (4 AWP, 5 grenade,
 6 Berettas, 7 Deagle, 8 Nova, 9 MAC-10, 10 M4A1-S, 11 Galil, 12 SSG 08, 13 UMP-45, 14 XM1014), `--zoom 1|2`,
 `--autofire START END` (seconds), `--inspect N`, `--buy N` (the wheel on category N), `--smoke --nade T
 [--throw-frame N]`, `--bots`, `--menu N [--menu-row R]` (a `MenuScreen` index: 11 inventory, 12 case with
@@ -207,7 +207,8 @@ INVENTORY (`kMenuInventory`) and the case reel (`kMenuCase`); `all_skins` unlock
   townTeamSpawns, townRetakeSites, townCtSpots, townPrefireRoutes, townPeekSpots, townTactics, buildTown). Walls,
   roofs (tunnels/doorways), trims, windows, awnings and doors are generated. `separate` keeps a wall between area
   pairs whose gap is under a cell at some sizes (Dust: CT mid/CT spawn vs short, CT mid vs catwalk).
-- **Dust** (the Dust2 copy): scaled by `dust_scale` (60 default, the owner plays at 95); props `anchored()` to area
+- **Dust** (the Dust2 copy): always 90% of real Dust2 in the game (`kDustSize` in main.cpp; owner v0.25.2 removed the
+  setting; `setDustScale` still serves the tests' sizes and an online host's); props `anchored()` to area
   edges so they stay against walls at every size. Tests use `dpt(x, y)` (real-Dust2 coords, scaled).
 - **Harbor** (Crisp's own map, its own size): docks → raised A site, market/mid/mid doors, roofed warehouse → A short,
   roofed underpass and alley → B with a back platform. `testHarbor` checks its 99 spots, 70 bot trips, spawn
@@ -393,7 +394,7 @@ practice tools (grenade lineups, spray-pattern overlay, CS-style console), a thi
   Re-run the configure step after adding source files to CMakeLists.txt.
 - **`build/Release/config.cfg` is the owner's own config** (they run `build\Release\crisp.exe`). Before screenshots or
   automated runs that need other settings, copy it to the scratchpad, edit, run, and **restore it**. Their settings
-  include `dust_scale 95`, `bhop 1`, `model_scale 102`, `mode 1`, `map 1`.
+  include `bhop 1`, `model_scale 102`, `mode 1`, `map 1` (Dust's size is fixed at 90% now).
 - **Never edit C/C++ through a Bash heredoc**: the shell layer turns `\n` inside string literals into real newlines
   (broke builds many times). Write a Python edit script with the Write tool into the scratchpad and run it (assert
   each `old` text is present before replacing), or use the Edit tool. If a split literal slips through, rejoin it.

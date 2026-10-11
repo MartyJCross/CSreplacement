@@ -4712,6 +4712,8 @@ constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button
 struct MenuState { int screen = kMenuNone, sel = 0, root = kMenuMain; };
 MenuState g_menu;
 bool g_replayAvailable = false;  // the pause menu offers WATCH REPLAY (something's recorded, offline)
+// Dust is always 90% of real Dust2's size (owner, v0.25.2: no setting).
+constexpr float kDustSize = 0.9f;
 double g_resetArmedAt = -100.0;  // SETTINGS -> RESET TO DEFAULTS was pressed once (a second press within 3 s resets)
 double g_resetDoneAt = -100.0;   // ... and when it last reset (the button says so for a moment)
 
@@ -4832,7 +4834,6 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
             if (L.host) {
                 r.push_back({"GAME", nullptr, &c.net_game, 1, 0, 1, kNetGameNames});
                 r.push_back({"MAP", nullptr, &g_lobbyMapSel, 1, 0, 1, kTownMapNames});
-                if (g_lobbyMapSel == 0) r.push_back({"DUST SIZE", nullptr, &c.dust_scale, 5, 50, 100});
                 if (comp) {
                     r.push_back({"TEAMMATES (PLAYERS + BOTS)", nullptr, &c.comp_mates, 1, 0, 4});
                     r.push_back({"ENEMIES (PLAYERS + BOTS)", nullptr, &c.comp_enemies, 1, 1, 5});
@@ -4877,7 +4878,6 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 if (g_gameMenu.map == 0) g_gameMenu.map = 1;
                 r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 1, 2, kMapNames});
             }
-            if (m.map == 1) r.push_back({"MAP SIZE (% OF REAL DUST2)", nullptr, &c.dust_scale, 5, 50, 100});
             if (m.mode == 3) {
                 r.push_back({"TEAMMATES", nullptr, &c.comp_mates, 1, 0, 4});
                 r.push_back({"ENEMIES", nullptr, &c.comp_enemies, 1, 1, 5});
@@ -6310,7 +6310,7 @@ int main(int argc, char** argv) {
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
     renderer.setShadowSize(shadowSize(cfg.shadows));
-    setDustScale(float(cfg.dust_scale) / 100.0f);
+    setDustScale(kDustSize);
     setTownMap(cfg.map == 2 ? 1 : 0);
     loadMap(g, renderer, cfg.map >= 1 || g.mode != 0 ? 1 : 0);
     // Settings changed (menu, config reload): a new Dust size rebuilds the map right away.
@@ -6321,7 +6321,7 @@ int main(int argc, char** argv) {
         applyConfig(g, cfg);
         g_caseKills = std::clamp(cfg.case_kills, 1, 1000);
         g_allSkins = cfg.all_skins != 0;
-        if (setDustScale(float(cfg.dust_scale) / 100.0f) && g.mapId == 1) loadMap(g, renderer, 1);
+        if (setDustScale(kDustSize) && g.mapId == 1) loadMap(g, renderer, 1);  // (back from an online game's size)
         renderer.setShadowSize(shadowSize(cfg.shadows));
         renderer.setStyle(cfg.art_style);
     };
@@ -6409,7 +6409,7 @@ int main(int argc, char** argv) {
     // The lobby's START (the host): everyone in the lobby goes in, on the teams they picked.
     auto startLobbyGame = [&]() {
         setTownMap(g_lobbyMapSel & 1);
-        if (g_lobbyMapSel == 0) setDustScale(float(cfg.dust_scale) / 100.0f);
+        if (g_lobbyMapSel == 0) setDustScale(kDustSize);
         for (int id = 0; id < kNetMaxPlayers; ++id) g.netTeam[id] = g.net.connected(id) ? g_lobby.team[id] & 1 : -1;
         g.net.setGame(uint8_t((cfg.net_game == 1 ? 1 : 0) | (g_lobbyMapSel & 1) << 1), townScale());  // late joiners: straight in
         g.net.sendStart();
@@ -6565,7 +6565,7 @@ int main(int argc, char** argv) {
                 std::string err;
                 const uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
                 g.net.setName(cfg.player_name);
-                if (g.net.host(port, float(cfg.dust_scale) / 100.0f,
+                if (g.net.host(port, kDustSize,
                                uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1 | kNetLobbyOpen), err)) {
                     g.netPort = port;
                     g.ports.open(port);  // ask the router, in the background
@@ -6638,10 +6638,7 @@ int main(int argc, char** argv) {
                     g.netJoining = false;
                     reconnect.on = false;
                     g_netNoticeUntil = -1;
-                    if (int(std::lround(ev.townScale * 100.0f)) != cfg.dust_scale) {  // the host's map size
-                        cfg.dust_scale = int(std::lround(ev.townScale * 100.0f));
-                        setDustScale(ev.townScale);
-                    }
+                    setDustScale(ev.townScale);  // the host's map size
                     setTownMap((ev.game >> 1) & 0x3F);  // the host's map
                     if (ev.game & kNetLobbyOpen) {  // they haven't started yet: wait in the lobby
                         openLobby(false);
@@ -6806,10 +6803,7 @@ int main(int argc, char** argv) {
                 case NetEvent::Start:  // the host started the game from the lobby: in we go
                     if (!g_lobby.on || g_lobby.host) break;
                     setTownMap(g_lobby.map & 1);
-                    if (int(std::lround(g_lobby.scale * 100.0f)) != cfg.dust_scale) {
-                        cfg.dust_scale = int(std::lround(g_lobby.scale * 100.0f));
-                        setDustScale(g_lobby.scale);
-                    }
+                    setDustScale(g_lobby.scale);
                     g_lobby.on = false;
                     goOnline(g_lobby.game);
                     if (automated) std::fprintf(stderr, "net: the host started the game%c", 10);
@@ -6912,7 +6906,7 @@ int main(int argc, char** argv) {
         g.net.setName(cfg.player_name);
         g.netPort = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
         const uint8_t lobbyBit = opt.lobbyStartFrame >= 0 ? kNetLobbyOpen : 0;
-        if (g.net.host(g.netPort, float(cfg.dust_scale) / 100.0f, uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1 | lobbyBit), netErr)) {
+        if (g.net.host(g.netPort, kDustSize, uint8_t((cfg.net_game == 1 ? 1 : 0) | townMap() << 1 | lobbyBit), netErr)) {
             g.ports.open(g.netPort);  // like the menu's HOST: ask the router
             g_playerNames[0] = Net::cleanName(cfg.player_name);
             if (lobbyBit) openLobby(true);
@@ -7246,7 +7240,7 @@ int main(int argc, char** argv) {
                 nextLobby = now + 0.5;
                 NetLobby l;
                 l.game = uint8_t((cfg.net_game == 1 ? 1 : 0) | (g_lobbyMapSel & 1) << 1);
-                l.townScale = g_lobbyMapSel == 0 ? float(cfg.dust_scale) / 100.0f : townScale();
+                l.townScale = g_lobbyMapSel == 0 ? kDustSize : townScale();
                 for (int id = 0; id < kNetMaxPlayers; ++id) l.team[id] = uint8_t(g_lobby.team[id] & 1);
                 g.net.sendLobby(l);
                 g.net.setGame(uint8_t(l.game | kNetLobbyOpen), l.townScale);  // (for anyone who joins now)

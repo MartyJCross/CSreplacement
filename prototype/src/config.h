@@ -39,10 +39,9 @@ struct Config {
     int view_smooth_steps = 1;   // 1 = the camera eases over stairs/steps instead of popping up (cosmetic)
     float zoom_sensitivity_ratio = 1.0f;  // like CS: 1 = same feel scoped as unscoped
     int map = 0;               // 0 = the Lab, 1 = dust (Play screen)
-    int dust_scale = 60;       // Dust's size in % of real Dust2 (50..100)
     int msaa = 4;              // anti-aliasing samples (0 = off); applies on restart
     float ambience_volume = 0.3f;  // the map's ambience (wind, birds, waves, gulls); 0 = off
-    int show_fps = 0;          // 1 = the FPS counter top-left
+    int show_fps = 1;          // 1 = the FPS counter top-left
     int art_style = 1;         // 1 = the clean stylized look (outlines, flat colour), 0 = classic textured
     int graphics_preset = 2;   // 0 low, 1 medium, 2 high (set shadows, post_fx, msaa together), 3 custom
     int shadows = 2;           // sun shadows: 0 off, 1 on (2048 map), 2 sharp (4096)
