@@ -28,6 +28,7 @@ struct BotBrain {
     float coverTimer = 0;
     double lastSawAt = 0;     // when it last saw its target (gives up the fight a while after)
     float surprise = 0;       // 0..1: nobody seen for a while before this fight (reacts a little slower)
+    float sightOff = 180;     // how far off its aim (degrees) the enemy it just spotted was: pre-aimed = quicker
     // Retakes / competitive: an anchor that holds its angle (holdYaw, looking towards holdLook) instead
     // of roaming. It holds from beside cover and steps back into it now and then. It still turns on you,
     // checks noises and fights, then holds wherever it ends up.
@@ -42,6 +43,11 @@ struct BotBrain {
     Vec3 goal, via;
     bool hasGoal = false, hasVia = false;
     float gapWait = 0;        // waiting for a teammate ahead on the way to get on (keepGap)
+    // Crosshair placement (preaim): walking somewhere, where it looks - an angle an enemy could be holding, at head
+    // height, or the next corner of its route. Picked again at lookAgainAt.
+    Vec3 lookAt;
+    bool hasLookAt = false;
+    double lookAgainAt = 0;
     // Its spot (an anchor's angle, the execute's hold): after a chase or a fight it walks back here
     // instead of standing wherever the chase ended.
     Vec3 home;
@@ -72,6 +78,10 @@ struct BotSenses {
     // Optional extra sight blocker (smoke): returns true if the segment a->b is blocked.
     bool (*blocked)(const void* ctx, const Vec3& a, const Vec3& b) = nullptr;
     const void* blockCtx = nullptr;
+    // Where enemies hold or come from (floor points: competitive CT spots and site holds for a T, the Ts' stages and
+    // holds for a CT): walking somewhere, a bot keeps its crosshair on the nearest one it can see ahead (preaim). Null:
+    // it looks along its route.
+    const std::vector<Vec3>* angles = nullptr;
     // Teammates (competitive): a bot walking somewhere keeps its distance from one just ahead on the way instead of
     // walking on its back. Null: none.
     const std::vector<BotTarget>* mates = nullptr;

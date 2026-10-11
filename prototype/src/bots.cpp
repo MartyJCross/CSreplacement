@@ -112,6 +112,52 @@ bool keepGap(const Dummy& d, BotBrain& b, const BotSenses& s, const Vec3& toward
     return false;
 }
 
+// Crosshair placement (owner, v0.26: good preaim): walking somewhere, a bot looks where an enemy would be - the
+// nearest known angle (s.angles) it can see ahead of it (within 100 degrees of its way, 1600 units), at head height -
+// else at its route 400 units on (round the next corner), so it's already aimed when someone's there. Picked again 16
+// times a second.
+void preaim(const Dummy& d, BotBrain& b, const BotSenses& s) {
+    if (s.now < b.lookAgainAt) return;
+    b.lookAgainAt = s.now + 0.0625;
+    b.hasLookAt = false;
+    if (b.next >= b.path.size()) return;
+    const float headZ = dummyEyeZ();
+    const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
+    // Its route 400 units on (the way it's going, and where to look when there's no angle to check).
+    Vec3 ahead = b.path.back();
+    float left = 400.0f;
+    Vec3 at = d.pos;
+    for (size_t k = b.next; k < b.path.size(); ++k) {
+        const float seg = length2d(b.path[k] - at);
+        if (seg >= left) {
+            ahead = at + (b.path[k] - at) * (left / seg);
+            break;
+        }
+        left -= seg;
+        at = b.path[k];
+    }
+    const float wayYaw = yawTo(d.pos, b.path[std::min(b.next + 2, b.path.size() - 1)]);
+    float best = 1e30f;
+    if (s.angles)
+        for (const Vec3& p : *s.angles) {
+            const float dist = length2d(p - d.pos);
+            if (dist < 150.0f || dist > 1600.0f) continue;
+            const float off = std::fabs(wrapDeg(yawTo(d.pos, p) - wayYaw));
+            if (off > 100.0f) continue;
+            const float score = off + dist / 40.0f;  // ahead of it and near first
+            if (score >= best) continue;
+            const Vec3 head = p + Vec3{0, 0, headZ};
+            if (s.world->traceRay(eye, head).fraction < 1.0f) continue;
+            best = score;
+            b.lookAt = head;
+            b.hasLookAt = true;
+        }
+    if (!b.hasLookAt) {
+        b.lookAt = ahead + Vec3{0, 0, headZ};
+        b.hasLookAt = true;
+    }
+}
+
 // Done chasing or fighting: a bot with a spot of its own walks back to it (else holds or looks around).
 void backHome(Dummy& d, BotBrain& b, int otherwise) {
     if (b.hasHome && length2d(b.home - d.pos) > 160.0f) {
@@ -238,6 +284,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     }
     // In a hurry (the bomb carrier, the clock running out): don't stop for someone far away, keep going.
     if (chosen && b.urgent && length2d(chosen->origin - d.pos) > 1000.0f) chosen = nullptr;
+    if (chosen && !b.sees) b.sightOff = std::fabs(wrapDeg(yawTo(d.pos, chosen->origin) - d.yaw));  // (before it turns)
     b.sees = chosen != nullptr;
     b.target = chosen ? chosen->id : -2;
     const float toYaw = chosen ? yawTo(d.pos, chosen->origin) : yawTo(d.pos, b.lastSeen);
@@ -428,11 +475,16 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
         if (f && length2d(d.pos - *f) < length2d(before - *f)) d.pos = before;
     }
 
-    // Face you when fighting, otherwise the way they walk (anchors: back to their angle).
+    // Face you when fighting; walking, where it pre-aims (preaim); otherwise the way they walk (anchors: back to their
+    // angle).
     const Vec3 mv = d.pos - d.prevPos;
     const float idle = b.holdOnly && b.state == 1 ? b.holdYaw : d.yaw;
     const bool anchoring = b.holdOnly && b.state == 1 && b.hasCover;  // stepping in and out of cover: keeps its angle
-    const float want = b.state == 2 ? toYaw
+    const bool walking = (b.state == 0 || b.state == 3) && !b.path.empty();
+    if (walking) preaim(d, b, s);
+    else b.hasLookAt = false;
+    const float want = b.state == 2                   ? toYaw
+                       : walking && b.hasLookAt        ? yawTo(d.pos, b.lookAt)
                        : anchoring || length2d(mv) <= 0.01f ? idle
                                                            : std::atan2(mv.y, mv.x) / kDegToRad;
     d.yaw = turnToward(d.yaw, want, (b.state == 2 ? 600.0f : 360.0f) * kTickDt);

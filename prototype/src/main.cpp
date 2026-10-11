@@ -275,6 +275,9 @@ struct Game {
     struct Drop { Vec3 pos; float yaw = 0; int weapon = 0; int ammo = 0; uint32_t id = 0; double at = 0; };
     std::vector<Drop> drops;
     std::vector<size_t> ramps;    // the map's smooth ramps (their boxes in world.solids): shadows lie on them
+    // Where enemies hold or come from, for the bots' preaim (BotSenses::angles): [0] what a T checks (the CT spots,
+    // the site holds), [1] what a CT checks (the Ts' stages, mid, the site holds, the peek spots); deathmatch: both.
+    std::vector<Vec3> angles[2], allAngles;
     uint32_t nextDropId = 1;
 
     // Map + bot AI (Dust: hide behind cover, peek, hold, return).
@@ -3459,6 +3462,19 @@ void loadMap(Game& g, Renderer& r, int id) {
     r.clearDecals();
     if (id == 1) g.nav.build(townGrid(), g.world, townSpawn().pos);
     if (id == 1) buildRadar(g);
+    for (auto& a : g.angles) a.clear();
+    g.allAngles.clear();
+    if (id == 1) {
+        for (int role = 0; role < kCtRoles; ++role)
+            for (const RetakeSpot& h : townCtSpots(role)) g.angles[0].push_back(townPoint(h.x, h.y));
+        for (const TownWay& w : townTactics().ways) g.angles[1].push_back(townPoint(w.stage[0], w.stage[1]));
+        for (const auto& m : townTactics().mid) g.angles[1].push_back(townPoint(m[0], m[1]));
+        for (const RetakeSite& s : townRetakeSites())
+            for (const RetakeSpot& h : s.holds)
+                for (auto& a : g.angles) a.push_back(townPoint(h.x, h.y));
+        for (const PeekSpot& p : townPeekSpots()) g.angles[1].push_back(p.peek);
+        for (auto& a : g.angles) g.allAngles.insert(g.allAngles.end(), a.begin(), a.end());
+    }
     g.spottedUntil.assign(g.dummies.size(), -1.0);
     if (id == 1)  // particles land on Dust's floors (which aren't all at height 0)
         g.fx.setGround([](float x, float y) {
@@ -4518,6 +4534,7 @@ void simTick(Game& g, const Options& opt) {
         // Competitive: each side fights the other side's bots, and you if you're on the other side. Deathmatch
         // (with dm_bot_fights): everyone fights everyone, and the bots still come looking for you half the time.
         std::vector<BotTarget> enemiesOf[2], everyone;
+        sense.angles = g.mapId == 1 && !g.allAngles.empty() ? &g.allAngles : nullptr;
         if (g.mode == 1 && g.dmBotFights) {
             for (size_t i = 0; i < g.dummies.size(); ++i)
                 if (g.dummies[i].alive() && g.bots[i].state >= 0)
@@ -4562,6 +4579,7 @@ void simTick(Game& g, const Options& opt) {
                 }
                 sense.targets = &enemiesOf[g.team[i]];
                 sense.mates = &matesOf[g.team[i]];
+                sense.angles = &g.angles[g.team[i]];
                 sense.noiseFresh = sense.noiseFresh && g.team[i] != g.noiseSide;  // only enemies react to a noise
             }
             updateDeathmatchBot(d, b, sense, g.rng);
@@ -4574,6 +4592,10 @@ void simTick(Game& g, const Options& opt) {
             }
             {  // where it looks up or down (seen when you spectate it): at whoever it's fighting, else level
                 float want = 0;
+                if (!b.sees && b.hasLookAt) {  // walking: its crosshair at head height where it pre-aims
+                    const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
+                    want = -std::atan2(b.lookAt.z - eye.z, std::max(1.0f, length2d(b.lookAt - eye))) / kDegToRad;
+                }
                 if (b.sees && b.target >= -1) {
                     const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
                     const Vec3 at = b.target == -1 ? sense.playerEye
@@ -4677,8 +4699,13 @@ void simTick(Game& g, const Options& opt) {
             // Skill: your competitive teammates use theirs, every other bot the enemy skill (give or take its own
             // bit, with skill variance).
             const BotSkill sk = botSkillOf(g, i);
-            if (g.botSeen[i] == 0)  // human-ish reaction time, a bit slower after a quiet spell (see BotBrain::surprise)
+            if (g.botSeen[i] == 0) {  // human-ish reaction time, a bit slower after a quiet spell (see BotBrain::surprise)
                 g.botReact[i] = sk.reactMin + rnd(g) * sk.reactRange + (g.mapId == 1 ? 0.2f * g.bots[i].surprise : 0.0f);
+                // Crosshair placement pays (owner, v0.26): someone appearing within 10 degrees of where it was already
+                // aiming gets a quicker shot (65% of the reaction), fading out by 30 degrees off.
+                const float off = g.mapId == 1 && g.mode != 0 ? g.bots[i].sightOff : 180.0f;
+                g.botReact[i] *= 0.65f + 0.35f * std::clamp((off - 10.0f) / 20.0f, 0.0f, 1.0f);
+            }
             g.botSeen[i] += kTickDt;
             if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
             // Its gun: damage (falling off with range), armor penetration, fire rate, pellets, sound, all as the gun.

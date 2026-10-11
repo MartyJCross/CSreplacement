@@ -1537,6 +1537,67 @@ void testRetakeSpread() {
     CHECK(same == 0, "%d retakes all came the same way", same);
 }
 
+// Preaim (owner, v0.26): a bot walking to A (by long, then by short) keeps its crosshair on the CT angles it can see
+// ahead: of the moments a CT spot or A hold is in view ahead of it, 90% and more find it already looking within 15
+// degrees of one (a bot that just looks where it walks: about three in four).
+void testBotPreaim() {
+    std::printf("bots pre-aim\n");
+    const NavGrid& nav = dustNav();
+    std::vector<Vec3> angles;
+    for (int role = 0; role < kCtRoles; ++role)
+        for (const RetakeSpot& h : townCtSpots(role)) angles.push_back(dpt(h.x, h.y));
+    for (const RetakeSpot& h : townRetakeSites()[0].holds) angles.push_back(dpt(h.x, h.y));
+    auto run = [&](bool preaim, const Vec3& start) {
+        BotSenses sense;
+        sense.world = &dust();
+        sense.nav = &nav;
+        const std::vector<BotTarget> none;
+        sense.targets = &none;
+        sense.angles = preaim ? &angles : nullptr;
+        Dummy d;
+        BotBrain b;
+        uint32_t rng = 5u;
+        spawnDeathmatchBot(d, b, start, rng);
+        d.yaw = d.prevYaw = 90.0f;
+        b.goal = dpt(1380, 2560);
+        b.hasGoal = b.holdOnly = true;
+        b.state = 0;
+        int inView = 0, onIt = 0;
+        for (int t = 0; t < kTickRate * 30 && b.state == 0; ++t) {
+            sense.now = double(t) * kTickDt;
+            d.prevPos = d.pos;
+            updateDeathmatchBot(d, b, sense, rng);
+            if ((t & 7) != 0) continue;
+            const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ()};
+            float closest = 1e30f;
+            bool any = false;
+            for (const Vec3& p : angles) {
+                const float dist = length2d(p - d.pos);
+                if (dist < 150.0f || dist > 1600.0f) continue;
+                const float yaw = std::atan2(p.y - d.pos.y, p.x - d.pos.x) / kDegToRad;
+                float off = yaw - d.yaw;
+                while (off > 180.0f) off -= 360.0f;
+                while (off < -180.0f) off += 360.0f;
+                if (dust().traceRay(eye, p + Vec3{0, 0, dummyEyeZ()}).fraction < 1.0f) continue;
+                any = true;
+                closest = std::min(closest, std::fabs(off));
+            }
+            inView += any;
+            onIt += any && closest < 15.0f;
+        }
+        return inView ? float(onIt) / float(inView) : 0.0f;
+    };
+    const Vec3 starts[2] = {dpt(1500, 1100), dpt(150, 1150)};  // long, the bottom of catwalk
+    float with = 0, without = 0;
+    for (const Vec3& st : starts) {
+        with += run(true, st) * 0.5f;
+        without += run(false, st) * 0.5f;
+    }
+    std::printf("  walking to A with a CT angle in view: on one %.0f%% of the time (looking where it walks: %.0f%%)\n",
+                double(with * 100), double(without * 100));
+    CHECK(with > 0.9f && with > without + 0.15f, "pre-aim %.0f%% vs %.0f%%", double(with * 100), double(without * 100));
+}
+
 void testBotFire() {
     std::printf("bots and fire\n");
     const NavGrid& nav = dustNav();
@@ -2006,6 +2067,7 @@ int main() {
     testCompWays();
     testBotSpacing();
     testRetakeSpread();
+    testBotPreaim();
     testHarbor();
     testReplay();
     testBotCover();
