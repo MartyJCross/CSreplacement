@@ -218,6 +218,16 @@ struct Game {
     // Cosmetics: sound, first-person weapon, particles. Never affect the simulation.
     Audio* audio = nullptr;
     ViewModel vm;
+    // Where sounds are heard from: the camera (your eyes, or the eyes of whoever you're spectating), and its facing.
+    Vec3 earPos;
+    float earYaw = 0;
+    // Spectating: the first-person weapon of the player you watch (their gun, its shots and reloads, a grenade as
+    // they throw one).
+    ViewModel specVm;
+    int specVmFor = -1;
+    int specVmShown = -1;      // the ViewWeapon on screen
+    double specVmShot = -10;   // their last shot it kicked for
+    float specVmYaw = 0, specVmPitch = 0;
     Effects fx;
     int reloadStage = 0;
     float stepDist = 0;
@@ -1371,7 +1381,7 @@ constexpr double kFireLife = 7.0;
 
 // Flashbang: blinds whoever can see it, fully if they're looking at it. Your ears ring.
 void flashBang(Game& g, const Vec3& pos) {
-    if (g.audio) g.audio->play3D(Sfx::FlashBang, pos, g.lastRenderEye, float(g.viewYaw), 5000.0f, 1.0f);
+    if (g.audio) g.audio->play3D(Sfx::FlashBang, pos, g.earPos, g.earYaw, 5000.0f, 1.0f);
     g.fx.burst(pos, 0xfffbe8, 1.0f);
     auto strength = [&](const Vec3& eye, const Vec3& look) {
         Vec3 to = pos - eye;
@@ -1401,7 +1411,7 @@ void flashBang(Game& g, const Vec3& pos) {
 // HE: up to 98 damage, falling off to nothing at kHeRadius; walls stop it. `owner` threw it (-1 you).
 // Online, each game hurts only its own: its player, and the host its bots.
 void heExplode(Game& g, const Vec3& pos, int owner) {
-    if (g.audio) g.audio->play3D(Sfx::Explosion, pos, g.lastRenderEye, float(g.viewYaw), 6000.0f, 1.0f);
+    if (g.audio) g.audio->play3D(Sfx::Explosion, pos, g.earPos, g.earYaw, 6000.0f, 1.0f);
     g.fx.burst(pos, 0xffa040, 1.4f);
     auto damageAt = [&](const Vec3& c) {
         float d = length(c - pos);
@@ -1427,11 +1437,11 @@ void igniteMolotov(Game& g, const Vec3& at, int owner) {
     TraceResult down = g.world.traceRay(at + Vec3{0, 0, 8}, at - Vec3{0, 0, 400});
     Vec3 p = down.endpos;
     if (insideSmoke(g, p, 0)) {
-        if (g.audio) g.audio->play3D(Sfx::Fire, p, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.6f, 1.6f);
+        if (g.audio) g.audio->play3D(Sfx::Fire, p, g.earPos, g.earYaw, 1500.0f, 0.6f, 1.6f);
         return;  // fizzles
     }
     g.fires.push_back({p, g.simTime, g.simTime, owner});
-    if (g.audio) g.audio->play3D(Sfx::Explosion, p, g.lastRenderEye, float(g.viewYaw), 2500.0f, 0.45f, 1.7f);
+    if (g.audio) g.audio->play3D(Sfx::Explosion, p, g.earPos, g.earYaw, 2500.0f, 0.45f, 1.7f);
 }
 
 // Radar picture of the Dust grid: walkable cells merged into rectangles, lighter = higher.
@@ -2124,7 +2134,7 @@ bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
     g.nades.push_back({bestStart, bestVel, type, 0, int(i)});
     if (netHost(g)) g.net.sendNade(type, bestStart, bestVel, int(i));
     d.yaw = d.prevYaw = yawTo(eye, target);
-    if (g.audio) g.audio->play3D(Sfx::Draw, eye, g.lastRenderEye, float(g.viewYaw), 1200.0f, 0.5f, 1.3f);
+    if (g.audio) g.audio->play3D(Sfx::Draw, eye, g.earPos, g.earYaw, 1200.0f, 0.5f, 1.3f);
     return true;
 }
 
@@ -2287,7 +2297,7 @@ bool youDefuse(Game& g) {
     if (near && g.defuseHeld && g.player.onGround) {
         if (g.defuseStart < 0) {
             g.defuseStart = g.simTime;
-            if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.9f);
+            if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.earPos, g.earYaw, 1500.0f, 0.9f);
             makeNoise(g, g.bombPos, 1800.0f);
         }
         return g.simTime - g.defuseStart >= (g.comp.kit ? 5.0 : 10.0);
@@ -2300,13 +2310,13 @@ bool youDefuse(Game& g) {
 void bombBeeps(Game& g) {
     if (g.simTime < g.nextBeep) return;
     g.nextBeep = g.simTime + std::clamp((g.bombExplodeAt - g.simTime) / 40.0, 0.1, 1.0);
-    if (g.audio) g.audio->play3D(Sfx::BombBeep, g.bombPos, g.lastRenderEye, float(g.viewYaw), 2600.0f, 0.8f);
+    if (g.audio) g.audio->play3D(Sfx::BombBeep, g.bombPos, g.earPos, g.earYaw, 2600.0f, 0.8f);
 }
 
 void bombExplodes(Game& g) {
     g.bombActive = false;
     g.defuseStart = -1;
-    if (g.audio) g.audio->play3D(Sfx::Explosion, g.bombPos, g.lastRenderEye, float(g.viewYaw), 9000.0f, 1.0f, 0.7f);
+    if (g.audio) g.audio->play3D(Sfx::Explosion, g.bombPos, g.earPos, g.earYaw, 9000.0f, 1.0f, 0.7f);
     g.fx.burst(g.bombPos, 0xffa040, 3.0f);
 }
 
@@ -2676,7 +2686,7 @@ void compTick(Game& g) {
                 c.defuser = nearest;
                 radio(nearest, "DEFUSING");
                 c.botDefuseStart = now;
-                if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.9f);
+                if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.earPos, g.earYaw, 1500.0f, 0.9f);
             } else if (nearest >= 0) {
                 sendBot(g, size_t(nearest), g.bombPos, true);
             }
@@ -3527,7 +3537,7 @@ void simTick(Game& g, const Options& opt) {
                 if (g.audio && r.worldBox >= 0 && (k == 0 || k % 4 == 0)) {  // the impact, by what it hit
                     const uint8_t m = g.world.solids[size_t(r.worldBox)].material;
                     g.audio->play3D(m == kMatWood ? Sfx::ImpactWood : m == kMatMetal ? Sfx::ImpactMetal : Sfx::ImpactStone, r.end,
-                                    g.lastRenderEye, float(g.viewYaw), 1800.0f, 0.55f);
+                                    g.earPos, g.earYaw, 1800.0f, 0.55f);
                 }
                 // Far impacts are drawn bigger so you can see where a spray lands at range.
                 g.fx.impact(r.end, r.normal, 0x5c6168, std::clamp(r.distance / 450.0f, 1.0f, 4.0f));
@@ -3628,10 +3638,13 @@ void simTick(Game& g, const Options& opt) {
 
     // Movement.
     g.prevPlayer = g.player;
-    if (g.noclip) {
-        // Fly where you look; Shift = slow. No collision.
+    if (g.noclip && g.spec >= 0) {  // spectating: your body waits (the camera is theirs)
+        g.player.velocity = {};
+    } else if (g.noclip) {
+        // Fly where you look; Space up, Ctrl down; Shift = slow. No collision.
         Vec3 f = anglesToForward(float(g.viewPitch), float(g.viewYaw)), r = yawToRight(float(g.viewYaw));
-        Vec3 wish = f * in.forward + r * in.side;
+        const float rise = float(!g.inputBlocked && keys[SDL_SCANCODE_SPACE]) - float(in.duck);
+        Vec3 wish = f * in.forward + r * in.side + Vec3{0, 0, rise};
         float len = length(wish);
         g.player.velocity = len > 0 ? wish * ((in.walk ? 150.0f : 600.0f) / len) : Vec3{};
         g.player.origin += g.player.velocity * kTickDt;
@@ -3786,7 +3799,7 @@ void simTick(Game& g, const Options& opt) {
             if (d.stepDist >= kStepStride) {
                 d.stepDist -= kStepStride;
                 if (g.audio)
-                    g.audio->play3D(stepSoundAt(g, d.pos), d.pos, g.lastRenderEye, float(g.viewYaw), 1600.0f, 0.9f);
+                    g.audio->play3D(stepSoundAt(g, d.pos), d.pos, g.earPos, g.earYaw, 1600.0f, 0.9f);
                 if (netHost(g) && !isBot(g, i) && i < g.team.size()) makeNoise(g, d.pos, 1100.0f, g.team[i]);  // your bots hear players
             }
         }
@@ -3841,7 +3854,7 @@ void simTick(Game& g, const Options& opt) {
         const NadeStep st = stepGrenade(g.world, n.pos, n.vel);  // same flight as predictGrenade()
         const bool landed = st.landed;
         if (st.impactSpeed > 80.0f && g.audio)
-            g.audio->play3D(Sfx::Footstep, n.pos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.4f, 1.8f);
+            g.audio->play3D(Sfx::Footstep, n.pos, g.earPos, g.earYaw, 1500.0f, 0.4f, 1.8f);
         ++n.ticks;
         // Smokes pop once they've stopped rolling (like CS); flash and HE on their fuse; molotovs on landing.
         const int fuseTicks = int(grenadeFuse(n.type) * kTickRate + 0.5);
@@ -3850,7 +3863,7 @@ void simTick(Game& g, const Options& opt) {
             switch (n.type) {
                 case Game::kSmokeNade:
                     g.smokes.push_back({n.pos, g.simTime});
-                    if (g.audio) g.audio->play3D(Sfx::Land, n.pos, g.lastRenderEye, float(g.viewYaw), 2500.0f, 1.0f, 0.55f);
+                    if (g.audio) g.audio->play3D(Sfx::Land, n.pos, g.earPos, g.earYaw, 2500.0f, 1.0f, 0.55f);
                     break;
                 case Game::kFlashNade: flashBang(g, n.pos); break;
                 case Game::kHeNade: heExplode(g, n.pos, n.owner); break;
@@ -3881,7 +3894,7 @@ void simTick(Game& g, const Options& opt) {
                     hurtBot(g, i, f.owner, 10.0f, "MOLOTOV");
             if (inFire(g.player.origin)) hurtPlayer(g, f.owner < 0 ? -2 : f.owner, 10.0f, false, "MOLOTOV");
             if (g.audio && rnd(g) < 0.6f)
-                g.audio->play3D(Sfx::Fire, f.pos, g.lastRenderEye, float(g.viewYaw), 1800.0f, 0.7f);
+                g.audio->play3D(Sfx::Fire, f.pos, g.earPos, g.earYaw, 1800.0f, 0.7f);
         }
         ++k;
     }
@@ -3944,7 +3957,7 @@ void simTick(Game& g, const Options& opt) {
             if (near && g.defuseHeld) {
                 if (g.defuseStart < 0) {
                     g.defuseStart = g.simTime;
-                    if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.lastRenderEye, float(g.viewYaw), 1500.0f, 0.9f);
+                    if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.earPos, g.earYaw, 1500.0f, 0.9f);
                     makeNoise(g, g.bombPos, 1800.0f);  // they hear the kit
                 }
                 if (g.simTime - g.defuseStart >= 5.0) {
@@ -3957,12 +3970,12 @@ void simTick(Game& g, const Options& opt) {
             if (g.bombActive && g.simTime >= g.nextBeep) {  // beeps speed up as the fuse runs down
                 double left = g.bombExplodeAt - g.simTime;
                 g.nextBeep = g.simTime + std::clamp(left / kRetakeRoundTime, 0.1, 1.0);
-                if (g.audio) g.audio->play3D(Sfx::BombBeep, g.bombPos, g.lastRenderEye, float(g.viewYaw), 2600.0f, 0.8f);
+                if (g.audio) g.audio->play3D(Sfx::BombBeep, g.bombPos, g.earPos, g.earYaw, 2600.0f, 0.8f);
             }
             if (g.bombActive && g.simTime >= g.bombExplodeAt) {
                 g.bombActive = false;
                 g.defuseStart = -1;
-                if (g.audio) g.audio->play3D(Sfx::Explosion, g.bombPos, g.lastRenderEye, float(g.viewYaw), 9000.0f, 1.0f, 0.7f);
+                if (g.audio) g.audio->play3D(Sfx::Explosion, g.bombPos, g.earPos, g.earYaw, 9000.0f, 1.0f, 0.7f);
                 g.fx.burst(g.bombPos, 0xffa040, 3.0f);
                 endRetakeRound(g, false, "BOMB EXPLODED");
             }
@@ -4208,7 +4221,7 @@ void simTick(Game& g, const Options& opt) {
                 const float a = rnd(g) * 6.2831853f, r = std::sqrt(rnd(g)) * gd.pelletSpread * kDegToRad;
                 return normalize(dir + side * (std::cos(a) * r) + up * (std::sin(a) * r));
             };
-            gunshot3D(g, gun, d.pos, simEye, float(g.viewYaw), tgt >= 0 ? 1.0f : 1.1f);
+            gunshot3D(g, gun, d.pos, g.earPos, g.earYaw, tgt >= 0 ? 1.0f : 1.1f);
             if (tgt >= 0) {  // competitive: shooting another bot (online: or another player)
                 const Dummy& v = g.dummies[size_t(tgt)];
                 Vec3 aim = v.pos + Vec3{0, 0, crouchZ((rnd(g) < sk.headChance ? 63.0f : 50.0f) * modelScale(), v.crouch)};  // head or chest
@@ -5664,7 +5677,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
                 std::snprintf(spec, sizeof(spec), "SPECTATING %s  -  %d HP      MOUSE 1/2: NEXT   SPACE: FLY FREE", agentName(g.spec).c_str(),
                               int(std::max(0.0f, g.dummies[size_t(g.spec)].hp)));
             else
-                std::snprintf(spec, sizeof(spec), "DEAD - FLYING FREE UNTIL THE NEXT ROUND      SPACE: WATCH A TEAMMATE");
+                std::snprintf(spec, sizeof(spec), "FLYING FREE      SPACE / CTRL: UP / DOWN   MOUSE 1/2: WATCH A TEAMMATE");
             const float tw = hud.textWidth(spec);
             hud.rect(cx - tw / 2 - 8.0f * s, float(h) - 68.0f * s, tw + 16.0f * s, 16.0f * s, 0x101216C0);
             hud.text(cx - tw / 2, float(h) - 64.0f * s, spec, 0xFFFFFFFF);
@@ -6384,7 +6397,7 @@ int main(int argc, char** argv) {
                     if (const int who = netToLocal(g, ev.from); who >= 0 && size_t(who) < g.dummies.size())
                         g.dummies[size_t(who)].shotAt = g.simTime;
                     if (g.audio) {
-                        gunshot3D(g, ev.weapon, ev.a, g.lastRenderEye, float(g.viewYaw));
+                        gunshot3D(g, ev.weapon, ev.a, g.earPos, g.earYaw);
                         // Close past your head: you hear it go by.
                         const Vec3 eye = g.player.origin + Vec3{0, 0, eyeHeight(g.player)}, dir = normalize(ev.b - ev.a);
                         const float t = dot(eye - ev.a, dir);
@@ -6442,7 +6455,7 @@ int main(int argc, char** argv) {
                 case NetEvent::Nade:  // someone threw: it flies here exactly as it does for them
                     if (!inGame) break;
                     g.nades.push_back({ev.a, ev.b, ev.weapon, 0, netToLocal(g, ev.from)});
-                    if (g.audio) g.audio->play3D(Sfx::Draw, ev.a, g.lastRenderEye, float(g.viewYaw), 1200.0f, 0.5f, 1.3f);
+                    if (g.audio) g.audio->play3D(Sfx::Draw, ev.a, g.earPos, g.earYaw, 1200.0f, 0.5f, 1.3f);
                     if (automated) std::fprintf(stderr, "net: grenade %d from %d\n", ev.weapon, ev.from + 1);
                     break;
                 case NetEvent::Hit: {  // their game says their bullet hit you (or, hosting, one of your bots): it counts
@@ -6760,8 +6773,18 @@ int main(int argc, char** argv) {
                     } else if (paused && (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE)) {
                         menuUse(g_menu.sel, 1, false, true);
                     } else if (!paused) {
-                        if (sc == SDL_SCANCODE_SPACE && g.mode == 3 && g.mapId == 1 && g.comp.youDead) {
-                            g.spec = g.spec >= 0 ? -1 : nextTeammate(g, -1, 1);  // spectating <-> flying free
+                        const bool deadComp = g.mode == 3 && g.mapId == 1 && g.comp.youDead;
+                        if (sc == SDL_SCANCODE_SPACE && deadComp && g.spec < 0) {
+                            // flying free: Space is up (held, in the tick); Mouse 1/2 watches a teammate again
+                        } else if (sc == SDL_SCANCODE_SPACE && deadComp) {
+                            if (size_t(g.spec) < g.dummies.size()) {  // fly free from their eyes
+                                const Dummy& d = g.dummies[size_t(g.spec)];
+                                g.player.origin = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch) - eyeHeight(g.player)};
+                                g.prevPlayer = g.player;
+                                g.viewYaw = d.yaw;
+                                g.viewPitch = d.pitch;
+                            }
+                            g.spec = -1;  // flying free
                             g.hudDirty = true;
                         } else if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
@@ -7232,6 +7255,10 @@ int main(int argc, char** argv) {
 
         }
         if (!replayView && !menuCam && !g.deathView) g.lastRenderEye = eye;
+        if (!replayView && !menuCam) {
+            g.earPos = eye;
+            g.earYaw = camYaw;
+        }
         // Guns on the floor: the held model, lying on its side.
         dropDraws.resize(replayView ? 0 : g.drops.size());
         for (size_t k = 0; k < dropDraws.size(); ++k) {
@@ -7360,8 +7387,53 @@ int main(int argc, char** argv) {
             g.simTime = keepTime;
         }
 
-        // First-person weapon: own FOV and fresh depth so it never clips into walls.
-        if (cfg.show_viewmodel && g.zoom == 0 && !spectating && !replayView && !menuCam && !g.deathView) {
+        // Spectating: their weapon in first person. A grenade they just threw shows for a moment; their shots kick it
+        // and their reloads play on it.
+        if (spectating && !replayView) {
+            const Dummy& d = g.dummies[size_t(g.spec)];
+            const Game::Nade* thrown = nullptr;
+            for (const Game::Nade& n : g.nades)
+                if (n.owner == g.spec && n.ticks < 80 && (!thrown || n.ticks < thrown->ticks)) thrown = &n;
+            const ViewWeapon want = thrown ? ViewWeapon::Grenade : viewWeaponFor(d.weapon);
+            if (g.specVmFor != g.spec || g.specVmShown != int(want)) {
+                if (thrown) g.specVm.setGrenade(thrown->type);
+                g.specVm.onDraw(want);
+                g.specVmShown = int(want);
+                if (g.specVmFor != g.spec) {
+                    g.specVmShot = d.shotAt;
+                    g.specVmYaw = camYaw;
+                    g.specVmPitch = camPitch;
+                }
+                g.specVmFor = g.spec;
+            }
+            g.specVm.setPrimed(thrown && thrown->ticks < 12 ? 1 : 0);
+            if (d.shotAt > g.specVmShot) {
+                g.specVmShot = d.shotAt;
+                g.specVm.onShot(uint32_t(d.shotAt * 1000.0) * 2654435761u);
+            }
+            const float reloadTime = weaponDef(d.weapon).reloadTime;
+            const double reloading = d.reloadUntil > g.simTime ? double(reloadTime) - (d.reloadUntil - g.simTime) : -1.0;
+            const float yawDelta = wrapDeg(camYaw - g.specVmYaw), pitchDelta = camPitch - g.specVmPitch;
+            g.specVmYaw = camYaw;
+            g.specVmPitch = camPitch;
+            g.specVm.update({paused ? 0.0f : fdt, yawDelta, pitchDelta, length2d(d.pos - d.prevPos) / kTickDt, d.air <= 0.0f,
+                             float(reloading), reloadTime, 0.0f});
+        } else {
+            g.specVmFor = -1;
+        }
+
+        // First-person weapon: own FOV and fresh depth so it never clips into walls (spectating: theirs).
+        if (cfg.show_viewmodel && spectating && !replayView && !menuCam) {
+            float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
+            Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
+            modelDraws.clear();
+            g.specVm.build(eye, camPitch, camYaw, cfg.viewmodel_offset_x, cfg.viewmodel_offset_y, cfg.viewmodel_offset_z,
+                           cfg.viewmodel_bob, modelDraws);
+            renderer.clearDepth();
+            for (const ModelDraw& md : modelDraws) renderer.drawModel(vmViewProj, md.model, md.boxes, &md.paint);
+        }
+        const bool flyingDead = g.noclip && g.mode == 3 && g.mapId == 1 && g.comp.youDead;  // (no gun: you're dead)
+        if (cfg.show_viewmodel && g.zoom == 0 && !spectating && !replayView && !menuCam && !g.deathView && !flyingDead) {
             float vmVfov = 2.0f * std::atan(std::tan(cfg.viewmodel_fov * 0.5f * kDegToRad) * 0.75f);
             Mat4 vmViewProj = perspective(vmVfov, aspect, 0.5f, 256.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
             modelDraws.clear();

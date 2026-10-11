@@ -285,7 +285,9 @@ the owner's laptop). Measure with `--bench 10` / `--bench-raw 10` before and aft
 applies them (trusting clients: friends only). Ids: players 0..7 (host 0), host's bots 8..17 (`isBot`, `netHost`,
 `netClient`, `netToLocal`). Grenades sent (`sendNade`), each game hurts only its own player (host: its bots).
 Competitive: host runs `compTick`/bots/`netRoster`, sends `NetRound`, `NetMatch` (8 Hz), `NetBot` (64 Hz); clients run
-`compClientTick`. The welcome carries map size and (game byte: bit 0 game, bits 1+ map) the town map.
+`compClientTick`. Sounds are heard from `Game::earPos/earYaw` (the camera: your eyes or the spectated
+player's; set each frame). Spectating draws `Game::specVm` (their weapon, shots via `shotAt`, reloads, throws from
+`nades` owner); dead free-fly: no gun, Space/Ctrl up/down, your body frozen while spectating. The welcome carries map size and (game byte: bit 0 game, bits 1+ map) the town map.
 `kNetProtocol` (8) must match. Test with two copies in separate folders: `crisp --host` and `crisp --join 127.0.0.1`.
 
 **v0.22 polish** (main.cpp unless noted): `matchCues` (Sfx RoundStart/BombPlanted/RoundWin/RoundLose), round banner +
