@@ -301,8 +301,8 @@ const DustArea kDustAreas[] = {
     // T spawn is walled off from top mid (owner: spawns in their own area, mid a run away and out of sight): the
     // way to mid is a dog-leg path off its east end.
     {"T SPAWN", -900, -1100, 200, -620, 64, 64, 0, kDSand, 0},
-    {"MID PATH", 80, -620, 200, -500, 64, 64, 0, kDSand, 0},
-    {"MID PATH", 20, -500, 200, -380, 64, 64, 0, kDSand, 0},
+    {"MID PATH", 80, -620, 232, -500, 64, 64, 0, kDSand, 0},
+    {"MID PATH", 20, -500, 200, -344, 64, 64, 0, kDSand, 0},
     {"OUTSIDE LONG", 200, -880, 650, -560, 64, 48, 'x', kDSand, 0},
     {"OUTSIDE LONG", 420, -560, 650, 200, 48, 0, 'y', kDSand, 0},
     {"OUTSIDE LONG", 420, 200, 650, 460, 0, 0, 0, kDSand, 0},
@@ -310,7 +310,7 @@ const DustArea kDustAreas[] = {
     {"OUTSIDE TUNNELS", -2150, -880, -1820, 700, 64, 0, 'y', kDSand, 0},
     {"TOP MID", -420, -500, 20, 300, 64, 0, 'y', kDSand, 0},
     // Long A.
-    {"LONG DOORS", 650, 300, 900, 460, 0, 0, 0, kDSandDark, 144},
+    {"LONG DOORS", 650, 300, 900, 496, 0, 0, 0, kDSandDark, 144},
     {"LONG A", 900, 180, 1500, 820, 0, 0, 0, kDSand, 0},
     {"LONG A", 1290, 820, 1800, 2050, 0, 0, 0, kDSand, 0},
     {"PIT", 1500, 180, 1800, 600, -160, -160, 0, kDSandDark, 0},
@@ -324,16 +324,16 @@ const DustArea kDustAreas[] = {
     {"CATWALK", 60, 1250, 280, 2050, 32, 32, 0, kDSandLight, 0},
     {"SHORT", 150, 2050, 330, 2350, 32, 96, 'y', kDSandLight, 0},
     {"SHORT", 150, 2350, 750, 2650, 96, 96, 0, kDSite, 0},
-    {"MID DOORS", -240, 1880, -120, 1912, -64, -64, 0, kDSandDark, 128},
+    {"MID DOORS", -240, 1880, -84, 1912, -64, -64, 0, kDSandDark, 128},
     // CT side.
     {"CT MID", -700, 1912, 120, 2350, -64, -64, 0, kDSand, 0},
     // CT spawn behind a wall from CT mid, open at both ends (out of the line through mid doors).
     {"CT SPAWN", -450, 2470, 120, 3150, -64, -64, 0, kDSand, 0},
     {"CT SPAWN", -450, 2350, -330, 2470, -64, -64, 0, kDSand, 0},
-    {"CT SPAWN", 0, 2350, 120, 2470, -64, -64, 0, kDSand, 0},
+    {"CT SPAWN", -30, 2350, 120, 2470, -64, -64, 0, kDSand, 0},  // (the west gap stays 4 cells: wider, mid sees in)
     {"CT RAMP", 120, 2800, 750, 3150, -64, 96, 'x', kDSandLight, 0},
     {"MID TO B", -1350, 2050, -700, 2350, 32, -64, 'x', kDSand, 0},
-    {"B DOORS", -1420, 2140, -1350, 2280, 32, 32, 0, kDSandDark, 128},
+    {"B DOORS", -1420, 2110, -1350, 2280, 32, 32, 0, kDSandDark, 128},
     // B window: a hole through the door wall (sill at +48, 64 high): see and shoot through, can't walk.
     {"B WINDOW", -1420, 2296, -1350, 2344, 80, 80, 0, kDSandDark, 64},
     // B.
@@ -357,8 +357,8 @@ const DustArea kHarborAreas[] = {
     // T side.
     // T spawn is walled off from the market (mid): the way there is a dog-leg path off its east side.
     {"T SPAWN", -600, -1600, 600, -1220, 0, 0, 0, kHSand, 0},
-    {"MID PATH", 300, -1220, 420, -1100, 0, 0, 0, kHSand, 0},
-    {"MID PATH", 250, -1100, 420, -1000, 0, 0, 0, kHSand, 0},
+    {"MID PATH", 268, -1220, 420, -1100, 0, 0, 0, kHSand, 0},
+    {"MID PATH", 250, -1100, 420, -968, 0, 0, 0, kHSand, 0},
     {"T EAST", 600, -1500, 900, -1250, 0, 0, 0, kHSand, 0},
     {"T WEST", -900, -1500, -600, -1250, 0, 0, 0, kHSand, 0},
     // A: the docks (a long straight lane by the water), the ramp up, the site, the way back to CT.
@@ -372,7 +372,7 @@ const DustArea kHarborAreas[] = {
     {"MID", -400, -350, 400, 500, 0, -32, 'y', kHSand, 0},
     {"WAREHOUSE", 400, 150, 700, 450, -16, -16, 0, kHTunnel, 160},
     {"A SHORT", 550, 450, 700, 950, -16, 64, 'y', kHSandLight, 0},
-    {"MID DOORS", -100, 500, 100, 560, -32, -32, 0, kHSandDark, 128},
+    {"MID DOORS", -116, 500, 100, 560, -32, -32, 0, kHSandDark, 128},
     {"CT MID", -450, 560, 450, 1050, -32, -32, 0, kHSand, 0},
     // Two ramps either side of a wall: CT spawn is out of the line through mid doors.
     {"CT RAMP", -450, 1050, -250, 1250, -32, 0, 'y', kHSandLight, 0},
@@ -1332,7 +1332,7 @@ World buildTown() {
             // you can walk (and shoot) through. The gap sits on the doorway's middle grid cell, so the bots' nav
             // (and you) always fit through it at every map size. The leaves hang at the CT end, up to the lintel.
             const Opening o = frame(midCells, false);
-            const float mid = X((midCells.i0 + midCells.i1) / 2) + m.cell * 0.5f, gap = 22.0f;
+            const float mid = X((midCells.i0 + midCells.i1) / 2) + m.cell * 0.5f, gap = 38.0f;  // (76 wide)
             if (mid - gap > o.a0 + jamb) w.solids.push_back(wood(false, o.p1 - 8, o.p1, o.a0 + jamb, mid - gap, o.z, o.top));
             if (mid + gap < o.a1 - jamb) w.solids.push_back(wood(false, o.p1 - 8, o.p1, mid + gap, o.a1 - jamb, o.z, o.top));
         }

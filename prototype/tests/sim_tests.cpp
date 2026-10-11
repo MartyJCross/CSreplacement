@@ -1431,23 +1431,8 @@ void testNoMidFights() {
                     for (const Vec3& sp : townTeamSpawns(1)) report("CT spot", sp, townPoint(h.x, h.y));
             for (int k : {0, 2})
                 for (const Vec3& sp : townTeamSpawns(1)) report("CT push", sp, townPoint(tac.pushes[k].x, tac.pushes[k].y));
-            // The mid holder: out of sight of everyone in mid.
-            const MapGrid& m = townGrid();
-            for (const RetakeSpot& h : townCtSpots(kCtMid)) {
-                const Vec3 eye = townPoint(h.x, h.y) + Vec3{0, 0, 64};
-                int seen = 0;
-                for (int j = 0; j < m.h; ++j)
-                    for (int i = 0; i < m.w; ++i) {
-                        const Vec3 c = m.center(i, j);
-                        if (!m.walkable(i, j) || !midArea(townCallout(c)) || std::strcmp(townCallout(c), "CATWALK") == 0) continue;
-                        if (w.traceRay(c + Vec3{0, 0, 64}, eye).fraction >= 1.0f) ++seen;
-                    }
-                if (seen) {
-                    ++bad;
-                    std::printf("    %s %.0f%%: the CT mid spot (%.0f, %.0f) is seen from %d mid cells\n", townMapName(town), double(sc * 100),
-                                double(h.x), double(h.y), seen);
-                }
-            }
+            // (The CT mid holder no longer has to hide from mid: the owner reopened mid once the spawns were walled
+            // off from it, v0.26. testSpawnsOffMid keeps the spawns out of its sight.)
         }
     setTownMap(0);
     setDustScale(keep);
