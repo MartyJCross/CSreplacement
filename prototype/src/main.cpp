@@ -81,6 +81,8 @@ struct Options {
     std::string netJoin;                         // --join ADDR: join one
 };
 
+int g_compStartMoney = 800;  // (tests: --comp-money N, everyone's money at the start of a match)
+
 Options parseArgs(int argc, char** argv) {
     Options o;
     for (int i = 1; i < argc; ++i) {
@@ -97,6 +99,8 @@ Options parseArgs(int argc, char** argv) {
             o.roundsToWin = std::atoi(next());
         } else if (a == "--drop") {
             o.dropWeapon = std::atoi(next());
+        } else if (a == "--comp-money") {
+            g_compStartMoney = std::clamp(std::atoi(next()), 0, 16000);
         } else if (a == "--call") {
             o.call = std::atoi(next());
             o.callAt = float(std::atof(next()));
@@ -289,6 +293,7 @@ struct Game {
     // competitive; online everyone keeps the same list (sendDrop / sendPickup).
     struct Drop { Vec3 pos; float yaw = 0; int weapon = 0; int ammo = 0; uint32_t id = 0; double at = 0; };
     std::vector<Drop> drops;
+    double noPickupUntil = 0;     // (just dropped your gun: you don't walk straight back onto it)
     std::vector<size_t> ramps;    // the map's smooth ramps (their boxes in world.solids): shadows lie on them
     // Where enemies hold or come from, for the bots' preaim (BotSenses::angles): [0] what a T checks (the CT spots,
     // the site holds), [1] what a CT checks (the Ts' stages, mid, the site holds, the peek spots); deathmatch: both.
@@ -2241,7 +2246,8 @@ void startCompMatch(Game& g) {
     c.youTeam = g_compStartSide;
     g.team.assign(g.dummies.size(), 0);
     for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = int(i) < g.compMates ? c.youTeam : 1 - c.youTeam;
-    c.botMoney.assign(g.dummies.size(), 800);
+    c.money = g_compStartMoney;
+    c.botMoney.assign(g.dummies.size(), g_compStartMoney);
     c.botGun.assign(g.dummies.size(), uint8_t(kWPistol));
     c.youDead = true;
     resetRecord(g);
@@ -2521,6 +2527,23 @@ int aimedDrop(const Game& g) {
     return best;
 }
 
+// G in competitive, holding your primary: it drops in front of you, like CS (a teammate bot with only a pistol
+// takes it if it walks over it). False if there's nothing to drop (then G quick-throws a grenade as before).
+bool dropPrimary(Game& g) {
+    Game::Comp& c = g.comp;
+    if (!(g.mode == 3 && g.mapId == 1) || c.youDead || g.deadUntil >= 0 || c.ownPrimary < 0 || g.weapon != g.primary) return false;
+    const float y = float(g.viewYaw) * kDegToRad;
+    const Vec3 from = g.player.origin + Vec3{0, 0, 20}, to = from + Vec3{std::cos(y), std::sin(y), 0} * 56.0f;
+    const TraceResult tr = g.world.traceBox(from, to, Vec3{-3, -3, 0}, Vec3{3, 3, 2});
+    dropGun(g, c.ownPrimary, g.primary->ammo, from + (to - from) * tr.fraction - Vec3{0, 0, 20}, float(g.viewYaw));
+    pushHitLog(g, std::string("DROPPED ") + weaponDef(c.ownPrimary).name, 0xffd060);
+    c.ownPrimary = -1;
+    g.switchTo = 2;
+    g.noPickupUntil = g.simTime + 1.0;
+    sound(g, Sfx::Draw, 0.5f, 0.0f, 0.8f);
+    return true;
+}
+
 // Every tick: guns on the floor. Deathmatch: they're gone after 20 s. Competitive: with no primary you take one you
 // walk over; E takes the one you look at (swapping); a bot with only a pistol takes a better gun it walks over.
 void dropsTick(Game& g) {
@@ -2533,7 +2556,7 @@ void dropsTick(Game& g) {
             else ++k;
     const bool alive = g.deadUntil < 0 && !g.noclip && !(comp && c.youDead);
     auto near = [](const Vec3& a, const Vec3& b) { return length2d(a - b) < 40.0f && std::fabs(a.z - b.z) < 48.0f; };
-    if (alive && comp && c.ownPrimary < 0)
+    if (alive && comp && c.ownPrimary < 0 && g.simTime >= g.noPickupUntil)
         for (size_t k = 0; k < g.drops.size(); ++k)
             if (weaponDef(g.drops[k].weapon).primary && near(g.player.origin, g.drops[k].pos)) { pickUp(g, k); break; }
     if (g.useLatch && alive && g.defuseStart < 0 && c.planter != -1) {
@@ -2614,12 +2637,12 @@ bool botThrow(Game& g, size_t i, int type, const Vec3& target) {
 // ---- Your calls (Z, competitive): the bots on your team play what you say. ----
 // T: go or rush a site now, take mid (two hold it, the rest wait on a site's way, then a split hit), play slow (a late
 // execute), save. CT: stack a site, back to the default setup, push mid (one goes for an early pick there), rotate to
-// a site, save.
-enum PlayerCall { kCallGoA, kCallGoB, kCallRushA, kCallRushB, kCallTakeMid, kCallSlow, kCallTSave,
-                  kCallStackA, kCallStackB, kCallSetup, kCallPushMid, kCallRotateA, kCallRotateB, kCallCtSave };
-const char* const kCallNames[] = {"GO A", "GO B", "RUSH A", "RUSH B", "TAKE MID", "PLAY SLOW", "SAVE",
-                                  "STACK A", "STACK B", "DEFAULT SETUP", "PUSH MID", "ROTATE A", "ROTATE B", "SAVE"};
-constexpr int kCallsPerSide = 7;
+// a site, save. Both: need a drop (a teammate bot with the money buys you your side's rifle and drops it by you).
+enum PlayerCall { kCallGoA, kCallGoB, kCallRushA, kCallRushB, kCallTakeMid, kCallSlow, kCallTSave, kCallTDrop,
+                  kCallStackA, kCallStackB, kCallSetup, kCallPushMid, kCallRotateA, kCallRotateB, kCallCtSave, kCallCtDrop };
+const char* const kCallNames[] = {"GO A", "GO B", "RUSH A", "RUSH B", "TAKE MID", "PLAY SLOW", "SAVE", "NEED A DROP",
+                                  "STACK A", "STACK B", "DEFAULT SETUP", "PUSH MID", "ROTATE A", "ROTATE B", "SAVE", "NEED A DROP"};
+constexpr int kCallsPerSide = 8;
 // The calls your side has (the first of them, in PlayerCall).
 int firstCall(const Game& g) { return g.comp.youTeam == 0 ? kCallGoA : kCallStackA; }
 // Can you call now: competitive, the round on (or freeze time), and the bots are this game's (offline, or hosting).
@@ -2754,6 +2777,26 @@ void playerCall(Game& g, int call) {
                 const RetakeSpot& h = site.holds[size_t(k) % site.holds.size()];
                 sendBot(g, i, townPoint(h.x, h.y), true, &h);
             });
+            break;
+        }
+        case kCallTDrop: case kCallCtDrop: {  // the richest teammate bot buys your side's rifle and drops it by you
+            const int gun = fullBuyRifle(g), price = weaponDef(gun).price;
+            int who = -1, richest = -1;
+            for (size_t i = 0; i < g.dummies.size() && i < c.botMoney.size(); ++i)
+                if (isBot(g, i) && g.dummies[i].alive() && g.team[i] == side && (who < 0 || c.botMoney[i] > c.botMoney[size_t(who)]))
+                    who = int(i);
+            if (who >= 0 && now < c.buyUntil && c.botMoney[size_t(who)] >= price && !c.youDead) richest = who;
+            if (richest < 0) {
+                if (who >= 0) teamRadio(g, who, now >= c.buyUntil ? "NO TIME TO BUY" : c.youDead ? "NEXT ROUND" : "CAN'T AFFORD IT");
+                break;
+            }
+            c.botMoney[size_t(richest)] -= price;
+            const Vec3 from = g.dummies[size_t(richest)].pos, to = g.player.origin - from;
+            const float dist = length2d(to);
+            const Vec3 at = from + to * (std::min(dist * 0.5f, 120.0f) / std::max(dist, 1.0f));
+            dropGun(g, gun, weaponDef(gun).magSize, at, std::atan2(to.y, to.x) / kDegToRad);
+            teamRadio(g, richest, std::string("DROPPED YOU AN ") + weaponDef(gun).name);
+            if (!g_compLog.empty()) std::ofstream(g_compLog, std::ios::app) << "  bot " << richest << " drops you a " << weaponDef(gun).name << "\n";
             break;
         }
         default:  // save: everyone back to spawn, guns kept for next round
@@ -7637,7 +7680,7 @@ int main(int argc, char** argv) {
                         }
                         else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
                         else if (sc == SDL_SCANCODE_E) g.useLatch = true;
-                        else if (g.callMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_7) {  // your call
+                        else if (g.callMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_8) {  // your call
                             playerCall(g, firstCall(g) + int(sc - SDL_SCANCODE_1));
                             g.callMenu = false;
                             g.hudDirty = true;
@@ -7684,7 +7727,7 @@ int main(int argc, char** argv) {
                             else pushHitLog(g, "YOU CAN ONLY BUY IN YOUR SPAWN DURING BUY TIME", 0xffd060);
                             g.hudDirty = true;
                         }
-                        else if (sc == SDL_SCANCODE_G) g.throwLatch = true;
+                        else if (sc == SDL_SCANCODE_G && !dropPrimary(g)) g.throwLatch = true;  // drop, else quick-throw
                         else if (sc == SDL_SCANCODE_V && !g.online && g.mode == 0) { g.noclip = !g.noclip; g.hudDirty = true; }
                         else if (sc == SDL_SCANCODE_C) renderer.clearDecals();
                         // Map, mode, bots, drill, help, reset and config reload live in the Esc menu.
