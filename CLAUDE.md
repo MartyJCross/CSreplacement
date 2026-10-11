@@ -313,7 +313,8 @@ offered; more detail on the guns, especially the viewmodel). Pieces, each commit
 - [x] 2. Clean stylized look (`art_style`, `Renderer::setStyle`, `uStyle` in the box FS, `uOutline` in kPostFS):
       outlines from depth jumps + creases (the world's depth copied by `captureDepth` before the viewmodel clears it),
       textures at 18%, rich shade (`sunLit` stylized branch), wall height gradient, saturation x1.18 / contrast x1.25
-- [ ] 3. Viewmodel detail (fx.cpp weapon parts)
+- [x] 3. Viewmodel detail (fx.cpp): `addGripHand` / `addSupportHand` build fingers, trigger finger, thumb, cuff over
+      each glove block; detail parts (kHole ports/vents/serrations, kGlass lenses, ribs, rails) in each gun's table
 - [ ] 4. Player models + held guns detail
 
 **Done in v0.23: the "premium pass"** (owner asked for all of it, 2026-10-09; done in pieces, each committed and

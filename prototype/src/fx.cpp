@@ -13,6 +13,8 @@ constexpr uint32_t kMetal = 0x2b2e33, kMetalLight = 0x41454c, kWood = 0x7a5230, 
 constexpr uint32_t kPolymer = 0x26282b, kOlive = 0x4c5a35, kOliveDark = 0x3a4528;
 constexpr uint32_t kBlade = 0xb9c0c8, kBladeEdge = 0xdfe3e8, kBladeFuller = 0x8a9098;
 constexpr uint32_t kSilver = 0x9aa0a8;
+// Detail: the dark of an open port or a vent, lens glass, the fingers and cuffs of the gloves.
+constexpr uint32_t kHole = 0x121315, kGlass = 0x5a86b0, kFinger = 0x343434, kCuff = 0x1b1b1c;
 
 struct Part { Vec3 mins, maxs; uint32_t color; };
 
@@ -30,6 +32,17 @@ const Part kRifleBody[] = {
     {{-0.65f, -4.6f, 2.6f}, {0.65f, -1.1f, 4.6f}, kWoodDark},     // pistol grip
     {{-0.75f, -1.6f, 6.0f}, {0.75f, 1.0f, 15.0f}, kWood},         // stock
     {{-0.75f, -3.2f, 10.0f}, {0.75f, -1.6f, 15.0f}, kWood},       // stock heel
+    {{-0.8f, -3.25f, 14.9f}, {0.8f, 1.05f, 15.3f}, kMetal},       // butt plate
+    {{0.9f, 0.1f, -2.6f}, {0.96f, 0.9f, 1.6f}, kHole},            // ejection port
+    {{0.9f, -0.35f, -4.2f}, {1.02f, 0.1f, 1.8f}, kMetalLight},    // selector lever
+    {{0.9f, -0.9f, 3.6f}, {0.98f, -0.7f, 3.8f}, kMetalLight},     // rivets
+    {{0.9f, -0.9f, -5.2f}, {0.98f, -0.7f, -5.0f}, kMetalLight},
+    {{-0.45f, 0.35f, -14.2f}, {0.45f, 1.35f, -12.6f}, kMetal},    // gas block
+    {{-0.12f, -0.5f, -21.6f}, {0.12f, -0.22f, -13.0f}, kMetalLight}, // cleaning rod
+    {{-0.55f, 1.4f, -20.6f}, {-0.42f, 2.15f, -19.4f}, kMetal},    // front sight ears
+    {{0.42f, 1.4f, -20.6f}, {0.55f, 2.15f, -19.4f}, kMetal},
+    {{-0.06f, -0.3f, -23.4f}, {0.06f, 0.75f, -22.2f}, kHole},     // muzzle brake slot
+    {{-0.8f, -1.75f, 8.0f}, {-0.75f, -1.2f, 9.2f}, kMetal},       // sling swivel
 };
 const Part kRifleArms[] = {
     {{-1.3f, -4.2f, 2.2f}, {1.4f, -1.4f, 5.0f}, kGlove},          // right hand
@@ -40,6 +53,9 @@ const Part kRifleArms[] = {
 const Part kRifleMag[] = {
     {{-0.65f, -5.0f, -4.2f}, {0.65f, -1.1f, -1.4f}, kMetal},
     {{-0.65f, -8.2f, -5.6f}, {0.65f, -4.6f, -2.6f}, kMetal},
+    {{-0.7f, -3.8f, -3.9f}, {0.7f, -3.5f, -1.7f}, kMetalLight},   // ribs
+    {{-0.7f, -6.4f, -5.0f}, {0.7f, -6.1f, -2.9f}, kMetalLight},
+    {{-0.7f, -8.4f, -5.7f}, {0.7f, -8.1f, -2.5f}, kMetalLight},   // floor plate
 };
 const Part kPistolBody[] = {
     {{-0.55f, 0.2f, -8.5f}, {0.55f, 1.5f, 1.0f}, kMetal},         // slide
@@ -52,6 +68,12 @@ const Part kPistolBody[] = {
     {{-0.4f, 1.5f, 0.2f}, {0.4f, 1.8f, 0.8f}, kMetal},            // rear sight
     {{-0.55f, -4.2f, -1.0f}, {0.55f, -0.6f, 1.2f}, kPolymer},     // grip
     {{-0.15f, -1.4f, -3.0f}, {0.15f, -0.6f, -0.8f}, kPolymer},    // trigger guard
+    {{0.55f, 0.45f, -0.6f}, {0.6f, 1.3f, -0.45f}, kHole},         // slide serrations
+    {{0.55f, 0.45f, -0.25f}, {0.6f, 1.3f, -0.1f}, kHole},
+    {{0.55f, 0.45f, 0.1f}, {0.6f, 1.3f, 0.25f}, kHole},
+    {{0.55f, 0.7f, -4.6f}, {0.6f, 1.4f, -2.4f}, kHole},           // ejection port
+    {{-0.56f, -3.6f, -0.9f}, {0.56f, -3.4f, 1.1f}, kMetal},       // grip texture
+    {{-0.56f, -2.6f, -0.9f}, {0.56f, -2.4f, 1.1f}, kMetal},
 };
 const Part kPistolArms[] = {
     {{-1.2f, -4.0f, -1.4f}, {1.3f, -1.0f, 1.6f}, kGlove},         // right hand
@@ -75,6 +97,16 @@ const Part kSniperBody[] = {
     {{-0.9f, 1.5f, 5.0f}, {0.9f, 3.1f, 6.5f}, kMetal},               // eyepiece
     {{-0.4f, 1.0f, -3.0f}, {0.4f, 1.6f, -2.0f}, kMetalLight},        // front mount
     {{-0.4f, 1.0f, 2.0f}, {0.4f, 1.6f, 3.0f}, kMetalLight},          // rear mount
+    {{-0.85f, 1.55f, -8.05f}, {0.85f, 3.05f, -7.95f}, kGlass},       // the lenses
+    {{-0.75f, 1.65f, 6.45f}, {0.75f, 2.95f, 6.55f}, kGlass},
+    {{-0.25f, 3.0f, -1.0f}, {0.25f, 3.5f, 0.0f}, kMetalLight},       // turrets
+    {{0.75f, 2.0f, -1.0f}, {1.25f, 2.6f, 0.0f}, kMetalLight},
+    {{-0.95f, 1.2f, 9.0f}, {0.95f, 1.7f, 14.0f}, kOliveDark},        // cheek rest
+    {{-0.95f, -1.4f, 9.5f}, {-0.85f, 0.2f, 12.5f}, kHole},           // thumbhole
+    {{0.85f, -1.4f, 9.5f}, {0.95f, 0.2f, 12.5f}, kHole},
+    {{-0.4f, 0.1f, -28.0f}, {0.4f, 0.45f, -16.0f}, kMetalLight},     // barrel flutes
+    {{-0.08f, -0.3f, -31.9f}, {0.08f, 0.75f, -30.1f}, kHole},        // brake ports
+    {{-0.95f, -2.75f, 16.6f}, {0.95f, 1.3f, 17.2f}, kOliveDark},     // recoil pad
 };
 const Part kSniperBolt[] = {  // cycles back and forward after each shot
     {{0.8f, 0.2f, 2.0f}, {2.2f, 0.6f, 2.6f}, kMetalLight},           // handle
@@ -128,6 +160,11 @@ const Part kDeagleBody[] = {
     {{-0.2f, 1.2f, 1.2f}, {0.2f, 2.0f, 1.8f}, kMetalLight},        // hammer
     {{-0.12f, 2.15f, -9.8f}, {0.12f, 2.45f, -9.3f}, kMetal},       // front sight
     {{-0.42f, 2.15f, 0.2f}, {0.42f, 2.45f, 0.8f}, kMetal},         // rear sight
+    {{0.68f, 0.5f, -0.3f}, {0.73f, 1.7f, -0.15f}, kHole},          // slide serrations
+    {{0.68f, 0.5f, 0.1f}, {0.73f, 1.7f, 0.25f}, kHole},
+    {{0.68f, 0.5f, 0.5f}, {0.73f, 1.7f, 0.65f}, kHole},
+    {{0.68f, 1.25f, -5.6f}, {0.73f, 1.85f, -2.6f}, kHole},         // ejection port
+    {{0.56f, -0.5f, -7.8f}, {0.62f, 0.05f, -1.2f}, kMetalLight},   // frame flat
 };
 const Part kDeagleArms[] = {
     {{-1.3f, -4.4f, -1.4f}, {1.4f, -1.0f, 1.8f}, kGlove},
@@ -214,10 +251,21 @@ const Part kM4Body[] = {
     {{-0.35f, -0.4f, 5.5f}, {0.35f, 0.4f, 9.0f}, kMetal},            // buffer tube
     {{-0.75f, -1.8f, 8.5f}, {0.75f, 0.9f, 14.0f}, kPolymer},         // stock
     {{0.85f, 0.2f, 0.0f}, {1.15f, 0.7f, 2.2f}, kMetalLight},         // ejection port cover
+    {{0.85f, 0.3f, 3.0f}, {1.25f, 0.85f, 4.0f}, kMetal},             // forward assist
+    {{-0.62f, 1.5f, -4.8f}, {0.62f, 1.62f, -4.4f}, kMetal},          // rail teeth
+    {{-0.62f, 1.5f, -3.4f}, {0.62f, 1.62f, -3.0f}, kMetal},
+    {{-0.62f, 1.5f, -2.0f}, {0.62f, 1.62f, -1.6f}, kMetal},
+    {{-0.62f, 1.5f, -0.6f}, {0.62f, 1.62f, -0.2f}, kMetal},
+    {{-0.62f, 1.5f, 0.8f}, {0.62f, 1.62f, 1.2f}, kMetal},
+    {{-1.06f, -0.9f, -12.0f}, {1.06f, -0.75f, -8.0f}, kHole},        // handguard vents
+    {{-0.8f, -1.9f, 13.6f}, {0.8f, 1.0f, 14.2f}, kMetal},            // butt pad
+    {{-0.64f, -0.45f, -26.0f}, {0.64f, 0.9f, -25.6f}, kMetalLight},  // suppressor ring
 };
 const Part kM4Mag[] = {
     {{-0.6f, -5.0f, -4.0f}, {0.6f, -1.0f, -1.6f}, kMetal},
     {{-0.6f, -8.0f, -4.6f}, {0.6f, -4.8f, -2.2f}, kMetal},
+    {{-0.65f, -6.6f, -4.5f}, {0.65f, -6.35f, -2.3f}, kMetalLight},  // a rib
+    {{-0.65f, -8.25f, -4.7f}, {0.65f, -7.95f, -2.1f}, kMetalLight}, // floor plate
 };
 
 // XM1014: the auto shotgun. A long receiver, a barrel over a full-length tube magazine, a ventilated rib,
@@ -259,6 +307,10 @@ const Part kGalilBody[] = {
     {{-0.55f, -2.6f, 6.0f}, {0.55f, -2.0f, 15.0f}, kMetal},          // bottom tube
     {{-0.7f, -2.8f, 14.0f}, {0.7f, 0.9f, 15.2f}, kPolymer},          // butt plate
     {{0.9f, 0.0f, -2.5f}, {1.6f, 0.5f, -1.5f}, kMetal},              // charging handle
+    {{0.9f, 0.1f, -1.0f}, {0.96f, 0.9f, 3.0f}, kHole},               // ejection port
+    {{0.9f, -0.5f, 1.0f}, {1.0f, -0.1f, 4.2f}, kMetalLight},         // selector
+    {{-1.06f, -0.6f, -12.0f}, {1.06f, -0.45f, -7.5f}, kHole},        // handguard groove
+    {{-0.45f, 0.4f, -14.0f}, {0.45f, 1.2f, -12.8f}, kMetal},         // gas block
 };
 const Part kGalilMag[] = {
     {{-0.6f, -5.0f, -4.4f}, {0.6f, -1.1f, -1.6f}, kMetal},
@@ -282,6 +334,12 @@ const Part kSsgBody[] = {
     {{-0.25f, 2.6f, -1.0f}, {0.25f, 3.0f, 0.0f}, kMetalLight},       // turret
     {{-0.3f, 0.9f, -3.0f}, {0.3f, 1.4f, -2.0f}, kMetalLight},        // mounts
     {{-0.3f, 0.9f, 2.0f}, {0.3f, 1.4f, 3.0f}, kMetalLight},
+    {{-0.7f, 1.4f, -7.55f}, {0.7f, 2.6f, -7.45f}, kGlass},           // the lenses
+    {{-0.6f, 1.45f, 5.95f}, {0.6f, 2.55f, 6.05f}, kGlass},
+    {{-0.45f, -0.5f, 5.5f}, {0.45f, 0.5f, 6.4f}, kMetalLight},       // bolt shroud
+    {{-0.86f, -3.7f, 16.3f}, {0.86f, 1.05f, 16.8f}, kHole},          // recoil pad
+    {{-0.92f, -2.4f, 10.5f}, {-0.84f, -0.4f, 13.5f}, kHole},         // stock cut-outs
+    {{0.84f, -2.4f, 10.5f}, {0.92f, -0.4f, 13.5f}, kHole},
 };
 const Part kSsgBolt[] = {
     {{0.7f, 0.1f, 2.0f}, {2.0f, 0.5f, 2.5f}, kMetalLight},
@@ -304,6 +362,13 @@ const Part kUmpBody[] = {
     {{-0.5f, -0.2f, 4.0f}, {0.5f, 0.6f, 12.0f}, kPolymer},           // stock arm
     {{-0.5f, -2.6f, 10.5f}, {0.5f, 0.6f, 12.5f}, kPolymer},          // butt
     {{0.9f, 0.3f, -5.5f}, {1.4f, 0.8f, -4.5f}, kMetal},              // charging handle
+    {{-0.52f, 1.6f, -5.4f}, {0.52f, 1.72f, -5.0f}, kMetalLight},     // rail teeth
+    {{-0.52f, 1.6f, -3.6f}, {0.52f, 1.72f, -3.2f}, kMetalLight},
+    {{-0.52f, 1.6f, -1.8f}, {0.52f, 1.72f, -1.4f}, kMetalLight},
+    {{-0.52f, 1.6f, 0.0f}, {0.52f, 1.72f, 0.4f}, kMetalLight},
+    {{0.9f, -0.9f, -6.5f}, {0.96f, -0.5f, -3.0f}, kHole},            // vents
+    {{-0.96f, -0.9f, -6.5f}, {-0.9f, -0.5f, -3.0f}, kHole},
+    {{0.9f, 0.2f, -2.0f}, {0.96f, 0.9f, 1.0f}, kHole},               // ejection port
 };
 const Part kUmpArms[] = {
     {{-1.3f, -4.4f, 1.4f}, {1.4f, -1.4f, 4.2f}, kGlove},             // right hand
@@ -484,6 +549,29 @@ std::vector<BoxInstance> toBoxes(const Part (&parts)[N], bool gunPaint = false, 
     return out;
 }
 
+// Gloved hands, built over a hand's block: on a grip, the three lower fingers wrap its front, the trigger finger
+// lies along the guard (at `triggerY`, reaching forward to `triggerZ`), the thumb rests along the left side and a cuff
+// rings the wrist. Under a handguard (`support`), the fingers curl up its right side (`halfWidth` from the middle)
+// and the thumb lies along the left.
+void addGripHand(std::vector<BoxInstance>& out, const Part& h, float triggerY, float triggerZ, bool thumb = true) {
+    const float front = h.mins.z, y0 = h.mins.y + 0.2f, y1 = triggerY - 0.3f;
+    for (int k = 0; k < 3; ++k) {
+        const float a = y0 + (y1 - y0) * float(k) / 3.0f, b = y0 + (y1 - y0) * float(k + 1) / 3.0f - 0.12f;
+        out.push_back(makeBox({h.mins.x + 0.15f, a, front - 0.32f}, {h.maxs.x - 0.1f, b, front + 0.25f}, kFinger, false));
+    }
+    if (triggerZ < front) out.push_back(makeBox({-0.22f, triggerY - 0.2f, triggerZ}, {0.28f, triggerY + 0.2f, front + 0.2f}, kFinger, false));
+    if (thumb) out.push_back(makeBox({h.mins.x - 0.25f, h.maxs.y - 0.85f, front + 0.3f}, {h.mins.x + 0.05f, h.maxs.y - 0.25f, h.maxs.z - 0.4f}, kFinger, false));
+    out.push_back(makeBox({h.mins.x - 0.12f, h.mins.y - 0.12f, h.maxs.z - 0.15f}, {h.maxs.x + 0.12f, h.maxs.y + 0.12f, h.maxs.z + 0.5f}, kCuff, false));
+}
+void addSupportHand(std::vector<BoxInstance>& out, const Part& h, float halfWidth) {
+    const float z0 = h.mins.z + 0.25f, z1 = h.maxs.z - 0.25f;
+    for (int k = 0; k < 4; ++k) {
+        const float a = z0 + (z1 - z0) * float(k) / 4.0f, b = z0 + (z1 - z0) * float(k + 1) / 4.0f - 0.15f;
+        out.push_back(makeBox({halfWidth - 0.02f, h.maxs.y - 0.2f, a}, {halfWidth + 0.32f, h.maxs.y + 1.0f, b}, kFinger, false));
+    }
+    out.push_back(makeBox({-halfWidth - 0.32f, h.maxs.y - 0.2f, z0 + 0.4f}, {-halfWidth + 0.02f, h.maxs.y + 0.75f, z1 - 0.6f}, kFinger, false));
+}
+
 // Inspect keyframes: offsets from the resting pose, eased between keys.
 struct Pose { float t, x, y, z, yaw, pitch, roll; };
 const Pose kRifleInspect[] = {
@@ -587,6 +675,30 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
         case ViewWeapon::Ump45: {
             std::vector<BoxInstance> body, mag, bolt;
             if (w == ViewWeapon::Rifle) { addParts(body, kRifleBody, painted); if (a.arms) addParts(body, kRifleArms); addParts(mag, kRifleMag, painted); }
+            if (a.arms && (w == ViewWeapon::Rifle || w == ViewWeapon::M4A1S || w == ViewWeapon::Galil)) {
+                addGripHand(body, kRifleArms[0], -1.7f, 0.9f);
+                addSupportHand(body, kRifleArms[2], 1.05f);
+            }
+            if (a.arms && (w == ViewWeapon::Sniper || w == ViewWeapon::Ssg08)) {
+                addGripHand(body, kSniperArms[0], -1.6f, 3.2f);
+                addSupportHand(body, kSniperArms[2], 1.0f);
+            }
+            if (a.arms && w == ViewWeapon::Ump45) {
+                addGripHand(body, kUmpArms[0], -1.9f, 0.1f);
+                addSupportHand(body, kUmpArms[2], 0.9f);
+            }
+            if (a.arms && w == ViewWeapon::Pistol) {
+                addGripHand(body, kPistolArms[0], -1.0f, -2.6f);
+                addGripHand(body, kPistolArms[1], -1.0f, 0.0f, false);
+            }
+            if (a.arms && w == ViewWeapon::Deagle) {
+                addGripHand(body, kDeagleArms[0], -1.2f, -3.2f);
+                addGripHand(body, kDeagleArms[1], -1.2f, 0.0f, false);
+            }
+            if (a.arms && w == ViewWeapon::Mac10) {
+                addGripHand(body, kMac10Arms[0], -1.7f, -3.0f);
+                addSupportHand(body, kMac10Arms[2], 0.9f);
+            }
             if (w == ViewWeapon::Sniper) {
                 addParts(body, kSniperBody, painted);
                 if (a.arms) addParts(body, kSniperArms);
@@ -623,7 +735,11 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
         case ViewWeapon::Xm1014: {
             std::vector<BoxInstance> body;
             addParts(body, kXmBody, painted);
-            if (a.arms) addParts(body, kXmArms);
+            if (a.arms) {
+                addParts(body, kXmArms);
+                addGripHand(body, kXmArms[0], -1.6f, 1.4f);
+                addSupportHand(body, kXmArms[2], 0.85f);
+            }
             add(world, std::move(body));
             if (a.shell >= 0) add(world * translation({0, 2.0f * a.shell, -1.5f * a.shell}), toBoxes(kNovaShell));
             break;
@@ -631,9 +747,15 @@ void weaponDraws(ViewWeapon w, int knife, const PaintParams& skinIn, const Mat4&
         case ViewWeapon::Nova: {
             std::vector<BoxInstance> body, pump;
             addParts(body, kNovaBody, painted);
-            if (a.arms) addParts(body, kNovaArms);
+            if (a.arms) {
+                addParts(body, kNovaArms);
+                addGripHand(body, kNovaArms[0], -1.6f, 1.4f);
+            }
             addParts(pump, kNovaPump, painted);
-            if (a.arms) addParts(pump, kNovaPumpArm);
+            if (a.arms) {
+                addParts(pump, kNovaPumpArm);
+                addSupportHand(pump, kNovaPumpArm[0], 0.78f);
+            }
             add(world, std::move(body));
             add(world * translation({0, 0, a.pumpZ}), std::move(pump));
             if (a.shell >= 0) add(world * translation({0, 2.0f * a.shell, -1.5f * a.shell}), toBoxes(kNovaShell));

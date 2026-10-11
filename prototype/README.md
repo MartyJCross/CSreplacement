@@ -140,6 +140,10 @@ played never waits on the mixer.
   flat colour with only a hint of the surface textures, crisp dark outlines on every edge and silhouette (drawn by
   the post pass from the world's depth, fading with distance), shade that stays rich and warm instead of grey, walls
   that lighten as they rise, and a bolder colour grade. Needs post-processing on.
+- **More detailed first-person guns:** gloved hands with fingers round the grip and up the handguard, a trigger
+  finger on the guard, thumbs and wrist cuffs; ejection ports, selector levers, rivets, gas blocks, cleaning rod,
+  front-sight ears, mag ribs and floor plates, rail teeth, vents, slide serrations, scope lenses and turrets,
+  cheek rest, thumbhole, barrel flutes, recoil pads.
 
 ## v0.23.7
 
