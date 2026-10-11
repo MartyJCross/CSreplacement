@@ -2755,7 +2755,8 @@ void compPlanted(Game& g, const Vec3& at) {
     // the CTs come in; the ones elsewhere come over.
     int t = int(s.holds.size()) - 1;
     for (size_t i = 0; i < g.dummies.size(); ++i) {
-        if (!g.dummies[i].alive() || g.team[i] != 0 || !isBot(g, i) || g.bots[i].state == 2) continue;
+        // (a bot mid-fight too: sendBot keeps it fighting, but its spot to come back to is now the site, not spawn)
+        if (!g.dummies[i].alive() || g.team[i] != 0 || !isBot(g, i)) continue;
         const RetakeSpot& h = s.holds[size_t(t-- + int(s.holds.size()) * 4) % s.holds.size()];
         sendBot(g, i, townPoint(h.x, h.y), true, &h);
     }

@@ -3,6 +3,12 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.27.1: T bots stay on the site after a plant
+
+- A T bot that was in a fight when the bomb went down walked back to spawn afterwards and stood there: the plant
+  skipped bots mid-fight, so their spot to come back to stayed their spawn. Now every T bot is sent to the site's
+  holds (one still fighting keeps fighting, then goes there).
+
 ## v0.27: skins reimagined, knife animations, knife cases
 
 - **Skins are painted part by part:** body, slide / dust cover, barrel, muzzle or suppressor, handguard, stock, grip,
