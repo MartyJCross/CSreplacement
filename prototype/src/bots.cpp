@@ -88,6 +88,30 @@ bool pathTo(const BotSenses& s, const Vec3& from, Vec3& to, std::vector<Vec3>& p
     return true;
 }
 
+// A teammate just ahead on the way to `toward` (within kBotGap, in front, on its level): wait for the gap to open, up
+// to a second (so one standing still in a doorway, or two walking at each other, can't hold it up for good).
+bool keepGap(const Dummy& d, BotBrain& b, const BotSenses& s, const Vec3& toward) {
+    if (s.mates) {
+        Vec3 dir{toward.x - d.pos.x, toward.y - d.pos.y, 0};
+        const float len = length(dir);
+        if (len > 1.0f) {
+            dir = dir * (1.0f / len);
+            for (const BotTarget& m : *s.mates) {
+                if (m.id == s.self) continue;
+                const Vec3 to{m.origin.x - d.pos.x, m.origin.y - d.pos.y, 0};
+                const float dist = length(to);
+                if (dist < kBotGap && dot(to, dir) > 0.5f * dist && std::fabs(m.origin.z - d.pos.z) < 64.0f) {
+                    if (b.gapWait >= 1.0f) return false;  // waited long enough: on its way
+                    b.gapWait += kTickDt;
+                    return true;
+                }
+            }
+        }
+    }
+    b.gapWait = 0;
+    return false;
+}
+
 // Done chasing or fighting: a bot with a spot of its own walks back to it (else holds or looks around).
 void backHome(Dummy& d, BotBrain& b, int otherwise) {
     if (b.hasHome && length2d(b.home - d.pos) > 160.0f) {
@@ -269,22 +293,31 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
         b.strafing = false;
         if (b.state == 2 && !b.sees && (b.timer -= kTickDt) <= 0) b.state = 1;
     } else switch (b.state) {
-        case 0:  // roam: walk to the goal if it has one, else a random spot (deathmatch: often near you)
+        case 0:  // roam: walk to the goal if it has one (through its via first), else a random spot (deathmatch: often near you)
             if (b.path.empty()) {
-                Vec3 dest = b.hasGoal ? b.goal : s.nav->roamPoint(botRand(rng), false);
+                if (!b.hasGoal) b.hasVia = false;
+                Vec3 dest = b.hasVia ? b.via : b.hasGoal ? b.goal : s.nav->roamPoint(botRand(rng), false);
                 if (!b.hasGoal && (!s.targets || s.huntYou) && s.playerUp && botRand(rng) < 0.5f)
                     for (int k = 0; k < 8; ++k) {  // hunt: somewhere in your part of the map
                         Vec3 p = s.nav->roamPoint(botRand(rng), false);
                         if (length2d(p - s.playerOrigin) < 900.0f) { dest = p; break; }
                     }
                 if (!pathTo(s, d.pos, dest, b.path)) {
+                    if (b.hasVia) { b.hasVia = false; break; }  // the way's unreachable: straight to the goal
                     if (b.hasGoal) { b.hasGoal = false; b.state = 1; b.timer = 0.5f; }  // unreachable: give up
                     break;
                 }
-                if (b.hasGoal) b.goal = dest;
+                if (b.hasVia) b.via = dest;
+                else if (b.hasGoal) b.goal = dest;
                 b.next = 1;
             }
+            if (b.next < b.path.size() && keepGap(d, b, s, b.path[b.next])) break;  // a teammate just ahead: let it get on
             if (followPath(d.pos, b.path, b.next, step)) {
+                if (b.hasVia) {  // through its way: on to the goal
+                    b.hasVia = false;
+                    b.path.clear();
+                    break;
+                }
                 b.path.clear();
                 b.hasGoal = false;
                 b.holdCoverChecked = b.hasCover = false;
@@ -374,6 +407,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                 }
                 b.next = 1;
             }
+            if (b.next < b.path.size() && keepGap(d, b, s, b.path[b.next])) break;
             if (followPath(d.pos, b.path, b.next, step)) {
                 b.timer = 0.8f + botRand(rng);
                 if (b.holdOnly) backHome(d, b, 1);
@@ -488,4 +522,46 @@ float botShotGap(int w) {
         default: break;
     }
     return std::max(tap, weaponDef(w).fireInterval);  // the bolt guns and the pump: the gun's own pace
+}
+
+std::vector<int> spreadEntries(const NavGrid& nav, const std::vector<Vec3>& from, const std::vector<Vec3>& entries,
+                               const Vec3& site, float siteRadius, float maxDetour, float spreadCost) {
+    std::vector<int> out(from.size(), -1);
+    static std::vector<Vec3> path;  // (sim thread only)
+    auto length = [&](const Vec3& a, const Vec3& b, bool offSite) {  // route length, -1 if none (or over the site)
+        if (!nav.findPath(a, b, path)) return -1.0f;
+        float len = 0;
+        for (size_t k = 1; k < path.size(); ++k) {
+            len += length2d(path[k] - path[k - 1]);
+            if (offSite && length2d(path[k] - site) < siteRadius) return -1.0f;
+        }
+        return len;
+    };
+    std::vector<float> onward(entries.size());  // entry -> site
+    for (size_t e = 0; e < entries.size(); ++e) onward[e] = length(entries[e], site, false);
+    // The nearest bots choose first.
+    std::vector<std::pair<float, size_t>> order;
+    std::vector<float> direct(from.size());
+    for (size_t b = 0; b < from.size(); ++b) {
+        direct[b] = length(from[b], site, false);
+        order.push_back({direct[b] < 0 ? 1e30f : direct[b], b});
+    }
+    std::sort(order.begin(), order.end());
+    std::vector<int> taken(entries.size(), 0);
+    for (const auto& o : order) {
+        const size_t b = o.second;
+        if (direct[b] < 0) continue;
+        float best = 1e30f;
+        for (size_t e = 0; e < entries.size(); ++e) {
+            if (onward[e] < 0) continue;
+            const float there = length(from[b], entries[e], true);
+            if (there < 0) continue;
+            const float trip = there + onward[e];
+            if (trip > direct[b] * maxDetour + 600.0f) continue;
+            const float cost = trip + spreadCost * float(taken[e]);
+            if (cost < best) { best = cost; out[b] = int(e); }
+        }
+        if (out[b] >= 0) taken[size_t(out[b])]++;
+    }
+    return out;
 }

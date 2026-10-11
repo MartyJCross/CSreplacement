@@ -361,6 +361,12 @@ struct Game {
         bool rush = false, sent = false;  // sent: every group has gone
         int fakeRoute = -1;               // the fake's way at the other site (-1: not a fake)
         int holdNext = 0;                 // the next site hold spot to hand out
+        // CT retake (after a plant): each CT bot waits at a way onto the site (retakeEntry: its RetakeSite entry, -1
+        // straight in), spread so teammates come from different sides; they all go in at retakeGoAt or once every
+        // one of them is in place.
+        std::vector<int> retakeEntry;
+        double retakeGoAt = 0;
+        bool retakeSent = true;
         double goAt = 0;
         std::vector<int> pushers;
         std::vector<RetakeSpot> pushBack;
@@ -2145,6 +2151,7 @@ void startCompRound(Game& g) {
         if (!g_compLog.empty()) std::ofstream(g_compLog, std::ios::app) << "  play: " << call << "\n";
     }
     c.planted = false;
+    c.retakeSent = true;
     c.plantedBy = c.defusedBy = -3;
     c.planter = c.defuser = -3;
     c.plantStart = c.botDefuseStart = -1;
@@ -2448,9 +2455,11 @@ void dropsTick(Game& g) {
 // Sends a bot somewhere (unless it's already on its way there). `h`: a hold spot to take there, facing
 // its look-at point (it holds from beside cover).
 std::vector<int> g_sendCount;  // automated runs: goals given to each bot (stuck-bot log)
-void sendBot(Game& g, size_t i, const Vec3& to, bool hold, const RetakeSpot* h = nullptr) {
+void sendBot(Game& g, size_t i, const Vec3& to, bool hold, const RetakeSpot* h = nullptr, const Vec3* via = nullptr) {
     BotBrain& b = g.bots[i];
-    if (b.hasGoal && length2d(b.goal - to) < 1.0f) return;
+    if (b.hasGoal && length2d(b.goal - to) < 1.0f && b.hasVia == (via != nullptr)) return;
+    b.hasVia = via != nullptr;  // (through a way onto a site first)
+    if (via) b.via = *via;
     if (g_sendCount.size() <= i) g_sendCount.resize(i + 1, 0);
     g_sendCount[i]++;
     b.goal = to;
@@ -2619,12 +2628,42 @@ void compPlanted(Game& g, const Vec3& at) {
     }
     pushHitLog(g, "THE BOMB HAS BEEN PLANTED", 0xff6060);
     const RetakeSite& s = sites[size_t(c.siteTarget)];
-    int k = 0;
-    for (size_t i = 0; i < g.dummies.size(); ++i) {  // CT bots: retake the site
-        if (!g.dummies[i].alive() || g.team[i] != 1 || !isBot(g, i) || (i < c.saving.size() && c.saving[i])) continue;
-        const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-        sendBot(g, i, townPoint(h.x, h.y), true, &h);
+    // CT bots: retake the site from different sides (owner: not all through the same door). Each waits at its way
+    // in, just out of sight, and they go in together (compTick); the nearest one may come straight in.
+    std::vector<size_t> cts;
+    std::vector<Vec3> from, entries;
+    for (size_t i = 0; i < g.dummies.size(); ++i)
+        if (g.dummies[i].alive() && g.team[i] == 1 && isBot(g, i) && !(i < c.saving.size() && c.saving[i])) {
+            cts.push_back(i);
+            from.push_back(g.dummies[i].pos);
+        }
+    for (const RetakeSpot& e : s.entries) entries.push_back(townPoint(e.x, e.y));
+    const std::vector<int> way = spreadEntries(g.nav, from, entries, at, 650.0f * townScale(), 2.5f, 1500.0f);
+    c.retakeEntry.assign(g.dummies.size(), -1);
+    c.retakeSent = false;
+    // They go in when the last one is in place, or a second after it should have been (4..18 s: time to defuse).
+    float longest = 0;
+    {
+        std::vector<Vec3> route;
+        for (size_t q = 0; q < cts.size(); ++q)
+            if (way[q] >= 0 && g.nav.findPath(from[q], entries[size_t(way[q])], route)) {
+                float len = 0;
+                for (size_t z = 1; z < route.size(); ++z) len += length2d(route[z] - route[z - 1]);
+                longest = std::max(longest, len);
+            }
     }
+    c.retakeGoAt = g.simTime + double(std::clamp(longest / kBotRunSpeed + 1.0f, 4.0f, 18.0f));
+    std::string called;
+    for (size_t q = 0; q < cts.size(); ++q) {
+        const size_t i = cts[q];
+        c.retakeEntry[i] = way[q];
+        if (way[q] < 0) continue;  // (straight in, when compTick sends them)
+        sendBot(g, i, entries[size_t(way[q])], true);
+        const char* where = townCallout(entries[size_t(way[q])]);
+        if (called.find(where) == std::string::npos) called += std::string(called.empty() ? "" : " AND ") + where;
+    }
+    if (!called.empty()) teamRadio(g, int(cts[0]), std::string("RETAKE ") + s.name + " FROM " + called);
+    if (!g_compLog.empty()) std::ofstream(g_compLog, std::ios::app) << "  retake " << s.name << " from " << (called.empty() ? "-" : called) << "\n";
     // T bots: post-plant. Off the bomb (the planter too) and onto the site's holding spots, each watching a way
     // the CTs come in; the ones elsewhere come over.
     int t = int(s.holds.size()) - 1;
@@ -2962,12 +3001,20 @@ void compTick(Game& g) {
             c.rotated = true;
             radio(firstAlive(1), c.siteTarget == 0 ? "THEY'RE ON A, ROTATING" : "THEY'RE ON B, ROTATING");
             const RetakeSite& s = sites[size_t(c.siteTarget)];
+            // The ones rotating come in by different ways (owner: no stacking up), each straight through its own.
+            std::vector<size_t> who;
+            std::vector<Vec3> from, entries;
+            for (size_t i = 0; i < g.dummies.size(); ++i)
+                if (g.dummies[i].alive() && isBot(g, i) && g.team[i] == 1 && length2d(g.dummies[i].pos - bombSpot) >= 2.0f * onSite) {
+                    who.push_back(i);
+                    from.push_back(g.dummies[i].pos);
+                }
+            for (const RetakeSpot& e : s.entries) entries.push_back(townPoint(e.x, e.y));
+            const std::vector<int> way = spreadEntries(g.nav, from, entries, bombSpot, 650.0f * townScale(), 2.5f, 1500.0f);
             int k = 0;
-            for (size_t i = 0; i < g.dummies.size(); ++i) {
-                if (!g.dummies[i].alive() || !isBot(g, i) || g.team[i] != 1 || length2d(g.dummies[i].pos - bombSpot) < 2.0f * onSite)
-                    continue;
+            for (size_t q = 0; q < who.size(); ++q) {
                 const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
-                sendBot(g, i, townPoint(h.x, h.y), true, &h);
+                sendBot(g, who[q], townPoint(h.x, h.y), true, &h, way[q] >= 0 ? &entries[size_t(way[q])] : nullptr);
             }
         }
     }
@@ -3033,7 +3080,29 @@ void compTick(Game& g) {
             endCompRound(g, 1, "THE BOMB HAS BEEN DEFUSED", true);
             return;
         }
-        // A CT bot defuses: the nearest one that isn't fighting walks to the bomb, then takes 5 s.
+        // The CT retake goes in: once every waiting CT is at its way in (or the clock says go).
+        if (!c.retakeSent) {
+            bool ready = true;
+            const RetakeSite& s = sites[size_t(c.siteTarget)];
+            for (size_t i = 0; i < g.dummies.size() && i < c.retakeEntry.size(); ++i) {
+                if (c.retakeEntry[i] < 0 || !g.dummies[i].alive() || g.bots[i].state == 2) continue;
+                const RetakeSpot& e = s.entries[size_t(c.retakeEntry[i])];
+                if (length2d(g.dummies[i].pos - townPoint(e.x, e.y)) > 160.0f) ready = false;
+            }
+            if (ready || now >= c.retakeGoAt) {
+                c.retakeSent = true;
+                int k = 0;
+                for (size_t i = 0; i < g.dummies.size(); ++i) {
+                    if (!g.dummies[i].alive() || g.team[i] != 1 || !isBot(g, i) || (i < c.saving.size() && c.saving[i])) continue;
+                    const RetakeSpot& h = s.holds[size_t(k++) % s.holds.size()];
+                    sendBot(g, i, townPoint(h.x, h.y), true, &h);
+                }
+                radio(firstAlive(1), "GO GO GO");
+                if (!g_compLog.empty())
+                    std::ofstream(g_compLog, std::ios::app) << "  retake goes in" << (ready ? " (all in place)" : " (timer)") << " t=" << int(now) << "s\n";
+            }
+        }
+        // A CT bot defuses: the nearest one that isn't fighting walks to the bomb, then takes 5 s (once the retake goes).
         if (c.defuser >= 0 && (!g.dummies[size_t(c.defuser)].alive() || g.bots[size_t(c.defuser)].sees)) {
             c.defuser = -3;
             c.botDefuseStart = -1;
@@ -3053,7 +3122,7 @@ void compTick(Game& g) {
                 radio(nearest, "DEFUSING");
                 c.botDefuseStart = now;
                 if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.earPos, g.earYaw, 1500.0f, 0.9f);
-            } else if (nearest >= 0) {
+            } else if (nearest >= 0 && c.retakeSent) {
                 sendBot(g, size_t(nearest), g.bombPos, true);
             }
         } else if (now - c.botDefuseStart >= 5.0) {
@@ -3074,6 +3143,38 @@ void compTick(Game& g) {
         } else if (!defusing) {
             c.defuseHeard = false;
         }
+    }
+    // Automated runs: two teammates walking on top of each other (within 64 units, both moving) for over 2 s in all
+    // this round: STACK, once per pair and round (owner: bots shouldn't stack up).
+    if (!g_compLog.empty() && c.phase == 1) {
+        static std::vector<float> together;
+        static std::vector<int> stackRound;
+        static std::vector<Vec3> was;  // (where each was last tick: the bots move after this)
+        static std::vector<char> moved;
+        const size_t n = g.dummies.size();
+        together.resize(n * n, 0.0f);
+        stackRound.resize(n * n, -1);
+        was.resize(n);
+        moved.resize(n, 0);
+        for (size_t i = 0; i < n; ++i) {
+            moved[i] = length2d(g.dummies[i].pos - was[i]) > 0.3f;
+            was[i] = g.dummies[i].pos;
+        }
+        for (size_t i = 0; i < n; ++i)
+            for (size_t j = i + 1; j < n; ++j) {
+                const Dummy& a = g.dummies[i];
+                const Dummy& b = g.dummies[j];
+                if (!a.alive() || !b.alive() || g.team[i] != g.team[j] || !isBot(g, i) || !isBot(g, j)) continue;
+                const bool moving = moved[i] && moved[j];
+                if (stackRound[i * n + j] != c.round) { together[i * n + j] = 0; stackRound[i * n + j] = c.round; }
+                if (!moving || length2d(a.pos - b.pos) > 64.0f) continue;
+                float& t = together[i * n + j];
+                if (t <= 2.0f && t + float(kTickDt) > 2.0f)
+                    std::ofstream(g_compLog, std::ios::app) << "  STACK bots " << i << " and " << j << " ("
+                                                            << (g.team[i] == 0 ? "T" : "CT") << ") at " << townCallout(a.pos)
+                                                            << " t=" << int(now) << "s\n";
+                t += float(kTickDt);
+            }
     }
     // Automated runs: a bot that hasn't moved for 8 s while it has somewhere to be (or is chasing a lead) is
     // logged once a round, with what its brain is doing (tracking down bots that freeze).
@@ -4435,6 +4536,14 @@ void simTick(Game& g, const Options& opt) {
                 if (sense.playerUp && g.comp.youTeam != side) enemiesOf[side].push_back({-1, sense.playerOrigin, sense.playerEye});
             }
         }
+        static std::vector<BotTarget> matesOf[2];  // competitive: each side's living players (bots keep a gap behind them)
+        matesOf[0].clear();
+        matesOf[1].clear();
+        if (g.mode == 3) {
+            for (size_t i = 0; i < g.dummies.size(); ++i)
+                if (g.dummies[i].alive() && i < g.team.size()) matesOf[g.team[i]].push_back({int(i), g.dummies[i].pos, g.dummies[i].pos});
+            if (youAlive(g)) matesOf[g.comp.youTeam].push_back({-1, g.player.origin, g.player.origin});
+        }
         for (size_t i = 0; i < g.dummies.size(); ++i) {
             Dummy& d = g.dummies[i];
             BotBrain& b = g.bots[i];
@@ -4452,6 +4561,7 @@ void simTick(Game& g, const Options& opt) {
                     continue;
                 }
                 sense.targets = &enemiesOf[g.team[i]];
+                sense.mates = &matesOf[g.team[i]];
                 sense.noiseFresh = sense.noiseFresh && g.team[i] != g.noiseSide;  // only enemies react to a noise
             }
             updateDeathmatchBot(d, b, sense, g.rng);

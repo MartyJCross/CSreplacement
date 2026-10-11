@@ -37,9 +37,11 @@ struct BotBrain {
     float holdYaw = 0;
     Vec3 holdLook;
     bool hasHoldLook = false, holdCoverChecked = false;
-    // Competitive: walk here (then hold, if holdOnly) instead of roaming at random.
-    Vec3 goal;
-    bool hasGoal = false;
+    // Competitive: walk here (then hold, if holdOnly) instead of roaming at random; through `via` first if hasVia
+    // (a way onto a site: teammates come from different sides).
+    Vec3 goal, via;
+    bool hasGoal = false, hasVia = false;
+    float gapWait = 0;        // waiting for a teammate ahead on the way to get on (keepGap)
     // Its spot (an anchor's angle, the execute's hold): after a chase or a fight it walks back here
     // instead of standing wherever the chase ended.
     Vec3 home;
@@ -70,10 +72,23 @@ struct BotSenses {
     // Optional extra sight blocker (smoke): returns true if the segment a->b is blocked.
     bool (*blocked)(const void* ctx, const Vec3& a, const Vec3& b) = nullptr;
     const void* blockCtx = nullptr;
+    // Teammates (competitive): a bot walking somewhere keeps its distance from one just ahead on the way instead of
+    // walking on its back. Null: none.
+    const std::vector<BotTarget>* mates = nullptr;
     // Fires (molotovs) on the ground: a bot steps straight out of one and waits at its edge till it burns out.
     const std::vector<Vec3>* fires = nullptr;
     float fireRadius = 110.0f;
 };
+
+// Spreads bots over ways onto a site so teammates come from different sides (CT retakes, rotations): for each bot
+// (its position in `from`), the index of the entry in `entries` it should go through, or -1 (straight there). An entry
+// counts for a bot if its route there keeps off the site (farther than `siteRadius` from `site`) and the trip through
+// it is at most `maxDetour` times the straight one (plus 600 units). Each bot takes its shortest, a way a teammate
+// already took counting `spreadCost` units longer, so two bots split up unless one way is much longer.
+std::vector<int> spreadEntries(const NavGrid& nav, const std::vector<Vec3>& from, const std::vector<Vec3>& entries,
+                               const Vec3& site, float siteRadius, float maxDetour = 2.5f, float spreadCost = 900.0f);
+
+constexpr float kBotGap = 110.0f;  // a bot walking somewhere stays this far behind a teammate ahead on the way
 
 constexpr float kBotRunSpeed = 215.0f;  // rifle run speed (estimates; a bot runs at its gun's maxSpeed)
 

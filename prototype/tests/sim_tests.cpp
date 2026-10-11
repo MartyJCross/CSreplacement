@@ -1452,6 +1452,91 @@ void testCompWays() {
 
 // Fire: a bot caught in a molotov steps out within a second (holding an angle or walking through), and one walking
 // to a goal past the fire waits at its edge instead of burning.
+// No stacking (owner, v0.26): five bots walking from T spawn to A site together keep a gap (kBotGap) behind the one
+// ahead instead of walking on its back: no two of them within 64 units, both moving, for 2 s in all. Without their
+// teammates' positions (the old way) they bunch up.
+void testBotSpacing() {
+    std::printf("bots keep a gap\n");
+    const NavGrid& nav = dustNav();
+    auto run = [&](bool gaps, float& worstPair, float& slowest) {
+        BotSenses sense;
+        sense.world = &dust();
+        sense.nav = &nav;
+        const std::vector<BotTarget> none;
+        std::vector<BotTarget> mates;
+        sense.targets = &none;
+        sense.mates = gaps ? &mates : nullptr;
+        const Vec3 starts[5] = {dpt(-300, -700), dpt(-700, -760), dpt(-80, -800), dpt(-200, -960), dpt(-600, -1020)};
+        const Vec3 goal = dpt(1380, 2560);
+        Dummy d[5];
+        BotBrain b[5];
+        uint32_t rng = 99u;
+        for (int k = 0; k < 5; ++k) {
+            spawnDeathmatchBot(d[k], b[k], starts[k], rng);
+            b[k].goal = goal;
+            b[k].hasGoal = b[k].holdOnly = true;
+            b[k].state = 0;
+        }
+        float together[5][5] = {};
+        slowest = 0;
+        for (int t = 0; t < kTickRate * 40; ++t) {
+            sense.now = double(t) * kTickDt;
+            mates.clear();
+            for (int k = 0; k < 5; ++k) mates.push_back({k, d[k].pos, d[k].pos});
+            Vec3 before[5];
+            for (int k = 0; k < 5; ++k) {
+                before[k] = d[k].pos;
+                d[k].prevPos = d[k].pos;
+                sense.self = k;
+                updateDeathmatchBot(d[k], b[k], sense, rng);
+            }
+            for (int i = 0; i < 5; ++i)
+                for (int j = i + 1; j < 5; ++j)
+                    if (length2d(d[i].pos - before[i]) > 0.3f && length2d(d[j].pos - before[j]) > 0.3f && length2d(d[i].pos - d[j].pos) < 64.0f)
+                        together[i][j] += float(kTickDt);
+            for (int k = 0; k < 5; ++k)
+                if (length2d(d[k].pos - goal) > 120.0f) slowest = float(t + 1) * kTickDt;
+        }
+        worstPair = 0;
+        for (int i = 0; i < 5; ++i)
+            for (int j = i + 1; j < 5; ++j) worstPair = std::max(worstPair, together[i][j]);
+    };
+    float stackedOld, slowOld, stacked, slow;
+    run(false, stackedOld, slowOld);
+    run(true, stacked, slow);
+    std::printf("  5 bots T spawn -> A: the closest pair walked together %.1f s (without gaps %.1f s); all there in %.1f s (%.1f)\n",
+                double(stacked), double(stackedOld), double(slow), double(slowOld));
+    CHECK(stacked < 2.0f, "two bots walked on top of each other for %.1f s", double(stacked));
+    CHECK(slow < 39.0f, "the bots didn't all get there (keeping gaps held them up)");
+}
+
+// Retakes from different sides (owner, v0.26: two CTs retaking A on Dust shouldn't both come through CT): one from CT
+// spawn and one from CT mid take different ways onto A (CT spawn, catwalk); on Harbor, from its CT spawn and CT mid.
+void testRetakeSpread() {
+    std::printf("retakes from different sides\n");
+    const float keep = townScale();
+    int same = 0;
+    for (int town = 0; town < 2; ++town) {
+        setTownMap(town);
+        setDustScale(0.9f);
+        const World w = buildTown();
+        NavGrid nav;
+        nav.build(townGrid(), w, townSpawn().pos);
+        const RetakeSite& a = townRetakeSites()[0];
+        std::vector<Vec3> entries;
+        for (const RetakeSpot& e : a.entries) entries.push_back(townPoint(e.x, e.y));
+        const std::vector<Vec3> cts = town == 0 ? std::vector<Vec3>{townPoint(-180, 2820), townPoint(-620, 2000)}
+                                                : std::vector<Vec3>{townPoint(0, 1620), townPoint(-370, 600)};
+        const std::vector<int> way = spreadEntries(nav, cts, entries, townPoint(a.bombX, a.bombY), 650.0f * townScale(), 2.5f, 1500.0f);
+        std::printf("  %s: CT spawn -> %s, CT mid -> %s\n", townMapName(town), way[0] >= 0 ? townCallout(entries[size_t(way[0])]) : "straight in",
+                    way[1] >= 0 ? townCallout(entries[size_t(way[1])]) : "straight in");
+        same += way[0] == way[1];
+    }
+    setTownMap(0);
+    setDustScale(keep);
+    CHECK(same == 0, "%d retakes all came the same way", same);
+}
+
 void testBotFire() {
     std::printf("bots and fire\n");
     const NavGrid& nav = dustNav();
@@ -1919,6 +2004,8 @@ int main() {
     testBotFire();
     testSpawnsOffMid();
     testCompWays();
+    testBotSpacing();
+    testRetakeSpread();
     testHarbor();
     testReplay();
     testBotCover();
