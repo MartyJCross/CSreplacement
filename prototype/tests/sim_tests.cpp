@@ -1257,6 +1257,25 @@ void testCases() {
           "inventory round trip");
     std::remove(path.c_str());
     CHECK(std::string(wearName(0.01f)) == "FACTORY NEW" && std::string(wearName(0.5f)) == "BATTLE-SCARRED", "wear names");
+    // Knife cases (owner, v0.27): one every 100 kills, only knives, every kind of knife comes up; saved.
+    Inventory kinv;
+    int knifeCases = 0;
+    for (int k = 0; k < 250; ++k) knifeCases += kinv.addKnifeKill();
+    const int opened = kinv.openKnife(rng);
+    bool allKnives = opened >= 0 && skins[size_t(kinv.items[size_t(opened)].skin)].weapon == kWKnife;
+    std::set<int> types;
+    for (int k = 0; k < 2000; ++k) {
+        const SkinDef& s = skins[size_t(rollKnifeCase(rng).skin)];
+        allKnives = allKnives && s.weapon == kWKnife;
+        types.insert(s.knife);
+    }
+    std::printf("  knife cases: %d from 250 kills; 2000 rolls: %zu kinds of knife, all knives %d\n", knifeCases, types.size(), int(allKnives));
+    CHECK(knifeCases == 2 && kinv.knifeCases == 1 && kinv.knifeProgress == 50 && allKnives && types.size() == size_t(kKnifeTypes - 1),
+          "knife cases");
+    CHECK(kinv.save(path), "save");
+    Inventory kback;
+    CHECK(kback.load(path) && kback.knifeCases == 1 && kback.knifeProgress == 50, "knife cases round trip");
+    std::remove(path.c_str());
 }
 
 // Online players crouch: the head drops with the eye (64 -> 46), so a shot at standing head height goes

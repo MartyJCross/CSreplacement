@@ -297,6 +297,31 @@ Item rollCase(uint32_t& rng) {
     return it;
 }
 
+Item rollKnifeCase(uint32_t& rng) {
+    std::vector<int> pool;
+    const std::vector<SkinDef>& s = allSkins();
+    for (size_t k = 0; k < s.size(); ++k)
+        if (s[k].weapon == kWKnife) pool.push_back(int(k));
+    Item it;
+    it.skin = pool[std::min(pool.size() - 1, size_t(rollUnit(rng) * float(pool.size())))];
+    it.wear = rollUnit(rng);
+    return it;
+}
+
+bool Inventory::addKnifeKill(int killsPerKnifeCase) {
+    if (++knifeProgress < std::max(1, killsPerKnifeCase)) return false;
+    knifeProgress = 0;
+    ++knifeCases;
+    return true;
+}
+
+int Inventory::openKnife(uint32_t& rng) {
+    if (knifeCases <= 0) return -1;
+    --knifeCases;
+    items.push_back(rollKnifeCase(rng));
+    return int(items.size()) - 1;
+}
+
 bool Inventory::addKill(int killsPerCase) {
     if (++progress < std::max(1, killsPerCase)) return false;
     progress = 0;
@@ -311,13 +336,15 @@ int Inventory::open(uint32_t& rng) {
     return int(items.size()) - 1;
 }
 
-// The file: "cases N", "progress N", "item KEY WEAR" and "equip WEAPON KEY WEAR" lines.
+// The file: "cases N", "progress N", "knife_cases N", "knife_progress N", "item KEY WEAR" and "equip WEAPON KEY WEAR"
+// lines.
 bool Inventory::save(const std::string& path) const {
     std::ofstream out(path);
     if (!out) return false;
     const std::vector<SkinDef>& s = allSkins();
     out << "// Crisp inventory: your cases and skins (written by the game)\n";
     out << "cases " << cases << "\nprogress " << progress << "\n";
+    out << "knife_cases " << knifeCases << "\nknife_progress " << knifeProgress << "\n";
     char w[32];
     for (const Item& it : items) {
         if (it.skin < 0 || size_t(it.skin) >= s.size()) continue;
@@ -343,6 +370,8 @@ bool Inventory::load(const std::string& path) {
         ss >> key;
         if (key == "cases") ss >> cases;
         else if (key == "progress") ss >> progress;
+        else if (key == "knife_cases") ss >> knifeCases;
+        else if (key == "knife_progress") ss >> knifeProgress;
         else if (key == "item" || key == "equip") {
             int slot = 0;
             std::string skinKey;
@@ -358,5 +387,7 @@ bool Inventory::load(const std::string& path) {
     }
     cases = std::max(0, cases);
     progress = std::max(0, progress);
+    knifeCases = std::max(0, knifeCases);
+    knifeProgress = std::max(0, knifeProgress);
     return true;
 }

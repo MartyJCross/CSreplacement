@@ -71,6 +71,7 @@ struct Options {
     int dieBy = -2;                              // --killer I: bot I killed you (--die; shows the killcam)
     int replayFrame = -1;                        // --replay-frame N: open the replay viewer on frame N
     int giveCases = 0;                           // --give-cases N: N cases to open (tests)
+    int giveKnifeCases = 0;                      // --give-knife-cases N: N knife cases (with --menu 12: one opening)
     int buyCat = -1;                             // --buy N: the buy wheel open on category N (0 = the categories)
     bool startCT = false;                        // --ct: competitive starts with you on CT (testing)
     bool netHost = false;                        // --host: host an online game straight away
@@ -125,6 +126,8 @@ Options parseArgs(int argc, char** argv) {
             o.replayFrame = std::atoi(next());
         } else if (a == "--give-cases") {
             o.giveCases = std::atoi(next());
+        } else if (a == "--give-knife-cases") {
+            o.giveKnifeCases = std::atoi(next());
         } else if (a == "--buy") {
             o.buyCat = std::atoi(next());
 
@@ -3757,6 +3760,10 @@ void countCaseKill(Game& g) {
         pushHitLog(g, "+1 CASE   ESC, INVENTORY TO OPEN IT", 0xe4ae39);
         sound(g, Sfx::UiClick, 0.8f, 0.0f, 0.7f);
     }
+    if (g_inv.addKnifeKill()) {  // and every 100 kills a knife case (owner, v0.27)
+        pushHitLog(g, "+1 KNIFE CASE!   ESC, INVENTORY TO OPEN IT", 0xffd24a);
+        sound(g, Sfx::UiClick, 0.9f, 0.0f, 0.55f);
+    }
     saveInventory();
 }
 
@@ -3827,20 +3834,22 @@ struct CaseOpening {
     std::vector<Item> reel;
     int win = 38, item = -1, lastCard = -1;
     float landing = 0.5f;  // where in the winning card the marker stops
+    bool knife = false;    // a knife case: every card a knife (and shown, not kept secret)
 };
 CaseOpening g_case;
 uint32_t g_caseRng = 0x2545F491u;
 constexpr double kCaseSpin = 6.0;
 
-bool startCase() {
-    const int idx = g_inv.open(g_caseRng);
+bool startCase(bool knife = false) {
+    const int idx = knife ? g_inv.openKnife(g_caseRng) : g_inv.open(g_caseRng);
     if (idx < 0) return false;
     saveInventory();
     g_case = CaseOpening{};
     g_case.active = true;
+    g_case.knife = knife;
     g_case.item = idx;
     g_case.start = g_uiTime;
-    for (int k = 0; k < 45; ++k) g_case.reel.push_back(rollCase(g_caseRng));
+    for (int k = 0; k < 45; ++k) g_case.reel.push_back(knife ? rollKnifeCase(g_caseRng) : rollCase(g_caseRng));
     g_case.reel[size_t(g_case.win)] = g_inv.items[size_t(idx)];
     g_case.landing = 0.15f + 0.7f * rollUnit(g_caseRng);
     return true;
@@ -5006,7 +5015,7 @@ enum MenuScreen {
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
                   kActReplay, kActLobbyTeam, kActLobbyStart, kActInfo,  // kActInfo: a line of text (does nothing)
-                  kActOpenCase, kActSkipCase, kActEquipNew, kActResetSettings,
+                  kActOpenCase, kActSkipCase, kActEquipNew, kActResetSettings, kActOpenKnifeCase,
                   kActPickMode = 50,  // + a mode: the PLAY screen's choice, on to its setup
                   kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
@@ -5284,7 +5293,10 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuInventory: {  // a row per weapon: the skins you own for it (left / right to change)
             static std::string caseLabel;
             caseLabel = g_inv.cases > 0 ? "OPEN A CASE (" + std::to_string(g_inv.cases) + ")" : std::string("OPEN A CASE (NONE YET)");
-            std::vector<MenuItem> r = {button(caseLabel.c_str(), kActOpenCase)};
+            static std::string knifeLabel;
+            knifeLabel = g_inv.knifeCases > 0 ? "OPEN A KNIFE CASE (" + std::to_string(g_inv.knifeCases) + ")"
+                                              : "KNIFE CASE IN " + std::to_string(kKillsPerKnifeCase - g_inv.knifeProgress) + " KILLS";
+            std::vector<MenuItem> r = {button(caseLabel.c_str(), kActOpenCase), button(knifeLabel.c_str(), kActOpenKnifeCase)};
             for (int k = 0; k < kInvRows; ++k) {
                 SkinChoice& ch = g_choices[k];
                 r.push_back({kInvRowNames[k], nullptr, &ch.sel, 1, 0, float(std::max(0, int(ch.labels.size()) - 1)),
@@ -5296,8 +5308,8 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuCase: {
             if (!g_case.revealed) return {button("SKIP", kActSkipCase)};
             static std::string again;
-            again = "OPEN ANOTHER (" + std::to_string(g_inv.cases) + " LEFT)";
-            return {button("EQUIP IT", kActEquipNew), button(again.c_str(), kActOpenCase),
+            again = "OPEN ANOTHER (" + std::to_string(g_case.knife ? g_inv.knifeCases : g_inv.cases) + " LEFT)";
+            return {button("EQUIP IT", kActEquipNew), button(again.c_str(), g_case.knife ? kActOpenKnifeCase : kActOpenCase),
                     button("BACK TO INVENTORY", goTo(kMenuInventory))};
         }
         default: return {};
@@ -5602,7 +5614,7 @@ Stage showcaseStage(const Config& cfg, int w, int h) {
         st.y = 40.0f * fs;
         st.w = float(w) - st.x - 24.0f * fs;
         st.h = float(h) - st.y - 70.0f * fs;
-        const int row = g_menu.sel - 1;  // row 0 opens a case; then one per weapon
+        const int row = g_menu.sel - 2;  // rows 0 and 1 open a case and a knife case; then one per weapon
         if (row >= 0 && row < kInvRows) {
             const SkinChoice& ch = g_choices[row];
             st.show = true;
@@ -5665,7 +5677,7 @@ void drawCaseHud(HudBatch& hud, int w, int h, int s) {
         hud.rect(x, cy - cardH * 0.5f, cardW, cardH, won ? 0x262B34FF : 0x181B21FF);
         hud.rect(x, cy + cardH * 0.5f - 6.0f * fs, cardW, 6.0f * fs, rc);
         hud.rect(x, cy - cardH * 0.5f, cardW, cardH * 0.55f, (rc & 0xFFFFFF00u) | 0x30);  // a wash of its colour
-        if (sk.rarity == kRareSpecial && !won) {  // the gold: which knife stays a secret until it lands
+        if (sk.rarity == kRareSpecial && !won && !g_case.knife) {  // the gold: which knife stays a secret until it lands
             hud.text(x + 8.0f * fs, cy - 18.0f * fs, "RARE", rc);
             hud.text(x + 8.0f * fs, cy - 6.0f * fs, "SPECIAL ITEM", rc);
         } else {
@@ -5755,10 +5767,11 @@ void drawMenuExtras(HudBatch& hud, const Config& cfg, int w, int h, int s) {
     const Stage st = showcaseStage(cfg, w, h);
     if (g_menu.screen == kMenuInventory || st.show) drawStageHud(hud, st, s);
     if (g_menu.screen == kMenuInventory) {
-        char line[120];
-        std::snprintf(line, sizeof(line), "CASES %d   NEXT CASE IN %d KILLS (DEATHMATCH, RETAKES, COMPETITIVE, ONLINE)",
-                      g_inv.cases, std::max(1, g_caseKills) - g_inv.progress);
+        char line[160];
+        std::snprintf(line, sizeof(line), "CASES %d   NEXT CASE IN %d KILLS   KNIFE CASES %d   NEXT IN %d KILLS",
+                      g_inv.cases, std::max(1, g_caseKills) - g_inv.progress, g_inv.knifeCases, kKillsPerKnifeCase - g_inv.knifeProgress);
         hud.text(st.x + 12.0f * float(s), st.y + 10.0f * float(s), line, 0xFFD060FF);
+        hud.text(st.x + 12.0f * float(s), st.y + 22.0f * float(s), "(KILLS IN DEATHMATCH, RETAKES, COMPETITIVE, ONLINE)", 0xB09050FF);
         if (!st.show) {
             const char* t = "PICK A WEAPON ON THE LEFT, LEFT / RIGHT FOR ITS SKINS";
             hud.text(st.x + st.w * 0.5f - hud.textWidth(t) * 0.5f, st.y + st.h * 0.5f, t, 0x808080FF);
@@ -6614,17 +6627,19 @@ int main(int argc, char** argv) {
         g_career.load(opt.careerFile);
     }
     g_inv.load(g_invPath);
+    if (automated) g_invPath.clear();  // (screenshots and benches show your skins but never save over them)
     g_caseKills = std::clamp(cfg.case_kills, 1, 1000);
     g_allSkins = cfg.all_skins != 0;
     g_caseRng ^= uint32_t(SDL_GetPerformanceCounter()) | 1u;
     for (int k = 0; k < opt.giveCases; ++k) g_inv.addKill(1);  // (tests: --give-cases N)
+    g_inv.knifeCases += opt.giveKnifeCases;                   // (tests: --give-knife-cases N)
     if (!opt.skin.empty() && findSkin(opt.skin) >= 0) {  // (screenshots: that skin, owned and on, its row highlighted)
         g_invPath.clear();  // (never saved over your inventory)
         const int idx = findSkin(opt.skin), w = allSkins()[size_t(idx)].weapon;
         g_inv.items.push_back({idx, 0.02f});
         g_inv.equip[w] = {idx, 0.02f};
         for (int r = 0; r < kInvRows; ++r)
-            if (kInvWeapons[r] == w) opt.menuRow = r + 1;
+            if (kInvWeapons[r] == w) opt.menuRow = r + 2;
     }
     validateEquips(g);
     g.mode = cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
@@ -6860,6 +6875,15 @@ int main(int argc, char** argv) {
                 }
                 break;
             case kActSkipCase: g_case.start = g_uiTime - kCaseSpin; break;
+            case kActOpenKnifeCase:
+                if (startCase(true)) {
+                    setMenu(kMenuCase);
+                } else {
+                    char msg[80];
+                    std::snprintf(msg, sizeof(msg), "NO KNIFE CASES YET: %d MORE KILLS FOR ONE", kKillsPerKnifeCase - g_inv.knifeProgress);
+                    pushHitLog(g, msg, 0xffd060);
+                }
+                break;
             case kActEquipNew:
                 if (g_case.item >= 0 && size_t(g_case.item) < g_inv.items.size()) {
                     const Item& it2 = g_inv.items[size_t(g_case.item)];
@@ -7627,7 +7651,7 @@ int main(int argc, char** argv) {
         if (automated && opt.bots && frame == 1) g.botsFire = true;
         if (automated && opt.menuScreen > 0 && frame == 60) {
             g_menu.root = opt.menuScreen == kMenuMain ? kMenuMain : kMenuPause;
-            if (opt.menuScreen == kMenuCase) startCase();  // (needs --give-cases)
+            if (opt.menuScreen == kMenuCase) startCase(opt.giveKnifeCases > 0);  // (needs --give-cases / --give-knife-cases)
             setMenu(opt.menuScreen);
             g_menu.sel = opt.menuRow;
         }

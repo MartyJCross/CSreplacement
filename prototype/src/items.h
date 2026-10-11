@@ -81,19 +81,29 @@ struct Equipped {
 
 constexpr int kSlots = 14;  // one per WeaponId (items.cpp checks it against kWeaponCount)
 
+constexpr int kKillsPerKnifeCase = 100;  // a knife case (knives only) every 100 kills (owner, v0.27)
+
 struct Inventory {
     std::vector<Item> items;
     int cases = 0;
     int progress = 0;          // kills towards the next case
+    int knifeCases = 0;        // knife cases (every kKillsPerKnifeCase kills): a knife, any type, any finish
+    int knifeProgress = 0;     // kills towards the next knife case
     Equipped equip[kSlots];    // by WeaponId; knives sit in kWKnife's slot
     // A kill (in a mode that counts): true if it just earned a case.
     bool addKill(int killsPerCase);
     // Opens a case: the item rolled (also added to items), or -1 with no case left.
     int open(uint32_t& rng);
+    // A kill towards a knife case: true if it just earned one.
+    bool addKnifeKill(int killsPerKnifeCase = kKillsPerKnifeCase);
+    // Opens a knife case: the knife rolled (also added to items), or -1 with none left.
+    int openKnife(uint32_t& rng);
     bool save(const std::string& path) const;
     bool load(const std::string& path);  // false if there's no file (a fresh inventory)
 };
 
 // One roll of the case: rarity by the odds, then a skin of that rarity, then its wear.
 Item rollCase(uint32_t& rng);
+// One roll of a knife case: any knife skin, evenly, then its wear.
+Item rollKnifeCase(uint32_t& rng);
 float rollUnit(uint32_t& rng);  // 0..1, xorshift
