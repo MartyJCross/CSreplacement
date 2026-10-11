@@ -4696,10 +4696,15 @@ enum MenuScreen {
     kMenuInventory, kMenuCase,
     kMenuStats,  // your career: rating, totals, recent matches
     kMenuLobby,  // online: friends gather here before the host starts the game
+    kMenuSetup,  // PLAY: the chosen mode's map and options, then START
+    kMenuOnline, // ONLINE: your name, host a game, join one
+    kMenuSound,  // a settings page (after the others so the numbers above stay put)
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
                   kActReplay, kActLobbyTeam, kActLobbyStart, kActInfo,  // kActInfo: a line of text (does nothing)
-                  kActOpenCase, kActSkipCase, kActEquipNew, kActGoto = 100 };
+                  kActOpenCase, kActSkipCase, kActEquipNew,
+                  kActPickMode = 50,  // + a mode: the PLAY screen's choice, on to its setup
+                  kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
 
 // Which screen is up (kMenuNone = playing), the highlighted row, and where Back ends up:
@@ -4736,7 +4741,16 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR"};
-const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE 5V5", "PREFIRE", "ONLINE"};
+const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE"};
+// The PLAY screen: the modes in the order they're offered, and a line about each (shown under the menu).
+const int kPlayModes[] = {3, 1, 2, 4, 0};
+const char* const kModeAbout[] = {
+    "THE LAB OR A MAP: A SHOOTING RANGE, PEEK BOTS AND AN AIM DRILL",
+    "EVERYONE FOR THEMSELVES: RESPAWN, 10 ROUNDS AND 40 HP A KILL",
+    "THE BOMB IS DOWN: RETAKE THE SITE BEFORE IT GOES OFF",
+    "5 V 5 WITH BOTS: BUY, PLANT, DEFUSE, FIRST TO 13 ROUNDS",
+    "WALK A ROUTE: BOTS ON EVERY COMMON ANGLE, BEAT YOUR TIME",
+};
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
@@ -4757,11 +4771,11 @@ LobbyState g_lobby;
 int g_lobbyMapSel = 0;       // the host's MAP row
 const char* const kNetTeamNames[] = {"SPLIT BETWEEN THE SIDES", "ALL ON ONE SIDE VS BOTS"};
 const char* const kControls[][2] = {
-    {"W A S D", "MOVE"}, {"SPACE / WHEEL", "JUMP (HOLD TO BUNNY HOP)"}, {"CTRL", "CROUCH"}, {"SHIFT", "WALK"},
+    {"W A S D", "MOVE"}, {"SPACE", "JUMP"}, {"MOUSE WHEEL", "JUMP (SCROLL AS YOU LAND TO BUNNY HOP)"}, {"CTRL", "CROUCH"}, {"SHIFT", "WALK"},
     {"MOUSE 1", "FIRE / THROW"}, {"MOUSE 2", "SCOPE / LOB A GRENADE"}, {"R", "RELOAD"},
     {"1  2  3", "PRIMARY, PISTOL, KNIFE"}, {"4", "GRENADES (AGAIN: NEXT ONE)"}, {"G", "QUICK THROW"},
     {"Q", "LAST WEAPON"}, {"F", "INSPECT"}, {"B", "BUY MENU"}, {"Z", "CALL (TELL YOUR BOTS)"}, {"E", "PLANT / DEFUSE / PICK UP"}, {"TAB", "SCORES"},
-    {"V", "NOCLIP"}, {"C", "CLEAR BULLET HOLES"}, {"ALT + ENTER", "FULLSCREEN"}, {"ESC", "MENU"},
+    {"ALT + ENTER", "FULLSCREEN"}, {"ESC", "MENU"},
 };
 constexpr size_t kControlLines = sizeof(kControls) / sizeof(kControls[0]);
 
@@ -4775,12 +4789,15 @@ const char* menuTitle(int screen) {
         case kMenuMouse: return "MOUSE + VIEW";
         case kMenuCrosshair: return "CROSSHAIR + HUD";
         case kMenuWeapon: return "WEAPONS + SKINS";
-        case kMenuVideo: return "VIDEO + SOUND";
+        case kMenuVideo: return "VIDEO";
         case kMenuGameplay: return "GAMEPLAY";
         case kMenuInventory: return "INVENTORY";
         case kMenuCase: return "CASE";
         case kMenuStats: return "STATS";
         case kMenuLobby: return g_lobby.host ? "LOBBY - HOSTING" : "LOBBY";
+        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, 4)];
+        case kMenuOnline: return "PLAY ONLINE";
+        case kMenuSound: return "SOUND";
         default: return "";
     }
 }
@@ -4794,17 +4811,16 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
     const MenuItem back = button("BACK", kActBack);
     switch (screen) {
         case kMenuMain:
-            return {button("PLAY", goTo(kMenuPlay)), button("INVENTORY", goTo(kMenuInventory)),
-                    button("STATS", goTo(kMenuStats)), button("SETTINGS", goTo(kMenuSettings)), button("CONTROLS", goTo(kMenuControls)), button("QUIT", kActQuit)};
+            return {button("PLAY", goTo(kMenuPlay)), button("PLAY ONLINE", goTo(kMenuOnline)),
+                    button("INVENTORY", goTo(kMenuInventory)), button("STATS", goTo(kMenuStats)),
+                    button("SETTINGS", goTo(kMenuSettings)), button("QUIT", kActQuit)};
         case kMenuPause: {
-            std::vector<MenuItem> r = {button("RESUME", kActResume), button("CHANGE MODE OR MAP", goTo(kMenuPlay))};
+            std::vector<MenuItem> r = {button("RESUME", kActResume), button("NEW GAME", goTo(kMenuPlay))};
             if (mode == 0) r.push_back(button("RESET POSITION", kActReset));
             if (mode == 4) r.push_back(button("RESTART ROUTE", kActReset));
             if (g_replayAvailable) r.push_back(button(mode == 3 ? "WATCH REPLAY (FROM THIS ROUND)" : "WATCH REPLAY (LAST 2.5 MIN)", kActReplay));
-            r.insert(r.end(), {button("INVENTORY", goTo(kMenuInventory)), button("STATS", goTo(kMenuStats)),
-                               button("SETTINGS", goTo(kMenuSettings)),
-                               button("CONTROLS", goTo(kMenuControls)), button("MAIN MENU", kActMainMenu),
-                               button("QUIT", kActQuit)});
+            r.insert(r.end(), {button("INVENTORY", goTo(kMenuInventory)), button("SETTINGS", goTo(kMenuSettings)),
+                               button("MAIN MENU", kActMainMenu), button("QUIT", kActQuit)});
             return r;
         }
         case kMenuLobby: {  // who's here and on which team; the host sets the game up and starts it
@@ -4845,32 +4861,38 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
             r.push_back(button("LEAVE", kActMainMenu));
             return r;
         }
-        case kMenuPlay: {
+        case kMenuPlay: {  // pick a mode (its line shows under the menu), then set it up
+            std::vector<MenuItem> r;
+            for (int md : kPlayModes) r.push_back(button(kModeNames[md], kActPickMode + md));
+            r.push_back(back);
+            return r;
+        }
+        case kMenuSetup: {  // the mode's map first, then its options, then START
             const GameMenu& m = g_gameMenu;
-            std::vector<MenuItem> r = {{"MODE", nullptr, &g_gameMenu.mode, 1, 0, 5, kModeNames}};
-            if (m.mode == 5) {  // online: host, or join someone's game
-                MenuItem name{"YOUR NAME"};
-                name.text = &c.player_name;
-                r.push_back(name);
-                r.push_back({"GAME (WHEN YOU HOST)", nullptr, &c.net_game, 1, 0, 1, kNetGameNames});
-                if (c.net_game == 1) {
-                    r.push_back({"PLAYERS", nullptr, &c.net_teams, 1, 0, 1, kNetTeamNames});
-                    r.push_back({"TEAMMATES (PLAYERS + BOTS)", nullptr, &c.comp_mates, 1, 0, 4});
-                    r.push_back({"ENEMIES (PLAYERS + BOTS)", nullptr, &c.comp_enemies, 1, 1, 5});
-                    r.push_back({"YOUR TEAM'S BOTS", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
-                    r.push_back({"OTHER TEAM'S BOTS", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
-                    r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
-                    r.push_back({"FREEZE TIME (BUY), SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
-                }
-                r.push_back(button("HOST A GAME", kActHost));
-                MenuItem addr{"JOIN ADDRESS"};
-                addr.text = &c.net_address;
-                r.push_back(addr);
-                r.push_back(button("JOIN", kActJoin));
-                r.push_back({"PORT", nullptr, &c.net_port, 1, 1024, 65535});
-                r.push_back({"DUST SIZE (HOST'S IS USED)", nullptr, &c.dust_scale, 5, 50, 100});
-                r.push_back(back);
-                return r;
+            std::vector<MenuItem> r;
+            if (m.mode == 0) r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 2, kMapNames});
+            else {
+                if (g_gameMenu.map == 0) g_gameMenu.map = 1;
+                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 1, 2, kMapNames});
+            }
+            if (m.map == 1) r.push_back({"MAP SIZE (% OF REAL DUST2)", nullptr, &c.dust_scale, 5, 50, 100});
+            if (m.mode == 3) {
+                r.push_back({"TEAMMATES", nullptr, &c.comp_mates, 1, 0, 4});
+                r.push_back({"ENEMIES", nullptr, &c.comp_enemies, 1, 1, 5});
+                r.push_back({"TEAMMATE SKILL", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"ENEMY SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
+                r.push_back({"BUY TIME, SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
+            }
+            if (m.mode == 1) {
+                r.push_back({"BOTS", nullptr, &c.dm_bots, 1, 1, 16});
+                r.push_back({"MINUTES", nullptr, &c.dm_minutes, 1, 1, 30});
+                r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"BOTS FIGHT EACH OTHER", nullptr, &c.dm_bot_fights, 1, 0, 1, kOnOff});
+            }
+            if (m.mode == 2) {
+                r.push_back({"BOTS ON THE SITE", nullptr, &c.rt_bots, 1, 1, 6});
+                r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
             }
             if (m.mode == 4) {
                 static const char* routeNames[8];
@@ -4880,49 +4902,33 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({"BOTS SHOOT BACK", nullptr, &c.prefire_bots_shoot, 1, 0, 1, kOnOff});
             }
             if (m.mode == 0) {
-                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 2, kMapNames});
                 r.push_back({"BOTS SHOOT BACK", nullptr, &g_gameMenu.bots, 1, 0, 1, kOnOff});
+                if (m.bots) r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
                 if (m.map == 0) r.push_back({"AIM DRILL", nullptr, &g_gameMenu.drill, 1, 0, 1, kOnOff});
             }
-            if (m.mode == 1) {
-                r.push_back({"BOTS", nullptr, &c.dm_bots, 1, 1, 16});
-                r.push_back({"MINUTES", nullptr, &c.dm_minutes, 1, 1, 30});
-            }
-            if (m.mode == 2) r.push_back({"BOTS ON THE SITE", nullptr, &c.rt_bots, 1, 1, 6});
-            if (m.mode == 3) {
-                r.push_back({"TEAMMATES", nullptr, &c.comp_mates, 1, 0, 4});
-                r.push_back({"ENEMIES", nullptr, &c.comp_enemies, 1, 1, 5});
-                r.push_back({"TEAMMATE SKILL", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
-                r.push_back({"ENEMY SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
-                r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
-                r.push_back({"FREEZE TIME (BUY), SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
-            } else if (m.mode != 0 || m.bots) {
-                r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
-                r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
-            }
-            if (m.mode == 1) r.push_back({"BOTS FIGHT EACH OTHER", nullptr, &c.dm_bot_fights, 1, 0, 1, kOnOff});
-            if (m.mode != 0 && m.mode != 5) {  // the bot modes play on a town map: which one
-                if (g_gameMenu.map == 0) g_gameMenu.map = 1;
-                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 1, 2, kMapNames});
-            }
-            if ((m.mode != 0 || m.map >= 1) && m.map != 2) r.push_back({"DUST SIZE (% OF REAL)", nullptr, &c.dust_scale, 5, 50, 100});
             r.push_back(button("START", kActStart));
             r.push_back(back);
             return r;
         }
+        case kMenuOnline: {  // your name; host (you set the game up in your lobby) or join a friend
+            MenuItem name{"YOUR NAME"};
+            name.text = &c.player_name;
+            MenuItem addr{"FRIEND'S ADDRESS"};
+            addr.text = &c.net_address;
+            return {name, button("HOST A GAME", kActHost), addr, button("JOIN", kActJoin),
+                    {"PORT", nullptr, &c.net_port, 1, 1024, 65535}, back};
+        }
         case kMenuSettings:
             return {button("MOUSE + VIEW", goTo(kMenuMouse)), button("CROSSHAIR + HUD", goTo(kMenuCrosshair)),
-                    button("WEAPONS + SKINS", goTo(kMenuWeapon)), button("VIDEO + SOUND", goTo(kMenuVideo)),
-                    button("GAMEPLAY", goTo(kMenuGameplay)),
-                    button("RELOAD CONFIG.CFG", kActReload), back};
+                    button("WEAPONS + SKINS", goTo(kMenuWeapon)), button("VIDEO", goTo(kMenuVideo)),
+                    button("SOUND", goTo(kMenuSound)), button("GAMEPLAY", goTo(kMenuGameplay)),
+                    button("CONTROLS", goTo(kMenuControls)), back};
         case kMenuControls: return {back};
         case kMenuStats: return {back};
         case kMenuMouse:
             return {{"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
                     {"SCOPED SENSITIVITY RATIO", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
                     {"FOV (4:3, CS = 90)", &c.fov, nullptr, 1.0f, 60.0f, 120.0f},
-                    {"ZERO-LAG CAMERA", nullptr, &c.camera_extrapolate, 1, 0, 1, kOnOff},
-                    {"SMOOTH STAIRS", nullptr, &c.view_smooth_steps, 1, 0, 1, kOnOff},
                     {"SPRAY CAMERA SHAKE", nullptr, &c.view_shake, 1, 0, 1, kOnOff},
                     back};
         case kMenuCrosshair:
@@ -4942,25 +4948,26 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"SHOW VIEWMODEL", nullptr, &c.show_viewmodel, 1, 0, 1, kOnOff},
                     back};
         case kMenuVideo:
+            return {{"VISUAL STYLE", nullptr, &c.art_style, 1, 0, 1, kStyleNames},
+                    {"GRAPHICS PRESET", nullptr, &c.graphics_preset, 1, 0, 3, kPresetNames},
+                    {"SUN SHADOWS", nullptr, &c.shadows, 1, 0, 2, kShadowNames},
+                    {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
+                    {"POST-PROCESSING (RESTART)", nullptr, &c.post_fx, 1, 0, 1, kOnOff},
+                    {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
+                    {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
+                    {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
+                    {"SHOW FPS", nullptr, &c.show_fps, 1, 0, 1, kOnOff},
+                    back};
+        case kMenuSound:
             return {{"VOLUME", &c.volume, nullptr, 0.05f, 0.0f, 1.0f},
                     {"MENU MUSIC", &c.music_volume, nullptr, 0.05f, 0.0f, 1.0f},
                     {"AMBIENCE", &c.ambience_volume, nullptr, 0.05f, 0.0f, 1.0f},
                     {"HIT SOUND", nullptr, &c.hitsound, 1, 0, 1, kOnOff},
-                    {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
-                    {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
-                    {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
-                    {"VISUAL STYLE", nullptr, &c.art_style, 1, 0, 1, kStyleNames},
-                    {"GRAPHICS PRESET", nullptr, &c.graphics_preset, 1, 0, 3, kPresetNames},
-                    {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
-                    {"SUN SHADOWS", nullptr, &c.shadows, 1, 0, 2, kShadowNames},
-                    {"POST-PROCESSING (RESTART)", nullptr, &c.post_fx, 1, 0, 1, kOnOff},
                     back};
         case kMenuGameplay:
-            return {{"BUNNY HOP", nullptr, &c.bhop, 1, 0, 1, kOnOff},
+            return {{"AUTO BUNNY HOP (HOLD SPACE)", nullptr, &c.bhop, 1, 0, 1, kOnOff},
                     {"KILLCAM", nullptr, &c.killcam, 1, 0, 1, kOnOff},
-                    {"PLAYER MODEL SIZE (%)", nullptr, &c.model_scale, 5, 80, 150},
                     {"GRENADE TRAJECTORY", nullptr, &c.nade_preview, 1, 0, 2, kPreviewNames},
-                    {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
                     back};
         case kMenuInventory: {  // a row per weapon: the skins you own for it (left / right to change)
             static std::string caseLabel;
@@ -4971,7 +4978,6 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({kInvRowNames[k], nullptr, &ch.sel, 1, 0, float(std::max(0, int(ch.labels.size()) - 1)),
                              ch.labels.data()});
             }
-            r.push_back({"ALL SKINS UNLOCKED (TESTING)", nullptr, &c.all_skins, 1, 0, 1, kOnOff});
             r.push_back(back);
             return r;
         }
@@ -5068,7 +5074,8 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
         const float y = L.rowsY + float(k) * L.rowH;
         const bool sel = int(k) == g_menu.sel;
         if (sel) hud.rect(L.x - 6 * fs, y - 3 * fs, L.w + 12 * fs, L.rowH, 0x3A5F9AC0);
-        const uint32_t col = sel ? 0xFFFFFFFF : it.action == kActStart || it.action == kActLobbyStart ? 0x80FF80FF : 0xC8C8C8FF;
+        const bool go = it.action == kActStart || it.action == kActLobbyStart || it.action == kActHost || it.action == kActJoin;
+        const uint32_t col = sel ? 0xFFFFFFFF : go ? 0x80FF80FF : 0xC8C8C8FF;
         hud.text(L.x, y, it.name, col);
         std::string v;
         if (it.action >= kActGoto) {
@@ -5419,6 +5426,12 @@ void drawStatsPanel(HudBatch& hud, int w, int h, int s) {
 // Over the menu on the inventory and case screens: the reel, the stage and your case count.
 void drawMenuExtras(HudBatch& hud, const Config& cfg, int w, int h, int s) {
     if (g_menu.screen == kMenuStats) drawStatsPanel(hud, w, h, s);
+    if (g_menu.screen == kMenuPlay && g_menu.sel >= 0 && g_menu.sel < 5) {  // what the highlighted mode is
+        Config view = cfg;
+        const MenuLayout L = menuLayout(kMenuPlay, menuRows(kMenuPlay, view, 0).size(), w, h, s);
+        const char* about = kModeAbout[kPlayModes[g_menu.sel]];
+        hud.text(float(w) * 0.5f - hud.textWidth(about) * 0.5f, L.bottom + 18.0f * float(s), about, 0xD8D8D8FF);
+    }
     if (g_menu.screen != kMenuInventory && g_menu.screen != kMenuCase) return;
     if (g_menu.screen == kMenuCase) drawCaseHud(hud, w, h, s);
     const Stage st = showcaseStage(cfg, w, h);
@@ -5659,10 +5672,14 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
 
     // Top-left: performance + movement (under the radar when it's shown).
     float x = 12.0f * s, y = std::max(10.0f * s, radarBottom);
-    std::snprintf(buf, sizeof(buf), "FPS %4.0f   1%% LOW %4.0f   %.2f MS", st.avgFps, st.lowFps, st.avgMs);
-    hud.text(x, y, buf, 0xFFFFFFFF);
-    y += lh;
+    if (cfg.show_fps) {  // (Settings -> Video -> SHOW FPS)
+        std::snprintf(buf, sizeof(buf), "FPS %4.0f   1%% LOW %4.0f   %.2f MS", st.avgFps, st.lowFps, st.avgMs);
+        hud.text(x, y, buf, 0xFFFFFFFF);
+        y += lh;
+    }
+    const bool practice = g.mode == 0 && !g.online;  // the range: movement and accuracy readouts
     const WeaponState& ws = *g.weapon;
+    if (practice) {
     float speed = length2d(g.player.velocity);
     float threshold = rifleDef().maxSpeed * rifleDef().accurateSpeedFrac;
     float inacc = ws.def->canFire ? currentInaccuracy(ws, speed, g.player.onGround, g.player.ducked) : 0;
@@ -5689,6 +5706,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         hud.text(x, y, buf, 0xFFD060FF);
     }
     y += lh * 1.5f;
+    }
     if (g.botsFire) {
         if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES");
         else if (g.mode == 2 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "RETAKES   TAB SCORES");
@@ -5707,8 +5725,10 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             else std::snprintf(buf, sizeof(buf), "ONLINE   %d PLAYERS   PING %d MS   TAB SCORES", n, g.net.pingMs());
         }
         else std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
-        hud.text(x, y, buf, 0xFF8060FF);
-        y += lh;
+        if (practice || g.online) {  // (the other modes say it all in the top bar)
+            hud.text(x, y, buf, 0xFF8060FF);
+            y += lh;
+        }
         std::snprintf(buf, sizeof(buf), "HP %.0f", double(std::max(0.0f, g.hp)));
         hud.text(16.0f * s, float(h) - 24.0f * s, buf, g.hp > 30 ? 0xFFFFFFFF : 0xFF5050FF, s * 2);
         if (g.simTime < g.hurtUntil) hud.rect(0, 0, float(w), float(h), 0xC0000040);
@@ -6313,7 +6333,7 @@ int main(int argc, char** argv) {
     auto setMenu = [&](int screen) {
         if (screen == kMenuPlay) {  // the play screen starts from what's running now
             g_gameMenu.map = g.mapId == 1 ? 1 + townMap() : 0;
-            g_gameMenu.mode = g.online ? 5 : g.mode;
+            g_gameMenu.mode = g.online ? 3 : g.mode;
             g_gameMenu.bots = g.botsFire;
             g_gameMenu.drill = g.drill;
             g_gameMenu.route = g.pf.route;
@@ -6398,9 +6418,20 @@ int main(int argc, char** argv) {
             setMenu(kMenuMain);
         } else if (from == kMenuCase) {
             setMenu(kMenuInventory);
-        } else if (from >= kMenuMouse && from <= kMenuGameplay) {
+        } else if ((from >= kMenuMouse && from <= kMenuGameplay) || from == kMenuSound || from == kMenuControls) {
+            // back on the settings page you came from (the order SETTINGS lists them in)
+            const int order[] = {kMenuMouse, kMenuCrosshair, kMenuWeapon, kMenuVideo, kMenuSound, kMenuGameplay, kMenuControls};
             setMenu(kMenuSettings);
-            g_menu.sel = from - kMenuMouse;  // back on the page you came from
+            for (int k = 0; k < 7; ++k)
+                if (order[k] == from) g_menu.sel = k;
+        } else if (from == kMenuSetup) {
+            const int mode = g_gameMenu.mode;
+            setMenu(kMenuPlay);
+            for (int k = 0; k < 5; ++k)
+                if (kPlayModes[k] == mode) g_menu.sel = k;
+        } else if (from == kMenuOnline) {
+            setMenu(kMenuMain);
+            g_menu.sel = 1;
         } else if (from == kMenuPause) {
             setMenu(kMenuNone);
         } else if (from != kMenuMain) {
@@ -6539,7 +6570,15 @@ int main(int argc, char** argv) {
                 else g.net.sendTeamPick(uint8_t(1 - (g_lobby.team[std::max(0, g.net.myId())] & 1)));
                 break;
             case kActLobbyStart: startLobbyGame(); break;
-            default: if (it.action >= kActGoto) setMenu(it.action - kActGoto); break;
+            default:
+                if (it.action >= kActGoto) {
+                    setMenu(it.action - kActGoto);
+                } else if (it.action >= kActPickMode && it.action < kActPickMode + 5) {  // PLAY: that mode, set it up
+                    g_gameMenu.mode = it.action - kActPickMode;
+                    if (g_gameMenu.mode != 0 && g_gameMenu.map == 0) g_gameMenu.map = 1;
+                    setMenu(kMenuSetup);
+                }
+                break;
         }
     };
 
@@ -7148,7 +7187,7 @@ int main(int argc, char** argv) {
                             g.hudDirty = true;
                         }
                         else if (sc == SDL_SCANCODE_G) g.throwLatch = true;
-                        else if (sc == SDL_SCANCODE_V && !g.online) { g.noclip = !g.noclip; g.hudDirty = true; }
+                        else if (sc == SDL_SCANCODE_V && !g.online && g.mode == 0) { g.noclip = !g.noclip; g.hudDirty = true; }
                         else if (sc == SDL_SCANCODE_C) renderer.clearDecals();
                         // Map, mode, bots, drill, help, reset and config reload live in the Esc menu.
                     }

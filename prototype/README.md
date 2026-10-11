@@ -130,6 +130,20 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## v0.25: menus you can find your way round, scroll-wheel bhops
+
+- **Menus:** the main menu is PLAY, PLAY ONLINE, INVENTORY, STATS, SETTINGS, QUIT. PLAY lists the modes
+  (competitive, deathmatch, retakes, prefire, practice) with a line about the highlighted one; picking one opens its
+  setup - the map (and Dust's size), the mode's own options, START. PLAY ONLINE is your name, HOST A GAME (you set the
+  game up in your lobby), your friend's address and JOIN, and the port. SETTINGS: mouse + view, crosshair + HUD,
+  weapons + skins, video, sound, gameplay, controls. The pause menu offers NEW GAME.
+- **Testing options gone from the menus:** reload config, random spray spread, player model size, zero-lag camera,
+  smooth stairs, "all skins unlocked" (their config keys still work). Noclip (V) only in practice. The top-left speed /
+  spread / shots readouts show in practice only; the FPS counter is Settings -> Video -> SHOW FPS.
+- **Scroll-wheel bunny hops without auto-hop:** a jump within 47 ms of landing (6 ticks) is a hop and keeps your
+  speed (less a small landing penalty); a wheel notch just before landing waits 0.15 s for the ground. Holding Space
+  doesn't hop (that's the AUTO BUNNY HOP setting).
+
 ## v0.24: spawns off mid, the stylized look, detailed guns and players
 
 - **Spawns in their own area:** on both maps the T spawn is walled off from mid, with a short dog-leg path

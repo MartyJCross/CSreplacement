@@ -265,9 +265,13 @@ the sim. `loadMap` clears it all.
 DM/competitive matches vs bots → stats.txt; rating = Elo vs the bot level (easy 700 .. expert 1450), ranks RECRUIT ..
 GENERAL; career ADR counts competitive only.
 
-**Menus** (`MenuScreen`, `menuRows`, `drawMenu`, `menuUse`): main menu (PLAY, INVENTORY, STATS, SETTINGS, CONTROLS),
-pause menu (+ WATCH REPLAY), Play screen (mode, map, its options), settings pages (mouse, crosshair, weapons, video +
-sound, gameplay). Every change saves config.cfg.
+**Menus** (`MenuScreen`, `menuRows`, `drawMenu`, `menuUse`, `menuBack`; v0.25 restructure): main menu (PLAY, PLAY
+ONLINE, INVENTORY, STATS, SETTINGS, QUIT); PLAY = the modes (`kPlayModes`, `kModeAbout` line under the menu) ->
+`kMenuSetup` (map, size, the mode's options, START; `kActPickMode`); `kMenuOnline` (name, HOST A GAME -> lobby, address,
+JOIN, port); SETTINGS pages mouse, crosshair, weapons, video, sound (`kMenuSound`), gameplay, controls; pause menu
+(RESUME, NEW GAME, replay, inventory, settings, main menu). New screens are appended to the enum (`--menu N` numbers:
+15 setup, 16 online, 17 sound). No testing rows in the menus (owner); dev readouts only in practice; `show_fps`.
+Every change saves config.cfg.
 
 **v0.23 premium pass** (details in §8's checklist): sun shadows (render.cpp `buildShadows`, `kSunDir`), post pass
 (`setPost`/`endScene`/`setGrade`; MSAA lives in the offscreen buffers when `post_fx` is on), TrueType HUD font
