@@ -305,7 +305,7 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
 
-**IN PROGRESS: v0.24** (owner, 2026-10-11: spawns away from mid; "clean stylized" art direction chosen from three
+**Done in v0.24** (owner, 2026-10-11: spawns away from mid; "clean stylized" art direction chosen from three
 offered; more detail on the guns, especially the viewmodel). Pieces, each committed and pushed:
 - [x] 1. Spawns off mid: walls between T spawn and mid with a dog-leg "MID PATH" (Dust, Harbor), CT spawn behind a wall
       with side gaps (Dust) / split CT ramp (Harbor), spawn points moved; DM never spawns in mid (`pickDmSpawn`).
@@ -315,7 +315,8 @@ offered; more detail on the guns, especially the viewmodel). Pieces, each commit
       textures at 18%, rich shade (`sunLit` stylized branch), wall height gradient, saturation x1.18 / contrast x1.25
 - [x] 3. Viewmodel detail (fx.cpp): `addGripHand` / `addSupportHand` build fingers, trigger finger, thumb, cuff over
       each glove block; detail parts (kHole ports/vents/serrations, kGlass lenses, ribs, rails) in each gun's table
-- [ ] 4. Player models + held guns detail
+- [x] 4. Player models + held guns detail (main.cpp dummies loop: soles, pockets, holster, straps, radio, team
+      patches, elbow pads, helmet rim + NVG mount, beanie fold, all inside the hitboxes; held guns: v0.23.6 gunModel)
 
 **Done in v0.23: the "premium pass"** (owner asked for all of it, 2026-10-09; done in pieces, each committed and
 pushed; light testing, no benches while they used the PC: **the FPS cost of shadows + post pass is not measured yet on

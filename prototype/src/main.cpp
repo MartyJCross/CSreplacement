@@ -7481,12 +7481,18 @@ int main(int argc, char** argv) {
                     part({-3.6f + dx, y0, 6.0f + tuck}, {3.6f + dx, y1, 34.0f}, hit(pants, kLegs));
                     part({-3.6f + dx, y0 - 0.2f, tuck}, {3.6f + dx, y1 + 0.2f, 6.0f + tuck}, hit(boot, kLegs));
                     part({-4.0f + dx, y0 + 1.0f, 16.0f + tuck * 0.5f}, {-3.4f + dx, y1 - 1.0f, 21.0f + tuck * 0.5f}, hit(gear, kLegs));  // knee pad
+                    part({-3.9f + dx, y0 - 0.3f, tuck}, {3.9f + dx, y1 + 0.3f, 1.0f + tuck}, hit(0x0e0d0c, kLegs));  // sole
+                    const float outer = side < 0 ? y0 : y1;  // a cargo pocket on the outside of the thigh
+                    part({-2.0f + dx, side < 0 ? outer - 0.3f : outer, 22.0f}, {2.0f + dx, side < 0 ? outer : outer + 0.3f, 28.5f},
+                         hit(lerpColor(pants, 0x000000, 0.18f), kLegs));
                 }
                 // Hips and belt, then the shirt.
                 part({-5.6f, -8.6f, 34.0f}, {5.6f, 8.6f, 38.5f}, hit(pants, kStomach));
                 part({-5.9f, -8.8f, 38.5f}, {5.9f, 8.8f, 40.5f}, hit(0x2b2117, kStomach));
                 part({-6.0f, -1.3f, 38.7f}, {-5.8f, 1.3f, 40.3f}, hit(0x9a9a8a, kStomach));  // buckle
                 part({-5.6f, -8.4f, 40.5f}, {5.6f, 8.4f, 46.0f}, hit(shirt, kStomach));
+                part({-1.6f, -9.0f, 34.5f}, {1.8f, -8.7f, 40.0f}, hit(gear, kStomach));  // holster on the right hip
+                part({-1.0f, 8.7f, 36.0f}, {2.2f, 9.0f, 40.2f}, hit(gear, kStomach));    // a pouch on the left
                 // Chest: the shirt, a vest with pouches, shoulder pads and a small pack on the back.
                 part({-5.8f, -9.6f, 46.0f}, {5.8f, 9.6f, 57.0f}, hit(shirt, kChest));
                 part({-6.4f, -8.6f, 46.5f}, {6.2f, 8.6f, 56.0f}, hit(vest, kChest));
@@ -7496,8 +7502,16 @@ int main(int argc, char** argv) {
                 part({-3.4f, 7.8f, 54.0f}, {3.4f, 10.0f, 58.0f}, hit(vest, kChest));
                 part({-2.6f, -3.6f, 56.0f}, {2.6f, 3.6f, 58.0f}, hit(shirt, kChest));  // collar
                 part({5.8f, -6.0f, 47.0f}, {6.5f, 6.0f, 56.0f}, hit(gear, kChest));    // pack
+                part({-6.45f, -6.4f, 51.0f}, {-6.3f, -5.4f, 56.5f}, hit(gear, kChest));   // vest straps
+                part({-6.45f, 5.4f, 51.0f}, {-6.3f, 6.4f, 56.5f}, hit(gear, kChest));
+                part({-6.5f, 3.4f, 52.0f}, {-6.25f, 5.2f, 55.4f}, hit(0x2a2c2e, kChest)); // radio
+                const uint32_t patch = isT ? 0xd8a640 : 0x5a8ee0;                        // team patches
+                part({-1.4f, -10.0f, 55.0f}, {1.4f, -9.85f, 56.8f}, hit(patch, kChest));
+                part({-1.4f, 9.85f, 55.0f}, {1.4f, 10.0f, 56.8f}, hit(patch, kChest));
                 // Arms: sleeves to the elbow, forearms, gloves on the gun (right at the grip, left on the handguard).
                 part({-6.0f, -12.8f, 50.0f}, {1.0f, -10.2f, 56.5f}, hit(shirt, kChest));
+                part({-6.6f, -13.1f, 49.6f}, {-5.2f, -10.1f, 52.0f}, hit(gear, kChest));  // elbow pads
+                part({-6.6f, 10.1f, 49.6f}, {-5.2f, 13.1f, 52.0f}, hit(gear, kChest));
                 part(Vec3{-12.0f, -13.2f, 45.5f} + armOff, Vec3{-6.0f, -10.4f, 50.5f} + armOff, hit(shirt, kChest));
                 part(Vec3{-13.0f, -13.4f, 45.5f} + armOff, Vec3{-10.0f, -10.2f, 49.5f} + armOff, hit(glove, kChest));
                 part({-6.0f, 10.2f, 50.0f}, {1.0f, 12.8f, 56.5f}, hit(shirt, kChest));
@@ -7510,11 +7524,15 @@ int main(int argc, char** argv) {
                     part({-4.5f, -2.4f, 63.4f}, {-4.45f, -1.2f, 64.2f}, hit(0x18120c, kHead));   // eyes
                     part({-4.5f, 1.2f, 63.4f}, {-4.45f, 2.4f, 64.2f}, hit(0x18120c, kHead));
                     part({-4.4f, -4.4f, 66.0f}, {4.4f, 4.4f, 69.0f}, hit(0x4a3a28, kHead));      // beanie
+                    part({-4.45f, -4.45f, 66.0f}, {4.45f, 4.45f, 66.9f}, hit(0x3c2f20, kHead));  // its fold
                 } else {
                     part({-4.2f, -4.0f, 59.2f}, {4.2f, 4.0f, 66.0f}, hit(skin, kHead));
                     part({-4.3f, -1.6f, 60.2f}, {-4.15f, 1.6f, 60.8f}, hit(0x7a4a3a, kHead));    // mouth
-                    if (!(d.lostHelmet && !d.alive()))
+                    if (!(d.lostHelmet && !d.alive())) {
                         part({-4.5f, -4.5f, 65.0f}, {4.5f, 4.5f, 69.0f}, hit(0x2c3a24, kHead));  // helmet
+                        part({-4.5f, -4.5f, 65.0f}, {4.5f, 4.5f, 65.6f}, hit(0x222c1c, kHead));  // its rim
+                        part({-4.5f, -1.0f, 66.2f}, {-4.3f, 1.0f, 67.8f}, hit(0x161616, kHead)); // night-vision mount
+                    }
                     part({-4.5f, -3.4f, 62.6f}, {-4.25f, 3.4f, 64.8f}, hit(0x14181e, kHead));    // goggles
                     part({-4.3f, -4.5f, 63.0f}, {4.3f, -4.25f, 64.4f}, hit(0x1a1a1a, kHead));    // the strap
                     part({-4.3f, 4.25f, 63.0f}, {4.3f, 4.5f, 64.4f}, hit(0x1a1a1a, kHead));

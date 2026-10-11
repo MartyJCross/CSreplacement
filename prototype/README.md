@@ -130,7 +130,7 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
-## v0.24 (in progress): spawns off mid, the stylized look, detailed guns
+## v0.24: spawns off mid, the stylized look, detailed guns and players
 
 - **Spawns in their own area:** on both maps the T spawn is walled off from mid, with a short dog-leg path
   ("MID PATH") to get there, and the CT spawn sits behind a wall out of the line through mid doors (Harbor's CT ramp
@@ -144,6 +144,8 @@ played never waits on the mixer.
   finger on the guard, thumbs and wrist cuffs; ejection ports, selector levers, rivets, gas blocks, cleaning rod,
   front-sight ears, mag ribs and floor plates, rail teeth, vents, slide serrations, scope lenses and turrets,
   cheek rest, thumbhole, barrel flutes, recoil pads.
+- **More detailed players** (all inside their hitboxes): boot soles, cargo pockets, a holster and pouch, vest straps,
+  a radio, team patches on the shoulders, elbow pads, a helmet rim and night-vision mount (CT), a beanie fold (T).
 
 ## v0.23.7
 
