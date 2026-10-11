@@ -136,6 +136,10 @@ played never waits on the mixer.
   ("MID PATH") to get there, and the CT spawn sits behind a wall out of the line through mid doors (Harbor's CT ramp
   splits round it). Nobody in mid can see any spawn point, and reaching mid from spawn is a run (at least ~530
   units, it was 170). Deathmatch never spawns you in mid.
+- **The clean stylized look** (Settings → Video + sound → VISUAL STYLE, `art_style` 1, the default; 0 = classic):
+  flat colour with only a hint of the surface textures, crisp dark outlines on every edge and silhouette (drawn by
+  the post pass from the world's depth, fading with distance), shade that stays rich and warm instead of grey, walls
+  that lighten as they rise, and a bolder colour grade. Needs post-processing on.
 
 ## v0.23.7
 

@@ -96,6 +96,7 @@ uniform vec3 uPA, uPB, uPC;
 uniform vec3 uPaintMisc;  // wear, gloss, seed
 uniform vec2 uPaintZ;     // the model's z range (back..front runs along it)
 uniform vec4 uFlash;      // the muzzle light: position, strength (0 = off)
+uniform int uStyle;       // 1 = the clean stylized look: flat colour (textures only a hint), soft height gradient
 // Sun shadows (Renderer::buildShadows): a depth map of the world seen from the sun, made once per map.
 uniform sampler2DShadow uShadow;
 uniform mat4 uShadowVP;
@@ -115,10 +116,13 @@ float sunVis(vec3 N) {
                                             texture(uShadow, s + vec3(-t, -t * 0.4, 0.0)) + texture(uShadow, s + vec3(t * 0.4, -t, 0.0))) * 0.16;
     return v * smoothstep(0.0, 0.12, ndl);
 }
-// Sun and shade: warm in the sun, cool and darker in the shade.
+// Sun and shade: warm in the sun, cool and darker in the shade. Stylized, the shade keeps its colour rich (deeper,
+// more saturated, a touch of blue) instead of going grey.
 vec3 sunLit(vec3 c, vec3 N) {
     if (uHasShadow == 0) return c;
-    return c * mix(vec3(0.66, 0.71, 0.82), vec3(1.06, 1.03, 0.97), sunVis(N));
+    float v = sunVis(N);
+    if (uStyle == 1) return mix(pow(max(c, vec3(0.0)), vec3(1.45)) * vec3(0.80, 0.80, 0.94), c * vec3(1.05, 1.03, 0.98), v);
+    return c * mix(vec3(0.66, 0.71, 0.82), vec3(1.06, 1.03, 0.97), v);
 }
 // A gunshot lights the walls near it (owner: not the floor): warm, fading to nothing at 420 units, brightest on
 // faces turned to it. Floors and ceilings (faces pointing up or down) get none.
@@ -316,12 +320,15 @@ void main() {
             float frame = 1.0 - smoothstep(3.0, 3.0 + fwidth(edge), edge);
             c *= (0.88 + 0.16 * rib) * (1.0 - 0.18 * frame);
         }
+        if (uStyle == 1) c = mix(vLit, c, 0.18);  // stylized: flat colour, the surface only a hint
         if (a <= 0.91) {  // crates, doors, containers: a bevelled edge that catches the light, a softer corner
             float rim = 1.0 - smoothstep(0.6, 0.6 + fwidth(edge) + 0.8, edge);
             c *= 1.0 + (top ? 0.20 : 0.12) * rim * near;
         }
     }
     c *= ao;
+    if (uStyle == 1 && !top)  // stylized: walls lighter as they rise (a soft sky-lit gradient), darker at the foot
+        c *= mix(0.86, 1.07, clamp((vWorld.z - uEye.z + 110.0) / 300.0, 0.0, 1.0));
     c = flashLit(sunLit(c, n));
     float d = length(vWorld - uEye);
     c = mix(c, vec3(0.80, 0.84, 0.87), clamp(d / 9000.0, 0.0, 0.30));  // haze: the horizon colour
@@ -373,7 +380,14 @@ uniform vec2 uPx;        // one pixel in uv
 uniform int uFxaa;
 uniform vec3 uTint;      // the grade: colour balance
 uniform vec3 uGrade;     // contrast, saturation, vignette strength
+uniform sampler2D uDepth;  // the world's depth (captured before the first-person gun is drawn)
+uniform float uOutline;    // stylized: outline strength (0 = none)
 out vec4 oColor;
+// Distance from the camera for a depth-buffer value (the world's projection: near 2, far 16384).
+float linearDepth(float d) {
+    const float n = 2.0, f = 16384.0;
+    return 2.0 * n * f / (f + n - (d * 2.0 - 1.0) * (f - n));
+}
 const vec3 kLuma = vec3(0.299, 0.587, 0.114);
 vec3 tap(vec2 uv) { return texture(uScene, uv).rgb; }
 // FXAA (the light version of Timothy Lottes' filter): blur along an edge, never across it.
@@ -394,6 +408,18 @@ vec3 fxaa(vec2 uv) {
 }
 void main() {
     vec3 c = uFxaa == 1 ? fxaa(vUV) : tap(vUV);
+    if (uOutline > 0.0) {
+        // Outlines (the stylized look): a dark line where the depth jumps (silhouettes, edges against what's
+        // behind) or bends (creases where walls meet floors), thinning out with distance.
+        float l = linearDepth(texture(uDepth, vUV).r);
+        float a = linearDepth(texture(uDepth, vUV + vec2(uPx.x, 0.0)).r), b = linearDepth(texture(uDepth, vUV - vec2(uPx.x, 0.0)).r);
+        float u = linearDepth(texture(uDepth, vUV + vec2(0.0, uPx.y)).r), d = linearDepth(texture(uDepth, vUV - vec2(0.0, uPx.y)).r);
+        float jump = max(max(abs(a - l), abs(b - l)), max(abs(u - l), abs(d - l))) / l;
+        float crease = max(abs(a + b - 2.0 * l), abs(u + d - 2.0 * l)) / l;
+        float e = max(smoothstep(0.035, 0.09, jump), smoothstep(0.006, 0.016, crease));
+        e *= uOutline * (1.0 - smoothstep(1800.0, 6000.0, l));
+        c = mix(c, c * 0.22, e);
+    }
     // Grade: colour balance, a gentle S-curve for contrast, saturation.
     c *= uTint;
     c = clamp(c, 0.0, 1.0);
@@ -692,8 +718,12 @@ bool Renderer::init(std::string& err) {
     uPostFxaa_ = glGetUniformLocation(postProgram_, "uFxaa");
     uPostTint_ = glGetUniformLocation(postProgram_, "uTint");
     uPostGrade_ = glGetUniformLocation(postProgram_, "uGrade");
+    uPostOutline_ = glGetUniformLocation(postProgram_, "uOutline");
+    uStyle_ = glGetUniformLocation(boxProgram_, "uStyle");
     glUseProgram(postProgram_);
     glUniform1i(glGetUniformLocation(postProgram_, "uScene"), 3);
+    glUniform1i(glGetUniformLocation(postProgram_, "uDepth"), 4);
+    glUniform1f(uPostOutline_, 0.0f);
     uSkyFwd_ = glGetUniformLocation(skyProgram_, "uFwd");
     uTex_ = glGetUniformLocation(boxProgram_, "uTex");
     uHasTex_ = glGetUniformLocation(boxProgram_, "uHasTex");
@@ -962,13 +992,33 @@ void Renderer::setPost(bool on, int msaa) {
 }
 
 void Renderer::setGrade(int look) {
-    // Per map: 0 the Lab (neutral), 1 Dust (warm, sun-baked), 2 Harbor (cooler, sea air).
+    // Per map: 0 the Lab (neutral), 1 Dust (warm, sun-baked), 2 Harbor (cooler, sea air). The stylized look is a
+    // bolder grade: more saturated, a little more contrast.
     static const float kTint[3][3] = {{1.0f, 1.0f, 1.0f}, {1.04f, 1.0f, 0.93f}, {0.97f, 1.0f, 1.04f}};
     static const float kGrade[3][3] = {{0.10f, 1.02f, 0.10f}, {0.22f, 1.10f, 0.20f}, {0.18f, 1.06f, 0.18f}};
-    look = std::clamp(look, 0, 2);
+    look_ = std::clamp(look, 0, 2);
+    const float sat = style_ == 1 ? 1.18f : 1.0f, con = style_ == 1 ? 1.25f : 1.0f;
     glUseProgram(postProgram_);
-    glUniform3f(uPostTint_, kTint[look][0], kTint[look][1], kTint[look][2]);
-    glUniform3f(uPostGrade_, kGrade[look][0], kGrade[look][1], kGrade[look][2]);
+    glUniform3f(uPostTint_, kTint[look_][0], kTint[look_][1], kTint[look_][2]);
+    glUniform3f(uPostGrade_, kGrade[look_][0] * con, kGrade[look_][1] * sat, kGrade[look_][2]);
+}
+
+void Renderer::setStyle(int style) {
+    style_ = style == 1 ? 1 : 0;
+    glUseProgram(boxProgram_);
+    glUniform1i(uStyle_, style_);
+    glUseProgram(postProgram_);
+    glUniform1f(uPostOutline_, style_ == 1 ? 0.85f : 0.0f);
+    setGrade(look_);
+}
+
+void Renderer::captureDepth() {
+    if (!inPost_ || depthCaptured_ || !depthFbo_) return;
+    depthCaptured_ = true;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, postFbo_);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, depthFbo_);
+    glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, postFbo_);
 }
 
 bool Renderer::makePostTargets(int w, int h) {
@@ -977,7 +1027,28 @@ bool Renderer::makePostTargets(int w, int h) {
     if (postColorRb_) glDeleteRenderbuffers(1, &postColorRb_);
     if (postDepthRb_) glDeleteRenderbuffers(1, &postDepthRb_);
     if (postTex_) glDeleteTextures(1, &postTex_);
-    postFbo_ = resolveFbo_ = postColorRb_ = postDepthRb_ = postTex_ = 0;
+    if (depthFbo_) glDeleteFramebuffers(1, &depthFbo_);
+    if (depthTex_) glDeleteTextures(1, &depthTex_);
+    postFbo_ = resolveFbo_ = postColorRb_ = postDepthRb_ = postTex_ = depthFbo_ = depthTex_ = 0;
+    // The world's depth for the outlines: copied here before the first-person gun clears it (captureDepth).
+    glGenTextures(1, &depthTex_);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, depthTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, w, h, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glActiveTexture(GL_TEXTURE0);
+    glGenFramebuffers(1, &depthFbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, depthFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depthTex_, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {  // (no outlines then)
+        glDeleteFramebuffers(1, &depthFbo_);
+        depthFbo_ = 0;
+    }
     // The picture the post pass reads: a plain texture (linear, for FXAA's in-between taps).
     glGenTextures(1, &postTex_);
     glActiveTexture(GL_TEXTURE3);
@@ -1019,6 +1090,7 @@ void Renderer::beginFrame(int width, int height) {
     width_ = width;
     height_ = height;
     inPost_ = false;
+    depthCaptured_ = false;
     if (postOn_ && width > 0 && height > 0) {
         if (postW_ != width || postH_ != height) {
             postW_ = width;
@@ -1162,11 +1234,13 @@ void Renderer::setFlash(const Vec3& pos, float strength) {
 }
 
 void Renderer::clearDepth() {
+    captureDepth();  // the world's depth, for the outlines, before the first-person gun clears it
     glDepthMask(GL_TRUE);
     glClear(GL_DEPTH_BUFFER_BIT);
 }
 
 void Renderer::endScene() {
+    captureDepth();  // (if the first-person gun didn't already)
     if (!inPost_) return;
     inPost_ = false;
     if (postMsaa_ > 0) {  // resolve the samples into the texture
@@ -1184,7 +1258,10 @@ void Renderer::endScene() {
     glUniform1i(uPostFxaa_, postMsaa_ == 0 ? 1 : 0);
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, postTex_);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, depthTex_);
     glActiveTexture(GL_TEXTURE0);
+    glUniform1f(uPostOutline_, style_ == 1 && depthFbo_ ? 0.85f : 0.0f);
     glBindVertexArray(skyVao_);  // (no vertex data: the triangle comes from gl_VertexID)
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);

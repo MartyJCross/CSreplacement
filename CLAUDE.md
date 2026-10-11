@@ -310,8 +310,9 @@ offered; more detail on the guns, especially the viewmodel). Pieces, each commit
 - [x] 1. Spawns off mid: walls between T spawn and mid with a dog-leg "MID PATH" (Dust, Harbor), CT spawn behind a wall
       with side gaps (Dust) / split CT ramp (Harbor), spawn points moved; DM never spawns in mid (`pickDmSpawn`).
       `testSpawnsOffMid`: no spawn seen from mid at any size, shortest run to mid > 500 real units (528)
-- [ ] 2. Clean stylized look (config toggle to compare): depth/normal outlines in the post pass, flat per-map
-      palettes, soft gradient lighting, textures toned down
+- [x] 2. Clean stylized look (`art_style`, `Renderer::setStyle`, `uStyle` in the box FS, `uOutline` in kPostFS):
+      outlines from depth jumps + creases (the world's depth copied by `captureDepth` before the viewmodel clears it),
+      textures at 18%, rich shade (`sunLit` stylized branch), wall height gradient, saturation x1.18 / contrast x1.25
 - [ ] 3. Viewmodel detail (fx.cpp weapon parts)
 - [ ] 4. Player models + held guns detail
 

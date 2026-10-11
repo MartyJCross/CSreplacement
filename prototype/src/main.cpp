@@ -4711,6 +4711,7 @@ bool g_replayAvailable = false;  // the pause menu offers WATCH REPLAY (somethin
 const char* const kOnOff[] = {"OFF", "ON"};
 const char* const kShadowNames[] = {"OFF", "ON", "SHARP"};
 const char* const kPresetNames[] = {"LOW", "MEDIUM", "HIGH", "CUSTOM"};
+const char* const kStyleNames[] = {"CLASSIC", "STYLIZED"};
 // Graphics presets: shadows, post_fx, msaa. LOW and MEDIUM smooth edges with FXAA (cheap on integrated graphics).
 struct GraphicsPreset { int shadows, post, msaa; };
 constexpr GraphicsPreset kPresets[3] = {{0, 1, 0}, {1, 1, 0}, {2, 1, 4}};
@@ -4948,6 +4949,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
                     {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
                     {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
+                    {"VISUAL STYLE", nullptr, &c.art_style, 1, 0, 1, kStyleNames},
                     {"GRAPHICS PRESET", nullptr, &c.graphics_preset, 1, 0, 3, kPresetNames},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
                     {"SUN SHADOWS", nullptr, &c.shadows, 1, 0, 2, kShadowNames},
@@ -6222,6 +6224,7 @@ int main(int argc, char** argv) {
     std::string err;
     if (!renderer.init(err)) return fatal(err, window, showErrors);
     renderer.setPost(cfg.post_fx != 0, std::clamp(cfg.msaa, 0, 8));
+    renderer.setStyle(cfg.art_style);
     {  // surface textures from assets/ (without them the world keeps its procedural surfaces)
         const char* basePath = SDL_GetBasePath();
         const int layers = renderer.loadTextures(std::string(basePath ? basePath : "") + "assets/textures");
@@ -6293,6 +6296,7 @@ int main(int argc, char** argv) {
         g_allSkins = cfg.all_skins != 0;
         if (setDustScale(float(cfg.dust_scale) / 100.0f) && g.mapId == 1) loadMap(g, renderer, 1);
         renderer.setShadowSize(shadowSize(cfg.shadows));
+        renderer.setStyle(cfg.art_style);
     };
     if (opt.spawnOverride) {
         float floorZ = g.mapId == 1 ? townGrid().floorAt(opt.spawnX, opt.spawnY) : 0.0f;

@@ -103,6 +103,9 @@ public:
     void setPost(bool on, int msaa);
     // The colour grade: 0 the Lab, 1 Dust, 2 Harbor.
     void setGrade(int look);
+    // The look: 0 classic (textured), 1 the clean stylized look (flat colour, soft gradients, outlines from the post
+    // pass, a bolder grade).
+    void setStyle(int style);
     // After the 3D passes, before the HUD: puts the post-processed scene on the screen (nothing when post is off).
     void endScene();
     // Uploads the HUD only when `changed` is true; otherwise redraws the last upload.
@@ -116,7 +119,11 @@ private:
     bool postOn_ = false, postOk_ = false, inPost_ = false;
     int postMsaa_ = 0, postW_ = 0, postH_ = 0;
     unsigned postFbo_ = 0, resolveFbo_ = 0, postColorRb_ = 0, postDepthRb_ = 0, postTex_ = 0;
-    int uPostPx_ = -1, uPostFxaa_ = -1, uPostTint_ = -1, uPostGrade_ = -1;
+    int uPostPx_ = -1, uPostFxaa_ = -1, uPostTint_ = -1, uPostGrade_ = -1, uPostOutline_ = -1, uStyle_ = -1;
+    int style_ = 0, look_ = 0;
+    unsigned depthFbo_ = 0, depthTex_ = 0;  // the world's depth, for the outlines
+    bool depthCaptured_ = false;
+    void captureDepth();
     bool makePostTargets(int w, int h);
     int uSkyFwd_ = -1, uSkyRight_ = -1, uSkyUp_ = -1;
     unsigned texArray_ = 0;
