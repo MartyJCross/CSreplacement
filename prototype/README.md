@@ -130,6 +130,12 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## v0.23.7
+
+- **Buy wheel icons:** half as big again, with panel lines in a second shade (ejection ports, handguard grooves,
+  mag ribs, scope lenses, suppressor rings), and a slightly bigger wheel to fit them. The kill feed keeps clean
+  silhouettes.
+
 ## v0.23.6
 
 - **New gun icons** (kill feed, buy wheel): hand-drawn CS-style silhouettes for every weapon - stocks, grips, curved

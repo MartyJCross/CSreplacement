@@ -677,8 +677,9 @@ void gunModel(int weapon, Part&& part) {
 
 // A gun's side view as a flat silhouette like CS's kill feed icons (kill feed, buy wheel): muzzle to the right,
 // `ht` pixels tall from the top at y. Each is drawn by hand on a 10-unit-tall grid from rectangles and slanted
-// four-cornered pieces (stocks, grips, curved mags). Returns its width.
-float drawGunIcon(HudBatch& hud, int weapon, float x, float y, float ht, uint32_t col) {
+// four-cornered pieces (stocks, grips, curved mags). With a `detail` colour (the buy wheel) the panel lines go over
+// it in that shade: ejection ports, grooves, seams, scope lenses. Returns its width.
+float drawGunIcon(HudBatch& hud, int weapon, float x, float y, float ht, uint32_t col, uint32_t detail = 0) {
     const float k = ht / 10.0f;
     float width = 0;
     auto R = [&](float px, float py, float w, float h) {
@@ -822,6 +823,101 @@ float drawGunIcon(HudBatch& hud, int weapon, float x, float y, float ht, uint32_
             R(35.4f, 1.5f, 0.8f, 1.6f);                                 // front sight
             R(38.0f, 2.8f, 2.0f, 1.5f);                                 // muzzle brake
             break;
+    }
+    if (detail) {  // panel lines, in the detail shade (never wider than the silhouette)
+        auto D = [&](float px, float py, float w, float h) {
+            hud.rect(x + px * k, y + py * k, std::max(1.0f, w * k), std::max(1.0f, h * k), detail);
+        };
+        switch (weapon) {
+            case kWPistol:
+                D(2.0f, 2.2f, 8.0f, 0.3f);  // slide serrations / seam
+                D(2.0f, 1.6f, 0.3f, 1.6f); D(2.8f, 1.6f, 0.3f, 1.6f); D(3.6f, 1.6f, 0.3f, 1.6f);
+                D(12.5f, 2.3f, 0.3f, 0.3f); D(14.5f, 2.3f, 7.0f, 0.3f);  // suppressor ring
+                D(1.6f, 5.0f, 2.2f, 0.3f); D(1.4f, 6.4f, 2.2f, 0.3f); D(1.2f, 7.8f, 2.2f, 0.3f);  // grip texture
+                break;
+            case kWDeagle:
+                D(2.0f, 2.2f, 12.0f, 0.3f);
+                D(2.0f, 1.2f, 0.3f, 2.2f); D(2.8f, 1.2f, 0.3f, 2.2f); D(3.6f, 1.2f, 0.3f, 2.2f);
+                D(6.0f, 1.2f, 3.0f, 0.8f);  // ejection port
+                D(1.7f, 5.2f, 2.4f, 0.3f); D(1.5f, 6.6f, 2.4f, 0.3f); D(1.3f, 8.0f, 2.4f, 0.3f);
+                break;
+            case kWBerettas:
+                D(2.0f, 2.8f, 8.0f, 0.3f);
+                D(7.0f, 1.6f, 8.0f, 0.3f);
+                break;
+            case kWKnife:
+                D(0.8f, 4.9f, 5.4f, 0.4f);   // handle grip
+                D(9.0f, 4.7f, 9.0f, 0.3f);   // the blade's edge bevel
+                break;
+            case kWGrenade:
+                D(0.0f, 5.8f, 8.0f, 0.3f); D(0.0f, 7.2f, 8.0f, 0.3f);
+                D(2.6f, 4.6f, 0.3f, 3.8f); D(5.2f, 4.6f, 0.3f, 3.8f);
+                break;
+            case kWNova:
+                D(8.0f, 2.6f, 0.3f, 2.6f);   // stock to receiver
+                D(10.0f, 3.4f, 5.0f, 0.6f);  // loading port
+                D(22.0f, 4.4f, 0.3f, 1.4f); D(23.4f, 4.4f, 0.3f, 1.4f); D(24.8f, 4.4f, 0.3f, 1.4f); D(26.2f, 4.4f, 0.3f, 1.4f);
+                break;
+            case kWXm1014:
+                D(7.0f, 2.6f, 0.3f, 2.6f);
+                D(9.5f, 3.2f, 5.5f, 0.6f);
+                D(9.0f, 1.9f, 7.0f, 0.25f);
+                D(18.0f, 4.75f, 12.0f, 0.3f);
+                break;
+            case kWMac10:
+                D(5.0f, 2.6f, 9.0f, 0.3f);
+                D(5.0f, 4.4f, 9.0f, 0.3f);
+                D(10.5f, 3.0f, 3.0f, 0.8f);  // ejection port
+                D(6.9f, 7.0f, 1.6f, 0.3f); D(6.9f, 8.4f, 1.6f, 0.3f);
+                break;
+            case kWUmp45:
+                D(5.0f, 1.8f, 0.3f, 3.8f);
+                D(6.0f, 3.6f, 12.0f, 0.3f);
+                D(10.0f, 2.5f, 3.4f, 0.8f);
+                D(13.6f, 7.0f, 2.0f, 0.3f); D(13.8f, 8.4f, 2.0f, 0.3f);
+                D(6.2f, 1.3f, 11.6f, 0.2f);
+                break;
+            case kWGalil:
+                D(7.0f, 2.6f, 0.3f, 2.4f);
+                D(9.0f, 3.0f, 5.0f, 0.6f);
+                D(19.6f, 3.5f, 5.8f, 0.35f);  // handguard grooves
+                D(19.6f, 4.3f, 5.8f, 0.35f);
+                D(15.8f, 6.6f, 2.2f, 0.3f); D(16.4f, 8.0f, 2.2f, 0.3f);  // mag ribs
+                break;
+            case kWM4A1S:
+                D(9.0f, 2.4f, 0.3f, 3.0f);
+                D(12.0f, 3.2f, 5.0f, 0.6f);   // ejection port
+                D(9.2f, 1.9f, 10.6f, 0.2f);   // rail teeth
+                D(20.6f, 3.1f, 6.8f, 0.3f); D(20.6f, 4.1f, 6.8f, 0.3f);
+                D(32.0f, 2.6f, 0.3f, 2.0f); D(40.0f, 2.6f, 0.3f, 2.0f);  // suppressor rings
+                D(15.8f, 6.8f, 2.4f, 0.3f);
+                break;
+            case kWSniper:
+                D(9.0f, 2.8f, 0.3f, 2.6f);
+                D(11.0f, 3.4f, 6.0f, 0.5f);   // bolt
+                D(8.8f, 0.4f, 0.3f, 1.6f); D(21.0f, 0.4f, 0.3f, 1.6f);  // lens rims
+                D(10.4f, 1.1f, 9.0f, 0.3f);   // scope tube line
+                D(3.0f, 4.4f, 4.0f, 1.2f);    // the thumbhole
+                D(46.4f, 3.4f, 0.3f, 0.8f); D(47.2f, 3.4f, 0.3f, 0.8f);  // brake ports
+                break;
+            case kWSsg08:
+                D(8.0f, 3.0f, 0.3f, 2.2f);
+                D(10.0f, 3.6f, 5.0f, 0.4f);
+                D(8.6f, 0.9f, 0.3f, 1.4f); D(18.4f, 0.9f, 0.3f, 1.4f);
+                D(9.6f, 1.5f, 7.8f, 0.25f);
+                D(2.5f, 4.2f, 3.6f, 0.9f);    // skeleton stock cut-out
+                break;
+            default:  // AK-47
+                D(7.0f, 2.6f, 0.3f, 2.4f);    // stock to receiver
+                D(9.0f, 3.0f, 5.0f, 0.6f);    // ejection port
+                D(14.6f, 3.0f, 1.8f, 0.4f);   // safety lever
+                D(19.6f, 3.4f, 5.8f, 0.35f);  // handguard grooves
+                D(19.6f, 4.2f, 5.8f, 0.35f);
+                D(16.8f, 6.6f, 2.4f, 0.3f);   // mag ribs
+                D(17.4f, 8.0f, 2.4f, 0.3f);
+                D(1.6f, 4.4f, 4.4f, 0.3f);    // stock grain
+                break;
+        }
     }
     return width * k;
 }
@@ -4997,7 +5093,7 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
 constexpr int kBuyFullRifle = 100, kBuyFullSniper = 101, kBuyCentre = -1, kBuyNothing = -2;
 
 struct BuyWheel { float cx, cy, r0, r1; };
-BuyWheel buyWheel(int w, int h, int s) { return {float(w) * 0.5f, float(h) * 0.47f, 54.0f * float(s), 150.0f * float(s)}; }
+BuyWheel buyWheel(int w, int h, int s) { return {float(w) * 0.5f, float(h) * 0.47f, 58.0f * float(s), 172.0f * float(s)}; }
 
 int buySlotCount(const Game& g) {
     const bool comp = g.mode == 3 && g.mapId == 1;
@@ -5115,10 +5211,15 @@ void drawBuyWheel(HudBatch& hud, const Game& g, int w, int h, int s) {
         {
             static const int kCatIcon[7] = {kWDeagle, kWNova, kWMac10, kWRifle, kWSniper, -1, kWGrenade};
             const int icon = g.buyCategory == 0 ? kCatIcon[k % 7] : entries[size_t(k)].weapon;
-            if (icon >= 0) {
+            if (icon >= 0) {  // big, with its panel lines (fitted to the wedge: never wider than 100)
                 HudBatch probe;
-                const float iw = drawGunIcon(probe, icon, 0, 0, 9.0f * fs, 0);
-                drawGunIcon(hud, icon, lx - iw * 0.5f, ly - 30.0f * fs, 9.0f * fs, have ? 0x80C080FF : broke ? 0xA06060FF : 0xD8D8D8FF);
+                float ih = 22.0f * fs;
+                const float iw = drawGunIcon(probe, icon, 0, 0, ih, 0);
+                if (iw > 100.0f * fs) ih *= 100.0f * fs / iw;
+                const float fw = drawGunIcon(probe, icon, 0, 0, ih, 0);
+                const uint32_t body = have ? 0x9CD89CFF : broke ? 0xB07070FF : 0xE8E8E8FF;
+                const uint32_t lines = have ? 0x3E6A3EFF : broke ? 0x5A3030FF : 0x6A6E74FF;
+                drawGunIcon(hud, icon, lx - fw * 0.5f, ly - 20.0f * fs - ih, ih, body, lines);
             }
         }
         std::string name = g.buyCategory == 0 ? kBuyCategories[k] : entries[size_t(k)].name;
