@@ -58,7 +58,8 @@ prototype/
                           economy, bomb), KZ, HUD, menus, map loading, replays/killcam, stats, online glue (~8k lines)
     render.*, gl.*        OpenGL 3.3: everything is an instanced box (optionally yaw-rotated: yawBox) or a ModelDraw
                           (boxes under a matrix); HUD is one batch (TrueType font atlas); muzzle light uniform; static
-                          sun shadow map; post pass (FXAA, grade, vignette); tiny GL loader (+ fences, FBOs)
+                          sun shadow map; post pass (the window's picture copied, then FXAA, grade, vignette,
+                          outlines from the alpha channel's distance code); tiny GL loader (+ fences, FBOs)
     fx.*                  cosmetic only: first-person weapons/knives (weaponDraws), the inventory showcase, tracers,
                           particles, debris (helmets); DrawList (model draws that keep their buffers between frames)
     net.*                 online play: ENet host/join, relay through the host, state/fire/hit/death/name/grenade
@@ -282,7 +283,7 @@ JOIN, port); SETTINGS pages mouse, crosshair, weapons, video, sound (`kMenuSound
 Every change saves config.cfg.
 
 **v0.23 premium pass** (details in §8's checklist): sun shadows (render.cpp `buildShadows`, `kSunDir`), post pass
-(`setPost`/`endScene`/`setGrade`; MSAA lives in the offscreen buffers when `post_fx` is on), TrueType HUD font
+(`setPost`/`endScene`/`setGrade`; v0.25.4: the scene is drawn on the window, then copied for the post pass), TrueType HUD font
 (`loadFont`, assets/fonts, OFL), main-menu camera (`menuCamera`), fades (`drawFadeIn`), ambience + room echo (audio.cpp
 `ambienceBed`, `Reverb`, `setAmbience`/`setRoom`), stone footsteps (`Sfx::FootstepStone`), viewmodel spring sway /
 lean, graphics presets (`applyGraphicsPreset`).
@@ -294,7 +295,12 @@ laptop (1080p, MSAA 2, DM, 7 bots): ~200 FPS, GPU-bound (gpu ~2.8 ms, sim ~0.15 
 mode (`low_latency` 1: a GL fence after each swap, waited on before reading input; ~17% FPS for 1-2 frames less lag on
 the owner's laptop). Traces walk the broadphase along the trace (`World::forSweep`, v0.25.3): a long ray on Dust
 ~2.3 us (was ~4.6; brute force ~8; `testDustBroadphase` prints it). Measure with `--bench 10` / `--bench-raw 10`
-before and after rendering changes. Not tried yet (needs a bench): `drawModel`/`uploadDynamic` orphan the whole
+before and after rendering changes. **The owner's AMD iGPU (driver 27.20.14028) is slow at offscreen rendering**
+(v0.25.4, measured at 1080p, DM on Dust): drawing the scene into an FBO cost 2.6 -> 4.7 ms of GPU (MSAA 4: 3.0 ->
+8.9 ms), whatever the colour/depth format, and depth blits cost 2-4.5 ms. So the scene stays on the window and the
+post pass copies the colour (alpha carries the outline code): their settings (stylized, post, MSAA 4, sharp shadows)
+went 90 -> 137 FPS. The post pass still costs ~1.6 ms (copy + shader); the depth pre-pass gains nothing measurable
+there. Not tried yet (needs a bench): `drawModel`/`uploadDynamic` orphan the whole
 4096-box dynamic buffer (196 KB) on every model draw; orphaning only what's drawn might help the integrated GPU.
 
 **Online** (stages 1-3 done): listen host relays; every client simulates itself and sends its state each tick
@@ -326,7 +332,8 @@ offered; more detail on the guns, especially the viewmodel). Pieces, each commit
       with side gaps (Dust) / split CT ramp (Harbor), spawn points moved; DM never spawns in mid (`pickDmSpawn`).
       `testSpawnsOffMid`: no spawn seen from mid at any size, shortest run to mid > 500 real units (528)
 - [x] 2. Clean stylized look (`art_style`, `Renderer::setStyle`, `uStyle` in the box FS, `uOutline` in kPostFS):
-      outlines from depth jumps + creases (the world's depth copied by `captureDepth` before the viewmodel clears it),
+      outlines (v0.25.4: 1 px, just outside silhouettes, from `edgeCode` = log2 distance in the frame's alpha; the
+      gun writes 0 via `uNoEdge`; no creases; was 2 px black from a depth copy that cost the owner ~0.5-4.5 ms),
       textures at 18%, rich shade (`sunLit` stylized branch), wall height gradient, saturation x1.18 / contrast x1.25
 - [x] 3. Viewmodel detail (fx.cpp): `addGripHand` / `addSupportHand` build fingers, trigger finger, thumb, cuff over
       each glove block; detail parts (kHole ports/vents/serrations, kGlass lenses, ribs, rails) in each gun's table
@@ -338,8 +345,9 @@ pushed; light testing, no benches while they used the PC: **the FPS cost of shad
 their laptop**; next session with their OK, run `--bench 10` with presets LOW/MEDIUM/HIGH):
 - [x] 1. Sun shadows (`Renderer::buildShadows`: static depth map from `kSunDir` at map load, `sunVis`/`sunLit` in the
       box FS, config `shadows` 0/1/2 + menu row) and bevelled prop edges (wood/metal faces, box FS)
-- [x] 2. Post pass (`setPost`, `endScene`, `setGrade` per map in loadMap; kPostFS): scene into an FBO (MSAA samples
-      there, not on the window), then FXAA (when msaa 0) + colour grade + vignette; config `post_fx` (restart)
+- [x] 2. Post pass (`setPost`, `endScene`, `setGrade` per map in loadMap; kPostFS): the scene on the window, copied
+      (MSAA resolved) into `postTex_`, then FXAA (when the window has no MSAA) + colour grade + vignette; config
+      `post_fx` (live since v0.25.4; MSAA still needs a restart: it's the window's pixel format)
 - [x] 3. Real font (`Renderer::loadFont`, `g_ttf` in render.cpp): Rajdhani Bold (OFL, assets/fonts) baked by
       stb_truetype at scales 1,2,3,4,6,8,12 into a 2048 atlas; capitals as tall as the bitmap font's; lines with
       double spaces (padded columns) keep fixed cells; bitmap font.h is the fallback

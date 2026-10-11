@@ -98,9 +98,10 @@ public:
     void clearDepth();
     // Depth pre-pass for the world: each pixel is shaded once (on by default; off for comparison).
     void setDepthPrepass(bool on) { depthPrepass_ = on; }
-    // Post pass: the 3D scene goes into an offscreen picture (with `msaa` samples there instead of on the window),
-    // then onto the screen with FXAA (no MSAA), the colour grade and a vignette. Off: straight to the screen.
-    void setPost(bool on, int msaa);
+    // Post pass: the 3D scene is drawn on the window as usual, then copied (resolving its MSAA) and put back with
+    // FXAA (when the window has no MSAA), the colour grade, a vignette and the stylized outlines. Takes effect at
+    // once. (Drawing the scene into an offscreen picture instead cost the owner's AMD laptop half its FPS.)
+    void setPost(bool on);
     // The colour grade: 0 the Lab, 1 Dust, 2 Harbor.
     void setGrade(int look);
     // The look: 0 classic (textured), 1 the clean stylized look (flat colour, soft gradients, outlines from the post
@@ -115,15 +116,12 @@ public:
 
 private:
     unsigned boxProgram_ = 0, hudProgram_ = 0, depthProgram_ = 0, skyProgram_ = 0, skyVao_ = 0, postProgram_ = 0;
-    // Post pass (setPost/endScene).
-    bool postOn_ = false, postOk_ = false, inPost_ = false;
-    int postMsaa_ = 0, postW_ = 0, postH_ = 0;
-    unsigned postFbo_ = 0, resolveFbo_ = 0, postColorRb_ = 0, postDepthRb_ = 0, postTex_ = 0;
-    int uPostPx_ = -1, uPostFxaa_ = -1, uPostTint_ = -1, uPostGrade_ = -1, uPostOutline_ = -1, uStyle_ = -1;
+    // Post pass (setPost/endScene): the window's picture is copied into postTex_ (through copyFbo_).
+    bool postOn_ = false, postOk_ = false;
+    int postW_ = 0, postH_ = 0, windowSamples_ = 0;
+    unsigned copyFbo_ = 0, postTex_ = 0;
+    int uPostPx_ = -1, uPostFxaa_ = -1, uPostTint_ = -1, uPostGrade_ = -1, uPostOutline_ = -1, uStyle_ = -1, uNoEdge_ = -1;
     int style_ = 0, look_ = 0;
-    unsigned depthFbo_ = 0, depthTex_ = 0;  // the world's depth, for the outlines
-    bool depthCaptured_ = false;
-    void captureDepth();
     bool makePostTargets(int w, int h);
     int uSkyFwd_ = -1, uSkyRight_ = -1, uSkyUp_ = -1;
     unsigned texArray_ = 0;

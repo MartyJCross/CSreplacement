@@ -97,6 +97,7 @@ uniform vec3 uPaintMisc;  // wear, gloss, seed
 uniform vec2 uPaintZ;     // the model's z range (back..front runs along it)
 uniform vec4 uFlash;      // the muzzle light: position, strength (0 = off)
 uniform int uStyle;       // 1 = the clean stylized look: flat colour (textures only a hint), soft height gradient
+uniform int uNoEdge;      // 1 = the first-person gun and the showcase: never outlined; 2 = no post pass (alpha 1)
 // Sun shadows (Renderer::buildShadows): a depth map of the world seen from the sun, made once per map.
 uniform sampler2DShadow uShadow;
 uniform mat4 uShadowVP;
@@ -137,6 +138,12 @@ vec3 flashLit(vec3 c) {
     return c + (c * vec3(1.2, 0.85, 0.45) + vec3(0.16, 0.11, 0.04)) * k * facing;
 }
 out vec4 oColor;
+// Alpha carries how far the pixel is, for the post pass's outlines (it draws a line where this jumps): log2 of the
+// distance over 13 stops (2 .. 16384 units), 0 for what's never outlined.
+float edgeCode() {
+    if (uNoEdge != 0) return uNoEdge == 1 ? 0.0 : 1.0;
+    return clamp(log2(max(length(vWorld - uEye), 2.0) * 0.5) / 13.0, 0.01, 1.0);
+}
 float grid(vec2 p, float spacing) {
     vec2 g = abs(fract(p / spacing - 0.5) - 0.5) * spacing;
     vec2 w = fwidth(p) * 1.2;
@@ -219,7 +226,7 @@ vec3 skin(out float glow) {
     return mix(uPA, uPB, noise(uv * 0.4) * 0.18);  // solid, with a faint mottle
 }
 void main() {
-    if (vColor.a > 0.4 && vColor.a < 0.6) { oColor = vec4(vColor.rgb, 1.0); return; }  // emissive
+    if (vColor.a > 0.4 && vColor.a < 0.6) { oColor = vec4(vColor.rgb, edgeCode()); return; }  // emissive
     if (vColor.a > 0.2 && vColor.a < 0.3 && uPaint >= 0) {  // a skin-painted weapon part
         float glow;
         vec3 p = skin(glow);
@@ -242,7 +249,7 @@ void main() {
         c = mix(c, c * env * 1.7, g * 0.35);
         c += vec3(pow(max(dot(N, normalize(L + V)), 0.0), 48.0)) * g * 0.6;
         c += env * pow(1.0 - max(dot(N, V), 0.0), 4.0) * g * 0.25;
-        oColor = vec4(flashLit(sunLit(c, N)), 1.0);
+        oColor = vec4(flashLit(sunLit(c, N)), edgeCode());
         return;
     }
     vec3 n = vNormal;
@@ -332,7 +339,7 @@ void main() {
     c = flashLit(sunLit(c, n));
     float d = length(vWorld - uEye);
     c = mix(c, vec3(0.80, 0.84, 0.87), clamp(d / 9000.0, 0.0, 0.30));  // haze: the horizon colour
-    oColor = vec4(c, 1.0);
+    oColor = vec4(c, edgeCode());
 }
 )";
 
@@ -375,19 +382,15 @@ void main() {
 
 const char* kPostFS = R"(#version 330 core
 in vec2 vUV;
-uniform sampler2D uScene;
+uniform sampler2D uScene;  // the frame; alpha = how far each pixel is (the box shader's edgeCode, 0 = no outline)
 uniform vec2 uPx;        // one pixel in uv
 uniform int uFxaa;
 uniform vec3 uTint;      // the grade: colour balance
 uniform vec3 uGrade;     // contrast, saturation, vignette strength
-uniform sampler2D uDepth;  // the world's depth (captured before the first-person gun is drawn)
 uniform float uOutline;    // stylized: outline strength (0 = none)
 out vec4 oColor;
-// Distance from the camera for a depth-buffer value (the world's projection: near 2, far 16384).
-float linearDepth(float d) {
-    const float n = 2.0, f = 16384.0;
-    return 2.0 * n * f / (f + n - (d * 2.0 - 1.0) * (f - n));
-}
+// A neighbour's distance code (the gun's 0 counts as far: no line round it).
+float edge(vec2 uv) { float a = texture(uScene, uv).a; return a > 0.004 ? a : 1.0; }
 const vec3 kLuma = vec3(0.299, 0.587, 0.114);
 vec3 tap(vec2 uv) { return texture(uScene, uv).rgb; }
 // FXAA (the light version of Timothy Lottes' filter): blur along an edge, never across it.
@@ -409,16 +412,16 @@ vec3 fxaa(vec2 uv) {
 void main() {
     vec3 c = uFxaa == 1 ? fxaa(vUV) : tap(vUV);
     if (uOutline > 0.0) {
-        // Outlines (the stylized look): a dark line where the depth jumps (silhouettes, edges against what's
-        // behind) or bends (creases where walls meet floors), thinning out with distance.
-        float l = linearDepth(texture(uDepth, vUV).r);
-        float a = linearDepth(texture(uDepth, vUV + vec2(uPx.x, 0.0)).r), b = linearDepth(texture(uDepth, vUV - vec2(uPx.x, 0.0)).r);
-        float u = linearDepth(texture(uDepth, vUV + vec2(0.0, uPx.y)).r), d = linearDepth(texture(uDepth, vUV - vec2(0.0, uPx.y)).r);
-        float jump = max(max(abs(a - l), abs(b - l)), max(abs(u - l), abs(d - l))) / l;
-        float crease = max(abs(a + b - 2.0 * l), abs(u + d - 2.0 * l)) / l;
-        float e = max(smoothstep(0.035, 0.09, jump), smoothstep(0.006, 0.016, crease));
-        e *= uOutline * (1.0 - smoothstep(1800.0, 6000.0, l));
-        c = mix(c, c * 0.22, e);
+        // Outlines (the stylized look): a thin line just outside a silhouette, on the pixel next to something
+        // clearly nearer (6-15% of the distance and more), fading out far away. One pixel wide, not black.
+        float m = texture(uScene, vUV).a;
+        if (m > 0.004) {
+            float n = min(min(edge(vUV + vec2(uPx.x, 0.0)), edge(vUV - vec2(uPx.x, 0.0))),
+                          min(edge(vUV + vec2(0.0, uPx.y)), edge(vUV - vec2(0.0, uPx.y))));
+            float e = smoothstep(0.08, 0.20, (m - n) * 13.0);  // stops nearer
+            e *= uOutline * (1.0 - smoothstep(1800.0, 6000.0, 2.0 * exp2(n * 13.0)));
+            c = mix(c, c * 0.3, e);
+        }
     }
     // Grade: colour balance, a gentle S-curve for contrast, saturation.
     c *= uTint;
@@ -720,9 +723,9 @@ bool Renderer::init(std::string& err) {
     uPostGrade_ = glGetUniformLocation(postProgram_, "uGrade");
     uPostOutline_ = glGetUniformLocation(postProgram_, "uOutline");
     uStyle_ = glGetUniformLocation(boxProgram_, "uStyle");
+    uNoEdge_ = glGetUniformLocation(boxProgram_, "uNoEdge");
     glUseProgram(postProgram_);
     glUniform1i(glGetUniformLocation(postProgram_, "uScene"), 3);
-    glUniform1i(glGetUniformLocation(postProgram_, "uDepth"), 4);
     glUniform1f(uPostOutline_, 0.0f);
     uSkyFwd_ = glGetUniformLocation(skyProgram_, "uFwd");
     uTex_ = glGetUniformLocation(boxProgram_, "uTex");
@@ -983,12 +986,12 @@ void Renderer::addDecal(const BoxInstance& b) {
 
 void Renderer::clearDecals() { decalCount_ = 0; decalNext_ = 0; }
 
-void Renderer::setPost(bool on, int msaa) {
+void Renderer::setPost(bool on) {
     postOn_ = on;
-    GLint maxSamples = 0;
-    glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
-    postMsaa_ = std::clamp(msaa, 0, int(maxSamples));
-    postW_ = postH_ = 0;  // (re)made at the next frame's size
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    GLint samples = 0;
+    glGetIntegerv(GL_SAMPLES, &samples);  // the window's MSAA (FXAA smooths the edges when it has none)
+    windowSamples_ = samples;
 }
 
 void Renderer::setGrade(int look) {
@@ -1008,48 +1011,15 @@ void Renderer::setStyle(int style) {
     glUseProgram(boxProgram_);
     glUniform1i(uStyle_, style_);
     glUseProgram(postProgram_);
-    glUniform1f(uPostOutline_, style_ == 1 ? 0.85f : 0.0f);
+    glUniform1f(uPostOutline_, style_ == 1 ? 0.8f : 0.0f);
     setGrade(look_);
 }
 
-void Renderer::captureDepth() {
-    if (!inPost_ || depthCaptured_ || !depthFbo_) return;
-    depthCaptured_ = true;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, postFbo_);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, depthFbo_);
-    glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-    glBindFramebuffer(GL_FRAMEBUFFER, postFbo_);
-}
-
 bool Renderer::makePostTargets(int w, int h) {
-    if (postFbo_) glDeleteFramebuffers(1, &postFbo_);
-    if (resolveFbo_) glDeleteFramebuffers(1, &resolveFbo_);
-    if (postColorRb_) glDeleteRenderbuffers(1, &postColorRb_);
-    if (postDepthRb_) glDeleteRenderbuffers(1, &postDepthRb_);
+    if (copyFbo_) glDeleteFramebuffers(1, &copyFbo_);
     if (postTex_) glDeleteTextures(1, &postTex_);
-    if (depthFbo_) glDeleteFramebuffers(1, &depthFbo_);
-    if (depthTex_) glDeleteTextures(1, &depthTex_);
-    postFbo_ = resolveFbo_ = postColorRb_ = postDepthRb_ = postTex_ = depthFbo_ = depthTex_ = 0;
-    // The world's depth for the outlines: copied here before the first-person gun clears it (captureDepth).
-    glGenTextures(1, &depthTex_);
-    glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D, depthTex_);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, w, h, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glActiveTexture(GL_TEXTURE0);
-    glGenFramebuffers(1, &depthFbo_);
-    glBindFramebuffer(GL_FRAMEBUFFER, depthFbo_);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depthTex_, 0);
-    glDrawBuffer(GL_NONE);
-    glReadBuffer(GL_NONE);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {  // (no outlines then)
-        glDeleteFramebuffers(1, &depthFbo_);
-        depthFbo_ = 0;
-    }
-    // The picture the post pass reads: a plain texture (linear, for FXAA's in-between taps).
+    copyFbo_ = postTex_ = 0;
+    // The picture the post pass reads: a plain texture (linear, for FXAA's in-between taps; alpha = the outline code).
     glGenTextures(1, &postTex_);
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, postTex_);
@@ -1059,28 +1029,9 @@ bool Renderer::makePostTargets(int w, int h) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glActiveTexture(GL_TEXTURE0);
-    glGenFramebuffers(1, &postFbo_);
-    glBindFramebuffer(GL_FRAMEBUFFER, postFbo_);
-    glGenRenderbuffers(1, &postDepthRb_);
-    glBindRenderbuffer(GL_RENDERBUFFER, postDepthRb_);
-    if (postMsaa_ > 0) {  // MSAA: draw into multisampled buffers, resolve into the texture at the end
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, postMsaa_, GL_DEPTH24_STENCIL8, w, h);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, postDepthRb_);
-        glGenRenderbuffers(1, &postColorRb_);
-        glBindRenderbuffer(GL_RENDERBUFFER, postColorRb_);
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, postMsaa_, GL_RGBA8, w, h);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, postColorRb_);
-        glGenFramebuffers(1, &resolveFbo_);
-        glBindFramebuffer(GL_FRAMEBUFFER, resolveFbo_);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, postTex_, 0);
-        const bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-        glBindFramebuffer(GL_FRAMEBUFFER, postFbo_);
-        if (!ok) return false;
-    } else {
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, postDepthRb_);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, postTex_, 0);
-    }
+    glGenFramebuffers(1, &copyFbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, copyFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, postTex_, 0);
     const bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return ok;
@@ -1089,20 +1040,14 @@ bool Renderer::makePostTargets(int w, int h) {
 void Renderer::beginFrame(int width, int height) {
     width_ = width;
     height_ = height;
-    inPost_ = false;
-    depthCaptured_ = false;
-    if (postOn_ && width > 0 && height > 0) {
-        if (postW_ != width || postH_ != height) {
-            postW_ = width;
-            postH_ = height;
-            postOk_ = makePostTargets(width, height);
-            if (!postOk_) SDL_Log("post pass unavailable: drawing straight to the screen");
-        }
-        if (postOk_) {
-            glBindFramebuffer(GL_FRAMEBUFFER, postFbo_);
-            inPost_ = true;
-        }
+    if (postOn_ && width > 0 && height > 0 && (postW_ != width || postH_ != height)) {
+        postW_ = width;
+        postH_ = height;
+        postOk_ = makePostTargets(width, height);
+        if (!postOk_) SDL_Log("post pass unavailable: drawing straight to the screen");
     }
+    glUseProgram(boxProgram_);
+    glUniform1i(uNoEdge_, postOn_ && postOk_ ? 0 : 2);
     glViewport(0, 0, width, height);
     glClearColor(0.80f, 0.84f, 0.87f, 1.0f);
     glDepthMask(GL_TRUE);
@@ -1234,20 +1179,18 @@ void Renderer::setFlash(const Vec3& pos, float strength) {
 }
 
 void Renderer::clearDepth() {
-    captureDepth();  // the world's depth, for the outlines, before the first-person gun clears it
+    glUseProgram(boxProgram_);
+    glUniform1i(uNoEdge_, postOn_ && postOk_ ? 1 : 2);  // what's drawn from here on (the first-person gun): no outline
     glDepthMask(GL_TRUE);
     glClear(GL_DEPTH_BUFFER_BIT);
 }
 
 void Renderer::endScene() {
-    captureDepth();  // (if the first-person gun didn't already)
-    if (!inPost_) return;
-    inPost_ = false;
-    if (postMsaa_ > 0) {  // resolve the samples into the texture
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, postFbo_);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFbo_);
-        glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    }
+    if (!postOn_ || !postOk_ || postW_ != width_ || postH_ != height_) return;
+    // The window's picture (its MSAA resolved) into the texture, then back onto the window through the post shader.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copyFbo_);
+    glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width_, height_);
     glDisable(GL_DEPTH_TEST);
@@ -1255,13 +1198,11 @@ void Renderer::endScene() {
     glDisable(GL_BLEND);
     glUseProgram(postProgram_);
     glUniform2f(uPostPx_, 1.0f / float(width_), 1.0f / float(height_));
-    glUniform1i(uPostFxaa_, postMsaa_ == 0 ? 1 : 0);
+    glUniform1i(uPostFxaa_, windowSamples_ == 0 ? 1 : 0);
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, postTex_);
-    glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D, depthTex_);
     glActiveTexture(GL_TEXTURE0);
-    glUniform1f(uPostOutline_, style_ == 1 && depthFbo_ ? 0.85f : 0.0f);
+    glUniform1f(uPostOutline_, style_ == 1 ? 0.8f : 0.0f);
     glBindVertexArray(skyVao_);  // (no vertex data: the triangle comes from gl_VertexID)
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);
@@ -1324,6 +1265,7 @@ bool Renderer::screenshot(const std::string& path) {
     const size_t row = size_t(width_) * 4;
     for (int y = 0; y < height_; ++y)
         std::copy_n(&px[size_t(height_ - 1 - y) * row], row, &flipped[size_t(y) * row]);
+    for (size_t k = 3; k < flipped.size(); k += 4) flipped[k] = 255;  // (the window's alpha isn't transparency)
     SDL_Surface* s = SDL_CreateSurfaceFrom(width_, height_, SDL_PIXELFORMAT_RGBA32, flipped.data(), int(row));
     if (!s) return false;
     bool ok = SDL_SaveBMP(s, path.c_str());

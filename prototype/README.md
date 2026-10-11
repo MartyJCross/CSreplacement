@@ -117,6 +117,22 @@ They fly like CS:GO: thrown at 675 u/s (a lob is 30% of that) about 10° above w
 - **HE:** goes off 1.8 s after the throw: up to 98 damage, falling off to nothing at 350 units; walls stop it. It hurts you too.
 - **Molotov:** bursts where it lands into a 7 s fire, 10 damage every 0.25 s to anyone in it. A smoke puts it out, and a molotov thrown into a smoke fizzles.
 
+## Graphics
+
+Settings → Video:
+- **VISUAL STYLE** (`art_style`): STYLIZED (default) is flat colour with a hint of the surface textures, rich warm
+  shade, walls that lighten as they rise, and a thin dark line round silhouettes (needs post-processing); CLASSIC is
+  fully textured. Both cost the same.
+- **GRAPHICS PRESET** sets the next three together: LOW (no shadows, FXAA), MEDIUM (shadows, FXAA), HIGH (sharp
+  shadows, MSAA 4); changing one by hand makes it CUSTOM.
+- **SUN SHADOWS** (`shadows`): off, on, sharp.
+- **ANTI-ALIASING** (`msaa`, 0-8 samples): applies on restart, because the samples are part of the window itself
+  (Windows fixes a window's pixel format when it's created; changing it means making a new window and reloading
+  everything on the GPU). With `msaa 0` the post pass smooths edges with FXAA instead (cheaper).
+- **POST-PROCESSING** (`post_fx`, applies at once): the colour grade per map, a light vignette, the stylized
+  outlines, FXAA. It costs about 1.6 ms a frame on an integrated Radeon (1080p).
+- MUZZLE FLASH LIGHT, FPS CAP, LOW LATENCY MODE, SHOW FPS.
+
 ## Performance
 
 `crisp.exe --bench 10` runs 10 s at real speed and writes `bench.txt` (avg FPS, 1% low, time per frame part, GPU; it waits for the GPU every frame to time it). `--bench-raw 10` is the same without that wait, so frames queue like they do in play: use it to compare **low latency mode**. On the owner's Ryzen 7 4800H (integrated Radeon), 1080p deathmatch at 4x MSAA went from 126 to ~190 FPS average and 62 to ~130 1% low with:
@@ -235,7 +251,7 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 - **Arms holding the rifle** are part of the model and hitbox, and count as chest, like CS. The rifle itself isn't hittable.
 - **Competitive colours:** Ts in tan, CTs in blue; a green marker floats over your teammates.
 - **The models:** two legs that step as they walk, boots and knee pads, a belt with a buckle, a vest with pouches, shoulder pads and a small pack, sleeves and gloves on the gun. CTs wear a helmet with goggles; Ts a balaclava with an eye slit and a beanie. Every piece sits inside its hitbox, and a hit flashes the part you hit.
-- **Anti-aliasing** (`msaa`, Settings → Video, applies on restart) smooths edges so far-away players stop shimmering. With `msaa 0` and post-processing on, FXAA smooths them instead (cheaper).
+- **Anti-aliasing** (`msaa`, Settings → Video, applies on restart; see **Graphics**) smooths edges so far-away players stop shimmering. With `msaa 0` and post-processing on, FXAA smooths them instead (cheaper).
 
 ## Hit feedback
 

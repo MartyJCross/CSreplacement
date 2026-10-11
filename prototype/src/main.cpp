@@ -4973,7 +4973,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"GRAPHICS PRESET", nullptr, &c.graphics_preset, 1, 0, 3, kPresetNames},
                     {"SUN SHADOWS", nullptr, &c.shadows, 1, 0, 2, kShadowNames},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
-                    {"POST-PROCESSING (RESTART)", nullptr, &c.post_fx, 1, 0, 1, kOnOff},
+                    {"POST-PROCESSING", nullptr, &c.post_fx, 1, 0, 1, kOnOff},
                     {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
                     {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
                     {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
@@ -6229,8 +6229,10 @@ int main(int argc, char** argv) {
     // High pixel density: render at native resolution even with Windows display scaling (125%/150%).
     SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
-    // With the post pass the samples live in its offscreen picture, not on the window.
-    const int msaa = cfg.post_fx ? 0 : std::clamp(cfg.msaa, 0, 8);
+    // MSAA lives on the window (fixed when it's made: a change needs a restart). Its alpha carries the outline code
+    // for the post pass (Renderer::endScene).
+    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+    const int msaa = std::clamp(cfg.msaa, 0, 8);
     if (msaa > 0) {
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, msaa);
@@ -6264,7 +6266,7 @@ int main(int argc, char** argv) {
     Renderer renderer;
     std::string err;
     if (!renderer.init(err)) return fatal(err, window, showErrors);
-    renderer.setPost(cfg.post_fx != 0, std::clamp(cfg.msaa, 0, 8));
+    renderer.setPost(cfg.post_fx != 0);
     renderer.setStyle(cfg.art_style);
     {  // surface textures from assets/ (without them the world keeps its procedural surfaces)
         const char* basePath = SDL_GetBasePath();
@@ -6338,6 +6340,7 @@ int main(int argc, char** argv) {
         if (setDustScale(kDustSize) && g.mapId == 1) loadMap(g, renderer, 1);  // (back from an online game's size)
         renderer.setShadowSize(shadowSize(cfg.shadows));
         renderer.setStyle(cfg.art_style);
+        renderer.setPost(cfg.post_fx != 0);  // (right away; only MSAA waits for a restart)
     };
     if (opt.spawnOverride) {
         float floorZ = g.mapId == 1 ? townGrid().floorAt(opt.spawnX, opt.spawnY) : 0.0f;
@@ -6539,7 +6542,7 @@ int main(int argc, char** argv) {
                 for (int k = 0; k < 6; ++k)
                     if (kCrosshairColors[k] == (uint32_t(cfg.crosshair_r) << 16 | uint32_t(cfg.crosshair_g) << 8 | uint32_t(cfg.crosshair_b)))
                         g_crosshairPreset = k;
-                pushHitLog(g, "SETTINGS RESET TO DEFAULTS (ANTI-ALIASING AND POST-PROCESSING ON RESTART)", 0x80ff80);
+                pushHitLog(g, "SETTINGS RESET TO DEFAULTS (ANTI-ALIASING ON RESTART)", 0x80ff80);
                 break;
             case kActQuit: running = false; break;
             case kActOpenCase:

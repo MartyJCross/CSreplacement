@@ -45,7 +45,7 @@ struct Config {
     int art_style = 1;         // 1 = the clean stylized look (outlines, flat colour), 0 = classic textured
     int graphics_preset = 2;   // 0 low, 1 medium, 2 high (set shadows, post_fx, msaa together), 3 custom
     int shadows = 2;           // sun shadows: 0 off, 1 on (2048 map), 2 sharp (4096)
-    int post_fx = 1;           // 1 = post pass: colour grade, vignette, FXAA when msaa is 0 (applies on restart)
+    int post_fx = 1;           // 1 = post pass: colour grade, vignette, outlines, FXAA when msaa is 0
     int depth_prepass = 1;     // 1 = depth pre-pass (faster on most GPUs, identical image)
     int mode = 0;              // 0 practice, 1 deathmatch, 2 retakes, 3 competitive, 4 prefire (Play screen)
     int dm_bots = 10;          // deathmatch: number of bots

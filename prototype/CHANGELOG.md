@@ -3,6 +3,17 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.25.4: lighter outlines, a much cheaper post pass
+
+- **The stylized outlines are thinner and lighter:** one pixel, just outside an object's silhouette, a dark tint of
+  what's behind rather than black (they were two pixels of near-black, and lined every crease too).
+- **Post-processing costs far less:** on the owner's laptop (1080p, stylized, MSAA 4, sharp shadows) 90 -> 137 FPS.
+  The scene used to be drawn into an offscreen picture, which this AMD driver does at about half speed (and copying
+  its depth for the outlines cost more again); now it's drawn on the window as before and only copied for the
+  effects, and the outlines read a distance code the world shader writes into the picture's alpha. The stylized look
+  now costs the same as the classic one.
+- **POST-PROCESSING applies at once** (no restart). ANTI-ALIASING still needs one: the samples are part of the window.
+
 ## v0.25.3: maintenance
 
 - **Faster traces:** sight lines, bullets and sounds through walls test only the map cells the line crosses, not
