@@ -130,6 +130,13 @@ played never waits on the mixer.
 
 **Low latency mode** (`low_latency 1`, on by default; Settings → Video + sound): when the GPU is the bottleneck (your laptop), the driver queues finished frames, and every queued frame is mouse input read that much earlier. This waits for the GPU to finish the last frame before reading input, so the queue stays at one, like NVIDIA Reflex or AMD Anti-Lag. It costs some FPS for less lag: on the owner's laptop (720p, Dust, `--bench-raw 10`) 435 → 359 FPS average, 1% low 214 → 226, and the frames that were queued (about 1.7 ms of every frame spent blocked in swap) are gone. The lower your FPS, the more it saves. With vsync on it matters most.
 
+## v0.23.3
+
+- **Moving costs accuracy, always:** running, jumping and noscoping scatter your shots (the option to turn that off
+  is gone). Stop to shoot, like CS.
+- **Cheaper guns scatter a little standing still** (USP, Dual Berettas, Galil, MAC-10, UMP-45); the AK-47, M4A1-S,
+  AWP, SSG 08 and Deagle stay dead on.
+
 ## v0.23.2
 
 - **No glimpse of your respawn when you die:** the camera stays where you fell and sinks to the floor until the
@@ -439,7 +446,7 @@ Perfect hops keep 250 u/s, and good strafes build to 500+.
 - **Scoping in** eases the zoom over a few frames (instant out), with a soft "chk"; the scope has a dark lens edge and cross hairs that thicken into posts towards the rim.
 - **A heavier shot:** a bigger kick in the hands and a view thump.
 - **Movement:** half speed while scoped.
-- **No crosshair unscoped,** like CS. With **RANDOM MOVING SPREAD** on, a noscope is also inaccurate, like CS (AWP 4.5°, SSG 3°); off (the default) there's still no random spread.
+- **No crosshair unscoped,** like CS, and a noscope scatters (AWP 4.5°, SSG 3°).
 - **Scoped sensitivity** is scaled so flicks feel the same as unscoped (`zoom_sensitivity_ratio`, default 1).
 
 ## Zero-lag camera
@@ -456,7 +463,10 @@ Perfect hops keep 250 u/s, and good strafes build to 500+.
 
 **The one exception: shotguns.** You asked for random shotgun spread, so the Nova's and XM1014's pellets land at random inside their spread (each shot different; seeded by the shot, so a replay or a test gets the same one).
 
-For a CS-like comparison, set `spread_spray 1` (spread grows during a spray) and/or `spread_movement 1` (inaccurate while moving or in the air) in `config.cfg`, then use Settings → RELOAD CONFIG.CFG.
+**Spread (v0.23.3):** moving faster than about a third of the gun's top speed, jumping and noscoping always scatter
+your shots, like CS: stop (counter-strafe) to shoot. Standing still, the AK-47, M4A1-S, AWP, SSG 08 and Deagle go
+exactly where you aim; the cheaper guns scatter a little (USP 0.30°, Dual Berettas 0.40°, Galil 0.20°, MAC-10 0.55°,
+UMP-45 0.40°). Sprays follow the fixed recoil pattern; `spread_spray 1` adds CS-like spread that grows during a spray.
 
 ## Tuning numbers (CS:GO-like defaults)
 

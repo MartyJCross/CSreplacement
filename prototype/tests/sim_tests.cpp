@@ -344,16 +344,24 @@ void testWeapon() {
                 r.damage, r.kill);
     CHECK(r.dummyIndex == 0 && r.group == kHead && r.kill, "first shot standing still must headshot");
 
-    // Default: no random spread at all, even running or airborne.
-    WeaponState plain;
-    plain.def = &rifleDef();
-    plain.recoilIndex = 10;
-    CHECK(currentInaccuracy(plain, 215, false, false) == 0.0f, "spread must be off by default");
+    // Standing still (owner, v0.23.3): the AK, M4A1-S, Deagle and the scoped snipers are dead on, even mid-spray (the
+    // recoil pattern is fixed); the cheaper guns scatter a little.
+    for (int id = 0; id < kWeaponCount; ++id) {
+        const WeaponDef& def = weaponDef(id);
+        if (!def.canFire || def.pellets > 1) continue;
+        WeaponState still;
+        still.def = &def;
+        still.scoped = def.scope;
+        still.recoilIndex = 10;
+        const float spread = currentInaccuracy(still, 0, true, false);
+        const bool exact = id == kWRifle || id == kWM4A1S || id == kWDeagle || id == kWSniper || id == kWSsg08;
+        std::printf("  %-14s standing spread %.2f deg\n", def.name, double(spread));
+        CHECK(exact ? spread == 0.0f : spread > 0.1f && spread < 0.6f, "%s standing spread %.2f", def.name, double(spread));
+    }
 
-    // With movement spread enabled: running is inaccurate, counter-strafed is perfect.
+    // Moving: running is inaccurate, counter-strafed is perfect (always on: no option to turn it off).
     WeaponState moving;
     moving.def = &rifleDef();
-    moving.moveSpread = true;
     float inacc = currentInaccuracy(moving, 215, true, false);
     float accurate = currentInaccuracy(moving, 215 * 0.34f, true, false);
     std::printf("  spread: running %.2f deg, at accuracy threshold %.2f deg, airborne %.2f deg\n", inacc, accurate,
@@ -901,6 +909,7 @@ void testNewGuns() {
         std::vector<Vec3> pos{dd[0].pos};
         WeaponState ws;
         ws.def = &def;
+        ws.scoped = def.scope;  // (snipers scoped: a noscope scatters)
         ShotResult r = fireBullet(ws, {0, 0, 64}, 0, 0, 0, true, false, empty, dd, pos);
         dmg = r.dummyIndex == 0 && r.group == kHead ? r.damage : 0.0f;
         return r.kill;
@@ -985,6 +994,7 @@ void testNewGuns() {
         std::vector<Vec3> pos{dd[0].pos};
         WeaponState ws;
         ws.def = &def;
+        ws.scoped = def.scope;
         ShotResult r = fireBullet(ws, {0, 0, 50}, 0, 0, 0, true, false, empty, dd, pos);
         dmg = r.dummyIndex == 0 && r.group == kChest ? r.damage : 0.0f;
         return r.kill;
@@ -1036,6 +1046,7 @@ void testNewGuns() {
         for (const Dummy& x : dd) pos.push_back(x.pos);
         WeaponState ws;
         ws.def = &def;
+        ws.scoped = def.scope;
         const ShotResult r = fireBullet(ws, {0, 0, z}, 0, 0, 0, true, false, empty, dd, pos);
         hits = (r.dummyIndex >= 0 ? 1 : 0) + r.collats;
         kills = int(r.kill);
@@ -1052,18 +1063,16 @@ void testNewGuns() {
                 awpHits, awpKills, akHits, akKills, pistolHits);
     CHECK(awpKills >= 2 && akKills >= 2 && pistolHits == 1, "collats awp %d ak %d pistol %d", awpKills, akKills, pistolHits);
 
-    // Only the snipers scope; a noscope is only inaccurate with the moving-spread option on.
+    // Only the snipers scope; a noscope scatters, scoped and still is dead on.
     WeaponState awp;
     awp.def = &sniperDef();
-    const float exact = currentInaccuracy(awp, 0, true, false);
-    awp.moveSpread = true;
     const float noscope = currentInaccuracy(awp, 0, true, false);
     awp.scoped = true;
     const float scoped = currentInaccuracy(awp, 0, true, false);
     int scopes = 0;
     for (int id = 0; id < kWeaponCount; ++id) scopes += weaponDef(id).scope ? 1 : 0;
-    CHECK(exact == 0.0f && noscope > 3.0f && scoped == 0.0f && scopes == 2 && weaponDef(kWSsg08).scope,
-          "scope %.1f %.1f %.1f (%d scoped guns)", double(exact), double(noscope), double(scoped), scopes);
+    CHECK(noscope > 3.0f && scoped == 0.0f && scopes == 2 && weaponDef(kWSsg08).scope,
+          "scope %.1f %.1f (%d scoped guns)", double(noscope), double(scoped), scopes);
 }
 
 // Career: beating bots raises your rating (more for better bots), losing lowers it, and it all saves and loads.

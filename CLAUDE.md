@@ -80,7 +80,12 @@ prototype/
 ## 4. Golden rules (do not break these)
 
 1. **The simulation is deterministic and fixed at 128 ticks.** Movement, weapons and hit detection live in the shared sim code and run per tick (`kTickDt`). Never use frame time in gameplay logic. Cosmetics (`fx.*`, audio, camera, replays' playback) may use frame time.
-2. **The player's bullets have no randomness by default.** Shots go to crosshair + fixed recoil pattern (`spread_spray` / `spread_movement` config toggles exist). Bots may use randomness (`rnd(g)` in `main.cpp`), but the player's shots must not. **Owner's exception (v0.14):** shotgun pellets spread at random (seeded by `shotCounter`, so a given shot is reproducible: `pelletOffset`).
+2. **The player's spray is deterministic; spread only where the owner asked for it.** Shots go to crosshair + fixed
+   recoil pattern, plus (v0.23.3, owner) spread that is always on: moving above `accurateSpeedFrac`, airborne, noscoped
+   (`currentInaccuracy`; the `spread_movement` option was removed), and a small standing spread on the cheaper guns
+   only (`standingSpread`: USP, Berettas, Galil, MAC-10, UMP; the AK, M4A1-S, AWP, SSG 08 and Deagle are exact when
+   still). All of it is seeded by `shotCounter` (reproducible). `spread_spray` (random spray spread) stays an option,
+   off. Shotgun pellets spread at random (v0.14, `pelletOffset`). Bots use `rnd(g)` in `main.cpp`.
 3. **What you see is what you hit.** Shots test against the dummy positions and eye that were rendered on the frame you clicked (`lastDummyRenderPos`, `lastRenderEye`). Cosmetic parts of enemies must sit inside their hitboxes (and scale with them: `modelScale()`). Weapons held by enemies are the only exception, like CS.
 4. **Performance budget.** No per-frame heap allocations in hot paths (reuse vectors: `static`/member buffers), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
 5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). Revisit before anything is shared publicly; Harbor is Crisp's own map and is free to share.
@@ -163,7 +168,7 @@ pistol (suppressed USP-like), Dual Berettas, Deagle; knife; grenades.
   parts in fx.cpp (+ paintSpan, muzzle), a world model (the dummies loop `switch (d.weapon)`), a buy entry, skins + an
   inventory row (`kInvWeapons`), its sound (`gunshotPitch` + the shot branch), `items.h kSlots == kWeaponCount`.
 - Snipers (`WeaponDef::scope`): a shot drops the scope and it comes back (`resumeZoom`), the viewmodel cycles the bolt,
-  zoom eases in (`shownFov`), `Sfx::Zoom`; noscope spread only with `spread_movement`.
+  zoom eases in (`shownFov`), `Sfx::Zoom`; a noscope always scatters (`noscopeInaccuracy`).
 - Buy wheel (B; `drawBuyWheel`, `buySlotAt`, `buyPick`, `BuyCategory`: pistols, shotguns, SMGs, rifles, snipers, gear,
   grenades; full buys on 8 / 9: `fullBuy`). Competitive: in spawn during buy time for money; elsewhere free.
 - Armor `armoredDamage(dmg, group, armor, helmet, ratio)`; material wallbangs (wood ×0.5, metal ×1.5); **collats**

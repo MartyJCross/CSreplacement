@@ -42,10 +42,10 @@ viewmodel_offset_y 0
 viewmodel_offset_z 0
 viewmodel_bob 1
 show_viewmodel 1
-// Random bullet spread is OFF: bullets go exactly to crosshair + the fixed recoil pattern.
-// Set to 1 for CS-like random spread during sprays / while moving.
+// Spread: moving, jumping and noscoping always scatter your shots (stop to shoot, like CS); standing still the AK,
+// M4A1-S, AWP, SSG 08 and Deagle are dead on and the cheaper guns scatter a little. Sprays follow the fixed recoil
+// pattern; set spread_spray to 1 to add CS-like random spread that grows during a spray.
 spread_spray 0
-spread_movement 0
 // 1 = bunny hopping: hold jump (or spam the wheel) to hop on landing, no landing slowdown. 0 = like CS: time
 // each jump yourself, and landing costs a little speed.
 bhop 0
@@ -127,7 +127,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nviewmodel_offset_x " << c.viewmodel_offset_x << "\nviewmodel_offset_y " << c.viewmodel_offset_y
         << "\nviewmodel_offset_z " << c.viewmodel_offset_z << "\nviewmodel_bob " << c.viewmodel_bob
         << "\nshow_viewmodel " << c.show_viewmodel << "\nspread_spray " << c.spread_spray
-        << "\nspread_movement " << c.spread_movement << "\nbhop " << c.bhop
+        << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\ncase_kills " << c.case_kills << "\nall_skins " << c.all_skins << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
         << "\nmap " << c.map << "\ndust_scale " << c.dust_scale << "\nmsaa " << c.msaa << "\ngraphics_preset " << c.graphics_preset << "\nshadows " << c.shadows << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\nmode " << c.mode
@@ -200,7 +200,6 @@ Config loadConfig(const std::string& path) {
         else if (key == "viewmodel_bob") c.viewmodel_bob = v;
         else if (key == "show_viewmodel") i(c.show_viewmodel);
         else if (key == "spread_spray") i(c.spread_spray);
-        else if (key == "spread_movement") i(c.spread_movement);
         else if (key == "bhop") i(c.bhop);
         else if (key == "camera_extrapolate") i(c.camera_extrapolate);
         else if (key == "view_smooth_steps") i(c.view_smooth_steps);

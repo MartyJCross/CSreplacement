@@ -219,10 +219,20 @@ RecoilStep recoilAt(const WeaponDef& w, float index) {
     return sum;
 }
 
+float standingSpread(const WeaponDef& w) {
+    switch (w.id) {
+        case kWPistol: return 0.30f;
+        case kWBerettas: return 0.40f;
+        case kWGalil: return 0.20f;
+        case kWMac10: return 0.55f;
+        case kWUmp45: return 0.40f;
+        default: return 0.0f;  // AK-47, M4A1-S, AWP, SSG 08, Deagle: dead on; shotguns: their pellets
+    }
+}
+
 float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, bool ducked) {
     const WeaponDef& w = *ws.def;
-    float inacc = ws.spraySpread ? std::min(ws.recoilIndex, 8.0f) * w.sprayInaccuracy : 0.0f;
-    if (!ws.moveSpread) return inacc;
+    float inacc = standingSpread(w) + (ws.spraySpread ? std::min(ws.recoilIndex, 8.0f) * w.sprayInaccuracy : 0.0f);
     float threshold = w.maxSpeed * w.accurateSpeedFrac;
     if (horizSpeed > threshold) {
         float t = std::min(1.0f, (horizSpeed - threshold) / (w.maxSpeed - threshold));

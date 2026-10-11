@@ -43,7 +43,7 @@ struct WeaponDef {
     int killReward = 300;    // competitive money per kill
     float armorRatio = 0.775f;  // damage kept through kevlar / a helmet (CS: the AWP 97.5%, the M4A1-S 70%)
     bool scope = false;      // Mouse 2 zooms (the snipers)
-    float noscopeInaccuracy = 0;  // degrees of spread unscoped (only with the moving-spread option on)
+    float noscopeInaccuracy = 0;  // degrees of spread unscoped (a noscope)
 };
 
 const WeaponDef& rifleDef();
@@ -66,7 +66,6 @@ struct WeaponState {
     uint32_t shotCounter = 0;   // seeds deterministic spread
     // Random spread is OFF by default: bullets go exactly to crosshair + fixed recoil pattern.
     bool spraySpread = false;   // random spread that grows during a spray
-    bool moveSpread = false;    // random spread while moving / airborne
     bool scoped = false;        // the game sets it: a sniper's noscope spread is off while zoomed
 };
 
@@ -215,7 +214,12 @@ struct TriggerBuffer {
 };
 
 // Current spread radius in degrees for HUD/debugging.
+// Degrees of spread: the gun's standing spread (standingSpread), moving faster than accurateSpeedFrac of its
+// max speed, in the air, a noscope, and (spraySpread option) during a spray; crouched x0.8.
 float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, bool ducked);
+// Spread standing still (owner, v0.23.3): the cheaper guns scatter a little (USP, Berettas, Galil, MAC-10, UMP);
+// the AK, M4A1-S, AWP, SSG 08 and Deagle go exactly where you aim. Shotguns have their pellets instead.
+float standingSpread(const WeaponDef& w);
 
 // Recoil recovery while not firing.
 void decayRecoil(WeaponState& ws, float dt);

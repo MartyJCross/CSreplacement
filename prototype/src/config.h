@@ -28,7 +28,6 @@ struct Config {
     float viewmodel_bob = 1.0f;          // 0 disables weapon bob
     int show_viewmodel = 1;
     int spread_spray = 0;      // 1 = random spread grows during sprays (CS-like)
-    int spread_movement = 0;   // 1 = random spread while moving/airborne (CS-like)
     int bhop = 0;              // 1 = hold jump to auto-hop, no stamina penalty; 0 = CS-style (the default)
     int camera_extrapolate = 1;  // 1 = zero-lag camera (render your position at "now", not 1 tick behind)
     int view_shake = 1;          // 1 = slight camera roll per shot (around the crosshair: aim is unaffected)

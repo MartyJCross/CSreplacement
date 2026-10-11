@@ -870,7 +870,6 @@ void applyConfig(Game& g, const Config& cfg) {
     }
     for (WeaponState& w : g.guns) {
         w.spraySpread = cfg.spread_spray != 0;
-        w.moveSpread = cfg.spread_movement != 0;
     }
     if (g.audio) g.audio->setVolume(std::clamp(cfg.volume, 0.0f, 1.0f));
 }
@@ -3440,7 +3439,7 @@ void simTick(Game& g, const Options& opt) {
     bool fired = false;
     // The Nova loads shell by shell: firing with shells in it stops the reload.
     if (wantFire && wd.shellReload && ws.reloadEndTime >= 0 && ws.ammo > 0) ws.reloadEndTime = -1;
-    ws.scoped = g.zoom > 0;  // (a noscope's spread, with the moving-spread option)
+    ws.scoped = g.zoom > 0;  // (a noscope scatters)
     if (wantFire && wd.canFire && ws.reloadEndTime < 0 && ws.ammo > 0 && takeShotTiming(ws, g.simTime)) {
         float hspeed = length2d(g.player.velocity);
         ShotResult pellets[kMaxPellets * 3];  // the bullets (pellets), then any collateral hits
@@ -4644,7 +4643,6 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"PLAYER MODEL SIZE (%)", nullptr, &c.model_scale, 5, 80, 150},
                     {"GRENADE TRAJECTORY", nullptr, &c.nade_preview, 1, 0, 2, kPreviewNames},
                     {"RANDOM SPRAY SPREAD", nullptr, &c.spread_spray, 1, 0, 1, kOnOff},
-                    {"RANDOM MOVING SPREAD", nullptr, &c.spread_movement, 1, 0, 1, kOnOff},
                     back};
         case kMenuInventory: {  // a row per weapon: the skins you own for it (left / right to change)
             static std::string caseLabel;
