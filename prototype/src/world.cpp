@@ -262,7 +262,11 @@ constexpr uint32_t kDSand = 0xc9b48a, kDSandLight = 0xd3bf94, kDSandDark = 0xb7a
 
 const DustArea kDustAreas[] = {
     // T side.
-    {"T SPAWN", -900, -1100, 200, -500, 64, 64, 0, kDSand, 0},
+    // T spawn is walled off from top mid (owner: spawns in their own area, mid a run away and out of sight): the
+    // way to mid is a dog-leg path off its east end.
+    {"T SPAWN", -900, -1100, 200, -620, 64, 64, 0, kDSand, 0},
+    {"MID PATH", 80, -620, 200, -500, 64, 64, 0, kDSand, 0},
+    {"MID PATH", 20, -500, 200, -380, 64, 64, 0, kDSand, 0},
     {"OUTSIDE LONG", 200, -880, 650, -560, 64, 48, 'x', kDSand, 0},
     {"OUTSIDE LONG", 420, -560, 650, 200, 48, 0, 'y', kDSand, 0},
     {"OUTSIDE LONG", 420, 200, 650, 460, 0, 0, 0, kDSand, 0},
@@ -287,7 +291,10 @@ const DustArea kDustAreas[] = {
     {"MID DOORS", -240, 1880, -120, 1912, -64, -64, 0, kDSandDark, 128},
     // CT side.
     {"CT MID", -700, 1912, 120, 2350, -64, -64, 0, kDSand, 0},
-    {"CT SPAWN", -450, 2350, 120, 3150, -64, -64, 0, kDSand, 0},
+    // CT spawn behind a wall from CT mid, open at both ends (out of the line through mid doors).
+    {"CT SPAWN", -450, 2470, 120, 3150, -64, -64, 0, kDSand, 0},
+    {"CT SPAWN", -450, 2350, -330, 2470, -64, -64, 0, kDSand, 0},
+    {"CT SPAWN", 0, 2350, 120, 2470, -64, -64, 0, kDSand, 0},
     {"CT RAMP", 120, 2800, 750, 3150, -64, 96, 'x', kDSandLight, 0},
     {"MID TO B", -1350, 2050, -700, 2350, 32, -64, 'x', kDSand, 0},
     {"B DOORS", -1420, 2140, -1350, 2280, 32, 32, 0, kDSandDark, 128},
@@ -312,7 +319,10 @@ constexpr uint32_t kHSand = 0xc8bca2, kHSandLight = 0xd4c9b0, kHSandDark = 0xb4a
                    kHContainerGreen = 0x3f7a4a;
 const DustArea kHarborAreas[] = {
     // T side.
-    {"T SPAWN", -600, -1600, 600, -1100, 0, 0, 0, kHSand, 0},
+    // T spawn is walled off from the market (mid): the way there is a dog-leg path off its east side.
+    {"T SPAWN", -600, -1600, 600, -1220, 0, 0, 0, kHSand, 0},
+    {"MID PATH", 300, -1220, 420, -1100, 0, 0, 0, kHSand, 0},
+    {"MID PATH", 250, -1100, 420, -1000, 0, 0, 0, kHSand, 0},
     {"T EAST", 600, -1500, 900, -1250, 0, 0, 0, kHSand, 0},
     {"T WEST", -900, -1500, -600, -1250, 0, 0, 0, kHSand, 0},
     // A: the docks (a long straight lane by the water), the ramp up, the site, the way back to CT.
@@ -328,7 +338,9 @@ const DustArea kHarborAreas[] = {
     {"A SHORT", 550, 450, 700, 950, -16, 64, 'y', kHSandLight, 0},
     {"MID DOORS", -100, 500, 100, 560, -32, -32, 0, kHSandDark, 128},
     {"CT MID", -450, 560, 450, 1050, -32, -32, 0, kHSand, 0},
-    {"CT RAMP", -450, 1050, 450, 1250, -32, 0, 'y', kHSandLight, 0},
+    // Two ramps either side of a wall: CT spawn is out of the line through mid doors.
+    {"CT RAMP", -450, 1050, -250, 1250, -32, 0, 'y', kHSandLight, 0},
+    {"CT RAMP", 250, 1050, 450, 1250, -32, 0, 'y', kHSandLight, 0},
     {"CT SPAWN", -450, 1250, 450, 1800, 0, 0, 0, kHSand, 0},
     {"CT SPAWN", -450, 1800, 750, 1900, 0, 0, 0, kHSand, 0},
     // B: the lane, the roofed underpass, the way up into the site; the alley from mid; the platform.
@@ -591,10 +603,10 @@ std::vector<Vec3> townTeamSpawns(int side) {
     // Spread over each spawn, the first (yours) at the front, and off the long sightline through mid doors
     // (T spawn <-> CT spawn), so nobody can see the other team when the round starts (tested).
     static const float xy[2][2][5][2] = {
-        {{{-560, -650}, {-720, -820}, {120, -760}, {100, -950}, {-600, -1000}},   // Dust2: T spawn
-         {{40, 2600}, {-410, 2650}, {60, 2850}, {-410, 2950}, {80, 3050}}},       // CT spawn
-        {{{-400, -1200}, {-250, -1480}, {300, -1200}, {250, -1480}, {-520, -1300}},  // Harbor: T spawn
-         {{-300, 1400}, {300, 1400}, {-250, 1700}, {350, 1650}, {200, 1550}}},       // CT spawn
+        {{{-300, -700}, {-700, -760}, {-80, -800}, {-200, -960}, {-600, -1020}},   // Dust2: T spawn
+         {{-260, 2620}, {-100, 2650}, {-180, 2820}, {-320, 2960}, {-60, 2980}}},  // CT spawn (out of the doors' line)
+        {{{-420, -1330}, {-250, -1500}, {-40, -1360}, {100, -1520}, {-320, -1400}},  // Harbor: T spawn
+         {{-120, 1450}, {120, 1450}, {0, 1620}, {-200, 1680}, {200, 1680}}},       // CT spawn
     };
     std::vector<Vec3> out;
     for (const auto& p : xy[g_town][side == 0 ? 0 : 1]) out.push_back(townPoint(p[0], p[1]));
@@ -1153,8 +1165,7 @@ World buildTown() {
     // wall at every map size). Real sizes: crates 48-64, barrels 28, cars 100 x 200.
     car(-900, -1050, 16, -60, 116, 60);                    // T spawn: car by the west wall
     barrel(-250, -1100, 0, 2); barrel(-250, -1100, 30, 2);
-    barrel(-900, -500, 14, -44);
-    anchored(200, -500, -72, -72, -8, -8, 64, kDCrate);    // T spawn, north-east corner
+    barrel(-900, -620, 14, -44);
     barrel(420, 100, 2, -14);
     anchored(-900, -880, -64, 2, 0, 58, 56, kDCrate);      // outside tunnels, by T spawn
     barrel(-2150, 200, 2, 0); barrel(-2150, 200, 2, 32);

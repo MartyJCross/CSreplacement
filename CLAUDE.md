@@ -305,6 +305,16 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
 
+**IN PROGRESS: v0.24** (owner, 2026-10-11: spawns away from mid; "clean stylized" art direction chosen from three
+offered; more detail on the guns, especially the viewmodel). Pieces, each committed and pushed:
+- [x] 1. Spawns off mid: walls between T spawn and mid with a dog-leg "MID PATH" (Dust, Harbor), CT spawn behind a wall
+      with side gaps (Dust) / split CT ramp (Harbor), spawn points moved; DM never spawns in mid (`pickDmSpawn`).
+      `testSpawnsOffMid`: no spawn seen from mid at any size, shortest run to mid > 500 real units (528)
+- [ ] 2. Clean stylized look (config toggle to compare): depth/normal outlines in the post pass, flat per-map
+      palettes, soft gradient lighting, textures toned down
+- [ ] 3. Viewmodel detail (fx.cpp weapon parts)
+- [ ] 4. Player models + held guns detail
+
 **Done in v0.23: the "premium pass"** (owner asked for all of it, 2026-10-09; done in pieces, each committed and
 pushed; light testing, no benches while they used the PC: **the FPS cost of shadows + post pass is not measured yet on
 their laptop**; next session with their OK, run `--bench 10` with presets LOW/MEDIUM/HIGH):
@@ -341,6 +351,8 @@ practice tools (grenade lineups, spray-pattern overlay, CS-style console), a thi
 - They test by playing: feel, sound and look are their verdicts. Say clearly what only they can judge.
 - They get frustrated when the same thing misses twice ("man..."): **research first, measure, then change**, and
   explain the why in one or two sentences.
+- **Spawns are their own area, out of mid's sight** (v0.24; `testSpawnsOffMid`). Don't put a spawn point, or an
+  opening from spawn, where mid can see it.
 - **NO MID FIGHTS FROM SPAWN** (asked many times; fixed for real in v0.22.1): competitive bots never stage in, push into,
   route through or chase into mid before the execute (`townMidArea`, `townMidCells` + `NavGrid::setAvoid`, T stages
   off mid, CT mid spots out of sight of mid). `testNoMidFights` and the automated-run log ("MID DEATH", must stay 0)

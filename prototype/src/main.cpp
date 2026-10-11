@@ -1222,7 +1222,11 @@ Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
         watchers.push_back(g.player.origin + Vec3{0, 0, kStandEye});
         watchers.push_back(g.player.origin + g.player.velocity * 0.6f + Vec3{0, 0, kStandEye});
     }
-    return randomSpawnPoint(g.nav, g.world, watchers, forPlayer ? 900.0f : 800.0f, occupied, g.rng);
+    // (never in mid: spawns are a run away from it, owner)
+    Vec3 at = randomSpawnPoint(g.nav, g.world, watchers, forPlayer ? 900.0f : 800.0f, occupied, g.rng);
+    for (int tries = 0; tries < 12 && g.mapId == 1 && townMidArea(at); ++tries)
+        at = randomSpawnPoint(g.nav, g.world, watchers, forPlayer ? 900.0f : 800.0f, occupied, g.rng);
+    return at;
 }
 
 // (Re)starts a deathmatch: fresh scores, everyone respawns.

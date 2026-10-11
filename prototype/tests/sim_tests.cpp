@@ -704,10 +704,10 @@ void testDustDeathmatch() {
     // Sight: a bot looking away doesn't see you; once you shoot it, it turns on you.
     Dummy d;
     BotBrain b;
-    spawnDeathmatchBot(d, b, dpt(-350, -800), rng);
-    d.yaw = d.prevYaw = -90;  // facing south, you're to the north
+    spawnDeathmatchBot(d, b, dpt(-700, -1080), rng);
+    d.yaw = d.prevYaw = -90;  // facing south, you're to the north-east (both in T spawn, out of its 250-unit reach)
     sense.playerUp = true;
-    sense.playerOrigin = dpt(-350, -300);
+    sense.playerOrigin = dpt(-200, -660);
     sense.playerEye = sense.playerOrigin + Vec3{0, 0, kStandEye};
     bool aimedBehind = false;
     for (int t = 0; t < kTickRate; ++t) {
@@ -1303,6 +1303,54 @@ bool midArea(const char* name) {
         if (std::strcmp(name, m) == 0) return true;
     return false;
 }
+// PROBE (temporary): how exposed each team's spawn and its walk to each site are to mid.
+// Spawns in their own area (owner, v0.24): on both maps, at every Dust size, nobody in mid can see any team spawn
+// point, and getting to mid from one is a run (the walls between spawn and mid, the dog-leg paths).
+void testSpawnsOffMid() {
+    std::printf("spawns off mid\n");
+    int seen = 0;
+    float closest = 1e9f;
+    for (int town = 0; town < 2; ++town)
+        for (float sc : {0.5f, 0.6f, 0.8f, 0.95f, 1.0f}) {
+            if (town == 1 && sc != 0.6f) continue;  // (Harbor has one size)
+            setTownMap(town);
+            setDustScale(sc);
+            const World w = buildTown();
+            NavGrid nav;
+            nav.build(townGrid(), w, townSpawn().pos);
+            const MapGrid& m = townGrid();
+            std::vector<Vec3> mid;
+            for (int j = 0; j < m.h; ++j)
+                for (int i = 0; i < m.w; ++i)
+                    if (m.walkable(i, j) && midArea(townCallout(m.center(i, j)))) mid.push_back(m.center(i, j));
+            std::vector<Vec3> path;
+            for (int side = 0; side < 2; ++side)
+                for (const Vec3& sp : townTeamSpawns(side)) {
+                    for (const Vec3& c : mid)
+                        if (w.traceRay(c + Vec3{0, 0, 64}, sp + Vec3{0, 0, 64}).fraction >= 1.0f) {
+                            ++seen;
+                            std::printf("    %s %.0f%%: spawn (%.0f, %.0f) seen from mid (%.0f, %.0f)\n", townMapName(town),
+                                        double(sc * 100), double(sp.x), double(sp.y), double(c.x), double(c.y));
+                            break;
+                        }
+                    float best = 1e9f;  // the shortest run to mid, in real (unscaled) units
+                    for (size_t q = 0; q < mid.size(); q += 2) {
+                        Vec3 goal = mid[q];
+                        if (!nav.findPath(sp, goal, path)) continue;
+                        float len = 0;
+                        for (size_t z = 1; z < path.size(); ++z) len += length2d(path[z] - path[z - 1]);
+                        best = std::min(best, len);
+                    }
+                    closest = std::min(closest, best / (town == 0 ? sc : 1.0f));
+                }
+        }
+    setTownMap(0);
+    setDustScale(0.6f);
+    std::printf("  team spawns seen from mid: %d; the shortest run from a spawn to mid: %.0f units (real size)\n", seen,
+                double(closest));
+    CHECK(seen == 0 && closest > 500.0f, "spawns must be out of mid's sight and a run away (%d seen, %.0f)", seen, double(closest));
+}
+
 void testNoMidFights() {
     std::printf("no mid fights from spawn\n");
     const float keep = townScale();
@@ -1833,6 +1881,7 @@ int main() {
     testDustSightlines();
     testBotArsenal();
     testBotFire();
+    testSpawnsOffMid();
     testNoMidFights();
     testHarbor();
     testReplay();
