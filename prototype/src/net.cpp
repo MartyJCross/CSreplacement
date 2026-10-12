@@ -13,7 +13,7 @@ namespace {
 // Messages: a type byte, then fixed little-endian fields. Channel 0 unreliable (states: a lost one
 // is replaced by the next tick's), channel 1 reliable (everything else).
 enum Msg : uint8_t { kWelcome = 1, kState, kFire, kHit, kDeath, kLeave, kName, kNade, kBots, kMatch, kRound, kPlant, kDefused,
-                    kDrop, kPickup, kLobby, kTeamPick, kStart, kBye };
+                    kDrop, kPickup, kLobby, kTeamPick, kStart, kBye, kChat, kPing };
 // Why the host turned a connection away (the disconnect's data).
 enum Reject : uint32_t { kRejectFull = 1, kRejectVersion = 2 };
 
@@ -350,6 +350,27 @@ void Net::handle(const uint8_t* data, size_t len, int fromPeer, std::vector<NetE
                 broadcastExcept(fromPeer, stamped(data, len, fromPeer), true);
             }
             break;
+        case kChat:  // (anyone -> the host, who passes it on stamped with who said it)
+            ev.type = NetEvent::Chat;
+            ev.from = r.u8();
+            ev.weapon = r.u8() & 1;
+            ev.text = cleanText(r.str());
+            if (!r.ok || ev.text.empty()) return;
+            if (fromClient) {
+                ev.from = uint8_t(fromPeer);
+                broadcastExcept(fromPeer, stamped(data, len, fromPeer), true);
+            }
+            break;
+        case kPing:
+            ev.type = NetEvent::Ping;
+            ev.from = r.u8();
+            ev.a = r.vec();
+            if (!r.ok) return;
+            if (fromClient) {
+                ev.from = uint8_t(fromPeer);
+                broadcastExcept(fromPeer, stamped(data, len, fromPeer), true);
+            }
+            break;
         case kName:
             ev.type = NetEvent::Name;
             ev.from = r.u8();
@@ -564,6 +585,30 @@ void Net::sendNade(int type, const Vec3& pos, const Vec3& vel, int as) {
     w.vec(pos);
     w.vec(vel);
     send(w.b, true);
+}
+
+void Net::sendChat(const std::string& text, bool teamOnly) {
+    if (!ready()) return;
+    Writer w(kChat);
+    w.u8(uint8_t(myId_));
+    w.u8(teamOnly ? 1 : 0);
+    w.str(cleanText(text));
+    send(w.b, true);
+}
+
+void Net::sendPing(const Vec3& pos) {
+    if (!ready()) return;
+    Writer w(kPing);
+    w.u8(uint8_t(myId_));
+    w.vec(pos);
+    send(w.b, true);
+}
+
+std::string Net::cleanText(const std::string& text) {
+    std::string out;
+    for (char ch : text)
+        if (ch >= 32 && ch < 127 && out.size() < 120) out.push_back(ch);
+    return out;
 }
 
 void Net::sendLobby(const NetLobby& l) {

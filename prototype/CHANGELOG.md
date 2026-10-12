@@ -3,6 +3,17 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.36: chat and pings
+
+- **Chat:** Enter to talk (Shift+Enter: your team, competitive); the lines show bottom left and fade; online they go to
+  everyone (team lines to your team only). Console `say`, `say_team`.
+- **Pings, CS2-style:** middle mouse or P marks where you're looking for 6 s: a light on the spot and a diamond on
+  screen with the callout and the distance. Online: your team sees it in competitive, everyone in deathmatch. Console
+  `ping`.
+- Online protocol 12: both players need this version.
+- Checked with two copies talking over the network (a host and a client): chat both ways, the host's ping on the
+  client's screen.
+
 ## v0.35: grenade practice
 
 - **In practice mode:** your thrown grenades leave their flight drawn for 8 s; **X** throws the last one again exactly;

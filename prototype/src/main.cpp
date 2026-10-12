@@ -97,6 +97,17 @@ Console g_console;
 bool g_god = false, g_infiniteAmmo = false, g_botStop = false;
 // Grenade practice (v0.35): saved lineups (lineups.txt next to the game; automated runs never write it), the one you
 // went to last ([ / ]) and when (its name shows for a while).
+// Chat and pings (v0.36, owner): Enter talks (Shift+Enter: your team, competitive), middle mouse or P marks a spot. The
+// lines and marks keep real time (g_uiTime), so a pause doesn't hold them.
+struct ChatLine { std::string who, text; uint32_t color = 0xFFFFFFFF; double at = 0; bool team = false; };
+std::vector<ChatLine> g_chat;
+bool g_chatOpen = false, g_chatTeam = false;
+std::string g_chatLine;
+struct PingMark { Vec3 pos; int from = -1; double at = 0; std::string where; };  // from: -1 you, else a net id
+std::vector<PingMark> g_pings;
+struct PingShown { float x = 0, y = 0; std::string label; uint32_t color = 0; };  // (this frame's, on screen)
+std::vector<PingShown> g_pingShown;
+constexpr double kPingLife = 6.0, kChatLife = 12.0;
 LineupBook g_lineups;
 std::string g_lineupPath;
 int g_lineupAt = -1;
@@ -1414,6 +1425,36 @@ void goLineup(Game& g, int step, int index = -1) {
     g.vm.setGrenade(l.t.type);
     g_lineupShownAt = g.simTime;
     g.hudDirty = true;
+}
+
+extern double g_uiTime;  // (below: real time, for what shouldn't stop with a pause)
+
+// ---- Chat and pings (v0.36) ----
+void addChat(const std::string& who, const std::string& text, uint32_t color, bool team) {
+    g_chat.push_back({who, text, color, g_uiTime, team});
+    if (g_chat.size() > 10) g_chat.erase(g_chat.begin());
+}
+
+// A spot marked (by you: -1, or a player online): one each, for kPingLife seconds, with a blip.
+void addPing(Game& g, const Vec3& pos, int from) {
+    for (size_t k = 0; k < g_pings.size(); ++k)
+        if (g_pings[k].from == from) { g_pings.erase(g_pings.begin() + std::ptrdiff_t(k)); break; }
+    g_pings.push_back({pos, from, g_uiTime, g.mapId == 1 ? townCallout(pos) : ""});
+    sound(g, Sfx::UiClick, 0.55f, 0.0f, 1.9f);
+    g.hudDirty = true;
+}
+
+// Middle mouse / P: marks where you're looking (online: your team sees it in competitive, everyone in deathmatch).
+void pingHere(Game& g) {
+    static double last = -10;
+    if (g_uiTime - last < 0.4) return;  // (not a stream of them)
+    const Vec3 dir = anglesToForward(float(g.viewPitch), float(g.viewYaw));
+    const TraceResult tr = g.world.traceRay(g.lastRenderEye, g.lastRenderEye + dir * 8000.0f);
+    if (tr.fraction >= 1.0f) return;
+    last = g_uiTime;
+    const Vec3 at = g.lastRenderEye + dir * (tr.fraction * 8000.0f - 2.0f);
+    addPing(g, at, -1);
+    if (g.online) g.net.sendPing(at);
 }
 
 void startDeathmatch(Game& g) {
@@ -6412,6 +6453,35 @@ void drawFadeIn(HudBatch& hud, int w, int h) {
     hud.rect(0, 0, float(w), float(h), uint32_t(std::clamp(1.0 - k, 0.0, 1.0) * 255.0));
 }
 
+// Chat (bottom left: the last lines, all of them while you type) and the pings' marks on screen.
+void drawChatAndPings(HudBatch& hud, int w, int h, int s) {
+    const float fs = float(s), lh = 10.0f * fs, x = 16.0f * fs;
+    for (const PingShown& p : g_pingShown) {  // a diamond over the spot, what it is and how far
+        const float r = 6.0f * fs;
+        hud.quad(p.x, p.y - r, p.x + r, p.y, p.x, p.y + r, p.x - r, p.y, 0x000000A0);
+        hud.quad(p.x, p.y - r + 2 * fs, p.x + r - 2 * fs, p.y, p.x, p.y + r - 2 * fs, p.x - r + 2 * fs, p.y, p.color);
+        hud.text(p.x - hud.textWidth(p.label) / 2, p.y + r + 3 * fs, p.label, p.color);
+    }
+    float y = float(h) - 120.0f * fs;
+    if (g_chatOpen) {
+        hud.rect(x - 6 * fs, y - lh * 10.5f, std::min(420.0f * fs, float(w) - 2.0f * x), lh * 12.0f, 0x15181CB0);
+        const std::string line = std::string(g_chatTeam ? "SAY TO TEAM: " : "SAY: ") + g_chatLine +
+                                 (std::fmod(g_uiTime, 1.0) < 0.5 ? "_" : "");
+        hud.text(x, y, line, 0xFFFFFFFF);
+    }
+    y -= lh * 1.3f;
+    for (size_t k = g_chat.size(); k-- > 0;) {
+        const ChatLine& c = g_chat[k];
+        const double age = g_uiTime - c.at;
+        if (!g_chatOpen && age > kChatLife) break;
+        const uint32_t alpha = g_chatOpen ? 0xFF : uint32_t(255.0 * std::clamp((kChatLife - age) / 2.0, 0.0, 1.0));
+        const std::string who = (c.team ? "(TEAM) " : "") + c.who + ": ";
+        hud.text(x, y, who, (c.color & 0xFFFFFF00u) | alpha);
+        hud.text(x + hud.textWidth(who), y, c.text, 0xFFFFFF00u | alpha);
+        y -= lh;
+    }
+}
+
 // The console (~): over the top half of the screen, what it printed (newest at the bottom) and the line being typed.
 void drawConsole(HudBatch& hud, const Console& con, int w, int h, int s) {
     const float fs = float(s), lh = 10.0f * fs, pad = 8.0f * fs, height = float(h) * 0.5f;
@@ -7788,6 +7858,24 @@ int main(int argc, char** argv) {
                     for (size_t k = 0; k < g.drops.size(); ++k)
                         if (g.drops[k].id == ev.dropId) { g.drops.erase(g.drops.begin() + long(k)); break; }
                     break;
+                case NetEvent::Chat:
+                case NetEvent::Ping: {  // a friend said something / marked a spot (team-only ones: your team's)
+                    const bool compGame = g.mode == 3 && g.mapId == 1;
+                    const int me = std::max(0, g.net.myId());
+                    const bool otherTeam = compGame && ev.from < kNetMaxPlayers && g.netTeam[ev.from] != g.netTeam[me];
+                    if (ev.type == NetEvent::Chat) {
+                        if (ev.weapon && otherTeam) break;
+                        const std::string who = ev.from < kNetMaxPlayers && !g_playerNames[ev.from].empty() ? g_playerNames[ev.from] : "PLAYER";
+                        addChat(who, ev.text, otherTeam ? 0xFF9080FF : 0x7FE0FFFF, ev.weapon != 0);
+                        if (automated) std::fprintf(stderr, "net: chat from %d%s: %s%c", ev.from + 1, ev.weapon ? " (team)" : "", ev.text.c_str(), 10);
+                        sound(g, Sfx::UiClick, 0.3f, 0.0f, 1.4f);
+                        g.hudDirty = true;
+                    } else if (inGame && !otherTeam) {
+                        addPing(g, ev.a, ev.from);
+                        if (automated) std::fprintf(stderr, "net: ping from %d at %s%c", ev.from + 1, g_pings.back().where.c_str(), 10);
+                    }
+                    break;
+                }
                 case NetEvent::Nade:  // someone threw: it flies here exactly as it does for them
                     if (!inGame) break;
                     g.nades.push_back({ev.a, ev.b, ev.weapon, 0, netToLocal(g, ev.from)});
@@ -7929,6 +8017,9 @@ int main(int argc, char** argv) {
         {"lineup_save", "lineup_save [name]: saves your last throw as a lineup (practice; L)"},
         {"lineup_delete", "lineup_delete <n>: deletes lineup n on this map"},
         {"sv_rethrow_last_grenade", "throws your last grenade again (practice; X)"},
+        {"say", "say <text>: chat to everyone (Enter)"},
+        {"ping", "marks the spot you're looking at (middle mouse or P)"},
+        {"say_team", "say_team <text>: chat to your team (Shift+Enter, competitive)"},
         {"connect", "connect <address[:port]>: joins an online game"},
         {"disconnect", "leaves the online game"},
         {"quit", "quits the game"},
@@ -7958,6 +8049,13 @@ int main(int argc, char** argv) {
         saveConfig(cfgPath, cfg);
         g.hudDirty = true;
         return true;
+    };
+    // A chat line from you: shown here, and online sent on (team-only: competitive).
+    auto sayLine = [&](const std::string& raw, bool team) {
+        const std::string text = Net::cleanText(raw);
+        if (text.empty()) return;
+        addChat(Net::cleanName(cfg.player_name), text, 0xFFD060FF, team);
+        if (g.online) g.net.sendChat(text, team);
     };
     auto runCommand = [&](const std::vector<std::string>& a) {
         const std::string cmd = lowerCase(a[0]);
@@ -8137,6 +8235,12 @@ int main(int argc, char** argv) {
             } else {
                 rethrowLast(g);
             }
+        } else if (cmd == "ping") {
+            pingHere(g);
+        } else if (cmd == "say" || cmd == "say_team") {
+            std::string t;
+            for (size_t k = 1; k < a.size(); ++k) t += (k > 1 ? " " : "") + a[k];
+            sayLine(t, cmd == "say_team");
         } else if (cmd == "connect") {
             if (a.size() < 2) { con("connect <address[:port]>"); return; }
             cfg.net_address = a[1];
@@ -8245,8 +8349,8 @@ int main(int argc, char** argv) {
                         g.buyMouseX = e.motion.x * density;
                         g.buyMouseY = e.motion.y * density;
                         g.hudDirty = true;
-                    } else if (g_console.open) {
-                        // (the console is up: the mouse doesn't aim)
+                    } else if (g_console.open || g_chatOpen) {
+                        // (the console or chat is up: the mouse doesn't aim)
                     } else if (!paused) {
                         double sens = cfg.sensitivity * zoomSensScale(g, cfg);
                         double dyaw = -double(e.motion.xrel) * sens * cfg.m_yaw;
@@ -8264,7 +8368,7 @@ int main(int argc, char** argv) {
                     }
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                    if (g_console.open) break;
+                    if (g_console.open || g_chatOpen) break;
                     if (paused) {  // left click presses a row, right click steps a setting back
                         const int r = menuRowUnder(e.button.x, e.button.y);
                         const bool left = e.button.button == SDL_BUTTON_LEFT;
@@ -8295,6 +8399,10 @@ int main(int argc, char** argv) {
                         g.hudDirty = true;
                         break;
                     }
+                    if (e.button.button == SDL_BUTTON_MIDDLE) {  // a ping (v0.36)
+                        pingHere(g);
+                        break;
+                    }
                     if (g.mode == 3 && g.mapId == 1 && g.comp.youDead) {  // spectating: next / previous teammate
                         const int dir = e.button.button == SDL_BUTTON_RIGHT ? -1 : 1;
                         const int nx = nextTeammate(g, g.spec, dir);
@@ -8319,8 +8427,12 @@ int main(int argc, char** argv) {
                         menuUse(g_menu.sel, e.wheel.y > 0 ? 1 : -1, false, false);
                     }
                     break;
-                case SDL_EVENT_TEXT_INPUT:  // (the console's line: typed text, your keyboard layout)
-                    if (g_console.open) {
+                case SDL_EVENT_TEXT_INPUT:  // (the console's line or chat: typed text, your keyboard layout)
+                    if (g_chatOpen && !g_console.open) {
+                        for (const char* t = e.text.text; *t; ++t)
+                            if (*t >= 32 && *t < 127 && g_chatLine.size() < 120) g_chatLine.push_back(*t);
+                        g.hudDirty = true;
+                    } else if (g_console.open) {
                         for (const char* t = e.text.text; *t; ++t)
                             if (*t >= 32 && *t < 127 && *t != '`' && *t != '~' && g_console.line.size() < 200) g_console.line.push_back(*t);
                         g.hudDirty = true;
@@ -8358,6 +8470,20 @@ int main(int argc, char** argv) {
                         } else if (ck == SDL_SCANCODE_PAGEDOWN) {
                             g_console.scroll = std::max(0, g_console.scroll - 8);
                         }
+                        g.hudDirty = true;
+                        break;
+                    }
+                    if (g_chatOpen) {  // typing a chat line: Enter sends it, Esc drops it
+                        const SDL_Scancode ck = e.key.scancode;
+                        if (ck == SDL_SCANCODE_RETURN || ck == SDL_SCANCODE_KP_ENTER) {
+                            sayLine(g_chatLine, g_chatTeam);
+                            g_chatOpen = false;
+                        } else if (ck == SDL_SCANCODE_ESCAPE) {
+                            g_chatOpen = false;
+                        } else if (ck == SDL_SCANCODE_BACKSPACE && !g_chatLine.empty()) {
+                            g_chatLine.pop_back();
+                        }
+                        if (!g_chatOpen && !automated) SDL_StopTextInput(window);
                         g.hudDirty = true;
                         break;
                     }
@@ -8430,6 +8556,13 @@ int main(int argc, char** argv) {
                         menuUse(g_menu.sel, sc == SDL_SCANCODE_RIGHT ? 1 : -1, (e.key.mod & SDL_KMOD_SHIFT) != 0, false);
                     } else if (paused && (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE)) {
                         menuUse(g_menu.sel, 1, false, true);
+                    } else if (!paused && (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER) && !g.buyMenu) {
+                        g_chatOpen = true;  // chat (Shift: your team only, in competitive)
+                        g_chatTeam = (e.key.mod & SDL_KMOD_SHIFT) != 0 && g.mode == 3;
+                        g_chatLine.clear();
+                        g.fireHeld = g.zoomHeld = false;
+                        if (!automated) SDL_StartTextInput(window);
+                        g.hudDirty = true;
                     } else if (!paused) {
                         const bool deadComp = g.mode == 3 && g.mapId == 1 && g.comp.youDead;
                         if (sc == SDL_SCANCODE_SPACE && deadComp && g.spec < 0) {
@@ -8470,6 +8603,7 @@ int main(int argc, char** argv) {
                             if (msg[0]) pushHitLog(g, msg, 0xffd060);
                             g.hudDirty = true;
                         }
+                        else if (sc == SDL_SCANCODE_P) pingHere(g);  // a ping (v0.36; middle mouse too)
                         else if (sc == SDL_SCANCODE_X && nadePractice(g)) rethrowLast(g);  // grenade practice (v0.35)
                         else if (sc == SDL_SCANCODE_L && nadePractice(g)) saveLineup(g, "");
                         else if ((sc == SDL_SCANCODE_LEFTBRACKET || sc == SDL_SCANCODE_RIGHTBRACKET) && nadePractice(g))
@@ -8515,7 +8649,7 @@ int main(int argc, char** argv) {
         }
 
         {
-            bool tab = !paused && !g_console.open && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_TAB];
+            bool tab = !paused && !g_console.open && !g_chatOpen && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_TAB];
             if (tab != g.showScores) { g.showScores = tab; g.hudDirty = true; }
         }
         if (!automated) {  // the mouse aims while you play; it's a cursor in the menus and the buy wheel
@@ -8553,7 +8687,7 @@ int main(int argc, char** argv) {
                 reconnect.next = now + 4.0;
             }
         }
-        g.inputBlocked = paused || g_console.open;
+        g.inputBlocked = paused || g_console.open || g_chatOpen;
         const bool viewing = g.rv.on && !g.rv.killcam;  // the replay viewer: the game waits
         if ((!paused || g.online) && !viewing) {  // online never pauses
 
@@ -8725,6 +8859,28 @@ int main(int argc, char** argv) {
         if (!paused) g.camRoll *= std::exp(-float(dt) / 0.07f);
         const Mat4 roll = rotationZ(g.camRoll);  // about the view axis: the crosshair stays put
         Mat4 viewProj = perspective(vfov, aspect, 2.0f, 16384.0f) * roll * viewFromAngles(eye, camPitch, camYaw);
+        {  // pings: drop the old ones, and where each shows on screen this frame (kept inside the edges)
+            for (size_t k = 0; k < g_pings.size();)
+                if (g_uiTime - g_pings[k].at > kPingLife) g_pings.erase(g_pings.begin() + std::ptrdiff_t(k));
+                else ++k;
+            g_pingShown.clear();
+            for (const PingMark& pm : g_pings) {
+                const Vec3 p = pm.pos + Vec3{0, 0, 70};
+                const float* m = viewProj.m;
+                const float cxp = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12], cyp = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13];
+                const float cwp = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
+                PingShown sh;
+                float nx = cxp / std::max(0.001f, std::fabs(cwp)), ny = cyp / std::max(0.001f, std::fabs(cwp));
+                if (cwp < 0.0f) { nx = -nx; ny = -1.0f; }  // (behind you: along the bottom edge)
+                sh.x = std::clamp((nx * 0.5f + 0.5f) * float(pixW), 30.0f, float(pixW) - 30.0f);
+                sh.y = std::clamp((1.0f - (ny * 0.5f + 0.5f)) * float(pixH), 30.0f, float(pixH) - 60.0f);
+                const int metres = int(length(pm.pos - eye) * 0.0254f + 0.5f);
+                sh.label = (pm.from >= 0 && pm.from < kNetMaxPlayers && !g_playerNames[pm.from].empty() ? g_playerNames[pm.from] + "  " : "") +
+                           pm.where + (pm.where.empty() ? "" : "  ") + std::to_string(metres) + " M";
+                sh.color = pm.from < 0 ? 0xFFD060FF : 0x7FE0FFFF;
+                g_pingShown.push_back(sh);
+            }
+        }
 
         // A replay draws the recorded players (you among them), smokes and tracers instead of the live ones; it's
         // all swapped back right after the world is drawn.
@@ -9026,6 +9182,11 @@ int main(int argc, char** argv) {
             dynamicBoxes.push_back(makeEmissive(end + Vec3{-1, -12, 0.5f}, end + Vec3{1, 12, 1.5f}, mark[g.nadeType]));
             addNadeRing(end, g.nadeType);
         }
+        for (const PingMark& pm : g_pings) {  // pings: a light standing on the spot
+            const uint32_t col = pm.from < 0 ? 0xffd060 : 0x7fe0ff;
+            dynamicBoxes.push_back(makeEmissive(pm.pos + Vec3{-1, -1, 0}, pm.pos + Vec3{1, 1, 60}, col));
+            dynamicBoxes.push_back(makeEmissive(pm.pos + Vec3{-6, -6, 0}, pm.pos + Vec3{6, 6, 1}, col));
+        }
         if (nadePractice(g)) {  // grenade practice: the flights you just threw, and your lineups on this map
             for (size_t k = 0; k < g.trails.size();) {
                 if (g.simTime > g.trails[k].until) { g.trails.erase(g.trails.begin() + std::ptrdiff_t(k)); continue; }
@@ -9231,6 +9392,7 @@ int main(int argc, char** argv) {
         if (rebuild) {
             buildHud(hud, g, cfg, stats, pixW, pixH);
             drawFadeIn(hud, pixW, pixH);
+            drawChatAndPings(hud, pixW, pixH, hudScale(cfg, pixH));
             if (g_console.open) drawConsole(hud, g_console, pixW, pixH, hudScale(cfg, pixH));
             lastHudBuild = nowSec;
             g.hudDirty = false;

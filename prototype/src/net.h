@@ -19,7 +19,7 @@ constexpr int kNetMaxPlayers = 8;        // ids 0..7: the host is 0
 constexpr int kNetBots = 10;             // competitive: bot slots 8..17
 constexpr int kNetSlots = kNetMaxPlayers + kNetBots;
 constexpr uint16_t kNetDefaultPort = 27015;
-constexpr uint32_t kNetProtocol = 11;     // bump when messages change: other versions can't join
+constexpr uint32_t kNetProtocol = 12;     // bump when messages change: other versions can't join (12: chat, pings)
 
 struct NetState {                        // one player, one tick
     uint8_t id = 0;
@@ -70,7 +70,7 @@ constexpr uint8_t kNetLobbyOpen = 0x80;  // in the welcome's game byte: the host
 
 struct NetEvent {
     enum Type { Connected, Failed, Joined, Left, State, Fire, Hit, Death, Name, Nade, Bots, Match, Round, Plant, Defused,
-                Drop, Pickup, Lobby, TeamPick, Start, Bye } type;
+                Drop, Pickup, Lobby, TeamPick, Start, Bye, Chat, Ping } type;
     uint8_t from = 0;                    // who it's about (Joined/Left/State/Fire/Nade/Plant), the shooter (Hit),
                                          // the victim (Death)
     uint8_t other = 0;                   // Hit: the victim; Death: the killer
@@ -92,6 +92,7 @@ struct NetEvent {
     float yaw = 0;                       // Drop: how it lies (a = where, weapon = which gun)
     uint8_t ammo = 0;                    // Drop: rounds in it
     NetLobby lobby;                      // Lobby (TeamPick: the team is `weapon`)
+    // Chat: `text` from `from`, `weapon` 1 = to their team only. Ping: `from` marked `a`.
 };
 
 class Net {
@@ -124,6 +125,11 @@ public:
     // Guns on the floor: one was dropped (a death, a swap) / picked up. Everyone keeps the same list.
     void sendDrop(uint32_t id, uint8_t weapon, const Vec3& pos, float yaw, uint8_t ammo);
     void sendPickup(uint32_t id);
+    // Chat (v0.36): a line from you, to everyone or (competitive) your team only - each game shows it or not. And a ping:
+    // you marked a spot.
+    void sendChat(const std::string& text, bool teamOnly);
+    void sendPing(const Vec3& pos);
+    static std::string cleanText(const std::string& text);  // printable, up to 120 characters
     // Host only (competitive):
     void sendBots(uint32_t tick, const NetBot* bots, int count);
     void sendMatch(const NetMatch& m);

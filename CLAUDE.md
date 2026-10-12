@@ -408,7 +408,11 @@ Competitive: host runs `compTick`/bots/`netRoster`, sends `NetRound`, `NetMatch`
 `compClientTick`. Sounds are heard from `Game::earPos/earYaw` (the camera: your eyes or the spectated
 player's; set each frame). Spectating draws `Game::specVm` (their weapon, shots via `shotAt`, reloads, throws from
 `nades` owner); dead free-fly: no gun, Space/Ctrl up/down, your body frozen while spectating. The welcome carries map size and (game byte: bit 0 game, bits 1+ map) the town map.
-`kNetProtocol` (11, net.h) must match. Test with two copies in separate folders: `crisp --host` and `crisp --join 127.0.0.1`.
+`kNetProtocol` (12, net.h) must match. Chat and pings (v0.36): net kChat / kPing (the host stamps and relays them,
+like kNade), NetEvent::Chat / Ping; main.cpp `g_chat` (`addChat`, `sayLine`), `g_pings` (`addPing`, `pingHere`: middle mouse
+/ P), `g_pingShown` (projected each frame after viewProj), `drawChatAndPings`; Enter opens chat (`g_chatOpen`, typing
+blocks the game like the console). A two-copy check: copy crisp.exe + a config into two scratchpad folders, `--host` and
+`--join 127.0.0.1`, `--exec` with say / ping; the stderr shows "net: chat ..." / "net: ping ...". Test with two copies in separate folders: `crisp --host` and `crisp --join 127.0.0.1`.
 
 **v0.22 polish** (main.cpp unless noted): `matchCues` (Sfx RoundStart/BombPlanted/RoundWin/RoundLose), round banner +
 MVP (`Comp::mvp/mvpWhy/plantedBy/defusedBy`), match-end screen (phase 3, 15 s; `--rounds N` ends matches sooner for
@@ -424,7 +428,7 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10 (11 s
 ## 8. Roadmap
 
 **In progress (owner, 2026-10-12): six features, one version each:** console (v0.33, done), Arms Race (v0.34, done), grenade
-practice (v0.35, done), chat + ping marker, Wingman, saved
+practice (v0.35, done), chat + ping marker (v0.36, done), Wingman, saved
 match replays with a round timeline.
 **Done in v0.32** (owner, 2026-10-12): bots fairer up close (human reactions, re-peeks), random spawns, plays by
 spawn.

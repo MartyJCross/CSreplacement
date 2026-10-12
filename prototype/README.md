@@ -56,6 +56,8 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | X / L / [ ] | Practice: throw your last grenade again / save it as a lineup / go to the previous or next lineup (see **Grenade practice**) |
 | C | Clear bullet decals |
 | ~ (the key left of 1) | **The console** (see **Console**) |
+| Enter | **Chat** (Shift+Enter: to your team only, in competitive). Type, Enter sends, Esc drops it. The last lines show bottom left for 12 s; online everyone sees them (a team line only your team) |
+| Middle mouse / P | **Ping**: marks the spot you're looking at for 6 s (a light on the spot, and on screen a diamond with the callout and how many metres away). Online your teammates see it in competitive, everyone in deathmatch |
 | Alt+Enter | Toggle fullscreen |
 | Esc | **Menu.** The game opens on the **main menu**: PLAY, PLAY ONLINE, INVENTORY, STATS, SETTINGS, QUIT. **PLAY** lists the modes (a line under the menu says what the highlighted one is); picking one opens its setup: the map, the mode's options (bots, skill, minutes, route...), START. **PLAY ONLINE**: your name, HOST A GAME (you set the game up in your lobby), your friend's address and JOIN, the port. **SETTINGS** has pages: Mouse + view, Crosshair + HUD, Weapons + skins, Video, Sound, Gameplay, Controls, and RESET TO DEFAULTS (press twice). In a game, Esc pauses: Resume, New game, Reset position (practice) / Restart route (prefire), Watch replay, Inventory, Settings, Main menu, Quit. Hover or ↑/↓ to select, click or Enter to press, ←/→, wheel or right click to change a setting (Shift = ×5); saved to `config.cfg`. Esc goes back |
 
@@ -78,7 +80,7 @@ scroll, `;` puts several commands on one line (`give ak47; god`). `help` lists t
   `bot_quota <n>` (these start the game over with the new count), `bot_difficulty 0-3`.
 - **Competitive rules (offline):** `mp_roundtime <minutes>`, `mp_buytime <seconds>`, `mp_freezetime <seconds>`,
   `mp_startmoney <$>`, `mp_maxrounds <n>` (sides swap at half; first to half plus one wins).
-- **Online:** `connect <address[:port]>`, `disconnect`. Also `echo`, `clear`, `quit`.
+- **Online:** `connect <address[:port]>`, `disconnect`, `say <text>`, `say_team <text>`, `ping`. Also `echo`, `clear`, `quit`.
 
 ## The map
 
