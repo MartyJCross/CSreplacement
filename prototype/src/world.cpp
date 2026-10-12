@@ -418,14 +418,18 @@ struct TownDef {
     const char* const (*separate)[2];
     int separateCount;
     float minWallTop;  // no wall lower than this (Inferno: its upper floors look out over the low streets' walls)
+    float cell;        // grid cell size: 32, or 16 where walls are thin and doorways exact (Inferno)
+    const TownDeck* decks;  // walkways over a street (a floor above a floor: the grid holds one level a cell)
+    int deckCount;
 };
 const TownDef kTowns[kTownMaps] = {
     {"DUST", kDustAreas, kDustAreaCount, -2400, -1216, 1952, 3264, true, {kDStone, 0xd2bd94, 0xc7b089}, kDustSeparate,
-     int(sizeof(kDustSeparate) / sizeof(kDustSeparate[0])), 0},
+     int(sizeof(kDustSeparate) / sizeof(kDustSeparate[0])), 0, 32, nullptr, 0},
     {"HARBOR", kHarborAreas, int(sizeof(kHarborAreas) / sizeof(kHarborAreas[0])), -1650, -1650, 1500, 1950, false,
-     {0xdcd6c8, 0xcfc8b6, 0xc2bba8}, nullptr, 0, 0},
+     {0xdcd6c8, 0xcfc8b6, 0xc2bba8}, nullptr, 0, 0, 32, nullptr, 0},
     {"INFERNO", kInfernoAreas, int(sizeof(kInfernoAreas) / sizeof(kInfernoAreas[0])), -1760, -768, 2688, 3552, false,
-     {kIPlaster, 0xdbb28c, 0xd0bf9f}, nullptr, 0, 520},
+     {kIPlaster, 0xdbb28c, 0xd0bf9f}, nullptr, 0, 520, kInfernoCell, kInfernoDecks,
+     int(sizeof(kInfernoDecks) / sizeof(kInfernoDecks[0]))},
 };
 constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
 
@@ -495,7 +499,7 @@ void buildDustGrid() {
     const float s = scaleNow();
     const TownDef& td = town();
     MapGrid m;
-    m.cell = 32;
+    m.cell = td.cell;
     m.x0 = std::floor(td.minX * s / m.cell) * m.cell - 64;
     m.y0 = std::floor(td.minY * s / m.cell) * m.cell - 64;
     m.w = int(std::ceil((td.maxX * s - m.x0) / m.cell)) + 2;
@@ -1066,9 +1070,10 @@ World buildTown() {
 
     // Walls: each 5x5-cell block is its own building with its own height (so the skyline isn't one flat
     // line), in three slightly different stone shades.
-    auto blockExtra = [](int i, int j) {
+    const int block = std::max(1, int(160.0f / m.cell));  // (buildings about 160 units across, whatever the cell)
+    auto blockExtra = [block](int i, int j) {
         static const float kExtra[8] = {0, 0, 32, 64, 64, 96, 160, 224};
-        uint32_t h = uint32_t(i / 5) * 73856093u ^ uint32_t(j / 5) * 19349663u;
+        uint32_t h = uint32_t(i / block) * 73856093u ^ uint32_t(j / block) * 19349663u;
         h = (h ^ (h >> 13)) * 0x5bd1e995u;
         return kExtra[(h ^ (h >> 15)) % 8];
     };
@@ -1182,10 +1187,12 @@ World buildTown() {
                 }
                 a = b;
             }
-            // Features need three facing cells in a row at one height, open to the sky.
-            for (int a = 1; a + 1 < len; ++a) {
+            // Features need about 96 units of wall facing the walkway at one height, open to the sky (three cells of
+            // 32, seven of 16), centred on cell a.
+            const int half = std::max(1, int(std::lround(48.0f / m.cell)));
+            for (int a = half; a + half < len; ++a) {
                 bool ok = true;
-                for (int q = a - 1; q <= a + 1; ++q)
+                for (int q = a - half; q <= a + half; ++q)
                     ok = ok && facing[size_t(q)] && open[size_t(q)] && tp[size_t(q)] == tp[size_t(a)] && fz[size_t(q)] == fz[size_t(a)];
                 if (!ok) continue;
                 const float z = fz[size_t(a)], height = tp[size_t(a)] - z, mid = along(a) + m.cell * 0.5f;
@@ -1208,20 +1215,40 @@ World buildTown() {
                         }
                         if ((h >> 12) % 3 != 0) break;  // mostly one storey of windows
                     }
-                    a += 2;
+                    a += 2 * half;
                 } else if (r < 32 && height >= 150) {  // a shut door, often under a cloth awning
                     faceBox(k, line, mid - 32, mid + 32, 0, 1.5f, z, z + 112, kDTrimLight, kMatStone);
                     faceBox(k, line, mid - 26, mid + 26, 0, 2.5f, z, z + 104, kDDoor, kMatWood);
                     if ((h >> 8) % 3 != 0)
                         faceBox(k, line, mid - 40, mid + 40, 0, 34, z + 122, z + 126, awningCols[(h >> 10) % 3], kMatPlain);
-                    a += 2;
+                    a += 2 * half;
                 } else if (r < 42 && height >= 170) {  // wooden beam ends under the roof line
                     for (float off : {-32.0f, 0.0f, 32.0f})
                         faceBox(k, line, mid + off - 4, mid + off + 4, 0, 16, tp[size_t(a)] - 56, tp[size_t(a)] - 48, kDWood, kMatWood);
-                    a += 2;
+                    a += 2 * half;
                 }
             }
         }
+    }
+
+    // Decks: walkways above a street (Inferno's T apps bridge over the alley). The grid holds one floor a cell (the
+    // street, for the bots' nav); the deck is solid boxes on top: a slab you walk on, parapets along its long sides and
+    // a roof if it's covered. You cross it; bots keep to the street below.
+    for (int q = 0; q < td.deckCount; ++q) {
+        const TownDeck& dk = td.decks[q];
+        const uint32_t slab = 0x8c6c4e, wall = td.shades[0];
+        w.solids.push_back({{dk.x0, dk.y0, dk.z - 14}, {dk.x1, dk.y1, dk.z}, slab, kMatWood});
+        const bool alongY = dk.y1 - dk.y0 > dk.x1 - dk.x0;
+        if (dk.parapet > 0) {
+            if (alongY) {
+                w.solids.push_back({{dk.x0, dk.y0, dk.z}, {dk.x0 + 8, dk.y1, dk.z + dk.parapet}, wall, kMatStone});
+                w.solids.push_back({{dk.x1 - 8, dk.y0, dk.z}, {dk.x1, dk.y1, dk.z + dk.parapet}, wall, kMatStone});
+            } else {
+                w.solids.push_back({{dk.x0, dk.y0, dk.z}, {dk.x1, dk.y0 + 8, dk.z + dk.parapet}, wall, kMatStone});
+                w.solids.push_back({{dk.x0, dk.y1 - 8, dk.z}, {dk.x1, dk.y1, dk.z + dk.parapet}, wall, kMatStone});
+            }
+        }
+        if (dk.roof > 0) w.solids.push_back({{dk.x0, dk.y0, dk.z + dk.roof}, {dk.x1, dk.y1, dk.z + dk.roof + 16}, kDRoof, kMatStone});
     }
 
     // Props, standing on the floor under their centre. Crates keep their real size wherever the map's

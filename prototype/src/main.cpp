@@ -5292,6 +5292,7 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "INFERNO"};
+constexpr int kMenuMaps = 3;  // the maps the menus offer (4 with Inferno: hidden while it's rebuilt by hand)
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE"};
 // The PLAY screen: the modes in the order they're offered, and a line about each (shown under the menu).
 const int kPlayModes[] = {3, 1, 2, 4, 0};
@@ -5380,7 +5381,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
             const bool comp = (L.host ? c.net_game : L.game) == 1;
             if (L.host) {
                 r.push_back({"GAME", nullptr, &c.net_game, 1, 0, 1, kNetGameNames});
-                r.push_back({"MAP", nullptr, &g_lobbyMapSel, 1, 0, kTownMaps - 1, kTownMapNames});
+                r.push_back({"MAP", nullptr, &g_lobbyMapSel, 1, 0, kMenuMaps - 2, kTownMapNames});
                 if (comp) {
                     r.push_back({"TEAMMATES (PLAYERS + BOTS)", nullptr, &c.comp_mates, 1, 0, 4});
                     r.push_back({"ENEMIES (PLAYERS + BOTS)", nullptr, &c.comp_enemies, 1, 1, 5});
@@ -5420,10 +5421,10 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuSetup: {  // the mode's map first, then its options, then START
             const GameMenu& m = g_gameMenu;
             std::vector<MenuItem> r;
-            if (m.mode == 0) r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 3, kMapNames});
+            if (m.mode == 0) r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, kMenuMaps - 1, kMapNames});
             else {
                 if (g_gameMenu.map == 0) g_gameMenu.map = 1;
-                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 1, 3, kMapNames});
+                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 1, kMenuMaps - 1, kMapNames});
             }
             if (m.mode == 3) {
                 r.push_back({"TEAMMATES", nullptr, &c.comp_mates, 1, 0, 4});

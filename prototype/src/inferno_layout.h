@@ -6,6 +6,13 @@
 // other tables. Included once, inside world.cpp's anonymous namespace (after the colours it uses).
 #pragma once
 
+constexpr float kInfernoCell = 16;  // (thin walls and exact doorways)
+
+// The T apps bridge over the alley (and anything else that's a floor over a floor).
+const TownDeck kInfernoDecks[] = {
+    {"T APPS BRIDGE", -448, -256, -352, 0, 192, 44, 112},
+};
+
 const DustArea kInfernoAreas[] = {
     {"SECOND MID", 800, -768, 832, -736, 91, 91, 0, kIStreet, 0},
     {"SECOND MID", 832, -768, 864, -736, 91, 91, 0, kIStreet, 0},
