@@ -3,6 +3,16 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.29: Inferno
+
+- **A new map: Inferno**, CS2's, as accurate as possible: its real size, coordinates and heights, measured from the
+  game's radar and the community's nav mesh, with its callouts (T apps, banana, car, B site with the fountain,
+  construction, CT, speedway, library, arch, A long, A site, pit, graveyard, balcony, close apps, CT apps, boiler,
+  short, top mid, mid, second mid, underpass...). Plaster and terracotta, shutters and flower boxes, cobbled streets.
+- Every mode plays on it: practice, deathmatch, retakes, competitive (Ts hit A through apps or short, B up banana; CT
+  setups, retakes, utility), prefire (banana, apartments, mid) and online (pick it in the lobby).
+- Bots climb stairs as slopes (up to 26 units a step on a ramp).
+
 ## v0.28: knife attacks, drops, bot utility, StatTrak, factory new
 
 - **Knife attacks** (CS:GO's numbers): Mouse 1 slashes (40, 25 for a slash right after another, 90 from behind,

@@ -8,7 +8,7 @@ friends. It has:
 - raw mouse input
 - twelve guns with fixed spray patterns (AK-47, M4A1-S, Galil AR, AWP, SSG 08, Nova, XM1014, MAC-10, UMP-45, pistol, Dual Berettas, Deagle), knives and grenades
 - menu music (a CC0 track; MENU MUSIC volume in Settings → Sound)
-- three maps: the Lab (a grey-box range), Dust (a Dust2 copy, for personal testing) and Harbor (Crisp's own)
+- four maps: the Lab (a grey-box range), Dust (a Dust2 copy) and Inferno (CS2's Inferno), both for personal testing, and Harbor (Crisp's own)
 - modes: competitive 5v5, deathmatch, retakes, prefire and practice, plus online deathmatch and competitive
 - **sound:**
   - gunshots, footsteps, landing, reload, dry-fire
@@ -100,6 +100,28 @@ In practice mode the 4 bots peek from cover: the long corner, mid doors, the B a
 - Everything works there: practice (peek bots), deathmatch, retakes, competitive with the plays (DOCKS / SHORT / UNDERPASS / ALLEY versions of the calls), prefire (DOCKS, UNDERPASS, MID, A SHORT) and online (the host's map is sent to whoever joins).
 - **At knife speed:** T spawn to A 11.8 s, to B 10.8 s, to mid doors 7.1 s; CT spawn to A 6.2 s, to B 5.1 s, to mid doors 3.3 s. It's built at its own size.
 - Tested like Dust2 (`testHarbor`): all 99 bot spots are standing room with a route, real bots walk to every competitive spot from both spawns (70 of 70), the spawns can't see each other, and 72,000 rays from everywhere you can stand find no holes.
+
+## Inferno (every mode: MAP INFERNO)
+
+**CS2's Inferno**, as accurate as the box world allows (a copy for personal testing, like Dust): its real size, its
+real coordinates and heights, its callouts. T spawn in the west, CT spawn in the north-east:
+- **B:** out of T spawn up the **T ramp** to **bottom mid** and up **banana** past the **car** onto **B site** (the
+  **fountain** with its statue in the middle, box stacks, **dark** and **coffins** at the back). The CTs come from
+  **CT** and **construction**.
+- **Mid and A:** **mid** runs east from bottom mid to **top mid**, where it splits: **A short** south past **boiler**
+  onto the site, **arch** north onto **A long**. **Second mid** runs below it, with the **underpass** between them.
+- **Apartments:** **T apps** (upstairs, over the alley) near T spawn; **CT apps** up its stairs from second mid,
+  **close apps** along to the **balcony** over **pit**. **A site** has its boxes, **graveyard** beside it, **library**
+  off A long towards **CT spawn**, and **speedway** from arch back to B.
+- Plaster houses with terracotta roofs, shutters and window boxes, cobbled streets, a summer afternoon's cicadas.
+- Everything works there: practice, deathmatch, retakes, competitive (the Ts go through **apps**, **short** or up
+  **banana**; B has one way in, so no split or mid control onto B), prefire (BANANA, APARTMENTS, MID) and online.
+- **At knife speed:** T spawn to B 17.0 s, to A 20.1 s, to banana 9.7 s, to top mid 14.0 s; CT spawn to B 9.8 s, to A
+  7.8 s, to top mid 6.8 s.
+- Tested (`testInferno`): its 92 bot spots are standing room with a route, real bots walk to every competitive spot
+  from both spawns (60 of 60), the spawns can't see each other, and 72,000 rays find no holes.
+- Simplified where the box world can't follow: one floor per spot (where the T apps bridge crosses the alley, you walk
+  the alley), stairs are smooth ramps, walls are at least 32 units thick and doorways a little narrower in places.
 
 ## Radar
 

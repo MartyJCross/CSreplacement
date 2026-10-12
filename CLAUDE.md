@@ -41,7 +41,7 @@ prototype/
     vecmath.h             Vec3/Mat4, Z-up, Source-style angles (pitch + = down, yaw + = left)
     world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor) from named areas
                           on a 32u grid: buildTown(), townGrid(), spawns, retake sites, CT spots, prefire routes, peek
-                          spots, TownTactics (bot plays), doors, facades; KZ course constants
+                          spots, TownTactics (bot plays), doors, facades; KZ course constants; inferno_layout.h = Inferno's areas
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
     combat.*              weapons (WeaponId: rifle = AK-47, pistol, knife, grenade, sniper = AWP, Berettas, Deagle, Nova,
                           MAC-10, M4A1-S, Galil, SSG 08, UMP-45, XM1014; weaponDef; armorRatio per gun; `scope`), recoil
@@ -91,9 +91,13 @@ prototype/
 3. **What you see is what you hit.** Shots test against the dummy positions and eye that were rendered on the frame you clicked (`lastDummyRenderPos`, `lastRenderEye`). Cosmetic parts of enemies must sit inside their hitboxes (and scale with them: `modelScale()`). Weapons held by enemies are the only exception, like CS.
 4. **Performance budget.** No per-frame heap allocations in hot paths (reuse vectors: `static`/member buffers;
    per-frame model draws go in a `DrawList`), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
-5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). Revisit before anything is shared publicly; Harbor is Crisp's own map and is free to share.
+5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). **Inferno** (v0.29, owner: "build Inferno from CS2, as accurate and
+   detailed as possible") is under the same exception: its layout, heights and callouts were measured from CS2's radar
+   and the community nav mesh (awpy-data) as references and turned into the area table `inferno_layout.h` by a
+   converter kept outside the repo; no Valve file ships. Revisit both before anything is shared publicly; Harbor is
+   Crisp's own map and is free to share.
 6. **Keep it portable to MSVC.** C++20, standard library and SDL3 only. No GCC/Clang-only extensions. Code must compile warning-clean with `-Wall -Wextra -pedantic` (Linux/GCC: CI runs it; check locally, §10) and `/W4` (MSVC).
-7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`,
+7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`, `testInferno`,
 `testSpawnsOffMid`, `testCompWays`). If you change an area table, keep those passing and look at the printed run times.
 8. **Settings belong in the config and the menu.** A new tunable gets a `Config` field, load + save in `config.cpp`, the default config text, and if player-facing a row in `menuRows()` (the right settings page) in `main.cpp`.
 
@@ -119,7 +123,7 @@ cmake --build build
 ```
 
 **Screenshots** (work on Windows with the real GPU; on Linux under Xvfb + Mesa):
-`crisp --windowed 1280 720 --screenshot out.bmp --frames N [options]`. The map/mode come from `config.cfg` (`map 0|1|2`,
+`crisp --windowed 1280 720 --screenshot out.bmp --frames N [options]`. The map/mode come from `config.cfg` (`map 0|1|2|3`,
 `mode`, `fullscreen 0`). Screenshot mode runs a fixed 240 FPS timestep (frame N = N/240 s of game time; the FPS
 counter is meaningless). Convert BMP to PNG (Pillow) to look at it, and **look before claiming a visual change works**.
 Options: `--spawn X Y YAW` (world coords: Dust is 90% of real Dust2 in the game!), `--weapon 1..14` (4 AWP, 5 grenade,
@@ -232,7 +236,8 @@ faces away (dot > 0.475); main.cpp handles the hit like a bullet's (Mouse 1 slas
 `knifeComboUntil`); fx.cpp `knifeSwing` (forehand / backhand alternate, `ViewModel::knifeAttack`); Sfx KnifeSwing,
 KnifeHit, KnifeWall; `--stab N`.
 
-**Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor; `Game::mapId` is 1 for both town maps):
+**Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor, 3 Inferno; `Game::mapId` is 1 for every town map;
+`setTownMap(map - 1)`):
 - The Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course.
 - **Town maps** (world.cpp): named floor areas on a 32u grid (`DustArea` tables `kDustAreas`, `kHarborAreas`;
   `TownDef kTowns`: extents, scalable, wall shades, `separate` pairs). `setTownMap(0|1)` picks one; every `town*`
@@ -246,6 +251,16 @@ KnifeHit, KnifeWall; `--stab N`.
 - **Harbor** (Crisp's own map, its own size): docks → raised A site, market/mid/mid doors, roofed warehouse → A short,
   roofed underpass and alley → B with a back platform. `testHarbor` checks its 99 spots, 70 bot trips, spawn
   visibility, holes and lane times.
+- **Inferno** (v0.29, `setTownMap(2)`, `inferno_layout.h`: `kInfernoAreas` 835 areas at CS2's real size and
+  coordinates, not scalable, `kInfernoSmallProps` with heights): flats and straight ramps fitted to the measured floor
+  (stairs are ramps; nav: `MapGrid::slope`, a ramp cell may rise 26 in `canStep`), callout zones name them, interiors
+  roofed (T/CT apps, close apps, boiler, library, underpass). Its look (buildTown `inferno`/`g_town == 2`): terracotta
+  wall caps and eaves, stone footing, shutters + flower boxes, cobbled streets paved (`kIStreet`), `minWallTop` 520 (upper
+  floors look over the streets). Ways APPS / SHORT / BANANA; B has one way, so no split / mid control there.
+  `testInferno` (92 spots, 60 trips, spawn sight, holes, lane times). Regenerating the layout: the converter (outside
+  the repo) rasterised the nav polygons at 32 u (grown 16 u back to the walls, a cell is floor at 12/16 coverage),
+  kept one level where floors stack, fitted rectangles along each cell's slope direction; then spots were snapped to
+  standing room against the game's own nav (`sim_tests` writes `inferno_nav.txt` when a file `CRISP_DUMP` exists).
 - Doors (end of buildTown): frames + leaves on the doorway's cells (`cellsOf`, `frame`, `openLeaf`). Facade decor
   (`World::decor`) is drawn, never collided: keep it thin/flat or above head height. Surfaces by material alpha in the
   box shader (240 stone, 236 paving, 224 wood, 208 metal; the Lab keeps the 255 dev grid).
@@ -370,6 +385,8 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
 
+**Done in v0.29** (owner, 2026-10-12): Inferno (CS2's), every mode; see §7 Maps.
+
 **Done in v0.28** (owner, 2026-10-11): knife attacks, bot utility, drops (G + NEED A DROP), StatTrak, every skin
 factory new (v0.27.2 before it: refunds, the butterfly redone side on, a Q fix). Known: an occasional STUCK in
 `--comp-money 16000` T runs (a T in UPPER TUNNELS, round 2, bomb dropped) that predates v0.28; not tracked down yet.
@@ -421,7 +438,8 @@ Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competit
 saving, fire avoidance), the performance check (A* routes, mixer lock).
 Offered, not chosen yet: defuse kits (10 s defuse without), bots dropping guns for each other, server-authoritative
 netcode with lag compensation (`docs/04`), practice tools (grenade lineups, spray-pattern overlay, CS-style console),
-trade-ups, stickers, a third map, ladders, net_graph.
+trade-ups, stickers, ladders, net_graph; for Inferno: hand-placed props (banana's logs and sandbags, the car, carts,
+hay), the T apps bridge over the alley (one floor per cell now), crouch-only underpass.
 
 ## 9. The owner: who they are, what they want, the history
 
