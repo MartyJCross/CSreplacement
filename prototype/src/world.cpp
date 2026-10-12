@@ -393,8 +393,9 @@ const DustArea kHarborAreas[] = {
 };
 
 // Inferno (CS2's de_inferno, real size and coordinates): plaster and terracotta, cobbled streets, dirt on banana.
-constexpr uint32_t kIStreet = 0xb0a38c, kISite = 0xcbb898, kIDirt = 0xb39a74, kIWood = 0x8c6c4e, kIStone = 0xc1b195,
-                   kIGrass = 0x8f915c, kIPlaster = 0xdcc7a2, kITerracotta = 0xa65d3f;
+constexpr uint32_t kIStreet = 0x989389, kISite = 0xc6b79c, kIDirt = 0xab9473, kIWood = 0x8c6c4e, kIStone = 0xc1b195,
+                   kIGrass = 0x8f915c, kIPlaster = 0xe4d3b2, kITerracotta = 0xa9573a, kIFooting = 0x8e877a,
+                   kIFlowers = 0xc23b4e, kILeaves = 0x4f6b35;
 #include "inferno_layout.h"
 
 // Walls that must hold at every map size: areas whose gap is thinner than a grid cell at some sizes would touch
@@ -424,7 +425,7 @@ const TownDef kTowns[kTownMaps] = {
     {"HARBOR", kHarborAreas, int(sizeof(kHarborAreas) / sizeof(kHarborAreas[0])), -1650, -1650, 1500, 1950, false,
      {0xdcd6c8, 0xcfc8b6, 0xc2bba8}, nullptr, 0, 0},
     {"INFERNO", kInfernoAreas, int(sizeof(kInfernoAreas) / sizeof(kInfernoAreas[0])), -1760, -768, 2688, 3552, false,
-     {kIPlaster, 0xd2b993, 0xc9ab84}, nullptr, 0, 520},
+     {kIPlaster, 0xdbb28c, 0xd0bf9f}, nullptr, 0, 520},
 };
 constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
 
@@ -628,7 +629,7 @@ bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat) {
     const int a = m.area[size_t(m.index(i, j))];
     if (a < 0) return false;
     color = town().areas[a].color;
-    paved = color == kDSite || color == kHSite || color == kISite;
+    paved = color == kDSite || color == kHSite || color == kISite || color == kIStreet;
     flat = town().areas[a].axis == 0;
     return true;
 }
@@ -1060,7 +1061,7 @@ World buildTown() {
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
         const uint32_t fc = uint32_t(k & 0xFFFFFF);
-        if (fc == kDSite || fc == kHSite || fc == kISite) w.solids.back().material = kMatPaving;  // the sites are paved
+        if (fc == kDSite || fc == kHSite || fc == kISite || fc == kIStreet) w.solids.back().material = kMatPaving;  // paved
     });
 
     // Walls: each 5x5-cell block is its own building with its own height (so the skyline isn't one flat
@@ -1081,6 +1082,10 @@ World buildTown() {
     for (size_t c = 0; c < n; ++c) key[c] = m.area[c] < 0 ? zKey(top[c]) : -1;
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float(k - 65536), shades[uint32_t(i0 * 7 + j0 * 13) % 3]);
+        if (g_town == 2) {  // Inferno: a roof of terracotta tiles on every building (decor: nothing stands up there)
+            const Box& b = w.solids.back();
+            w.decor.push_back({{b.mins.x, b.mins.y, b.maxs.z}, {b.maxs.x, b.maxs.y, b.maxs.z + 7}, kITerracotta, kMatStone});
+        }
     });
 
     // Roofs over tunnels and doorways: from the ceiling up to the surrounding wall height.
@@ -1112,6 +1117,7 @@ World buildTown() {
         return h ^ (h >> 16);
     };
     const uint32_t shutterCols[3] = {0x3f6f9a, 0x4f7d5a, 0x8a5a3a}, awningCols[3] = {0xa8443a, 0x3f6f9a, 0xc9a35a};
+    const bool inferno = g_town == 2;
     // The smooth ramp whose footprint holds point (x, y), if any.
     auto rampAt = [&](float x, float y) -> const Box* {
         for (size_t q : ramps) {
@@ -1155,11 +1161,19 @@ World buildTown() {
                 while (b < len && facing[size_t(b)] && tp[size_t(b)] == tp[size_t(a)] && skirt[size_t(b)] == skirt[size_t(a)] &&
                        open[size_t(b)] == open[size_t(a)] && floorArea[size_t(b)] == floorArea[size_t(a)])
                     ++b;
-                if (open[size_t(a)]) faceBox(k, line, along(a), along(b), 0, 5, tp[size_t(a)] - 12, tp[size_t(a)], kDTrimLight, kMatStone);
+                if (open[size_t(a)] && inferno)  // Inferno: the tiled eave hangs out over the street, on a plaster band
+                    faceBox(k, line, along(a), along(b), 0, 20, tp[size_t(a)] - 4, tp[size_t(a)] + 5, kITerracotta, kMatStone),
+                    faceBox(k, line, along(a), along(b), 0, 4, tp[size_t(a)] - 16, tp[size_t(a)] - 4, kDTrimLight, kMatStone);
+                else if (open[size_t(a)])
+                    faceBox(k, line, along(a), along(b), 0, 5, tp[size_t(a)] - 12, tp[size_t(a)], kDTrimLight, kMatStone);
                 if (skirt[size_t(a)] > MapGrid::kNoFloor) {
-                    faceBox(k, line, along(a), along(b), 0, 3, skirt[size_t(a)] - 4, skirt[size_t(a)] + 12, kDTrimDark, kMatStone);
+                    if (inferno)  // a grey stone footing, knee high
+                        faceBox(k, line, along(a), along(b), 0, 3, skirt[size_t(a)] - 4, skirt[size_t(a)] + 34, kIFooting, kMatStone);
+                    else
+                        faceBox(k, line, along(a), along(b), 0, 3, skirt[size_t(a)] - 4, skirt[size_t(a)] + 12, kDTrimDark, kMatStone);
                     // The corner where the wall meets the floor: a contact shadow on the floor along its foot.
-                    const bool paved = floorCol[size_t(a)] == kDSite || floorCol[size_t(a)] == kHSite;
+                    const bool paved = floorCol[size_t(a)] == kDSite || floorCol[size_t(a)] == kHSite ||
+                                       floorCol[size_t(a)] == kISite || floorCol[size_t(a)] == kIStreet;
                     faceBox(k, line, along(a), along(b), 0, 24, skirt[size_t(a)] - 1, skirt[size_t(a)] + 0.15f, floorCol[size_t(a)],
                             uint8_t(kMatShade + 2 * k + (paved ? 1 : 0)));
                 } else if (const Box* r = rampUnder(along(a), along(b), k, line)) {  // on a ramp: the strip follows it
@@ -1181,10 +1195,16 @@ World buildTown() {
                         faceBox(k, line, mid - 26, mid + 26, 0, 1.5f, wz - 6, wz + 62, kDTrimLight, kMatStone);
                         faceBox(k, line, mid - 20, mid + 20, 0, 2.5f, wz, wz + 56, kDPane, kMatPlain);
                         faceBox(k, line, mid - 28, mid + 28, 0, 5, wz - 10, wz - 5, kDTrimLight, kMatStone);
-                        if ((h >> 8) % 2) {
-                            const uint32_t sc = shutterCols[(h >> 9) % 3];
+                        if (inferno || (h >> 8) % 2) {  // (Inferno: always shuttered, green or brown)
+                            const uint32_t sc = inferno ? ((h >> 9) % 3 ? 0x4c6b46 : 0x7a5434) : shutterCols[(h >> 9) % 3];
                             faceBox(k, line, mid - 42, mid - 28, 0, 3, wz - 2, wz + 58, sc, kMatWood);
                             faceBox(k, line, mid + 28, mid + 42, 0, 3, wz - 2, wz + 58, sc, kMatWood);
+                        }
+                        if (inferno && (h >> 14) % 2) {  // a flower box under the sill: leaves and red geraniums
+                            faceBox(k, line, mid - 24, mid + 24, 0, 9, wz - 20, wz - 10, 0x6a4a2e, kMatWood);
+                            faceBox(k, line, mid - 22, mid + 22, 1, 8, wz - 10, wz - 4, kILeaves, kMatPlain);
+                            for (float fx : {-16.0f, -4.0f, 8.0f, 18.0f})
+                                faceBox(k, line, mid + fx - 3, mid + fx + 3, 2, 7, wz - 5, wz + 1, kIFlowers, kMatPlain);
                         }
                         if ((h >> 12) % 3 != 0) break;  // mostly one storey of windows
                     }
@@ -1278,7 +1298,7 @@ World buildTown() {
         prop(-1000, 780, -940, 840, 48, kDCrate);
         prop(-780, 500, -730, 550, 48, kDCrate);              // the alley
     } else if (g_town == 2) {  // Inferno: the measured small props, and its crates, carts and barrels
-        for (const auto& p : kInfernoSmallProps) prop(p[0], p[1], p[2], p[3], 56, kDCrate);
+        for (const auto& p : kInfernoSmallProps) prop(p[0], p[1], p[2], p[3], p[4], p[4] > 100 ? kIStone : kDCrate);
     } else {
     prop(-500, -800, -440, -740, 64, kDCrate);    // T spawn crates
     prop(-60, -1000, 20, -920, 64, kDCrate);
