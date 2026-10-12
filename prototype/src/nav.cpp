@@ -72,6 +72,46 @@ void NavGrid::build(const MapGrid& grid, const World& world, const Vec3& seed) {
     }
 }
 
+std::vector<Vec3> NavGrid::hidingSpots(const World& world, float spacing, const std::vector<Vec3>& keep) const {
+    std::vector<Vec3> out;
+    if (!grid_) return out;
+    const MapGrid& m = *grid_;
+    auto near = [&](const Vec3& a, const Vec3& b) { return length2d(a - b) < spacing && std::fabs(a.z - b.z) < 64.0f; };
+    auto add = [&](const Vec3& p) {
+        for (const Vec3& k : keep)
+            if (near(p, k)) return;
+        for (const Vec3& k : out)
+            if (near(p, k)) return;
+        out.push_back(p);
+    };
+    // Behind props: beside each side of a crate-sized box standing on the floor, where someone fits.
+    for (const Box& b : world.solids) {
+        const Vec3 size = b.maxs - b.mins, mid = (b.mins + b.maxs) * 0.5f;
+        if (size.x > 260.0f || size.y > 260.0f || size.x < 24.0f || size.y < 24.0f) continue;
+        const float floorZ = m.floorAt(mid.x, mid.y + size.y * 0.5f + 32.0f);
+        const float tall = b.maxs.z - std::max(b.mins.z, floorZ);
+        if (floorZ <= MapGrid::kNoFloor || std::fabs(b.mins.z - floorZ) > 8.0f || tall < 30.0f || tall > 150.0f) continue;
+        const float gap = 20.0f;
+        const Vec3 sides[4] = {{b.mins.x - gap, mid.y, 0}, {b.maxs.x + gap, mid.y, 0}, {mid.x, b.mins.y - gap, 0}, {mid.x, b.maxs.y + gap, 0}};
+        for (Vec3 p : sides) {
+            if (!roamable(p)) continue;
+            p.z = floorAt(p);
+            add(p);
+        }
+    }
+    for (int j = 0; j < m.h; ++j)
+        for (int i = 0; i < m.w; ++i) {
+            if (!roam_[size_t(m.index(i, j))]) continue;
+            bool corner = false;
+            for (int dx = -1; dx <= 1 && !corner; dx += 2)
+                for (int dy = -1; dy <= 1 && !corner; dy += 2)
+                    corner = !clear(i + dx, j) && !clear(i, j + dy) && !clear(i + dx, j + dy);
+            if (!corner) continue;
+            add(m.center(i, j));
+        }
+    return out;
+}
+
 bool NavGrid::roamable(const Vec3& p) const {
     int i, j;
     return grid_ && grid_->cellAt(p.x, p.y, i, j) && roam_[size_t(grid_->index(i, j))];

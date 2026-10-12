@@ -45,6 +45,9 @@ namespace {
 struct Options {
     std::string screenshotPath;  // --screenshot out.bmp : save a frame and quit
     int screenshotFrame = 300;   // --frames N
+    // --light K (automated runs on the owner's PC: easy on it): each drawn frame is K steps of 1/240 s and at most 30
+    // are drawn a second (so --frames N covers N * K / 240 s of game, at K / 8 times real time).
+    int lightSteps = 0;
     bool spawnOverride = false;  // --spawn x y yaw
     float spawnX = 0, spawnY = 0, spawnYaw = 0;
     float autofireStart = -1, autofireEnd = -1;  // --autofire start end (sim seconds)
@@ -91,6 +94,7 @@ Options parseArgs(int argc, char** argv) {
         auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : "0"; };
         if (a == "--screenshot") o.screenshotPath = next();
         else if (a == "--frames") o.screenshotFrame = std::atoi(next());
+        else if (a == "--light") o.lightSteps = std::clamp(std::atoi(next()), 1, 48);
         else if (a == "--spawn") {
             o.spawnOverride = true;
             o.spawnX = float(std::atof(next()));
@@ -302,6 +306,10 @@ struct Game {
     // Where enemies hold or come from, for the bots' preaim (BotSenses::angles): [0] what a T checks (the CT spots,
     // the site holds), [1] what a CT checks (the Ts' stages, mid, the site holds, the peek spots); deathmatch: both.
     std::vector<Vec3> angles[2], allAngles;
+    // Bot spot checks (v0.31): the angles above start with the known holds (keyAngles of them), then the map's corners
+    // (NavGrid::hidingSpots); per side and angle, which bot covers it (teammates split the angles).
+    size_t keyAngles[2] = {0, 0}, keyAllAngles = 0;
+    std::vector<SpotClaim> looked[2];
     uint32_t nextDropId = 1;
 
     // Map + bot AI (Dust: hide behind cover, peek, hold, return).
@@ -3746,7 +3754,16 @@ void loadMap(Game& g, Renderer& r, int id) {
                 for (auto& a : g.angles) a.push_back(townPoint(h.x, h.y));
         for (const PeekSpot& p : townPeekSpots()) g.angles[1].push_back(p.peek);
         for (auto& a : g.angles) g.allAngles.insert(g.allAngles.end(), a.begin(), a.end());
+        // The corners someone could be tucked into: bots check them too, after the known holds.
+        const std::vector<Vec3> corners = g.nav.hidingSpots(g.world, 160.0f, g.allAngles);
+        g.keyAllAngles = g.allAngles.size();
+        g.allAngles.insert(g.allAngles.end(), corners.begin(), corners.end());
+        for (int side = 0; side < 2; ++side) {
+            g.keyAngles[side] = g.angles[side].size();
+            g.angles[side].insert(g.angles[side].end(), corners.begin(), corners.end());
+        }
     }
+    for (int side = 0; side < 2; ++side) g.looked[side].assign(g.angles[side].size(), SpotClaim{});
     g.spottedUntil.assign(g.dummies.size(), -1.0);
     if (id == 1)  // particles land on Dust's floors (which aren't all at height 0)
         g.fx.setGround([](float x, float y) {
@@ -4891,6 +4908,7 @@ void simTick(Game& g, const Options& opt) {
         // (with dm_bot_fights): everyone fights everyone, and the bots still come looking for you half the time.
         std::vector<BotTarget> enemiesOf[2], everyone;
         sense.angles = g.mapId == 1 && !g.allAngles.empty() ? &g.allAngles : nullptr;
+        sense.keyAngles = g.keyAllAngles;
         if (g.mode == 1 && g.dmBotFights) {
             for (size_t i = 0; i < g.dummies.size(); ++i)
                 if (g.dummies[i].alive() && g.bots[i].state >= 0)
@@ -4928,6 +4946,7 @@ void simTick(Game& g, const Options& opt) {
                 d.reloadUntil = -1;
             }
             sense.self = int(i);
+            sense.skill = botSkillOf(g, i);
             if (g.mode == 3) {
                 if (g.comp.phase != 1 || g.comp.planter == int(i) || g.comp.defuser == int(i)) {
                     b.sees = b.aimed = false;  // frozen, planting or defusing: hands busy
@@ -4936,6 +4955,8 @@ void simTick(Game& g, const Options& opt) {
                 sense.targets = &enemiesOf[g.team[i]];
                 sense.mates = &matesOf[g.team[i]];
                 sense.angles = &g.angles[g.team[i]];
+                sense.keyAngles = g.keyAngles[g.team[i]];
+                sense.looked = &g.looked[g.team[i]];
                 sense.noiseFresh = sense.noiseFresh && g.team[i] != g.noiseSide;  // only enemies react to a noise
             }
             updateDeathmatchBot(d, b, sense, g.rng);
@@ -4945,24 +4966,6 @@ void simTick(Game& g, const Options& opt) {
                     d.mag = wd2.magSize;
                     d.reloadUntil = g.simTime + (wd2.shellReload ? wd2.reloadTime * float(wd2.magSize) : wd2.reloadTime);
                 }
-            }
-            {  // where it looks up or down (seen when you spectate it): at whoever it's fighting, else level
-                float want = 0;
-                if (!b.sees && b.hasLookAt) {  // walking: its crosshair at head height where it pre-aims
-                    const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
-                    want = -std::atan2(b.lookAt.z - eye.z, std::max(1.0f, length2d(b.lookAt - eye))) / kDegToRad;
-                }
-                if (b.sees && b.target >= -1) {
-                    const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
-                    const Vec3 at = b.target == -1 ? sense.playerEye
-                                    : size_t(b.target) < g.dummies.size()
-                                        ? g.dummies[size_t(b.target)].pos + Vec3{0, 0, crouchZ(58.0f * modelScale(), g.dummies[size_t(b.target)].crouch)}
-                                        : eye;
-                    want = -std::atan2(at.z - eye.z, std::max(1.0f, length2d(at - eye))) / kDegToRad;
-                }
-                // (eased in, like its yaw: no twitching)
-                const float tau = b.sees ? 0.045f : 0.12f;
-                d.pitch += std::clamp((want - d.pitch) * (1.0f - std::exp(-float(kTickDt) / tau)), -360.0f * kTickDt, 360.0f * kTickDt);
             }
             if (g.mode == 3) sense.noiseFresh = g.simTime - g.noiseAt < 1.5 * kTickDt;
         }
@@ -5018,6 +5021,10 @@ void simTick(Game& g, const Options& opt) {
                            : d.alive() && length(simEye - head) < 4000.0f && g.simTime >= g.bots[i].blindUntil &&
                                  g.world.traceRay(head, simEye).fraction >= 1.0f && !smokeBlocks(g, head, simEye);
             const int tgt = comp || dmFights ? g.bots[i].target : -1;  // competitive, deathmatch: whoever it's fighting
+            // Real aim (v0.31; the town modes): it fires along its crosshair when it's on target (bots.cpp: botReady,
+            // botShotDir, botNextShot). Practice's peek bots and the Lab keep the old model (where you were a moment
+            // ago, plus random error).
+            const bool realAim = g.mode != 0 && g.mapId == 1;
             if (comp && (tgt < -1 || (tgt == -1 && !youAlive(g)) || g.comp.phase != 1)) los = false;
             if (dmFights && (tgt < -1 || (tgt == -1 && (g.deadUntil >= 0 || g.noclip)))) los = false;
             if (!g_compLog.empty()) {  // automated runs: a bot that sees its enemy for 2.5 s in all without a shot (STALL)
@@ -5038,11 +5045,11 @@ void simTick(Game& g, const Options& opt) {
                         char info[300];
                         std::snprintf(info, sizeof(info), "  STALL bot %zu fighting %d for %.1fs no shot: los %d sees %d aimed %d strafing %d cover %d/%d tgt %d seen %.2f react %.2f cd %.2f reload %d state %d urgent %d%c",
                                       i, pb.coverFor, since, int(los), int(pb.sees), int(pb.aimed), int(pb.strafing), int(pb.hasCover), int(pb.inCover), tgt,
-                                      double(g.botSeen[i]), double(g.botReact[i]), double(g.botCooldown[i]), int(g.simTime < d.reloadUntil), pb.state, int(pb.urgent), 10);
+                                      double(realAim ? pb.seenFor : g.botSeen[i]), double(realAim ? pb.react : g.botReact[i]), double(g.botCooldown[i]), int(g.simTime < d.reloadUntil), pb.state, int(pb.urgent), 10);
                         std::ofstream(g_compLog, std::ios::app) << info;
                     }
                 }
-                if (los && g.botSeen[i] + kTickDt >= g.botReact[i] && g.botCooldown[i] - kTickDt <= 0) {
+                if (los && (realAim ? botReady(g.bots[i]) : g.botSeen[i] + kTickDt >= g.botReact[i]) && g.botCooldown[i] - kTickDt <= 0) {
                     lastShotAt[i] = g.simTime;
                     sawFor[i] = 0;
                 }
@@ -5057,24 +5064,31 @@ void simTick(Game& g, const Options& opt) {
             // Skill: your competitive teammates use theirs, every other bot the enemy skill (give or take its own
             // bit, with skill variance).
             const BotSkill sk = botSkillOf(g, i);
-            if (g.botSeen[i] == 0) {  // human-ish reaction time, a bit slower after a quiet spell (see BotBrain::surprise)
+            if (realAim) {
+                if (!botReady(g.bots[i]) || g.botCooldown[i] > 0) continue;
+            } else if (g.botSeen[i] == 0) {  // human-ish reaction time, a bit slower after a quiet spell (see BotBrain::surprise)
                 g.botReact[i] = sk.reactMin + rnd(g) * sk.reactRange + (g.mapId == 1 ? 0.2f * g.bots[i].surprise : 0.0f);
                 // Crosshair placement pays (owner, v0.26): someone appearing within 10 degrees of where it was already
                 // aiming gets a quicker shot (65% of the reaction), fading out by 30 degrees off.
                 const float off = g.mapId == 1 && g.mode != 0 ? g.bots[i].sightOff : 180.0f;
                 g.botReact[i] *= 0.65f + 0.35f * std::clamp((off - 10.0f) / 20.0f, 0.0f, 1.0f);
             }
-            g.botSeen[i] += kTickDt;
-            if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
+            if (!realAim) {
+                g.botSeen[i] += kTickDt;
+                if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
+            }
             // Its gun: damage (falling off with range), armor penetration, fire rate, pellets, sound, all as the gun.
             const int gun = weaponDef(d.weapon).canFire ? int(d.weapon) : int(kWRifle);
             const WeaponDef& gd = weaponDef(gun);
             Dummy& shooter = g.dummies[i];
             if (g.simTime < shooter.reloadUntil) continue;  // reloading: no shots, like CS
-            g.botCooldown[i] = (botShotGap(gun) + rnd(g) * 0.16f) * sk.fireScale;
+            const Vec3 aimedAt = tgt >= 0 ? g.dummies[size_t(tgt)].pos : g.player.origin;
+            g.botCooldown[i] = realAim ? botNextShot(gun, length(aimedAt - d.pos), g.bots[i], rnd(g), sk.fireScale)
+                                       : (botShotGap(gun) + rnd(g) * 0.16f) * sk.fireScale;
             if (shooter.mag < 0 || shooter.mag > gd.magSize) shooter.mag = gd.magSize;
             if (--shooter.mag <= 0) {  // the last round: a reload (a shotgun's shell by shell)
                 shooter.mag = gd.magSize;
+                g.bots[i].burstLeft = -1;
                 shooter.reloadUntil = g.simTime + (gd.shellReload ? gd.reloadTime * float(gd.magSize) : gd.reloadTime);
             }
             shooter.shotAt = g.simTime;
@@ -5088,10 +5102,8 @@ void simTick(Game& g, const Options& opt) {
             gunshot3D(g, gun, d.pos, g.earPos, g.earYaw, tgt >= 0 ? 1.0f : 1.1f);
             if (tgt >= 0) {  // competitive: shooting another bot (online: or another player)
                 const Dummy& v = g.dummies[size_t(tgt)];
-                Vec3 aim = v.pos + Vec3{0, 0, crouchZ((rnd(g) < sk.headChance ? 63.0f : 50.0f) * modelScale(), v.crouch)};  // head or chest
-                float err = length(aim - head) * 0.014f * sk.aimError;
-                aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 1.5f * err};
-                const Vec3 aimDir = normalize(aim - head);
+                const float r1 = rnd(g), r2 = rnd(g);
+                const Vec3 aimDir = botShotDir(d, g.bots[i], gd, sk, r1, r2);
                 float total = 0;  // damage before armor (players apply their own), and after (bots)
                 float armored = 0;
                 bool headHit = false, any = false;
@@ -5138,11 +5150,17 @@ void simTick(Game& g, const Options& opt) {
                 continue;
             }
 
-            // Where you were a moment ago (0.1-0.25 s by skill): your chest, or now and then your head.
-            Vec3 aim = g.eyeHistory[(g.histHead - 1 - sk.lagTicks + 64) & 63] - Vec3{0, 0, rnd(g) < sk.headChance ? 2.0f : 16.0f};
-            float err = length(aim - head) * 0.014f * sk.aimError;  // ~0.8 deg of random aim error at normal
-            aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * err};
-            const Vec3 aimDir = normalize(aim - head);
+            Vec3 aimDir;
+            if (realAim) {
+                const float r1 = rnd(g), r2 = rnd(g);
+                aimDir = botShotDir(d, g.bots[i], gd, sk, r1, r2);
+            } else {
+                // Where you were a moment ago (0.1-0.25 s by skill): your chest, or now and then your head.
+                Vec3 aim = g.eyeHistory[(g.histHead - 1 - sk.lagTicks + 64) & 63] - Vec3{0, 0, rnd(g) < sk.headChance ? 2.0f : 16.0f};
+                float err = length(aim - head) * 0.014f * sk.aimError;  // ~0.8 deg of random aim error at normal
+                aim += Vec3{(rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * 2 * err, (rnd(g) - 0.5f) * err};
+                aimDir = normalize(aim - head);
+            }
             const float hh = g.player.ducked ? kDuckHeight : kStandHeight;
             const Vec3 o = g.player.origin;
             // Your armor: competitive, what you bought; everywhere else kevlar and a helmet, like CS deathmatch.
@@ -7571,7 +7589,7 @@ int main(int argc, char** argv) {
             frameFence = nullptr;
         }
         const uint64_t tFence = SDL_GetPerformanceCounter();
-        if (automated && !bench) dt = 1.0 / 240.0;  // deterministic steps for screenshots/tests
+        if (automated && !bench) dt = double(std::max(1, opt.lightSteps)) / 240.0;  // deterministic steps for screenshots/tests
         g_uiTime += dt;
         if (g_menu.screen == kMenuCase) caseTick(g);
         // The soundtrack plays in the main menu and its pages (not the pause menu), and fades out in a game.
@@ -8601,8 +8619,9 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (cfg.fps_max > 0 && !automated) {
-            double target = 1.0 / cfg.fps_max;
+        const int fpsCap = automated ? (opt.lightSteps > 0 ? 30 : 0) : cfg.fps_max;
+        if (fpsCap > 0) {
+            double target = 1.0 / fpsCap;
             double spent = double(SDL_GetPerformanceCounter() - frameStart) / freq;
             if (spent < target) SDL_DelayPrecise(uint64_t((target - spent) * 1e9));
         }

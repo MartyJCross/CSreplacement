@@ -13,13 +13,19 @@ float wrapDeg(float a) {
 
 float yawTo(const Vec3& from, const Vec3& to) { return std::atan2(to.y - from.y, to.x - from.x) / kDegToRad; }
 
-// Turns like a hand on a mouse: eases in on `target` (closing the gap with time constant `tau`) at no more than
-// `maxRate` degrees a second, so a small change of where it wants to look is a small smooth move, not a flick
-// (owner, v0.26.1: spectated bots' aim was jittery).
-float easeToward(float yaw, float target, float tau, float maxRate) {
-    const float gap = wrapDeg(target - yaw);
-    const float step = gap * (1.0f - std::exp(-float(kTickDt) / tau));
-    return wrapDeg(yaw + std::clamp(step, -maxRate * float(kTickDt), maxRate * float(kTickDt)));
+// A hand on a mouse (real aim, v0.31): angle `a` (degrees) with speed `vel` pulled towards `want` by a spring of
+// stiffness `w` (rad/s) and damping `zeta` (under 1: a little overshoot), following `wantRate` (degrees a second: how
+// fast what it's aiming at moves across its view; 0 = it chases it), never faster than `maxRate`.
+void steer(float& a, float& vel, float want, float wantRate, float w, float zeta, float maxRate) {
+    const float gap = wrapDeg(want - a);
+    const float acc = w * w * gap + 2.0f * zeta * w * (wantRate - vel);
+    vel = std::clamp(vel + acc * float(kTickDt), -maxRate, maxRate);
+    a = wrapDeg(a + vel * float(kTickDt));
+}
+
+// Pitch (Source: + looks down) from `eye` to `at`.
+float pitchTo(const Vec3& eye, const Vec3& at) {
+    return -std::atan2(at.z - eye.z, std::max(1.0f, length2d(at - eye))) / kDegToRad;
 }
 
 bool sightClear(const BotSenses& s, const Vec3& a, const Vec3& b) {
@@ -117,57 +123,99 @@ bool keepGap(const Dummy& d, BotBrain& b, const BotSenses& s, const Vec3& toward
     return false;
 }
 
-// Crosshair placement (owner, v0.26: good preaim): walking somewhere, a bot looks where an enemy would be - the
-// nearest known angle (s.angles) it can see ahead of it (within 100 degrees of its way, 1600 units), at head height -
-// else at its route 400 units on (round the next corner), so it's already aimed when someone's there. Picked again 16
-// times a second.
-void preaim(const Dummy& d, BotBrain& b, const BotSenses& s) {
-    if (s.now < b.lookAgainAt) return;
-    b.lookAgainAt = s.now + 0.0625;
-    if (b.next >= b.path.size()) {
-        b.hasLookAt = b.lookAtAngle = false;
-        return;
-    }
+// Crosshair placement (owner, v0.26: good preaim; v0.31: checking spots): walking somewhere, a bot looks where an
+// enemy would be - the angles it can see (s.angles: known holds, and corners) ahead of it and to the sides, at head
+// height. It checks them one after another like a player clearing a room: its crosshair stays on one for a moment,
+// then moves on to the next it hasn't checked lately, nearest and most in front first, the known holds before the
+// corners; one a teammate is covering right now it leaves to them. Everything checked: it keeps its crosshair on the
+// best angle; none in sight: on its route 400 units on (round the next corner). Holding for a moment (not an anchor),
+// it looks round the same way. Picked again 16 times a second.
+void preaim(const Dummy& d, BotBrain& b, const BotSenses& s, bool holding) {
     const float headZ = dummyEyeZ();
     const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
-    // Its route 400 units on (the way it's going, and where to look when there's no angle to check).
-    Vec3 ahead = b.path.back();
-    float left = 400.0f;
-    Vec3 at = d.pos;
-    for (size_t k = b.next; k < b.path.size(); ++k) {
-        const float seg = length2d(b.path[k] - at);
-        if (seg >= left) {
-            ahead = at + (b.path[k] - at) * (left / seg);
-            break;
-        }
-        left -= seg;
-        at = b.path[k];
-    }
-    const float wayYaw = yawTo(d.pos, b.path[std::min(b.next + 2, b.path.size() - 1)]);
-    // How good an angle is to check from here (lower is better; ahead of it and near first), -1 if it isn't one now.
-    auto score = [&](const Vec3& p, bool visibleKnown) {
-        const float dist = length2d(p - d.pos);
-        if (dist < 150.0f || dist > 1600.0f) return -1.0f;
-        const float off = std::fabs(wrapDeg(yawTo(d.pos, p) - wayYaw));
-        if (off > 100.0f) return -1.0f;
-        if (!visibleKnown && s.world->traceRay(eye, p + Vec3{0, 0, headZ}).fraction < 1.0f) return -1.0f;
-        return off + dist / 40.0f;
+    auto checkedLately = [&](int k) {
+        for (int q = 0; q < 8; ++q)
+            if (b.checkedSpot[q] == k && s.now - b.checkedAt[q] < 6.0) return true;
+        return false;
     };
-    // The angle it's on stays while it's still one, unless another is clearly better (no flicking between two).
-    float current = b.hasLookAt && b.lookAtAngle ? score(b.lookAt - Vec3{0, 0, headZ}, false) : -1.0f;
-    float best = current >= 0 ? current - 20.0f : 1e30f;
-    bool found = current >= 0;
-    if (s.angles)
-        for (const Vec3& p : *s.angles) {
-            const float quick = score(p, true);  // (the trace only for one that would win)
-            if (quick < 0 || quick >= best) continue;
-            if (score(p, false) < 0) continue;
-            best = quick;
-            b.lookAt = p + Vec3{0, 0, headZ};
-            found = true;
+    // Its crosshair on its spot: a teammate sees it's covered; after a moment it counts as checked.
+    if (b.hasLookAt && b.lookAtAngle && b.lookSpot >= 0) {
+        const Vec3 view = anglesToForward(d.pitch, d.yaw), to = normalize(b.lookAt - eye);
+        if (dot(view, to) > 0.990f) {  // within ~8 degrees
+            b.onSpotFor += float(kTickDt);
+            const float dwell = size_t(b.lookSpot) < s.keyAngles ? 0.5f : 0.3f;
+            if (b.onSpotFor >= dwell && !checkedLately(b.lookSpot)) {
+                b.checkedSpot[b.checkedNext] = b.lookSpot;
+                b.checkedAt[b.checkedNext] = s.now;
+                b.checkedNext = (b.checkedNext + 1) & 7;
+            }
         }
-    b.lookAtAngle = found;
-    if (!found) b.lookAt = ahead + Vec3{0, 0, headZ};
+    }
+    if (s.now < b.lookAgainAt) return;
+    b.lookAgainAt = s.now + 0.0625;
+    if (!holding && b.next >= b.path.size()) {
+        b.hasLookAt = b.lookAtAngle = false;
+        b.lookSpot = -1;
+        return;
+    }
+    // Its route 400 units on (the way it's going, and where to look when there's no angle to check).
+    Vec3 ahead = d.pos + anglesToForward(0, d.yaw) * 400.0f;
+    if (!holding) {
+        ahead = b.path.back();
+        float left = 400.0f;
+        Vec3 at = d.pos;
+        for (size_t k = b.next; k < b.path.size(); ++k) {
+            const float seg = length2d(b.path[k] - at);
+            if (seg >= left) {
+                ahead = at + (b.path[k] - at) * (left / seg);
+                break;
+            }
+            left -= seg;
+            at = b.path[k];
+        }
+    }
+    const float wayYaw = holding ? d.yaw : yawTo(d.pos, b.path[std::min(b.next + 2, b.path.size() - 1)]);
+    const float maxOff = holding ? 150.0f : 110.0f;
+    // How good an angle is to check from here (lower is better), -1 if it isn't one now.
+    auto score = [&](size_t k, bool trace) {
+        const Vec3& p = (*s.angles)[k];
+        const float dist = length2d(p - d.pos);
+        const bool key = k < s.keyAngles;
+        if (dist < 120.0f || dist > (key ? 1600.0f : 1100.0f)) return -1.0f;
+        const float off = std::fabs(wrapDeg(yawTo(d.pos, p) - wayYaw));
+        if (off > maxOff) return -1.0f;
+        if (trace && s.world->traceRay(eye, p + Vec3{0, 0, headZ}).fraction < 1.0f) return -1.0f;
+        float sc = off * 0.6f + dist / 40.0f + (key ? 0.0f : 15.0f);
+        if (checkedLately(int(k))) sc += 150.0f;
+        else if (s.looked && k < s.looked->size() && (*s.looked)[k].by != s.self && s.now < (*s.looked)[k].until) sc += 120.0f;
+        return sc;
+    };
+    // The angle it's on stays unless another is clearly better (no flicking between two).
+    float best = 1e30f;
+    int found = -1;
+    if (s.angles && b.hasLookAt && b.lookAtAngle && b.lookSpot >= 0 && size_t(b.lookSpot) < s.angles->size()) {
+        const float current = score(size_t(b.lookSpot), true);
+        if (current >= 0) {
+            best = current - 30.0f;
+            found = b.lookSpot;
+        }
+    }
+    if (s.angles)
+        for (size_t k = 0; k < s.angles->size(); ++k) {
+            const float quick = score(k, false);  // (the trace only for one that would win)
+            if (quick < 0 || quick >= best || int(k) == found) continue;
+            if (score(k, true) < 0) continue;
+            best = quick;
+            found = int(k);
+        }
+    if (found != b.lookSpot) b.onSpotFor = 0;
+    b.lookSpot = found;
+    if (found >= 0 && s.looked && size_t(found) < s.looked->size()) {  // it covers this one now (unless a teammate does)
+        SpotClaim& c = (*s.looked)[size_t(found)];
+        if (c.by == s.self || s.now >= c.until) c = {s.now + 0.3, s.self};
+    }
+    b.lookAtAngle = found >= 0;
+    b.lookAt = found >= 0 ? (*s.angles)[size_t(found)] + Vec3{0, 0, headZ} : ahead + Vec3{0, 0, headZ};
     b.hasLookAt = true;
 }
 
@@ -268,6 +316,12 @@ void spawnDeathmatchBot(Dummy& d, BotBrain& b, const Vec3& at, uint32_t& rng) {
     b.hasCover = b.inCover = false;
     b.alertUntil = 0;
     b.sees = b.aimed = false;
+    d.pitch = d.prevPitch = 0;
+    b.yawVel = b.pitchVel = 0;
+    b.seenFor = -1;
+    b.aimTarget = -3;
+    b.spray = 0;
+    b.burstLeft = -1;
 }
 
 void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rng) {
@@ -327,6 +381,57 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
         b.lastSeen = s.noisePos;
         b.state = 3;
         b.path.clear();
+    }
+
+    // ---- Real aim (v0.31): what it perceives, its reaction, its aim error ----
+    const BotSkill& sk = s.skill;
+    const float dt = float(kTickDt);
+    if (b.sees) {
+        // Where it aims on them: the head (now and then, by skill) or the chest.
+        const Vec3 point = chosen->eye - Vec3{0, 0, b.aimHead ? 2.0f : 15.0f};
+        // A new sighting or a new target: its eyes jump to them and its aim starts unsettled (the same one back in
+        // sight within a moment - a jiggle, a re-peek - keeps it; its picture slides over to where they are now).
+        const bool fresh = b.seenFor < 0 || chosen->id != b.aimTarget;
+        b.aimTarget = chosen->id;
+        if (b.seenFor < 0) {
+            // Spotted after a while without anyone in sight: a human-ish reaction time, a bit slower after a quiet
+            // spell (surprise); someone appearing near where it was already aiming (crosshair placement, owner v0.26)
+            // gets 65% of it, fading out by 30 degrees off.
+            b.react = (sk.reactMin + botRand(rng) * sk.reactRange + 0.2f * b.surprise) *
+                      (0.65f + 0.35f * std::clamp((b.sightOff - 10.0f) / 20.0f, 0.0f, 1.0f));
+            b.seenFor = 0;
+            b.burstLeft = -1;
+        } else {
+            b.seenFor += dt;
+        }
+        if (fresh) {
+            b.seenAt = point;
+            b.focus = 0;
+            b.errTimer = b.headTimer = 0;
+            const Vec3 eye0 = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
+            b.seenYaw = yawTo(eye0, point);
+            b.seenPitch = pitchTo(eye0, point);
+        }
+        // Perception: its picture of them lags (half the skill's lag; its hand makes up the rest).
+        const float tau = std::max(0.02f, 0.5f * float(sk.lagTicks) / float(kTickRate));
+        b.seenAt = b.seenAt + (point - b.seenAt) * (1.0f - std::exp(-dt / tau));
+        // Head or chest: picked again every second or so (more head the better it is).
+        if ((b.headTimer -= dt) <= 0) {
+            b.aimHead = botRand(rng) < sk.headChance;
+            b.headTimer = 0.7f + botRand(rng) * 0.5f;
+        }
+        // Aim error: a target point that wanders round where it means to aim (picked again every 0.15-0.3 s, eased
+        // towards), 3x the skill's error when it has just found them, settling to 1x as it tracks (focus); fast
+        // movement across its view slows the settling.
+        const float spread = 0.8f * sk.aimError * (1.0f + 2.0f * (1.0f - b.focus));
+        if ((b.errTimer -= dt) <= 0) {
+            b.aimErrTo = {(botRand(rng) * 2.0f - 1.0f) * spread, (botRand(rng) * 2.0f - 1.0f) * spread * 0.75f, 0};
+            b.errTimer = 0.15f + botRand(rng) * 0.15f;
+            if (fresh) b.aimErr = b.aimErrTo;
+        }
+        b.aimErr = b.aimErr + (b.aimErrTo - b.aimErr) * (1.0f - std::exp(-dt / 0.08f));
+    } else if (b.seenFor >= 0 && s.now - b.lastSawAt > 1.2) {
+        b.seenFor = -1;  // out of sight long enough: the next sighting is a new reaction (a jiggle or a peek isn't)
     }
 
     const float step = weaponDef(d.weapon).maxSpeed * kTickDt;  // the gun it holds sets its speed, like yours
@@ -451,11 +556,16 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
                 const Vec3 side{-std::sin(y) * float(b.strafeDir), std::cos(y) * float(b.strafeDir), 0};
                 Vec3 p = d.pos + side * (200.0f * kTickDt);
                 const float fz = s.nav->floorAt(p);
-                if (s.nav->standable(p) && std::fabs(fz - d.pos.z) < 18.0f) {
+                bool intoMate = false;  // (never jiggles into a teammate fighting beside it)
+                if (s.mates)
+                    for (const BotTarget& m : *s.mates)
+                        if (m.id != s.self && length2d(m.origin - d.pos) < 96.0f && length2d(m.origin - p) < length2d(m.origin - d.pos))
+                            intoMate = true;
+                if (!intoMate && s.nav->standable(p) && std::fabs(fz - d.pos.z) < 18.0f) {
                     p.z = fz;
                     d.pos = p;
                 } else {
-                    b.strafeDir = -b.strafeDir;  // wall or ledge: step the other way next time
+                    b.strafeDir = -b.strafeDir;  // wall, ledge or teammate: step the other way next time
                 }
             }
             break;
@@ -482,26 +592,87 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             break;
     }
 
-    // Never a step further into a fire (it waits at the edge).
-    if (!escaping && !b.frozen && s.fires && d.pos.x != before.x) {
+    // Never a step further into a fire (it waits at the edge) - and not on a teammate's back there: one waiting at the
+    // same edge, it steps aside, away from them, round the fire.
+    if (!escaping && !b.frozen && s.fires && (d.pos.x != before.x || d.pos.y != before.y)) {
         const Fire* f = fireAt(s, d.pos, 8.0f);
-        if (f && length2d(d.pos - *f) < length2d(before - *f)) d.pos = before;
+        if (f && length2d(d.pos - *f) < length2d(before - *f)) {
+            d.pos = before;
+            if (s.mates)
+                for (const BotTarget& m : *s.mates) {
+                    const Vec3 away{before.x - m.origin.x, before.y - m.origin.y, 0};
+                    const float dist = length(away);
+                    if (m.id == s.self || dist > 64.0f || std::fabs(m.origin.z - before.z) > 64.0f) continue;
+                    const Vec3 dir = dist > 0.5f ? away * (1.0f / dist) : Vec3{std::cos(float(s.self)), std::sin(float(s.self)), 0};
+                    Vec3 p = before + dir * step;
+                    const float fz = s.nav->floorAt(p);
+                    if (s.nav->standable(p) && std::fabs(fz - before.z) < 18.0f && !fireAt(s, p, 8.0f)) {
+                        p.z = fz;
+                        d.pos = p;
+                    }
+                    break;
+                }
+        }
     }
 
-    // Face you when fighting; walking, where it pre-aims (preaim); otherwise the way they walk (anchors: back to their
-    // angle).
+    // Where it looks (its crosshair: d.yaw, d.pitch). Fighting: at where it thinks its target is plus its aim error, with
+    // a quick hand (BotSkill::flick) that follows their movement as well as its skill allows (lead) - from the moment it
+    // notices them (a third of its reaction time). Lost sight: still on the spot it last saw them. Walking: where it
+    // pre-aims (preaim); otherwise the way it walks (anchors: back to their angle). A slower, calmer hand.
     const Vec3 mv = d.pos - d.prevPos;
+    const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
     const float idle = b.holdOnly && b.state == 1 ? b.holdYaw : d.yaw;
     const bool anchoring = b.holdOnly && b.state == 1 && b.hasCover;  // stepping in and out of cover: keeps its angle
     const bool walking = (b.state == 0 || b.state == 3) && !b.path.empty();
-    if (walking) preaim(d, b, s);
-    else b.hasLookAt = false;
-    const float want = b.state == 2                   ? toYaw
-                       : walking && b.hasLookAt        ? yawTo(d.pos, b.lookAt)
-                       : anchoring || length2d(mv) <= 0.01f ? idle
-                                                           : std::atan2(mv.y, mv.x) / kDegToRad;
-    d.yaw = b.state == 2 ? easeToward(d.yaw, want, 0.045f, 600.0f) : easeToward(d.yaw, want, 0.12f, 360.0f);
-    b.aimed = b.sees && !b.strafing && std::fabs(wrapDeg(toYaw - d.yaw)) < 12.0f;  // they stop to shoot
+    const bool lookingRound = !walking && b.state == 1 && !b.holdOnly && !b.frozen;  // a moment's hold
+    if (walking || lookingRound) preaim(d, b, s, lookingRound);
+    else {
+        b.hasLookAt = false;
+        b.lookSpot = -1;
+    }
+    const bool noticing = b.sees && b.seenFor < 0.35f * b.react;  // spotted, hasn't moved its hand yet
+    const bool fightLook = b.state == 2 && b.seenFor >= 0 && !noticing;
+    float wantYaw = 0, wantPitch = 0;
+    if (fightLook) {
+        const float seenYaw = yawTo(eye, b.seenAt), seenPitch = pitchTo(eye, b.seenAt);
+        const float yawRate = b.sees ? wrapDeg(seenYaw - b.seenYaw) / dt : 0.0f;
+        const float pitchRate = b.sees ? (seenPitch - b.seenPitch) / dt : 0.0f;
+        b.seenYaw = seenYaw;
+        b.seenPitch = seenPitch;
+        wantYaw = seenYaw + b.aimErr.x;
+        wantPitch = seenPitch + b.aimErr.y;
+        const float crossing = std::sqrt(yawRate * yawRate + pitchRate * pitchRate);
+        if (b.sees) b.focus = std::min(1.0f, b.focus + dt / sk.focusTime / (1.0f + crossing / 40.0f));
+        steer(d.yaw, b.yawVel, wantYaw, yawRate * sk.lead, sk.flick, 0.7f, 30.0f * sk.flick);
+        steer(d.pitch, b.pitchVel, wantPitch, pitchRate * sk.lead, sk.flick, 0.7f, 30.0f * sk.flick);
+    } else {
+        if (b.sees) {  // noticing: its hand carries on for a moment, then stops
+            wantYaw = d.yaw;
+            wantPitch = d.pitch;
+        } else {
+            wantYaw = b.state == 2                       ? toYaw
+                      : (walking || lookingRound) && b.hasLookAt ? yawTo(d.pos, b.lookAt)
+                      : anchoring || length2d(mv) <= 0.01f ? idle
+                                                         : std::atan2(mv.y, mv.x) / kDegToRad;
+            wantPitch = (walking || lookingRound) && b.hasLookAt ? pitchTo(eye, b.lookAt) : 0.0f;
+        }
+        steer(d.yaw, b.yawVel, wantYaw, 0.0f, 11.0f, 0.85f, 400.0f);
+        steer(d.pitch, b.pitchVel, wantPitch, 0.0f, 11.0f, 0.85f, 400.0f);
+    }
+    d.pitch = std::clamp(d.pitch, -89.0f, 89.0f);
+    // On target: its crosshair within the body's width (plus a little) of where it means to aim; after a long look
+    // without a shot (someone strafing across it up close), it fires when it's roughly there.
+    if (fightLook && b.sees && !b.strafing) {
+        const float dist = std::max(1.0f, length(b.seenAt - eye));
+        float tol = std::atan2(10.0f, dist) / kDegToRad + 0.4f;
+        if (b.seenFor > b.react + 0.6f) tol *= 3.0f;
+        const float off = std::sqrt(wrapDeg(wantYaw - d.yaw) * wrapDeg(wantYaw - d.yaw) + (wantPitch - d.pitch) * (wantPitch - d.pitch));
+        b.aimed = off < tol;
+    } else {
+        b.aimed = false;
+    }
+    // The spray's recoil comes back between bursts, like yours.
+    if (s.now - d.shotAt > 0.15) b.spray = std::max(0.0f, b.spray - dt * (3.0f + 3.5f * b.spray));
 }
 
 BuyRound teamBuyRound(int avgMoney, bool pistolRound, bool mustWin) {
@@ -587,6 +758,29 @@ float botShotGap(int w) {
         default: break;
     }
     return std::max(tap, weaponDef(w).fireInterval);  // the bolt guns and the pump: the gun's own pace
+}
+
+float botNextShot(int w, float dist, BotBrain& b, float r01, float fireScale) {
+    const WeaponDef& gd = weaponDef(w);
+    if (!gd.automatic || gd.pellets > 1) return (botShotGap(w) + r01 * 0.16f) * fireScale;
+    if (b.burstLeft < 0)  // this shot opened a burst: a spray up close, a few shots at mid range, a tap far off
+        b.burstLeft = (dist < 500.0f ? 4 + int(r01 * 4.99f) : dist < 1100.0f ? 2 + int(r01 * 1.99f) : 1) - 1;
+    if (b.burstLeft > 0) {
+        --b.burstLeft;
+        return gd.fireInterval;
+    }
+    b.burstLeft = -1;  // the burst's over: a pause for the recoil to settle, then the next
+    return (dist < 500.0f ? 0.2f + 0.15f * r01 : dist < 1100.0f ? 0.25f + 0.2f * r01 : 0.25f + 0.16f * r01) * fireScale;
+}
+
+Vec3 botShotDir(const Dummy& d, BotBrain& b, const WeaponDef& gun, const BotSkill& skill, float r1, float r2) {
+    const RecoilStep rec = recoilAt(gun, b.spray);
+    const float left = 1.0f - skill.control;  // the part of the recoil it doesn't pull down
+    const float theta = r1 * 6.2831853f, radius = r2 * standingSpread(gun);
+    const float pitch = d.pitch - rec.up * left + std::sin(theta) * radius;
+    const float yaw = d.yaw - rec.right * left + std::cos(theta) * radius;
+    b.spray = std::min(b.spray + 1.0f, float(std::max(1, gun.patternLen - 1)));
+    return anglesToForward(pitch, yaw);
 }
 
 std::vector<int> spreadEntries(const NavGrid& nav, const std::vector<Vec3>& from, const std::vector<Vec3>& entries,

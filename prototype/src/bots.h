@@ -6,6 +6,42 @@
 #include "combat.h"
 #include "nav.h"
 
+// Bot skill (difficulty), 0 easy .. 3 expert: reaction time (min + random range, seconds), aim error (x the
+// normal ~0.8 degrees), time between bursts (x), how far behind your movement its eyes are (ticks; 26 = 0.2 s: half
+// of it is perception, the rest its hand), how often it goes for the head instead of the chest; and (v0.31, real
+// aim) how quick its hand is (`flick`: the aim spring's stiffness, rad/s), how much of a spray's recoil it pulls
+// down (`control`), how long it takes to settle its aim on someone (`focusTime`: its aim error starts at 3x and
+// shrinks to 1x) and how much of your movement it follows with its hand rather than chasing it (`lead`).
+struct BotSkill {
+    float reactMin, reactRange, aimError, fireScale;
+    int lagTicks;
+    float headChance;
+    float flick, control, focusTime, lead;
+    const char* name;
+};
+inline const BotSkill& botSkill(int level) {
+    static const BotSkill kSkills[4] = {
+        {0.45f, 0.40f, 1.80f, 1.30f, 32, 0.00f, 13.0f, 0.30f, 1.40f, 0.30f, "EASY"},
+        {0.25f, 0.30f, 1.00f, 1.00f, 26, 0.00f, 18.0f, 0.50f, 1.00f, 0.50f, "NORMAL"},  // how they've always played
+        {0.18f, 0.20f, 0.70f, 0.90f, 19, 0.20f, 24.0f, 0.65f, 0.70f, 0.70f, "HARD"},
+        {0.12f, 0.15f, 0.50f, 0.85f, 13, 0.40f, 30.0f, 0.80f, 0.50f, 0.85f, "EXPERT"},
+    };
+    return kSkills[level < 0 ? 0 : level > 3 ? 3 : level];
+}
+// A skill between the levels (skill variance: a "hard" bot at 2.4 aims a bit better than 2, one at 1.6 a bit
+// worse). Blends the two neighbouring levels; clamped to easy..expert.
+inline BotSkill skillAt(float level) {
+    level = level < 0 ? 0 : level > 3 ? 3 : level;
+    const int lo = int(level), hi = lo < 3 ? lo + 1 : 3;
+    const float t = level - float(lo);
+    const BotSkill &a = botSkill(lo), &b = botSkill(hi);
+    auto mix = [t](float x, float y) { return x + (y - x) * t; };
+    return {mix(a.reactMin, b.reactMin), mix(a.reactRange, b.reactRange), mix(a.aimError, b.aimError),
+            mix(a.fireScale, b.fireScale), int(mix(float(a.lagTicks), float(b.lagTicks)) + 0.5f),
+            mix(a.headChance, b.headChance), mix(a.flick, b.flick), mix(a.control, b.control),
+            mix(a.focusTime, b.focusTime), mix(a.lead, b.lead), t < 0.5f ? a.name : b.name};
+}
+
 struct BotBrain {
     std::vector<Vec3> path;
     size_t next = 0;
@@ -48,6 +84,13 @@ struct BotBrain {
     Vec3 lookAt;
     bool hasLookAt = false, lookAtAngle = false;  // lookAtAngle: it's one of the angles (kept while it's in view)
     double lookAgainAt = 0;
+    // Checking spots (v0.31): the angle it's on (an index in BotSenses::angles, -1 none), how long its crosshair has
+    // been on it, and the last few it has checked (looked at for a moment) and when: it moves on to the next one.
+    int lookSpot = -1;
+    float onSpotFor = 0;
+    int checkedSpot[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    double checkedAt[8] = {};
+    int checkedNext = 0;
     // Its spot (an anchor's angle, the execute's hold): after a chase or a fight it walks back here
     // instead of standing wherever the chase ended.
     Vec3 home;
@@ -55,8 +98,28 @@ struct BotBrain {
     Vec3 fireExit;            // in a fire: where it's stepping out to
     bool hasFireExit = false;
     bool hasHome = false;
-
+    // Real aim (v0.31): its crosshair is d.yaw / d.pitch and its bullets go there (plus the recoil it doesn't pull
+    // down: botShotDir). The crosshair is moved by a hand (a spring: a flick, a little overshoot, settling) towards
+    // where it thinks its target is (`seenAt`, which lags the real one) plus its aim error (`aimErr`, wandering
+    // towards `aimErrTo`, smaller the longer it tracks: `focus`).
+    float yawVel = 0, pitchVel = 0;  // its hand's speed (degrees a second)
+    Vec3 seenAt;
+    float seenYaw = 0, seenPitch = 0;  // the angles to seenAt last tick (how fast the target crosses its view)
+    Vec3 aimErr, aimErrTo;
+    float errTimer = 0, headTimer = 0;
+    float focus = 0;
+    bool aimHead = false;
+    // Reaction: drawn when it spots someone (`react`, seconds), `seenFor` counts from then (-1: nobody). It starts to
+    // move its hand after a part of it (noticing) and fires once the whole has passed and it's on target.
+    float react = 0, seenFor = -1;
+    int aimTarget = -3;   // who it's aiming at (BotTarget::id)
+    float spray = 0;      // shots into its spray (the recoil it's fighting), recovers like yours between bursts
+    int burstLeft = -1;   // shots left in this burst (automatic guns: botNextShot)
 };
+
+// A teammate covering an angle (checking spots, v0.31): who (a bot's index), until when. The first to pick an angle
+// has it while it keeps looking; the others check something else.
+struct SpotClaim { double until = -10; int by = -1; };
 
 // Someone a bot can fight: id -1 = you, i = bot i.
 struct BotTarget { int id; Vec3 origin, eye; };
@@ -82,12 +145,18 @@ struct BotSenses {
     // holds for a CT): walking somewhere, a bot keeps its crosshair on the nearest one it can see ahead (preaim). Null:
     // it looks along its route.
     const std::vector<Vec3>* angles = nullptr;
+    // The first `keyAngles` of them are the known holds (checked first); the rest are corners (NavGrid::hidingSpots).
+    size_t keyAngles = ~size_t(0);
+    // Competitive: per angle, which of this bot's team is covering it (a bot leaves an angle a teammate has to them and
+    // checks another: they split the angles). Null: on its own.
+    std::vector<SpotClaim>* looked = nullptr;
     // Teammates (competitive): a bot walking somewhere keeps its distance from one just ahead on the way instead of
     // walking on its back. Null: none.
     const std::vector<BotTarget>* mates = nullptr;
     // Fires (molotovs) on the ground: a bot steps straight out of one and waits at its edge till it burns out.
     const std::vector<Vec3>* fires = nullptr;
     float fireRadius = 110.0f;
+    BotSkill skill = botSkill(1);  // this bot's (how fast it reacts, how its hand moves, how well it aims)
 };
 
 // Spreads bots over ways onto a site so teammates come from different sides (CT retakes, rotations): for each bot
@@ -102,36 +171,6 @@ constexpr float kBotGap = 110.0f;  // a bot walking somewhere stays this far beh
 
 constexpr float kBotRunSpeed = 215.0f;  // rifle run speed (estimates; a bot runs at its gun's maxSpeed)
 
-// Bot skill (difficulty), 0 easy .. 3 expert: reaction time (min + random range, seconds), aim error (x the
-// normal ~0.8 degrees), time between shots (x), how far behind your movement they aim (ticks; 26 = 0.2 s) and
-// how often a shot goes for the head instead of the chest.
-struct BotSkill {
-    float reactMin, reactRange, aimError, fireScale;
-    int lagTicks;
-    float headChance;
-    const char* name;
-};
-inline const BotSkill& botSkill(int level) {
-    static const BotSkill kSkills[4] = {
-        {0.45f, 0.40f, 1.80f, 1.30f, 32, 0.00f, "EASY"},
-        {0.25f, 0.30f, 1.00f, 1.00f, 26, 0.00f, "NORMAL"},  // how they've always played
-        {0.18f, 0.20f, 0.70f, 0.90f, 19, 0.20f, "HARD"},
-        {0.12f, 0.15f, 0.50f, 0.85f, 13, 0.40f, "EXPERT"},
-    };
-    return kSkills[level < 0 ? 0 : level > 3 ? 3 : level];
-}
-// A skill between the levels (skill variance: a "hard" bot at 2.4 aims a bit better than 2, one at 1.6 a bit
-// worse). Blends the two neighbouring levels; clamped to easy..expert.
-inline BotSkill skillAt(float level) {
-    level = level < 0 ? 0 : level > 3 ? 3 : level;
-    const int lo = int(level), hi = lo < 3 ? lo + 1 : 3;
-    const float t = level - float(lo);
-    const BotSkill &a = botSkill(lo), &b = botSkill(hi);
-    auto mix = [t](float x, float y) { return x + (y - x) * t; };
-    return {mix(a.reactMin, b.reactMin), mix(a.reactRange, b.reactRange), mix(a.aimError, b.aimError),
-            mix(a.fireScale, b.fireScale), int(mix(float(a.lagTicks), float(b.lagTicks)) + 0.5f),
-            mix(a.headChance, b.headChance), t < 0.5f ? a.name : b.name};
-}
 
 float botRand(uint32_t& state);  // 0..1, xorshift (bots only: the player's shots never use randomness)
 
@@ -168,3 +207,13 @@ int deathmatchBotGun(float r01);  // weighted like CS deathmatch: rifles mostly,
 // Seconds between a bot's trigger pulls with gun `w` (before skill): taps and short bursts, never faster than the
 // gun fires.
 float botShotGap(int w);
+// Real aim (v0.31). The gap (seconds, before skill's fireScale on the pauses) until a bot's next trigger pull with gun
+// `w` after a shot at someone `dist` away: automatic rifles and SMGs spray close (a burst at the gun's rate, then a
+// pause for the recoil to settle), fire short bursts at mid range and tap far; the rest at botShotGap's pace.
+// `r01` is a random 0..1 (the burst's length and the pause).
+float botNextShot(int w, float dist, BotBrain& b, float r01, float fireScale);
+// Where a bot's shot goes: along its crosshair, plus the recoil of its spray it doesn't pull down (BotSkill::control)
+// and its gun's standing spread (the cheaper guns, like yours). Counts the shot into its spray. r1, r2: random 0..1.
+Vec3 botShotDir(const Dummy& d, BotBrain& b, const WeaponDef& gun, const BotSkill& skill, float r1, float r2);
+// Ready to fire this tick: it has seen its target for its reaction time and its crosshair is on where it means to aim.
+inline bool botReady(const BotBrain& b) { return b.aimed && b.seenFor >= b.react; }

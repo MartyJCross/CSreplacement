@@ -132,14 +132,16 @@ Options: `--spawn X Y YAW` (world coords: Dust is 90% of real Dust2 in the game!
 [--throw-frame N]`, `--bots`, `--menu N [--menu-row R]` (a `MenuScreen` index: 11 inventory, 12 case with
 `--give-cases N` / `--give-knife-cases N`, 13 stats with `--career FILE`), `--skin KEY` (that skin equipped; with
 `--menu 11` on the stage), `--inspect N --inspect-variant V` (a knife's inspect V), `--die N [--killer I]` (killcam when I is a bot),
-`--replay-frame N`, `--ct`, `--host`, `--join ADDR`.
+`--replay-frame N`, `--ct`, `--host`, `--join ADDR`, `--light K` (K steps of 1/240 s a frame, capped at 30 FPS: easy on
+the owner's PC; **use it for every automated run on their machine**, owner v0.31: "limit FPS as much as you can").
 
 **Measuring:** `--bench 10` (bench.txt: avg/1% low, time per part, GPU via glFinish), `--bench-raw 10` (no glFinish:
 frames queue like play; use it for latency-mode comparisons), `--dump-sounds DIR` (synthesized), `--dump-played-sounds
 DIR` (what the game plays, recordings and derived sounds included), `--dump-spatial DIR` (a footstep from each
 direction as stereo WAVs). Analyse sounds with `python prototype/tools/sound_bands.py "DIR/*.wav"` (`--spatial DIR`).
 
-**Bot behaviour runs:** competitive with `--bots --frames 60000` (≈4 min of game) writes `comp_log.txt` (rounds,
+**Bot behaviour runs:** competitive with `--screenshot X.bmp --bots --light 16 --frames 3750` (≈4 min of game in ~2;
+without `--screenshot` the game opens its menu with music on the owner's screen) writes `comp_log.txt` (rounds,
 plays, group go times, retakes, throws, and three must-stay-0 counts: STUCK (a bot frozen 8 s), STALL (saw its enemy
 2.5 s without firing), STACK (two teammates within 64 units, both moving, 2 s in a round)). The idle test player can't die, so **its side wins almost every round**: run once with
 `--ct` too before judging balance. `comp_enemies 4` / `comp_mates 4` for a fair 4v4.
@@ -302,11 +304,18 @@ online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
   back to spawn and stood there). After a plant a CT saves only if it can't make it or it's 1 vs 4. Rotations come by
   different ways. Ways are picked weighted (`pick` in startCompRound: not from mid 3, from mid 1; owner: "7/10 they
   all went mid"); automated runs log "Ts through mid before the execute". Tests: `testBotSpacing`, `testRetakeSpread`.
-- Preaim (v0.26): walking bots look at the nearest visible known angle ahead (`preaim`, `BotSenses::angles` from
-  `Game::angles[side]`, built in loadMap), at head height (pitch too), else round the route's next corner; an enemy
-  spotted within 10 degrees of the aim (`BotBrain::sightOff`) gets 65% of the reaction time (`testBotPreaim`). The angle
-  it's on is kept unless another scores 20 better, and bots turn with `easeToward` (time constant 45 ms fighting,
-  120 ms otherwise; pitch too): spectated bots' aim was jittery (v0.26.1).
+- Preaim / checking spots (v0.26, v0.31): walking (and in a short hold) bots check the visible angles one after
+  another (`preaim`, `BotSenses::angles` from `Game::angles[side]`, built in loadMap: the known holds first
+  (`keyAngles`), then `NavGrid::hidingSpots` corners and spots behind crates), head height, ~0.5 s on a hold, 0.3 s on a
+  corner (`BotBrain::checkedSpot` ring, 6 s memory), else round the route's next corner; teammates split them through
+  `SpotClaim` (`Game::looked[side]`, `BotSenses::looked`). An enemy spotted within 10 degrees of the aim
+  (`BotBrain::sightOff`) gets 65% of the reaction time (`testBotPreaim`, `testBotChecks`).
+- Real aim (v0.31, bots.cpp; `testBotAim` prints an AK duel per skill, range and movement, old vs new): the bot's
+  crosshair (d.yaw/d.pitch) is moved by `steer` (a spring: `BotSkill::flick` stiffness, damping 0.7, `lead` follows the
+  target's angular speed) towards `seenAt` (perception lag, half of `lagTicks`) + `aimErr` (wanders, 3x..1x by
+  `focus`/`focusTime`); reaction in the sim (`react`, `seenFor`, noticing = 35% of it); `botReady` gates fire,
+  `botShotDir` = crosshair + recoil not pulled down (`control`) + standing spread, `botNextShot` sprays close / bursts /
+  taps. main.cpp uses it in the town modes 1-4 (`realAim`); practice's peek bots and the Lab keep the old model.
   Bots never freeze (`pathTo` snaps unreachable goals, `nearestRoamable`; `backHome`); automated runs log STUCK.
 - Bot skill (`bots.h BotSkill`, `skillAt` blends levels): mate/enemy skill, `skill_variance` (0/1/2: ±0.5 or ±1 level
   per bot per match, `botSkillOf`). Reaction restarts only on losing sight; slower after a quiet spell (`surprise`).
@@ -388,6 +397,9 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
 
+**Done in v0.31** (owner, 2026-10-12: bots "actually aim + look towards hotspots of the maps as they move"; chatter
+not wanted): real aim, checking spots, `--light`. Offered, not chosen: personalities, body language (crouch spray,
+shift-walk, flash stagger).
 **Done in v0.30** (owner, 2026-10-12: "build it by hand", with a plan of how to make it good): Inferno rebuilt by
 hand on a 16 u grid with decks, ramp collision cap (`kRampPlanes` 7), nav ledge drops, staggered group sends.
 **Done in v0.29**: Inferno (CS2's) generated from measurements; rejected by the owner (spikes, gaps, apps unreachable).

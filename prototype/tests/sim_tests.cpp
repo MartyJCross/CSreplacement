@@ -1690,6 +1690,245 @@ void testBotPreaim() {
     CHECK(with > 0.9f && with > without + 0.15f, "pre-aim %.0f%% vs %.0f%%", double(with * 100), double(without * 100));
 }
 
+// Real aim (v0.31): a bot's bullets go where its crosshair is. A duel in the open: a bot of each skill spots you 40
+// degrees off its aim at three ranges while you stand, ADAD (counter-strafing at the ends) or run across it; it
+// shoots an AK at you (kevlar + helmet, like deathmatch). Prints time to first hit, hit rate and time to kill, next to
+// the old model (where you were a moment ago plus random error) for comparison.
+struct DuelResult { float firstHit = 0, hitRate = 0, kill = 0, headRate = 0; };
+
+// Your position sideways at time t: 0 still, 1 ADAD (0.35 s strafes at full speed, a counter-strafed stop of 0.15 s
+// between), 2 running straight across at 250 u/s.
+float duelSide(int move, float t) {
+    if (move == 0) return 0;
+    if (move == 2) return -250.0f + 250.0f * t;
+    const float cycle = 0.5f, ph = std::fmod(t, 2 * cycle);  // right 0.35 s, stop 0.15, left 0.35, stop 0.15
+    auto leg = [](float u) { return 250.0f * std::min(u, 0.35f); };
+    return ph < cycle ? leg(ph) - 45.0f : leg(cycle) - leg(ph - cycle) - 45.0f;
+}
+
+DuelResult duel(int level, float dist, int move, bool oldModel, int trials) {
+    static const World open;  // nothing in the way
+    const NavGrid& nav = dustNav();
+    const BotSkill sk = botSkill(level);
+    const WeaponDef& gd = weaponDef(kWRifle);
+    DuelResult r;
+    int shots = 0, hits = 0, heads = 0, firstHits = 0, kills = 0;
+    float firstSum = 0, killSum = 0;
+    for (int trial = 0; trial < trials; ++trial) {
+        uint32_t rng = 1234u + uint32_t(trial) * 7919u + uint32_t(level) * 31u + uint32_t(move) * 101u;
+        Dummy d;
+        BotBrain b;
+        spawnDeathmatchBot(d, b, Vec3{0, 0, 0}, rng);
+        d.yaw = d.prevYaw = 40.0f;  // you appear 40 degrees off its aim
+        b.frozen = true;
+        b.state = 1;
+        BotSenses s;
+        s.world = &open;
+        s.nav = &nav;
+        s.playerUp = true;
+        s.skill = sk;
+        float cooldown = 0, dealt = 0, first = -1, react = sk.reactMin + botRand(rng) * sk.reactRange;
+        Vec3 history[64];
+        for (int t = 0; t < kTickRate * 3; ++t) {
+            const float now = float(t) * float(kTickDt);
+            s.now = now;
+            const Vec3 you{dist, duelSide(move, now), 0};
+            history[t & 63] = you + Vec3{0, 0, kStandEye};
+            s.playerOrigin = you;
+            s.playerEye = you + Vec3{0, 0, kStandEye};
+            d.prevPos = d.pos;
+            updateDeathmatchBot(d, b, s, rng);
+            cooldown -= float(kTickDt);
+            const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ()};
+            Vec3 dir;
+            if (oldModel) {
+                if (now < react || cooldown > 0 || !b.sees) continue;
+                cooldown = (botShotGap(kWRifle) + botRand(rng) * 0.16f) * sk.fireScale;
+                Vec3 aim = history[(t - sk.lagTicks + 64 * 8) & 63] - Vec3{0, 0, botRand(rng) < sk.headChance ? 2.0f : 16.0f};
+                if (t < sk.lagTicks) aim = history[0] - Vec3{0, 0, 16.0f};
+                const float err = length(aim - eye) * 0.014f * sk.aimError;
+                aim = aim + Vec3{(botRand(rng) - 0.5f) * 2 * err, (botRand(rng) - 0.5f) * 2 * err, (botRand(rng) - 0.5f) * err};
+                dir = normalize(aim - eye);
+            } else {
+                if (!botReady(b) || cooldown > 0) continue;
+                const float r1 = botRand(rng), r2 = botRand(rng);
+                dir = botShotDir(d, b, gd, sk, r1, r2);
+                cooldown = botNextShot(kWRifle, dist, b, botRand(rng), sk.fireScale);
+                d.shotAt = now;
+            }
+            ++shots;
+            float best = 1e9f, tt;
+            int hit = 0;
+            if (rayHitsBox(eye, dir, best, you + Vec3{-13, -13, 0}, you + Vec3{13, 13, kStandHeight - 10}, tt) && tt >= 0) { best = tt; hit = 1; }
+            if (rayHitsBox(eye, dir, best, you + Vec3{-5, -5, kStandHeight - 10}, you + Vec3{5, 5, kStandHeight}, tt) && tt >= 0) { best = tt; hit = 2; }
+            if (!hit) continue;
+            ++hits;
+            heads += hit == 2;
+            const HitGroup grp = hit == 2 ? kHead : kChest;
+            dealt += armoredDamage(damageAt(gd, best) * hitGroupDamageScale(grp), grp, 100.0f, true, gd.armorRatio);
+            if (first < 0) { first = now; firstSum += now; ++firstHits; }
+            if (dealt >= 100.0f) { killSum += now; ++kills; break; }
+        }
+        if (dealt < 100.0f) killSum += 3.0f;  // no kill in 3 s: counts as 3
+    }
+    r.firstHit = firstHits ? firstSum / float(firstHits) : 9.0f;
+    r.hitRate = shots ? float(hits) / float(shots) : 0;
+    r.headRate = hits ? float(heads) / float(hits) : 0;
+    r.kill = killSum / float(trials);
+    (void)kills;
+    return r;
+}
+
+void testBotAim() {
+    std::printf("bots aim for real (an AK duel in the open, %s)\n", "you in kevlar + helmet, 3 s at most");
+    const char* moves[3] = {"still", "ADAD", "running"};
+    const float dists[3] = {400.0f, 1000.0f, 1800.0f};
+    int wrong = 0, calib = 0;
+    for (int level = 0; level < 4; ++level) {
+        std::printf("  %s\n", botSkill(level).name);
+        for (float dist : dists)
+            for (int move = 0; move < 3; ++move) {
+                const DuelResult n = duel(level, dist, move, false, 60), o = duel(level, dist, move, true, 60);
+                std::printf("    %4.0f u %-7s first hit %.2f s, hits %3.0f%% (head %2.0f%%), kill %.2f s   (old: %.2f s, %3.0f%%, kill %.2f s)\n",
+                            double(dist), moves[move], double(n.firstHit), double(n.hitRate * 100), double(n.headRate * 100),
+                            double(n.kill), double(o.firstHit), double(o.hitRate * 100), double(o.kill));
+                if (move > 0) wrong += !(n.hitRate < duel(level, dist, 0, false, 60).hitRate);  // moving is harder to hit
+                if (move == 0 && dist == 1000.0f) calib += !(n.kill > o.kill * 0.6f && n.kill < o.kill * 1.5f);
+            }
+    }
+    CHECK(wrong == 0, "%d cases where moving was easier to hit than standing", wrong);
+    CHECK(calib == 0, "%d skills far off the old time to kill at mid range", calib);
+    // Better skill, quicker kills.
+    int order = 0;
+    for (float dist : dists)
+        for (int level = 1; level < 4; ++level) order += !(duel(level, dist, 0, false, 60).kill < duel(level - 1, dist, 0, false, 60).kill);
+    CHECK(order == 0, "%d", order);
+    // Its hand: a 40 degree flick overshoots a little and settles; its crosshair is what it shoots along.
+    {
+        static const World open;
+        Dummy d;
+        BotBrain b;
+        uint32_t rng = 3u;
+        spawnDeathmatchBot(d, b, Vec3{0, 0, 0}, rng);
+        d.yaw = d.prevYaw = 40.0f;
+        b.frozen = true;
+        b.state = 1;
+        BotSenses s;
+        s.world = &open;
+        s.nav = &dustNav();
+        s.playerUp = true;
+        s.playerOrigin = Vec3{1000, 0, 0};
+        s.playerEye = s.playerOrigin + Vec3{0, 0, kStandEye};
+        float most = 40.0f, settledAt = -1;
+        for (int t = 0; t < kTickRate; ++t) {
+            s.now = double(t) * kTickDt;
+            updateDeathmatchBot(d, b, s, rng);
+            most = std::min(most, d.yaw);
+            if (settledAt < 0 && std::fabs(d.yaw) < 3.0f) settledAt = float(s.now);
+        }
+        const Vec3 dir = botShotDir(d, b, weaponDef(kWRifle), s.skill, 0, 0);
+        const Vec3 view = anglesToForward(d.pitch, d.yaw);
+        std::printf("  NORMAL flicks 40 degrees: within 3 degrees after %.2f s, overshoots by %.1f degrees\n", double(settledAt),
+                    double(-most));
+        CHECK(settledAt > 0.05f && settledAt < 0.5f && -most > 0.2f && -most < 6.0f, "settled %.2f overshoot %.1f",
+              double(settledAt), double(-most));
+        CHECK(dot(dir, view) > 0.99999f, "first shot off the crosshair");
+    }
+}
+
+// Checking spots (v0.31): walking somewhere, a bot clears the angles it passes one after another (the known holds,
+// then corners someone could be tucked into) instead of keeping its crosshair on one; two teammates walking together
+// split them (one covers an angle, the other checks the next).
+void testBotChecks() {
+    std::printf("bots check spots as they walk\n");
+    const NavGrid& nav = dustNav();
+    std::vector<Vec3> angles;  // what a T checks: the CT spots and the site holds, then the corners
+    for (int role = 0; role < kCtRoles; ++role)
+        for (const RetakeSpot& h : townCtSpots(role)) angles.push_back(dpt(h.x, h.y));
+    for (const RetakeSite& site : townRetakeSites())
+        for (const RetakeSpot& h : site.holds) angles.push_back(dpt(h.x, h.y));
+    const size_t keys = angles.size();
+    const std::vector<Vec3> corners = nav.hidingSpots(dust(), 160.0f, angles);
+    angles.insert(angles.end(), corners.begin(), corners.end());
+    std::printf("  Dust: %zu known holds, %zu corners\n", keys, corners.size());
+    CHECK(corners.size() > 40 && corners.size() < 600, "%zu corners", corners.size());
+    if (std::ifstream("CRISP_DUMP").good()) {  // (debugging: the spots, for a picture over the nav grid)
+        std::ofstream f("dust_spots.txt");
+        for (size_t k = 0; k < angles.size(); ++k) f << (k < keys ? "K " : "C ") << angles[k].x << ' ' << angles[k].y << '\n';
+        const MapGrid& m = townGrid();
+        std::ofstream gf("dust_grid.txt");
+        gf << m.x0 << ' ' << m.y0 << ' ' << m.cell << ' ' << m.w << ' ' << m.h << '\n';
+        for (int j = 0; j < m.h; ++j) {
+            for (int i = 0; i < m.w; ++i)
+                gf << (!m.walkable(i, j) ? '#' : nav.roamable(m.center(i, j)) ? '.' : nav.standable(m.center(i, j)) ? ',' : 'x');
+            gf << '\n';
+        }
+    }
+    // Bots walking from `starts` to A at once (a group), sharing what they cover or not.
+    struct Walk { int checked = 0, corners = 0; float same = 0; };
+    auto walk = [&](const std::vector<Vec3>& starts, bool share, const std::vector<Vec3>& list, size_t keyCount) {
+        const size_t n = starts.size();
+        std::vector<Dummy> d(n);
+        std::vector<BotBrain> b(n);
+        std::vector<SpotClaim> looked(list.size());
+        std::vector<BotTarget> mates(n);
+        uint32_t rng = 11u;
+        for (size_t i = 0; i < n; ++i) {
+            spawnDeathmatchBot(d[i], b[i], starts[i], rng);
+            d[i].yaw = d[i].prevYaw = 90.0f;
+            b[i].goal = dpt(1380, 2560);
+            b[i].hasGoal = b[i].holdOnly = true;
+            b[i].state = 0;
+        }
+        BotSenses s;
+        s.world = &dust();
+        s.nav = &nav;
+        const std::vector<BotTarget> none;
+        s.targets = &none;
+        s.angles = &list;
+        s.keyAngles = keyCount;
+        s.looked = share ? &looked : nullptr;
+        s.mates = &mates;
+        std::set<int> seen[8];
+        int both = 0, sameSpot = 0;
+        for (int t = 0; t < kTickRate * 30; ++t) {
+            s.now = double(t) * kTickDt;
+            for (size_t i = 0; i < n; ++i) mates[i] = {int(i), d[i].pos, d[i].pos};
+            bool walking = false;
+            for (size_t i = 0; i < n; ++i) {
+                if (b[i].state != 0) continue;
+                walking = true;
+                s.self = int(i);
+                d[i].prevPos = d[i].pos;
+                updateDeathmatchBot(d[i], b[i], s, rng);
+                for (int q = 0; q < 8; ++q)
+                    if (b[i].checkedSpot[q] >= 0) seen[i].insert(b[i].checkedSpot[q]);
+            }
+            if (!walking) break;
+            if (n > 1 && b[0].state == 0 && b[1].state == 0 && b[0].lookSpot >= 0 && b[1].lookSpot >= 0) {
+                ++both;
+                sameSpot += b[0].lookSpot == b[1].lookSpot;
+            }
+        }
+        Walk w;
+        for (int k : seen[0]) {
+            ++w.checked;
+            w.corners += size_t(k) >= keyCount;
+        }
+        w.same = both ? float(sameSpot) / float(both) : 0.0f;
+        return w;
+    };
+    const Walk alone = walk({dpt(1500, 1100)}, false, angles, keys);
+    const Walk cornersOnly = walk({dpt(1500, 1100)}, false, corners, 0);
+    std::printf("  walking up long to A: checked %d spots (knowing only the corners: %d)\n", alone.checked, cornersOnly.checked);
+    CHECK(alone.checked >= 5 && cornersOnly.checked >= 2, "checked %d, corners only %d", alone.checked, cornersOnly.checked);
+    const std::vector<Vec3> pair = {dpt(1500, 1100), dpt(1500, 950)};
+    const Walk apart = walk(pair, true, angles, keys), together = walk(pair, false, angles, keys);
+    std::printf("  two walking together: on the same angle %.0f%% of the time (not sharing: %.0f%%)\n",
+                double(apart.same * 100), double(together.same * 100));
+    CHECK(apart.same < 0.3f && apart.same < together.same, "%.2f vs %.2f", double(apart.same), double(together.same));
+}
+
 void testBotFire() {
     std::printf("bots and fire\n");
     const NavGrid& nav = dustNav();
@@ -1793,6 +2032,11 @@ void testHarbor() {
     NavGrid nav;
     nav.build(townGrid(), w, townSpawn().pos);
     std::printf("  %zu boxes, %s\n", w.solids.size(), townMapName(1));
+    {  // the spots bots check as they walk (v0.31)
+        const size_t hiding = nav.hidingSpots(w, 160.0f, {}).size();
+        std::printf("  %zu corners and spots behind props for bots to check\n", hiding);
+        CHECK(hiding > 30, "%zu", hiding);
+    }
     CHECK(std::string(townCallout(townSpawn().pos)) == "T SPAWN", "callout %s", townCallout(townSpawn().pos));
     auto P = [](const RetakeSpot& h) { return townPoint(h.x, h.y); };
     struct Spot { const char* what; Vec3 p; };
@@ -1908,6 +2152,11 @@ void testInferno() {
     const World w = buildTown();
     NavGrid nav;
     nav.build(townGrid(), w, townSpawn().pos);
+    {  // the spots bots check as they walk (v0.31)
+        const size_t hiding = nav.hidingSpots(w, 160.0f, {}).size();
+        std::printf("  %zu corners and spots behind props for bots to check\n", hiding);
+        CHECK(hiding > 30, "%zu", hiding);
+    }
     if (std::ifstream("CRISP_DUMP").good()) {  // (debugging: the nav grid, one character a cell, north up)
         const MapGrid& g = townGrid();
         std::ofstream f("inferno_nav.txt");
@@ -2372,6 +2621,8 @@ int main() {
     testBotSpacing();
     testRetakeSpread();
     testBotPreaim();
+    testBotAim();
+    testBotChecks();
     testHarbor();
     testInferno();
     testReplay();

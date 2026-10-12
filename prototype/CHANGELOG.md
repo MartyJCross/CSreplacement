@@ -3,6 +3,24 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.31: bots aim for real and check their angles
+
+- **Real aim** (owner: "actually aim"): a bot's bullets go along its crosshair. Its hand is a spring: it notices you,
+  flicks onto you with a little overshoot and settles; its aim starts off by up to three times its skill's error and
+  tightens as it tracks you; it follows your movement as well as its skill allows (easy and normal still lose a
+  strafer, expert tracks one). Rifles and SMGs spray up close with the gun's real recoil (partly pulled down), burst
+  at mid range and tap far away. Measured in an open duel against an AK: kills up close come a bit quicker than
+  before, long range a bit slower (it has to settle), and moving now works like it does against people instead of
+  making you untouchable. Spectating a bot shows its real crosshair. (Practice's peek bots keep the old aim.)
+- **Checking spots** (owner: "look towards hotspots of the maps as they move"): walking, a bot checks the known holds,
+  then corners and the spots behind crates (found from the map), one after another, a moment each; teammates walking
+  together split the angles instead of all watching the same one.
+- Bots no longer jiggle into a teammate fighting beside them, and two waiting at the edge of the same molotov step apart
+  (two Ts stood on each other at Inferno's car).
+- Tests: an AK duel at three ranges against standing, ADAD and running targets for every skill (old vs new printed),
+  the flick, spot checks along long and the split between teammates; corner counts on every map. `--light K` for
+  automated runs that go easy on the PC.
+
 ## v0.30: Inferno, rebuilt by hand
 
 - **Inferno rebuilt by hand** (owner: the generated one was "a mess", spikes and gaps, apps you couldn't get into):

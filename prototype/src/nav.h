@@ -30,6 +30,11 @@ public:
     // `awayFromEdges`, only cells not touching a wall or ledge (good spawn spots).
     Vec3 roamPoint(float r01, bool awayFromEdges) const;
     size_t roamCount() const { return roamCells_.size(); }
+    // Spots someone could be tucked into (v0.31: bots check them as they walk): behind the crates and props of
+    // `world` (boxes up to chest-high-and-a-bit, crate sized) and in corners (roamable cells walled in on two sides:
+    // walls, props against them, door frames); at least `spacing` apart and from every point in `keep` (spots already
+    // known), on the floor.
+    std::vector<Vec3> hidingSpots(const World& world, float spacing, const std::vector<Vec3>& keep) const;
 
 private:
     bool clear(int i, int j) const;
