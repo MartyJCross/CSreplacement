@@ -7,6 +7,7 @@
 #include <fstream>
 #include <cstring>
 #include <set>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -17,6 +18,8 @@
 #include "replay.h"
 
 #include "bots.h"
+#include "config.h"
+#include "console.h"
 #include "movement.h"
 #include "nav.h"
 #include "world.h"
@@ -2086,6 +2089,60 @@ void testSpawnGroups() {
     CHECK(better == rounds && bySpawn < byOrder, "%d of %d, %.0f vs %.0f", better, rounds, double(bySpawn), double(byOrder));
 }
 
+// The console (v0.33): lines split into commands and words, Tab completes, history, and every setting can be read and
+// set by its config name (and the config text reads back the same).
+void testConsole() {
+    std::printf("console\n");
+    int bad = 0;
+    const std::vector<std::string> cmds = splitCommands("give ak47; echo \"a;b\" ;  ;god");
+    bad += !(cmds.size() == 3 && cmds[0] == "give ak47" && cmds[1] == " echo \"a;b\" " && cmds[2] == "god");
+    const std::vector<std::string> args = splitArgs("  connect  \"10.0.0.1:27015\"  now ");
+    bad += !(args.size() == 3 && args[0] == "connect" && args[1] == "10.0.0.1:27015" && args[2] == "now");
+    Console con;
+    const std::vector<std::string> names = {"bot_add", "bot_add_t", "bot_kick", "god", "give"};
+    con.line = "bot_a";
+    con.complete(names);
+    bad += con.line != "bot_add";  // (as far as bot_add and bot_add_t agree)
+    con.line = "gi";
+    con.complete(names);
+    bad += con.line != "give ";
+    con.line = "god";
+    con.submit();
+    con.line = "give awp";
+    con.submit();
+    con.historyUp();
+    bad += con.line != "give awp";
+    con.historyUp();
+    bad += con.line != "god";
+    con.historyDown();
+    con.historyDown();
+    bad += !con.line.empty();
+    // Settings by name: every one reads back, a set sticks, the text round-trips.
+    Config c;
+    const std::vector<std::string> keys = configKeys();
+    int unreadable = 0;
+    for (const std::string& k : keys) {
+        std::string v;
+        unreadable += !configValue(c, k, v);
+    }
+    bad += !setConfigValue(c, "fov", "100") || c.fov != 100.0f;
+    bad += !setConfigValue(c, "player_name", "MARTY") || c.player_name != "MARTY";
+    bad += setConfigValue(c, "no_such_thing", "1") || setConfigValue(c, "fov", "wide");
+    Config back;
+    std::istringstream in(configText(c));
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream ls(line);
+        std::string k, v;
+        if (!(ls >> k) || k.rfind("//", 0) == 0) continue;
+        std::getline(ls >> std::ws, v);
+        setConfigValue(back, k, v);
+    }
+    bad += configText(back) != configText(c);
+    std::printf("  %zu settings by name (%d unreadable), commands, completion, history: %d wrong\n", keys.size(), unreadable, bad);
+    CHECK(bad == 0 && unreadable == 0 && keys.size() > 60, "%d wrong, %d unreadable, %zu keys", bad, unreadable, keys.size());
+}
+
 void testBotFire() {
     std::printf("bots and fire\n");
     const NavGrid& nav = dustNav();
@@ -2782,6 +2839,7 @@ int main() {
     testBotPeek();
     testBotChecks();
     testSpawnGroups();
+    testConsole();
     testHarbor();
     testInferno();
     testReplay();

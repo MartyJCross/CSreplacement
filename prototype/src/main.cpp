@@ -20,6 +20,7 @@
 #include "bots.h"
 #include "combat.h"
 #include "config.h"
+#include "console.h"
 #include "fx.h"
 #include "gl.h"
 #include "items.h"
@@ -45,6 +46,8 @@ namespace {
 struct Options {
     std::string screenshotPath;  // --screenshot out.bmp : save a frame and quit
     int screenshotFrame = 300;   // --frames N
+    std::string exec;            // --exec "commands": run in the console on frame 30 (tests); --console shows it
+    bool showConsole = false;
     // --light K (automated runs on the owner's PC: easy on it): each drawn frame is K steps of 1/240 s and at most 30
     // are drawn a second (so --frames N covers N * K / 240 s of game, at K / 8 times real time).
     int lightSteps = 0;
@@ -85,7 +88,11 @@ struct Options {
     std::string netJoin;                         // --join ADDR: join one
 };
 
-int g_compStartMoney = 800;  // (tests: --comp-money N, everyone's money at the start of a match)
+int g_compStartMoney = 800;  // (tests: --comp-money N, everyone's money at the start of a match; console mp_startmoney)
+// The console (~, v0.33) and the cheats it can turn on (offline games only): no damage, never reload, bots that stand
+// still and hold fire.
+Console g_console;
+bool g_god = false, g_infiniteAmmo = false, g_botStop = false;
 
 Options parseArgs(int argc, char** argv) {
     Options o;
@@ -95,6 +102,8 @@ Options parseArgs(int argc, char** argv) {
         if (a == "--screenshot") o.screenshotPath = next();
         else if (a == "--frames") o.screenshotFrame = std::atoi(next());
         else if (a == "--light") o.lightSteps = std::clamp(std::atoi(next()), 1, 48);
+        else if (a == "--exec") o.exec = next();
+        else if (a == "--console") o.showConsole = true;
         else if (a == "--spawn") {
             o.spawnOverride = true;
             o.spawnX = float(std::atof(next()));
@@ -1220,7 +1229,7 @@ float zoomSensScale(const Game& g, const Config& cfg) {
 void applyConfig(Game& g, const Config& cfg) {
     g.moveParams = MoveParams{};
     g.vm.setFidget(cfg.knife_fidget != 0);
-    g.dmBots = std::clamp(cfg.dm_bots, 1, 16);       // takes effect at the next match
+    g.dmBots = std::clamp(cfg.dm_bots, 0, 16);       // takes effect at the next match (0: console bot_kick)
     g.dmMinutes = std::clamp(cfg.dm_minutes, 1, 60);
     g.rtBots = std::clamp(cfg.rt_bots, 1, 6);
     g.compMates = std::clamp(cfg.comp_mates, 0, 4);  // next match
@@ -1526,7 +1535,7 @@ void removeDrop(Game& g, size_t k) {
 }
 
 bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon) {
-    if (g.deadUntil >= 0 || g.noclip || g.simTime < g.spawnProtectUntil || dmg <= 0) return false;
+    if (g.deadUntil >= 0 || g.noclip || g.simTime < g.spawnProtectUntil || dmg <= 0 || (g_god && !g.online)) return false;
     const bool dies = g.hp - dmg <= 0;
     if (attacker >= 0) recordDamage(g, attacker, -1, std::min(dmg, std::max(0.0f, g.hp)), head, weapon, false, dies);
     g.hp -= dmg;
@@ -1853,9 +1862,13 @@ void buildRadar(Game& g) {
 }
 
 // ---- Competitive ----
-constexpr int kCompRoundsToWin = 13;
-int g_roundsToWin = kCompRoundsToWin;  // (tests: --rounds N ends a match sooner)
-constexpr double kCompBuyTime = 20.0, kCompRoundTime = 115.0, kCompPlantTime = 3.2;  // (freeze: Game::freezeTime)
+// The competitive rules (v0.33: the console's mp_ commands change them, offline): the rounds in a match (sides swap at
+// half), the round and buy time (freeze: Game::freezeTime; money at the start of a half: g_compStartMoney).
+struct MatchRules { int maxRounds = 24; double roundTime = 115.0, buyTime = 20.0; };
+MatchRules g_rules;
+int g_roundsToWin = 0;  // (tests: --rounds N ends a match sooner; 0 = by the rules)
+int roundsToWin() { return g_roundsToWin > 0 ? g_roundsToWin : g_rules.maxRounds / 2 + 1; }
+constexpr double kCompPlantTime = 3.2;
 
 int teamOf(const Game& g, int id) { return id < 0 ? g.comp.youTeam : g.team[size_t(id)]; }
 bool youAlive(const Game& g) { return !g.comp.youDead; }
@@ -1896,9 +1909,10 @@ void compBotsBuy(Game& g) {
         int sum = 0, n = 0;
         for (size_t i = 0; i < g.dummies.size(); ++i)
             if (isBot(g, i) && g.dummies[i].alive() && g.team[i] == side) { sum += c.botMoney[i]; ++n; }
-        const int other = side == c.youTeam ? c.themScore : c.youScore;  // 12: their match point
-        const bool lastOfHalf = c.round == 11 || c.round == 23;
-        call[side] = teamBuyRound(n ? sum / n : 0, c.round == 0 || c.round == 12, lastOfHalf || other == 12);
+        const int other = side == c.youTeam ? c.themScore : c.youScore;  // one short of winning: their match point
+        const int half = g_rules.maxRounds / 2;
+        const bool lastOfHalf = c.round == half - 1 || c.round == g_rules.maxRounds - 1;
+        call[side] = teamBuyRound(n ? sum / n : 0, c.round == 0 || c.round == half, lastOfHalf || other == roundsToWin() - 1);
     }
     int role[2] = {0, 0};
     std::string bought[2];
@@ -1987,12 +2001,12 @@ void startCompRound(Game& g) {
     Game::Comp& c = g.comp;
     c.roundStartAt = g.simTime;
     g_fadeFrom = g_uiTime;
-    const bool halfTime = c.round == 12;
+    const bool halfTime = c.round == g_rules.maxRounds / 2;
     if (halfTime) {  // swap sides: fresh economy
         c.youTeam = 1 - c.youTeam;
         for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = 1 - g.team[i];
-        c.money = 800;
-        std::fill(c.botMoney.begin(), c.botMoney.end(), 800);
+        c.money = g_compStartMoney;
+        std::fill(c.botMoney.begin(), c.botMoney.end(), g_compStartMoney);
         std::fill(c.botGun.begin(), c.botGun.end(), uint8_t(kWPistol));
         for (Dummy& d : g.dummies) { d.armor = 0; d.helmet = false; d.respawnLeft = 1.0f; }
         c.youDead = true;  // treat everyone as freshly respawned (no carried kit)
@@ -2299,7 +2313,7 @@ void startCompRound(Game& g) {
     g.you.roundKills = 0;
     c.phase = 0;
     c.phaseEnd = g.simTime + g.freezeTime;
-    c.buyUntil = g.simTime + g.freezeTime + kCompBuyTime;
+    c.buyUntil = g.simTime + g.freezeTime + g_rules.buyTime;
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
     g.hudDirty = true;
     if (netHost(g)) {  // tell everyone: who plays where, and go
@@ -2398,7 +2412,7 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
     c.resultWin = winner == c.youTeam;
     c.resultText = why;
     c.round++;
-    const bool over = c.youScore >= g_roundsToWin || c.themScore >= g_roundsToWin || c.round >= 24;
+    const bool over = c.youScore >= roundsToWin() || c.themScore >= roundsToWin() || c.round >= g_rules.maxRounds;
     c.phase = over ? 3 : 2;
     c.phaseEnd = g.simTime + (over ? 15.0 : 7.0);  // like CS: a moment for the result (the match: the final scores)
     if (over) {
@@ -2829,7 +2843,7 @@ void playerCall(Game& g, int call) {
         }
         case kCallSlow:  // hold the map, execute late (the clock still sends them with 45 s left)
             c.play = kPlayDefault;
-            if (!c.executing) c.executeAt = std::max(c.executeAt, (c.phase == 0 ? c.phaseEnd + kCompRoundTime : c.phaseEnd) - 50.0);
+            if (!c.executing) c.executeAt = std::max(c.executeAt, (c.phase == 0 ? c.phaseEnd + g_rules.roundTime : c.phaseEnd) - 50.0);
             break;
         case kCallStackA: case kCallStackB: case kCallSetup: {
             // CTs: three on the called site, one mid, one on the other; or the default one-mid-short-long-two-B.
@@ -3081,7 +3095,7 @@ void compTick(Game& g) {
             break;
         }
     if (c.phase == 0) {
-        if (now >= c.phaseEnd) { c.phase = 1; c.phaseEnd = now + kCompRoundTime; g.hudDirty = true; }
+        if (now >= c.phaseEnd) { c.phase = 1; c.phaseEnd = now + g_rules.roundTime; g.hudDirty = true; }
         return;
     }
     if (c.phase >= 2) {
@@ -3604,7 +3618,7 @@ void netCompRoundStart(Game& g, const NetRound& r) {
         c.youDead = true;
     }
     if (r.flags & kRoundHalf) {  // swapped sides: everyone starts over
-        c.money = 800;
+        c.money = g_compStartMoney;
         c.youDead = true;
     }
     netApplyRoster(g, r);
@@ -3624,7 +3638,7 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     c.plantStart = -1;
     c.phase = 0;
     c.phaseEnd = g.simTime + g.freezeTime;  // (the host's match messages set the real clock)
-    c.buyUntil = g.simTime + g.freezeTime + kCompBuyTime;
+    c.buyUntil = g.simTime + g.freezeTime + g_rules.buyTime;
     g.plantSent = g.defuseSent = false;
     g.bombActive = false;
     g.defuseStart = -1;
@@ -4388,6 +4402,7 @@ void simTick(Game& g, const Options& opt) {
         fired = true;
         g.trigger.clear();
         ws.ammo--;
+        if (g_infiniteAmmo && !g.online) ws.ammo = ws.def->magSize;  // (console: sv_infinite_ammo 1)
         g.shots++;
         const uint8_t code = uint8_t(wd.id);
         if (g.online && g.net.ready()) g.net.sendFire(g.lastRenderEye, pellets[0].end, code);
@@ -5005,6 +5020,10 @@ void simTick(Game& g, const Options& opt) {
                 d.mag = -1;
                 d.reloadUntil = -1;
             }
+            if (g_botStop && !g.online) {  // (console: bot_stop 1) standing still, holding fire
+                b.sees = b.aimed = false;
+                continue;
+            }
             sense.self = int(i);
             sense.skill = botSkillOf(g, i);
             if (g.mode == 3) {
@@ -5072,7 +5091,7 @@ void simTick(Game& g, const Options& opt) {
     const bool dmFights = g.mode == 1 && g.mapId == 1 && g.dmBotFights;  // deathmatch bots shoot each other too
     if (g.botsFire && (comp || dmFights || (g.deadUntil < 0 && !g.noclip)) && !netClient(g)) {
         for (size_t i = 0; i < g.dummies.size(); ++i) {
-            if (!isBot(g, i)) continue;
+            if (!isBot(g, i) || (g_botStop && !g.online)) continue;
             const Dummy& d = g.dummies[i];
             Vec3 head = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch)};
             // Deathmatch bots need to see you (view cone) and have turned to face you first.
@@ -6200,6 +6219,25 @@ void drawFadeIn(HudBatch& hud, int w, int h) {
     hud.rect(0, 0, float(w), float(h), uint32_t(std::clamp(1.0 - k, 0.0, 1.0) * 255.0));
 }
 
+// The console (~): over the top half of the screen, what it printed (newest at the bottom) and the line being typed.
+void drawConsole(HudBatch& hud, const Console& con, int w, int h, int s) {
+    const float fs = float(s), lh = 10.0f * fs, pad = 8.0f * fs, height = float(h) * 0.5f;
+    hud.rect(0, 0, float(w), height, 0x0B0E12EE);
+    hud.rect(0, height, float(w), 2.0f * fs, 0xFFD060FF);
+    const char* hint = "CONSOLE   HELP LISTS THE COMMANDS   TAB COMPLETES   UP/DOWN HISTORY   PGUP/PGDN SCROLL   ESC CLOSES";
+    hud.text(float(w) - hud.textWidth(hint) - pad, pad, hint, 0x8A93A0FF);
+    const float lineY = height - lh - pad;
+    hud.rect(0, lineY - 4.0f * fs, float(w), lh + 8.0f * fs, 0x1A2028FF);
+    const bool caret = std::fmod(g_uiTime, 1.0) < 0.5;
+    hud.text(pad, lineY, "] " + con.line + (caret ? "_" : ""), 0xFFFFFFFF);
+    int rows = int((lineY - 2.0f * pad - lh) / lh);
+    float y = lineY - lh - 6.0f * fs;
+    for (int k = int(con.log.size()) - 1 - con.scroll; k >= 0 && rows-- > 0; --k, y -= lh) {
+        const std::string& t = con.log[size_t(k)];
+        hud.text(pad, y, t, t.rfind("] ", 0) == 0 ? 0x9AA4B0FF : 0xE8E8E8FF);
+    }
+}
+
 void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats& st, int w, int h) {
     hud.clear();
     int s = hudScale(cfg, h);
@@ -7151,6 +7189,24 @@ int main(int argc, char** argv) {
         g_menu.root = kMenuPause;
         setMenu(kMenuNone);
     };
+    // Online: join the game at cfg.net_address (the menu's JOIN, the console's connect).
+    auto joinGame = [&]() {
+        std::string err;
+        g.net.setName(cfg.player_name);
+        std::string address = cfg.net_address;
+        uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
+        splitAddress(address, port);
+        if (g.net.join(address, port, err)) {
+            g.netJoining = true;
+            hostClosed = false;
+            reconnect = Reconnect{};
+            reconnect.address = address;
+            reconnect.port = port;
+            netNotice("CONNECTING TO " + address + ":" + std::to_string(port) + "...", "", 7.0);
+        } else {
+            netNotice("COULDN'T JOIN", err);
+        }
+    };
     // Row `row` was pressed (Enter, click: press = true) or nudged (arrows, wheel, right click).
     // Settings change by `dir` steps either way and save straight away; buttons only react to presses.
     auto menuUse = [&](int row, int dir, bool big, bool press) {
@@ -7271,24 +7327,7 @@ int main(int argc, char** argv) {
                 }
                 break;
             }
-            case kActJoin: {
-                std::string err;
-                g.net.setName(cfg.player_name);
-                std::string address = cfg.net_address;
-                uint16_t port = uint16_t(std::clamp(cfg.net_port, 1024, 65535));
-                splitAddress(address, port);
-                if (g.net.join(address, port, err)) {
-                    g.netJoining = true;
-                    hostClosed = false;
-                    reconnect = Reconnect{};
-                    reconnect.address = address;
-                    reconnect.port = port;
-                    netNotice("CONNECTING TO " + address + ":" + std::to_string(port) + "...", "", 7.0);
-                } else {
-                    netNotice("COULDN'T JOIN", err);
-                }
-                break;
-            }
+            case kActJoin: joinGame(); break;
             case kActLobbyTeam:  // the other team (the host decides; it tells everyone)
                 if (g_lobby.host) g_lobby.team[0] ^= 1;
                 else g.net.sendTeamPick(uint8_t(1 - (g_lobby.team[std::max(0, g.net.myId())] & 1)));
@@ -7624,6 +7663,248 @@ int main(int argc, char** argv) {
     double tickAcc = 0, lastHudBuild = -1;
     FrameStats stats;
     HudBatch hud;
+
+    // ---- The console (~, v0.33): CS-style commands, and every setting by its config name ----
+    struct ConCmd { const char* name; const char* help; };
+    static const ConCmd kConCmds[] = {
+        {"help", "the commands (settings: cvarlist)"},
+        {"find", "find <text>: commands and settings with it in their name"},
+        {"cvarlist", "every setting and its value; type a setting's name to see it, name and a value to set it"},
+        {"clear", "empties the console"},
+        {"echo", "echo <text>"},
+        {"status", "the map, the mode, the bots, online"},
+        {"map", "map <lab|dust|harbor|inferno>: plays it (in this mode)"},
+        {"mode", "mode <practice|deathmatch|retakes|competitive|prefire>: plays it (on this map)"},
+        {"restart", "starts this game over (mp_restartgame too)"},
+        {"mp_restartgame", "starts this game over"},
+        {"noclip", "fly through walls (offline)"},
+        {"god", "take no damage (offline)"},
+        {"kill", "die (offline)"},
+        {"give", "give <weapon> (offline): ak47 m4a1_silencer galilar awp ssg08 deagle elite usp_silencer nova xm1014 "
+                 "mac10 ump45 knife hegrenade flashbang smokegrenade molotov"},
+        {"sv_infinite_ammo", "sv_infinite_ammo <0|1>: never reload (offline)"},
+        {"bot_kick", "removes the bots (competitive keeps one enemy, retakes one bot; starts the game over)"},
+        {"bot_add", "one more bot (starts the game over)"},
+        {"bot_add_t", "competitive: one more T bot (starts the game over)"},
+        {"bot_add_ct", "competitive: one more CT bot (starts the game over)"},
+        {"bot_quota", "bot_quota <n>: how many bots in deathmatch (starts the game over)"},
+        {"bot_stop", "bot_stop <0|1>: the bots stand still and hold fire (offline)"},
+        {"bot_difficulty", "bot_difficulty <0-3>: enemy bots easy, normal, hard, expert"},
+        {"mp_roundtime", "mp_roundtime <minutes>: competitive round time (from the next round; offline)"},
+        {"mp_buytime", "mp_buytime <seconds>: competitive buy time (next round; offline)"},
+        {"mp_freezetime", "mp_freezetime <seconds>: competitive freeze time (next round)"},
+        {"mp_startmoney", "mp_startmoney <$>: everyone's money at the start of a half (offline)"},
+        {"mp_maxrounds", "mp_maxrounds <n>: rounds in a competitive match, sides swap at half (offline)"},
+        {"connect", "connect <address[:port]>: joins an online game"},
+        {"disconnect", "leaves the online game"},
+        {"quit", "quits the game"},
+    };
+    const std::vector<std::string> settingNames = configKeys();
+    std::vector<std::string> conNames;
+    for (const ConCmd& c2 : kConCmds) conNames.push_back(c2.name);
+    conNames.insert(conNames.end(), settingNames.begin(), settingNames.end());
+    auto con = [&](const std::string& t) { g_console.print(t); };
+    auto offline = [&]() {
+        if (g.online) con("NOT IN AN ONLINE GAME");
+        return !g.online;
+    };
+    // Starts a game over on `map` (0 the Lab, 1 Dust, 2 Harbor, 3 Inferno) in `mode` (-1: the current one), like the
+    // Play screen's START.
+    auto restartGame = [&](int map, int mode) {
+        g_gameMenu.map = map >= 0 ? map : g.mapId == 1 ? 1 + townMap() : 0;
+        g_gameMenu.mode = mode >= 0 ? mode : g.mode;
+        g_gameMenu.bots = g.botsFire;
+        g_gameMenu.drill = g.drill;
+        g_gameMenu.route = g.pf.route;
+        startFromMenu();
+    };
+    auto setSetting = [&](const std::string& key, const std::string& value) {
+        if (!setConfigValue(cfg, key, value)) return false;
+        settingsChanged();
+        saveConfig(cfgPath, cfg);
+        g.hudDirty = true;
+        return true;
+    };
+    auto runCommand = [&](const std::vector<std::string>& a) {
+        const std::string cmd = lowerCase(a[0]);
+        const std::string arg = a.size() > 1 ? lowerCase(a[1]) : "";
+        const bool on = a.size() > 1 ? std::atof(a[1].c_str()) != 0 : true;
+        const bool comp = g.mode == 3 && g.mapId == 1;
+        if (cmd == "help") {
+            for (const ConCmd& c2 : kConCmds) con(std::string(c2.name) + "  -  " + c2.help);
+        } else if (cmd == "find") {
+            for (const ConCmd& c2 : kConCmds)
+                if (std::string(c2.name).find(arg) != std::string::npos) con(std::string(c2.name) + "  -  " + c2.help);
+            for (const std::string& k : settingNames)
+                if (k.find(arg) != std::string::npos) {
+                    std::string v;
+                    configValue(cfg, k, v);
+                    con(k + " " + v);
+                }
+        } else if (cmd == "cvarlist") {
+            for (const std::string& k : settingNames) {
+                std::string v;
+                configValue(cfg, k, v);
+                con(k + " " + v);
+            }
+        } else if (cmd == "clear") {
+            g_console.log.clear();
+        } else if (cmd == "echo") {
+            std::string t;
+            for (size_t k = 1; k < a.size(); ++k) t += (k > 1 ? " " : "") + a[k];
+            con(t);
+        } else if (cmd == "status") {
+            const char* mapName = g.mapId == 1 ? townMapName(townMap()) : "THE LAB";
+            con(std::string("map ") + mapName + ", mode " + kModeNames[std::clamp(g.mode, 0, 5)] + ", " +
+                std::to_string(g.dummies.size()) + " bots/players" + (g.online ? ", online, ping " + std::to_string(g.net.pingMs()) + " ms" : ", offline"));
+            con("god " + std::to_string(int(g_god)) + "  noclip " + std::to_string(int(g.noclip)) + "  sv_infinite_ammo " +
+                std::to_string(int(g_infiniteAmmo)) + "  bot_stop " + std::to_string(int(g_botStop)));
+        } else if (cmd == "map") {
+            if (!offline()) return;
+            const std::string n = arg.rfind("de_", 0) == 0 ? arg.substr(3) : arg;
+            const int map = n == "lab" ? 0 : n == "dust" || n == "dust2" ? 1 : n == "harbor" ? 2 : n == "inferno" ? 3 : -1;
+            if (map < 0) { con("map <lab|dust|harbor|inferno>"); return; }
+            if (map == 0 && g.mode != 0) { con("the Lab is for practice: mode practice"); return; }
+            restartGame(map, -1);
+        } else if (cmd == "mode") {
+            if (!offline()) return;
+            const int mode = arg == "practice" ? 0 : arg == "deathmatch" || arg == "dm" ? 1 : arg == "retakes" ? 2
+                           : arg == "competitive" || arg == "comp" ? 3 : arg == "prefire" ? 4
+                           : !arg.empty() && arg.find_first_not_of("0123456789") == std::string::npos ? std::atoi(arg.c_str()) : -1;
+            if (mode < 0 || mode > 4) { con("mode <practice|deathmatch|retakes|competitive|prefire>"); return; }
+            restartGame(-1, mode);
+        } else if (cmd == "restart" || cmd == "mp_restartgame") {
+            if (offline()) restartGame(-1, -1);
+        } else if (cmd == "noclip") {
+            if (!offline()) return;
+            g.noclip = a.size() > 1 ? on : !g.noclip;
+            con(std::string("noclip ") + (g.noclip ? "ON" : "OFF"));
+        } else if (cmd == "god") {
+            if (!offline()) return;
+            g_god = a.size() > 1 ? on : !g_god;
+            con(std::string("god ") + (g_god ? "ON" : "OFF"));
+        } else if (cmd == "kill") {
+            if (!offline()) return;
+            const bool wasGod = g_god, wasNoclip = g.noclip;
+            g_god = g.noclip = false;
+            g.spawnProtectUntil = -1;
+            hurtPlayer(g, -1, 10000.0f, false, "WORLD");
+            g_god = wasGod;
+            g.noclip = wasNoclip && g.deadUntil < 0;
+        } else if (cmd == "give") {
+            if (!offline()) return;
+            struct GiveName { const char* name; int weapon, nade; };
+            static const GiveName kGive[] = {
+                {"ak47", kWRifle, -1}, {"m4a1_silencer", kWM4A1S, -1}, {"m4a1", kWM4A1S, -1}, {"galilar", kWGalil, -1},
+                {"awp", kWSniper, -1}, {"ssg08", kWSsg08, -1}, {"deagle", kWDeagle, -1}, {"elite", kWBerettas, -1},
+                {"usp_silencer", kWPistol, -1}, {"nova", kWNova, -1}, {"xm1014", kWXm1014, -1}, {"mac10", kWMac10, -1},
+                {"ump45", kWUmp45, -1}, {"knife", kWKnife, -1}, {"smokegrenade", -1, 0}, {"flashbang", -1, 1},
+                {"hegrenade", -1, 2}, {"molotov", -1, 3}, {"incgrenade", -1, 3}};
+            const std::string n = arg.rfind("weapon_", 0) == 0 ? arg.substr(7) : arg;
+            const GiveName* hit = nullptr;
+            for (const GiveName& gn : kGive)
+                if (n == gn.name) hit = &gn;
+            if (!hit) { con("give <weapon>: see help"); return; }
+            if (hit->weapon == kWKnife) {
+                g.switchTo = 3;
+            } else if (hit->weapon >= 0) {
+                takeGun(g, hit->weapon);
+                if (comp && weaponDef(hit->weapon).primary) g.comp.ownPrimary = hit->weapon;
+            } else {
+                if (comp) g.comp.nades[hit->nade]++;
+                g.nadeType = g.weapon == &g.guns[kWGrenade] ? (hit->nade + Game::kNadeTypes - 1) % Game::kNadeTypes : hit->nade;
+                g.switchTo = 4;
+            }
+            con(std::string("gave ") + hit->name);
+        } else if (cmd == "sv_infinite_ammo") {
+            if (!offline()) return;
+            g_infiniteAmmo = on;
+            con(std::string("sv_infinite_ammo ") + (g_infiniteAmmo ? "1" : "0"));
+        } else if (cmd == "bot_stop") {
+            if (!offline()) return;
+            g_botStop = on;
+            con(std::string("bot_stop ") + (g_botStop ? "1" : "0"));
+        } else if (cmd == "bot_difficulty") {
+            if (a.size() < 2) { con("bot_difficulty " + std::to_string(cfg.enemy_skill)); return; }
+            setSetting("enemy_skill", a[1]);
+            con("enemy bots: " + std::string(botSkill(std::clamp(cfg.enemy_skill, 0, 3)).name));
+        } else if (cmd == "bot_kick" || cmd == "bot_add" || cmd == "bot_add_t" || cmd == "bot_add_ct" || cmd == "bot_quota") {
+            if (!offline()) return;
+            const int add = cmd == "bot_kick" ? -100 : 1;
+            if (cmd == "bot_quota") {
+                if (a.size() < 2) { con("bot_quota " + std::to_string(cfg.dm_bots)); return; }
+                cfg.dm_bots = std::clamp(std::atoi(a[1].c_str()), 0, 16);
+            } else if (g.mode == 1) {
+                cfg.dm_bots = std::clamp(cfg.dm_bots + add, 0, 16);
+            } else if (g.mode == 2) {
+                cfg.rt_bots = std::clamp(cfg.rt_bots + add, 1, 6);
+            } else if (g.mode == 3) {
+                const bool youT = g.comp.youTeam == 0;
+                const bool toMates = cmd == "bot_add_t" ? youT : cmd == "bot_add_ct" ? !youT : cfg.comp_enemies >= 5;
+                if (add < 0) {
+                    cfg.comp_mates = 0;
+                    cfg.comp_enemies = 1;
+                } else if (toMates) {
+                    cfg.comp_mates = std::clamp(cfg.comp_mates + 1, 0, 4);
+                } else {
+                    cfg.comp_enemies = std::clamp(cfg.comp_enemies + 1, 1, 5);
+                }
+            } else {
+                con("bots: deathmatch, retakes and competitive");
+                return;
+            }
+            settingsChanged();
+            saveConfig(cfgPath, cfg);
+            restartGame(-1, -1);
+            con("bots: deathmatch " + std::to_string(cfg.dm_bots) + ", retakes " + std::to_string(cfg.rt_bots) +
+                ", competitive " + std::to_string(cfg.comp_mates) + " teammates and " + std::to_string(cfg.comp_enemies) + " enemies");
+        } else if (cmd == "mp_roundtime" || cmd == "mp_buytime" || cmd == "mp_startmoney" || cmd == "mp_maxrounds") {
+            if (a.size() < 2) {
+                con(cmd + " " + (cmd == "mp_roundtime" ? std::to_string(g_rules.roundTime / 60.0)
+                                 : cmd == "mp_buytime" ? std::to_string(g_rules.buyTime)
+                                 : cmd == "mp_startmoney" ? std::to_string(g_compStartMoney) : std::to_string(g_rules.maxRounds)));
+                return;
+            }
+            if (!offline()) return;
+            const double v = std::atof(a[1].c_str());
+            if (cmd == "mp_roundtime") g_rules.roundTime = std::clamp(v, 0.25, 30.0) * 60.0;
+            else if (cmd == "mp_buytime") g_rules.buyTime = std::clamp(v, 0.0, 600.0);
+            else if (cmd == "mp_startmoney") g_compStartMoney = std::clamp(int(v), 0, 16000);
+            else g_rules.maxRounds = std::clamp(int(v), 2, 60);
+            con(cmd + " " + a[1] + " (from the next round; mp_maxrounds and mp_startmoney: the next match or half)");
+        } else if (cmd == "mp_freezetime") {
+            if (a.size() < 2) { con("mp_freezetime " + std::to_string(cfg.freeze_time)); return; }
+            setSetting("freeze_time", a[1]);
+        } else if (cmd == "connect") {
+            if (a.size() < 2) { con("connect <address[:port]>"); return; }
+            cfg.net_address = a[1];
+            saveConfig(cfgPath, cfg);
+            joinGame();
+        } else if (cmd == "disconnect") {
+            if (!g.online && !g.net.active()) { con("not online"); return; }
+            leaveOnline();
+            g_menu.root = kMenuMain;
+            setMenu(kMenuMain);
+        } else if (cmd == "quit" || cmd == "exit") {
+            running = false;
+        } else {
+            // A setting: its name shows it, its name and a value set it (and save the config, like the menus).
+            std::string v;
+            if (!configValue(cfg, cmd, v)) { con("unknown command: " + a[0] + " (help lists them)"); return; }
+            if (a.size() < 2) { con(cmd + " " + v); return; }
+            if (!setSetting(cmd, a[1])) { con(cmd + ": not a value: " + a[1]); return; }
+            configValue(cfg, cmd, v);
+            con(cmd + " " + v);
+        }
+    };
+    auto runConsole = [&](const std::string& line) {
+        for (const std::string& one : splitCommands(line)) {
+            const std::vector<std::string> a = splitArgs(one);
+            if (!a.empty()) runCommand(a);
+        }
+        g.hudDirty = true;
+    };
+    con("CRISP " CRISP_VERSION " CONSOLE - HELP LISTS THE COMMANDS");
     std::vector<BoxInstance> dynamicBoxes;
     std::vector<Vec3> nadePath;  // grenade preview, reused every frame
     int frame = 0;
@@ -7702,6 +7983,8 @@ int main(int argc, char** argv) {
                         g.buyMouseX = e.motion.x * density;
                         g.buyMouseY = e.motion.y * density;
                         g.hudDirty = true;
+                    } else if (g_console.open) {
+                        // (the console is up: the mouse doesn't aim)
                     } else if (!paused) {
                         double sens = cfg.sensitivity * zoomSensScale(g, cfg);
                         double dyaw = -double(e.motion.xrel) * sens * cfg.m_yaw;
@@ -7719,6 +8002,7 @@ int main(int argc, char** argv) {
                     }
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                    if (g_console.open) break;
                     if (paused) {  // left click presses a row, right click steps a setting back
                         const int r = menuRowUnder(e.button.x, e.button.y);
                         const bool left = e.button.button == SDL_BUTTON_LEFT;
@@ -7764,13 +8048,57 @@ int main(int argc, char** argv) {
                     if (e.button.button == SDL_BUTTON_RIGHT) g.zoomHeld = false;
                     break;
                 case SDL_EVENT_MOUSE_WHEEL:
-                    if (!paused) {
+                    if (g_console.open) {  // scrolls the console
+                        g_console.scroll = std::clamp(g_console.scroll + (e.wheel.y > 0 ? 3 : -3), 0, std::max(0, int(g_console.log.size()) - 1));
+                        g.hudDirty = true;
+                    } else if (!paused) {
                         g.wheelJumpAt = g.simTime;  // (waits a moment for the ground: scroll bhops)
                     } else if (e.wheel.y != 0) {
                         menuUse(g_menu.sel, e.wheel.y > 0 ? 1 : -1, false, false);
                     }
                     break;
+                case SDL_EVENT_TEXT_INPUT:  // (the console's line: typed text, your keyboard layout)
+                    if (g_console.open) {
+                        for (const char* t = e.text.text; *t; ++t)
+                            if (*t >= 32 && *t < 127 && *t != '`' && *t != '~' && g_console.line.size() < 200) g_console.line.push_back(*t);
+                        g.hudDirty = true;
+                    }
+                    break;
                 case SDL_EVENT_KEY_DOWN: {
+                    if (e.key.scancode == SDL_SCANCODE_GRAVE && !e.key.repeat) {  // the console (~), over anything
+                        g_console.open = !g_console.open;
+                        g_console.historyPos = -1;
+                        if (!automated) {
+                            if (g_console.open) SDL_StartTextInput(window);
+                            else SDL_StopTextInput(window);
+                        }
+                        g.fireHeld = g.zoomHeld = false;
+                        g.hudDirty = true;
+                        break;
+                    }
+                    if (g_console.open) {  // typing in the console: the game's keys are off
+                        const SDL_Scancode ck = e.key.scancode;
+                        if (ck == SDL_SCANCODE_ESCAPE) {
+                            g_console.open = false;
+                            if (!automated) SDL_StopTextInput(window);
+                        } else if (ck == SDL_SCANCODE_RETURN || ck == SDL_SCANCODE_KP_ENTER) {
+                            runConsole(g_console.submit());
+                        } else if (ck == SDL_SCANCODE_BACKSPACE) {
+                            if (!g_console.line.empty()) g_console.line.pop_back();
+                        } else if (ck == SDL_SCANCODE_UP) {
+                            g_console.historyUp();
+                        } else if (ck == SDL_SCANCODE_DOWN) {
+                            g_console.historyDown();
+                        } else if (ck == SDL_SCANCODE_TAB) {
+                            g_console.complete(conNames);
+                        } else if (ck == SDL_SCANCODE_PAGEUP) {
+                            g_console.scroll = std::min(g_console.scroll + 8, std::max(0, int(g_console.log.size()) - 1));
+                        } else if (ck == SDL_SCANCODE_PAGEDOWN) {
+                            g_console.scroll = std::max(0, g_console.scroll - 8);
+                        }
+                        g.hudDirty = true;
+                        break;
+                    }
                     {
                         SDL_Scancode k = e.key.scancode;
                         bool arrow = k == SDL_SCANCODE_LEFT || k == SDL_SCANCODE_RIGHT || k == SDL_SCANCODE_UP ||
@@ -7921,11 +8249,11 @@ int main(int argc, char** argv) {
         }
 
         {
-            bool tab = !paused && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_TAB];
+            bool tab = !paused && !g_console.open && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_TAB];
             if (tab != g.showScores) { g.showScores = tab; g.hudDirty = true; }
         }
         if (!automated) {  // the mouse aims while you play; it's a cursor in the menus and the buy wheel
-            const bool capture = !paused && !g.buyMenu;
+            const bool capture = !paused && !g.buyMenu && !g_console.open;
             if (SDL_GetWindowRelativeMouseMode(window) != capture) SDL_SetWindowRelativeMouseMode(window, capture);
         }
         pumpNet();
@@ -7959,7 +8287,7 @@ int main(int argc, char** argv) {
                 reconnect.next = now + 4.0;
             }
         }
-        g.inputBlocked = paused;
+        g.inputBlocked = paused || g_console.open;
         const bool viewing = g.rv.on && !g.rv.killcam;  // the replay viewer: the game waits
         if ((!paused || g.online) && !viewing) {  // online never pauses
 
@@ -7986,6 +8314,16 @@ int main(int argc, char** argv) {
             g.throwLatch = true;
         }
         if (automated && frame == opt.stabFrame) g.zoomLatch = true;
+        if (automated && frame == 30 && (!opt.exec.empty() || opt.showConsole)) {  // (tests: console commands)
+            g_console.open = opt.showConsole;
+            if (!opt.exec.empty()) {
+                g_console.line = opt.exec;
+                runConsole(g_console.submit());
+                std::fprintf(stderr, "console:%c", 10);
+                for (const std::string& t : g_console.log) std::fprintf(stderr, "  %s%c", t.c_str(), 10);
+            }
+            g.hudDirty = true;
+        }
         if (automated && frame == opt.inspectFrame) {
             if (opt.inspectVariant >= 0) g.vm.setInspectVariant(opt.inspectVariant + 2);  // (the next F: +1, wrapped)
             g.vm.inspect();
@@ -8594,6 +8932,7 @@ int main(int argc, char** argv) {
         if (rebuild) {
             buildHud(hud, g, cfg, stats, pixW, pixH);
             drawFadeIn(hud, pixW, pixH);
+            if (g_console.open) drawConsole(hud, g_console, pixW, pixH, hudScale(cfg, pixH));
             lastHudBuild = nowSec;
             g.hudDirty = false;
             hitMarkerShownUntil = g.simTime < g.hitMarkerUntil ? g.hitMarkerUntil : 0;

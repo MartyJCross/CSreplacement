@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 # The build number shown on the main menu and in the window title. Bump it for every build handed out
 # (the zip is named Crisp-v<version>.zip).
-project(Crisp VERSION 0.32.0 LANGUAGES C CXX)
+project(Crisp VERSION 0.33.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,7 +24,9 @@ add_library(crisp_sim STATIC
   src/stats.cpp
   src/replay.cpp
   src/nav.cpp
-  src/bots.cpp)
+  src/bots.cpp
+  src/console.cpp
+  src/config.cpp)
 target_include_directories(crisp_sim PUBLIC src)
 if(MSVC)
   # /fp:precise (default) - never /fp:fast: movement must be deterministic.
@@ -88,7 +90,6 @@ if(CRISP_BUILD_GAME)
     src/main.cpp
     src/render.cpp
     src/gl.cpp
-    src/config.cpp
     src/audio.cpp
     src/fx.cpp
     src/net.cpp

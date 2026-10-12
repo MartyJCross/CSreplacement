@@ -54,8 +54,30 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Z | Competitive: call a play for your team's bots, then 1-8. Both sides: **8 NEED A DROP** (in buy time the richest teammate bot that can afford it buys your side's rifle and drops it by you, or says why not). T: GO A, GO B, RUSH A, RUSH B, **TAKE MID** (two take mid, the rest wait on the site's other way, then both hit together), PLAY SLOW, SAVE. CT: STACK A, STACK B, DEFAULT SETUP, **PUSH MID** (one goes for an early pick in mid, back after 20 s), ROTATE A, ROTATE B, SAVE |
 | V | Noclip in practice (fly where you look; Shift = slow) |
 | C | Clear bullet decals |
+| ~ (the key left of 1) | **The console** (see **Console**) |
 | Alt+Enter | Toggle fullscreen |
 | Esc | **Menu.** The game opens on the **main menu**: PLAY, PLAY ONLINE, INVENTORY, STATS, SETTINGS, QUIT. **PLAY** lists the modes (a line under the menu says what the highlighted one is); picking one opens its setup: the map, the mode's options (bots, skill, minutes, route...), START. **PLAY ONLINE**: your name, HOST A GAME (you set the game up in your lobby), your friend's address and JOIN, the port. **SETTINGS** has pages: Mouse + view, Crosshair + HUD, Weapons + skins, Video, Sound, Gameplay, Controls, and RESET TO DEFAULTS (press twice). In a game, Esc pauses: Resume, New game, Reset position (practice) / Restart route (prefire), Watch replay, Inventory, Settings, Main menu, Quit. Hover or ↑/↓ to select, click or Enter to press, ←/→, wheel or right click to change a setting (Shift = ×5); saved to `config.cfg`. Esc goes back |
+
+## Console
+
+**~** opens the console over the top half of the screen, anywhere (in a game, the menus, the main menu); ~ or Esc
+closes it. The game keeps running while you type, but your keys and mouse go to the console. **Tab** completes a command
+or setting (with several matches it lists them), **↑/↓** go through what you typed before, **Page Up/Down** or the wheel
+scroll, `;` puts several commands on one line (`give ak47; god`). `help` lists the commands, `find <text>` searches them.
+
+- **Every setting by its config name**: `fov` shows it, `fov 100` sets it (and saves `config.cfg`, like the menus);
+  `cvarlist` lists them all.
+- **Games:** `map lab|dust|harbor|inferno` (plays it in this mode), `mode practice|deathmatch|retakes|competitive|prefire`
+  (plays it on this map), `restart` / `mp_restartgame`, `status`.
+- **Offline cheats:** `noclip`, `god`, `kill`, `give <weapon>` (CS names: `ak47`, `m4a1_silencer`, `galilar`, `awp`,
+  `ssg08`, `deagle`, `elite`, `usp_silencer`, `nova`, `xm1014`, `mac10`, `ump45`, `knife`, `hegrenade`, `flashbang`,
+  `smokegrenade`, `molotov`; `weapon_` in front works too), `sv_infinite_ammo 1`, `bot_stop 1` (the bots stand still
+  and hold fire).
+- **Bots:** `bot_kick` (none in deathmatch; competitive keeps one enemy), `bot_add`, `bot_add_t`, `bot_add_ct`,
+  `bot_quota <n>` (these start the game over with the new count), `bot_difficulty 0-3`.
+- **Competitive rules (offline):** `mp_roundtime <minutes>`, `mp_buytime <seconds>`, `mp_freezetime <seconds>`,
+  `mp_startmoney <$>`, `mp_maxrounds <n>` (sides swap at half; first to half plus one wins).
+- **Online:** `connect <address[:port]>`, `disconnect`. Also `echo`, `clear`, `quit`.
 
 ## The map
 
@@ -517,7 +539,8 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | `src/fx.*` | First-person weapon and knife models and animation, the inventory showcase, tracers, particles, `DrawList` (cosmetic only) |
 | `src/audio.*` | SDL3 audio mixer: recordings with synthesized fallbacks, 3D audio, ambience, room echo, menu music |
 | `src/net.*`, `src/upnp.*` | Online play (ENet: host relays, lobby, competitive) and opening the router's port |
-| `src/replay.*`, `src/stats.*`, `src/config.*` | Replays and the killcam, your career and rating, `config.cfg` |
+| `src/replay.*`, `src/stats.*`, `src/config.*` | Replays and the killcam, your career and rating, `config.cfg` (every setting by name: `setConfigValue`, `configValue`) |
+| `src/console.*` | The console's text side: its log, the line, history, Tab completion, splitting commands (main.cpp runs them) |
 | `src/main.cpp` | Window, input, 128 Hz fixed-step loop, the modes, grenades, bomb, economy, combat record, radar, HUD, menus, online glue |
 | `tests/sim_tests.cpp` | Headless checks: speeds, jumps and hops, counter-strafe timing, collision, stairs, ramps, crates, determinism, spread, guns, material wallbangs, the maps' routes, sightlines, spawns and holes, bots (roaming, sight, cover, fire, arsenal), replays, cases, stats |
 

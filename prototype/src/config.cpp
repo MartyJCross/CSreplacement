@@ -114,9 +114,8 @@ prefire_bots_shoot 1
 
 }  // namespace
 
-bool saveConfig(const std::string& path, const Config& c) {
-    std::ofstream out(path);
-    if (!out) return false;
+std::string configText(const Config& c) {
+    std::ostringstream out;
     out << "// Crisp config. Written by the in-game menus (Esc); you can also edit it by hand.\n";
     out << "sensitivity " << c.sensitivity << "\nm_yaw " << c.m_yaw << "\nm_pitch " << c.m_pitch
         << "\nzoom_sensitivity_ratio " << c.zoom_sensitivity_ratio << "\nfov " << c.fov << "\nfps_max " << c.fps_max
@@ -134,7 +133,7 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\ncase_kills " << c.case_kills << "\nall_skins " << c.all_skins << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
-        << "\nmap " << c.map  << "\nmsaa " << c.msaa << "\nshow_fps " << c.show_fps << "\nart_style " << c.art_style << "\ngraphics_preset " << c.graphics_preset << "\nshadows " << c.shadows << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\nmode " << c.mode
+        << "\nmap " << c.map  << "\nmsaa " << c.msaa << "\nshow_fps " << c.show_fps << "\nart_style " << c.art_style << "\ngraphics_preset " << c.graphics_preset << "\nshadows " << c.shadows << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\ndepth_prepass " << c.depth_prepass << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nfreeze_time " << c.freeze_time
@@ -142,7 +141,123 @@ bool saveConfig(const std::string& path, const Config& c) {
         << "\nenemy_skill " << c.enemy_skill << "\nskill_variance " << c.skill_variance
         << "\ndm_bot_fights " << c.dm_bot_fights << "\nkillcam " << c.killcam << "\nmodel_scale " << c.model_scale << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
         << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\n";
+    return out.str();
+}
+
+bool saveConfig(const std::string& path, const Config& c) {
+    std::ofstream out(path);
+    if (!out) return false;
+    out << configText(c);
     return bool(out);
+}
+
+bool setConfigValue(Config& c, const std::string& key, const std::string& value) {
+    if (key == "net_address" || key == "player_name") {  // the text settings
+        std::istringstream ts(value);
+        std::string word;
+        if (!(ts >> word)) return false;
+        (key == "net_address" ? c.net_address : c.player_name) = word;
+        return true;
+    }
+    float v;
+    std::istringstream ss(value);
+    if (!(ss >> v)) return false;
+    auto i = [&](int& dst) { dst = int(v); };
+    if (key == "sensitivity") c.sensitivity = v;
+    else if (key == "m_yaw") c.m_yaw = v;
+    else if (key == "m_pitch") c.m_pitch = v;
+    else if (key == "fov") c.fov = v;
+    else if (key == "fps_max") i(c.fps_max);
+    else if (key == "vsync") i(c.vsync);
+    else if (key == "low_latency") i(c.low_latency);
+    else if (key == "muzzle_brightness") c.muzzle_brightness = v;
+    else if (key == "skill_variance") i(c.skill_variance);
+    else if (key == "dm_bot_fights") i(c.dm_bot_fights);
+    else if (key == "killcam") i(c.killcam);
+    else if (key == "model_scale") i(c.model_scale);
+    else if (key == "music_volume") c.music_volume = v;
+    else if (key == "fullscreen") i(c.fullscreen);
+    else if (key == "width") i(c.width);
+    else if (key == "height") i(c.height);
+    else if (key == "crosshair_size") i(c.crosshair_size);
+    else if (key == "crosshair_gap") i(c.crosshair_gap);
+    else if (key == "crosshair_thickness") i(c.crosshair_thickness);
+    else if (key == "crosshair_r") i(c.crosshair_r);
+    else if (key == "crosshair_g") i(c.crosshair_g);
+    else if (key == "crosshair_b") i(c.crosshair_b);
+    else if (key == "crosshair_outline") i(c.crosshair_outline);
+    else if (key == "crosshair_dot") i(c.crosshair_dot);
+    else if (key == "view_recoil_tracking") c.view_recoil_tracking = v;
+    else if (key == "hud_scale") i(c.hud_scale);
+    else if (key == "volume") c.volume = v;
+    else if (key == "viewmodel_fov") c.viewmodel_fov = v;
+    else if (key == "viewmodel_offset_x") c.viewmodel_offset_x = v;
+    else if (key == "viewmodel_offset_y") c.viewmodel_offset_y = v;
+    else if (key == "viewmodel_offset_z") c.viewmodel_offset_z = v;
+    else if (key == "viewmodel_bob") c.viewmodel_bob = v;
+    else if (key == "show_viewmodel") i(c.show_viewmodel);
+    else if (key == "knife_fidget") i(c.knife_fidget);
+    else if (key == "spread_spray") i(c.spread_spray);
+    else if (key == "bhop") i(c.bhop);
+    else if (key == "camera_extrapolate") i(c.camera_extrapolate);
+    else if (key == "view_smooth_steps") i(c.view_smooth_steps);
+    else if (key == "view_shake") i(c.view_shake);
+    else if (key == "hitmarker") i(c.hitmarker);
+    else if (key == "radar") i(c.radar);
+    else if (key == "case_kills") i(c.case_kills);
+    else if (key == "all_skins") i(c.all_skins);
+    else if (key == "hitsound") i(c.hitsound);
+    else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
+    else if (key == "map") i(c.map);
+    else if (key == "msaa") i(c.msaa);
+    else if (key == "shadows") i(c.shadows);
+    else if (key == "graphics_preset") i(c.graphics_preset);
+    else if (key == "art_style") i(c.art_style);
+    else if (key == "show_fps") i(c.show_fps);
+    else if (key == "ambience_volume") c.ambience_volume = v;
+    else if (key == "post_fx") i(c.post_fx);
+    else if (key == "depth_prepass") i(c.depth_prepass);
+    else if (key == "mode") i(c.mode);
+    else if (key == "dm_bots") i(c.dm_bots);
+    else if (key == "dm_minutes") i(c.dm_minutes);
+    else if (key == "rt_bots") i(c.rt_bots);
+    else if (key == "nade_preview") i(c.nade_preview);
+    else if (key == "comp_mates") i(c.comp_mates);
+    else if (key == "comp_enemies") i(c.comp_enemies);
+    else if (key == "freeze_time") i(c.freeze_time);
+    else if (key == "mate_skill") i(c.mate_skill);
+    else if (key == "enemy_skill") i(c.enemy_skill);
+    else if (key == "net_port") i(c.net_port);
+    else if (key == "net_game") i(c.net_game);
+    else if (key == "net_teams") i(c.net_teams);
+    else if (key == "prefire_bots_shoot") i(c.prefire_bots_shoot);
+    else return false;
+    return true;
+}
+
+std::vector<std::string> configKeys() {
+    std::vector<std::string> keys;
+    std::istringstream in(configText(Config{}));
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream ls(line);
+        std::string key;
+        if (ls >> key && key.rfind("//", 0) != 0) keys.push_back(key);
+    }
+    return keys;
+}
+
+bool configValue(const Config& c, const std::string& key, std::string& out) {
+    std::istringstream in(configText(c));
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream ls(line);
+        std::string k;
+        if (!(ls >> k) || k != key) continue;
+        std::getline(ls >> std::ws, out);
+        return true;
+    }
+    return false;
 }
 
 Config loadConfig(const std::string& path) {
@@ -162,84 +277,9 @@ Config loadConfig(const std::string& path) {
         std::istringstream ss(line);
         std::string key;
         if (!(ss >> key)) continue;
-        if (key == "net_address" || key == "player_name") {  // the text settings
-            ss >> (key == "net_address" ? c.net_address : c.player_name);
-            continue;
-        }
-        float v;
-        if (!(ss >> v)) continue;
-        auto i = [&](int& dst) { dst = int(v); };
-        if (key == "sensitivity") c.sensitivity = v;
-        else if (key == "m_yaw") c.m_yaw = v;
-        else if (key == "m_pitch") c.m_pitch = v;
-        else if (key == "fov") c.fov = v;
-        else if (key == "fps_max") i(c.fps_max);
-        else if (key == "vsync") i(c.vsync);
-        else if (key == "low_latency") i(c.low_latency);
-        else if (key == "muzzle_brightness") c.muzzle_brightness = v;
-        else if (key == "skill_variance") i(c.skill_variance);
-        else if (key == "dm_bot_fights") i(c.dm_bot_fights);
-        else if (key == "killcam") i(c.killcam);
-        else if (key == "model_scale") i(c.model_scale);
-
-        else if (key == "music_volume") c.music_volume = v;
-        else if (key == "fullscreen") i(c.fullscreen);
-        else if (key == "width") i(c.width);
-        else if (key == "height") i(c.height);
-        else if (key == "crosshair_size") i(c.crosshair_size);
-        else if (key == "crosshair_gap") i(c.crosshair_gap);
-        else if (key == "crosshair_thickness") i(c.crosshair_thickness);
-        else if (key == "crosshair_r") i(c.crosshair_r);
-        else if (key == "crosshair_g") i(c.crosshair_g);
-        else if (key == "crosshair_b") i(c.crosshair_b);
-        else if (key == "crosshair_outline") i(c.crosshair_outline);
-        else if (key == "crosshair_dot") i(c.crosshair_dot);
-        else if (key == "view_recoil_tracking") c.view_recoil_tracking = v;
-        else if (key == "hud_scale") i(c.hud_scale);
-        else if (key == "volume") c.volume = v;
-        else if (key == "viewmodel_fov") c.viewmodel_fov = v;
-        else if (key == "viewmodel_offset_x") c.viewmodel_offset_x = v;
-        else if (key == "viewmodel_offset_y") c.viewmodel_offset_y = v;
-        else if (key == "viewmodel_offset_z") c.viewmodel_offset_z = v;
-        else if (key == "viewmodel_bob") c.viewmodel_bob = v;
-        else if (key == "show_viewmodel") i(c.show_viewmodel);
-        else if (key == "knife_fidget") i(c.knife_fidget);
-        else if (key == "spread_spray") i(c.spread_spray);
-        else if (key == "bhop") i(c.bhop);
-        else if (key == "camera_extrapolate") i(c.camera_extrapolate);
-        else if (key == "view_smooth_steps") i(c.view_smooth_steps);
-        else if (key == "view_shake") i(c.view_shake);
-        else if (key == "hitmarker") i(c.hitmarker);
-        else if (key == "radar") i(c.radar);
-        else if (key == "case_kills") i(c.case_kills);
-        else if (key == "all_skins") i(c.all_skins);
-
-        else if (key == "hitsound") i(c.hitsound);
-        else if (key == "zoom_sensitivity_ratio") c.zoom_sensitivity_ratio = v;
-        else if (key == "map") i(c.map);
-        else if (key == "msaa") i(c.msaa);
-        else if (key == "shadows") i(c.shadows);
-        else if (key == "graphics_preset") i(c.graphics_preset);
-        else if (key == "art_style") i(c.art_style);
-        else if (key == "show_fps") i(c.show_fps);
-        else if (key == "ambience_volume") c.ambience_volume = v;
-        else if (key == "post_fx") i(c.post_fx);
-        else if (key == "depth_prepass") i(c.depth_prepass);
-        else if (key == "mode") i(c.mode);
-        else if (key == "dm_bots") i(c.dm_bots);
-        else if (key == "dm_minutes") i(c.dm_minutes);
-        else if (key == "rt_bots") i(c.rt_bots);
-        else if (key == "nade_preview") i(c.nade_preview);
-        else if (key == "comp_mates") i(c.comp_mates);
-        else if (key == "comp_enemies") i(c.comp_enemies);
-        else if (key == "freeze_time") i(c.freeze_time);
-
-        else if (key == "mate_skill") i(c.mate_skill);
-        else if (key == "enemy_skill") i(c.enemy_skill);
-        else if (key == "net_port") i(c.net_port);
-        else if (key == "net_game") i(c.net_game);
-        else if (key == "net_teams") i(c.net_teams);
-        else if (key == "prefire_bots_shoot") i(c.prefire_bots_shoot);
+        std::string value;
+        std::getline(ss >> std::ws, value);
+        setConfigValue(c, key, value);
     }
     return c;
 }

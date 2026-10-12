@@ -1,6 +1,7 @@
 // Plain-text config ("key value" per line, // or # comments), CS-style names where they exist.
 #pragma once
 #include <string>
+#include <vector>
 
 struct Config {
     float sensitivity = 1.2f;
@@ -74,3 +75,11 @@ struct Config {
 Config loadConfig(const std::string& path);
 // Writes every setting back to `path` (used by the in-game settings menu).
 bool saveConfig(const std::string& path, const Config& c);
+// Every setting as config text ("key value" lines), what saveConfig writes.
+std::string configText(const Config& c);
+// One setting from its text (the console, v0.33: "fov 100"); false if `key` isn't a setting or `value` isn't one.
+bool setConfigValue(Config& c, const std::string& key, const std::string& value);
+// A setting's value as text; false if there's no such setting.
+bool configValue(const Config& c, const std::string& key, std::string& out);
+// Every setting's name, in the config's order.
+std::vector<std::string> configKeys();

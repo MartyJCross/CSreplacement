@@ -3,6 +3,18 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.33: the console
+
+- **~ opens a CS-style console** anywhere: every setting by its config name (`fov 100`, `cvarlist`, `find`), Tab
+  completion, history, several commands on a line with `;`.
+- Commands: `map`, `mode`, `restart` / `mp_restartgame`, `status`; offline `noclip`, `god`, `kill`, `give <weapon>`,
+  `sv_infinite_ammo`, `bot_stop`; `bot_kick`, `bot_add`, `bot_add_t`, `bot_add_ct`, `bot_quota`, `bot_difficulty`;
+  competitive rules `mp_roundtime`, `mp_buytime`, `mp_freezetime`, `mp_startmoney`, `mp_maxrounds`; `connect`,
+  `disconnect`, `quit`.
+- Competitive's rules are now settings rather than fixed numbers (the match length sets half-time and match point).
+- A deathmatch can have no bots (`bot_kick`). `depth_prepass` is saved in the config now (it was read but never written).
+- Tests: the console's commands, completion and history; every setting reads back and round-trips through the config.
+
 ## v0.32: random spawns, plays by spawn, fairer bots up close
 
 - **Bots were too quick to counter up close** (owner): reactions are now a person's: 0.21-0.36 s for an expert (was
