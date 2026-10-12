@@ -3,6 +3,14 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.37: Wingman
+
+- **A new mode, Wingman** (PLAY → WINGMAN, console `mode wingman`): 2 v 2 on one bombsite (A or B, setup SITE, config
+  `wing_site`), you and a bot against two, with Wingman's rules: 16 rounds, sides swap after 8, first to 9, 1:30 rounds,
+  15 s to buy. The bomb only goes down on that site; the Ts' plays all go there, both CTs hold it. Offline; not rated.
+- Checked with automated games on both sides (half-time, the match ending, a new one starting; no stuck, stalled or
+  stacked bots).
+
 ## v0.36: chat and pings
 
 - **Chat:** Enter to talk (Shift+Enter: your team, competitive); the lines show bottom left and fade; online they go to

@@ -281,6 +281,10 @@ online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
   in `testArmsRace`); main.cpp `armsRaceKill` (from `recordDamage`), `armsRaceEquip`, `arLevel` / `arBotLevel` /
   `arWinner` (ends the match through `dmEnd`); switching limited to the level's gun + knife, no buys / grenades / drops;
   bots with `kWKnife` run straight at their target (bots.cpp fight state) and slash in the shooting loop.
+- Wingman (v0.37): competitive (`g.mode` 3) with `Game::wingman` / `wingSite` (config `wing_site`; Play / config mode
+  `kModeWingman` 7); its rules are `g_wingRules` (16 rounds, 90 s, 15 s buy) through `rules()` (`g_wingmanOn`; the
+  console's mp_ commands change whichever is live); 3 bots (team: 1 mate); siteTarget fixed, no fakes / defaults /
+  pushes, CTs all on the site's role, `youPlant` only there, calls keep the site; not recorded in the career.
 - Grenade practice (v0.35; `nadePractice(g)` = mode 0 offline): `Game::lastThrow` (recorded at the throw), `trails`
   (`addTrail`: predictGrenade paths drawn 8 s), `rethrowLast` (X), `saveLineup` (L), `goLineup` ([ ]), `g_lineups` /
   `g_lineupPath` (automated runs never save), `addNadeRing` (smoke / fire / HE radius on the preview and trails), posts at
@@ -428,7 +432,7 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10 (11 s
 ## 8. Roadmap
 
 **In progress (owner, 2026-10-12): six features, one version each:** console (v0.33, done), Arms Race (v0.34, done), grenade
-practice (v0.35, done), chat + ping marker (v0.36, done), Wingman, saved
+practice (v0.35, done), chat + ping marker (v0.36, done), Wingman (v0.37, done), Wingman, saved
 match replays with a round timeline.
 **Done in v0.32** (owner, 2026-10-12): bots fairer up close (human reactions, re-peeks), random spawns, plays by
 spawn.

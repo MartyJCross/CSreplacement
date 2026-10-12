@@ -110,6 +110,8 @@ mate_skill 1
 enemy_skill 2
 // Prefire: the bots shoot back (1) or are just targets (0).
 prefire_bots_shoot 1
+// Wingman (2 v 2): the bombsite it's played on, 0 A or 1 B.
+wing_site 1
 )";
 
 }  // namespace
@@ -140,7 +142,7 @@ std::string configText(const Config& c) {
         << "\nmate_skill " << c.mate_skill
         << "\nenemy_skill " << c.enemy_skill << "\nskill_variance " << c.skill_variance
         << "\ndm_bot_fights " << c.dm_bot_fights << "\nkillcam " << c.killcam << "\nmodel_scale " << c.model_scale << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
-        << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\n";
+        << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\nwing_site " << c.wing_site << "\n";
     return out.str();
 }
 
@@ -231,6 +233,7 @@ bool setConfigValue(Config& c, const std::string& key, const std::string& value)
     else if (key == "net_game") i(c.net_game);
     else if (key == "net_teams") i(c.net_teams);
     else if (key == "prefire_bots_shoot") i(c.prefire_bots_shoot);
+    else if (key == "wing_site") i(c.wing_site);
     else return false;
     return true;
 }

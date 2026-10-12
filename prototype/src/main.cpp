@@ -485,6 +485,9 @@ struct Game {
     bool bombActive = false, defuseHeld = false;
     double bombExplodeAt = 0, defuseStart = -1, nextBeep = 0;
     double dmEnd = 0, dmOverUntil = -1, spawnProtectUntil = 0;
+    // Wingman (v0.37: competitive, mode 3, with wingman on): 2 v 2 on one site (wingSite: 0 A, 1 B), short matches.
+    bool wingman = false;
+    int wingSite = 1;
     // Arms Race (v0.34: deathmatch, mode 1, with armsRace on): your level, each bot's, and who won (-3 nobody yet).
     bool armsRace = false;
     int arLevel = 0, arWinner = -3;
@@ -2017,8 +2020,12 @@ void buildRadar(Game& g) {
 // half), the round and buy time (freeze: Game::freezeTime; money at the start of a half: g_compStartMoney).
 struct MatchRules { int maxRounds = 24; double roundTime = 115.0, buyTime = 20.0; };
 MatchRules g_rules;
+// Wingman's (v0.37, like CS:GO's): 16 rounds (first to 9), 1:30 rounds, 15 s to buy.
+MatchRules g_wingRules{16, 90.0, 15.0};
+bool g_wingmanOn = false;  // (mirrors Game::wingman for the rules)
+MatchRules& rules() { return g_wingmanOn ? g_wingRules : g_rules; }
 int g_roundsToWin = 0;  // (tests: --rounds N ends a match sooner; 0 = by the rules)
-int roundsToWin() { return g_roundsToWin > 0 ? g_roundsToWin : g_rules.maxRounds / 2 + 1; }
+int roundsToWin() { return g_roundsToWin > 0 ? g_roundsToWin : rules().maxRounds / 2 + 1; }
 constexpr double kCompPlantTime = 3.2;
 
 int teamOf(const Game& g, int id) { return id < 0 ? g.comp.youTeam : g.team[size_t(id)]; }
@@ -2061,8 +2068,8 @@ void compBotsBuy(Game& g) {
         for (size_t i = 0; i < g.dummies.size(); ++i)
             if (isBot(g, i) && g.dummies[i].alive() && g.team[i] == side) { sum += c.botMoney[i]; ++n; }
         const int other = side == c.youTeam ? c.themScore : c.youScore;  // one short of winning: their match point
-        const int half = g_rules.maxRounds / 2;
-        const bool lastOfHalf = c.round == half - 1 || c.round == g_rules.maxRounds - 1;
+        const int half = rules().maxRounds / 2;
+        const bool lastOfHalf = c.round == half - 1 || c.round == rules().maxRounds - 1;
         call[side] = teamBuyRound(n ? sum / n : 0, c.round == 0 || c.round == half, lastOfHalf || other == roundsToWin() - 1);
     }
     int role[2] = {0, 0};
@@ -2152,7 +2159,7 @@ void startCompRound(Game& g) {
     Game::Comp& c = g.comp;
     c.roundStartAt = g.simTime;
     g_fadeFrom = g_uiTime;
-    const bool halfTime = c.round == g_rules.maxRounds / 2;
+    const bool halfTime = c.round == rules().maxRounds / 2;
     if (halfTime) {  // swap sides: fresh economy
         c.youTeam = 1 - c.youTeam;
         for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = 1 - g.team[i];
@@ -2231,7 +2238,7 @@ void startCompRound(Game& g) {
     }
     compBotsBuy(g);
     // The plan: Ts take one site (the carrier heads for the bomb spot), CTs split between the sites.
-    c.siteTarget = rnd(g) < 0.5f ? 0 : 1;
+    c.siteTarget = g.wingman ? g.wingSite : rnd(g) < 0.5f ? 0 : 1;  // (Wingman: its one site)
     // Like CS, a random T gets the bomb (you, if you're T and it's your turn).
     std::vector<int> ts;
     if (youSide == 0 && g_compLog.empty()) ts.push_back(-1);  // (automated runs: the idle you never gets it)
@@ -2247,6 +2254,7 @@ void startCompRound(Game& g) {
     int play = pr < 0.26f ? kPlayExecute : pr < 0.38f ? kPlayRush : pr < 0.60f ? kPlaySplit
              : pr < 0.76f ? kPlayFake : pr < 0.86f ? kPlayMid : kPlayDefault;
     // A split needs two ways onto the site, mid control one from mid and one not (Inferno's B: banana is the only way).
+    if (g.wingman && (play == kPlayFake || play == kPlayDefault)) play = kPlayExecute;  // (one site: no fakes, no default)
     if ((play == kPlaySplit && waysTo(c.siteTarget).size() < 2) ||
         (play == kPlayMid && (waysTo(c.siteTarget, 1).empty() || waysTo(c.siteTarget, 0).empty())))
         play = kPlayExecute;
@@ -2321,7 +2329,9 @@ void startCompRound(Game& g) {
     const int roles[3][5] = {{kCtMid, kCtShort, kCtLong, kCtB, kCtB},   // default
                              {kCtMid, kCtShort, kCtLong, kCtA, kCtB},   // A-heavy
                              {kCtMid, kCtLong, kCtB, kCtB, kCtB}};      // B-heavy
-    const int* setup = roles[roll < 0.7f ? 0 : roll < 0.85f ? 1 : 2];
+    const int siteRole = c.siteTarget == 0 ? kCtA : kCtB;
+    const int wingSetup[5] = {siteRole, siteRole, siteRole, siteRole, siteRole};  // Wingman: both on the site
+    const int* setup = g.wingman ? wingSetup : roles[roll < 0.7f ? 0 : roll < 0.85f ? 1 : 2];
     std::vector<int> spotOrder[kCtRoles];
     for (int r = 0; r < kCtRoles; ++r) {  // a shuffled spot list per role
         const size_t n = townCtSpots(r).size();
@@ -2413,7 +2423,7 @@ void startCompRound(Game& g) {
         d.yaw = d.prevYaw = yawTo(d.pos, b.goal);  // face where they're heading, not each other
     }
     // CTs, now and then: one pushes for an early pick (long, mid or B tunnels) and falls back to its spot.
-    if (rnd(g) < 0.4f) {
+    if (!g.wingman && rnd(g) < 0.4f) {
         struct Push { int role; RetakeSpot at; const char* call; };
         const Push pushes[3] = {{kCtLong, tac.pushes[0], tac.pushCalls[0]},
                                 {kCtMid, tac.pushes[1], tac.pushCalls[1]},
@@ -2464,7 +2474,7 @@ void startCompRound(Game& g) {
     g.you.roundKills = 0;
     c.phase = 0;
     c.phaseEnd = g.simTime + g.freezeTime;
-    c.buyUntil = g.simTime + g.freezeTime + g_rules.buyTime;
+    c.buyUntil = g.simTime + g.freezeTime + rules().buyTime;
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
     g.hudDirty = true;
     if (netHost(g)) {  // tell everyone: who plays where, and go
@@ -2490,7 +2500,7 @@ void startCompMatch(Game& g) {
     c = Game::Comp{};
     c.youTeam = g_compStartSide;
     g.team.assign(g.dummies.size(), 0);
-    for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = int(i) < g.compMates ? c.youTeam : 1 - c.youTeam;
+    for (size_t i = 0; i < g.team.size(); ++i) g.team[i] = int(i) < (g.wingman ? 1 : g.compMates) ? c.youTeam : 1 - c.youTeam;
     c.money = g_compStartMoney;
     c.botMoney.assign(g.dummies.size(), g_compStartMoney);
     c.botGun.assign(g.dummies.size(), uint8_t(kWPistol));
@@ -2563,12 +2573,12 @@ void endCompRound(Game& g, int winner, const char* why, bool bombReason) {
     c.resultWin = winner == c.youTeam;
     c.resultText = why;
     c.round++;
-    const bool over = c.youScore >= roundsToWin() || c.themScore >= roundsToWin() || c.round >= g_rules.maxRounds;
+    const bool over = c.youScore >= roundsToWin() || c.themScore >= roundsToWin() || c.round >= rules().maxRounds;
     c.phase = over ? 3 : 2;
     c.phaseEnd = g.simTime + (over ? 15.0 : 7.0);  // like CS: a moment for the result (the match: the final scores)
     if (over) {
         const bool won = c.youScore > c.themScore, draw = c.youScore == c.themScore;
-        recordMatch(g, won ? 1.0f : draw ? 0.5f : 0.0f,
+        if (!g.wingman) recordMatch(g, won ? 1.0f : draw ? 0.5f : 0.0f,
                     std::string(won ? "WON " : draw ? "DRAW " : "LOST ") + std::to_string(c.youScore) + "-" + std::to_string(c.themScore));
     }
     g.hudDirty = true;
@@ -2951,7 +2961,7 @@ void playerCall(Game& g, int call) {
     switch (call) {
         case kCallGoA: case kCallGoB: case kCallRushA: case kCallRushB: {
             // The Ts head for the site's way in and execute straight away (a rush: no waiting for each other).
-            const int site = call == kCallGoB || call == kCallRushB ? 1 : 0;
+            const int site = g.wingman ? g.wingSite : call == kCallGoB || call == kCallRushB ? 1 : 0;  // (Wingman: its site)
             const bool rush = call == kCallRushA || call == kCallRushB;
             const TownWay& w = townTactics().ways[size_t(waysTo(site)[0])];  // the site's main way
             c.siteTarget = site;
@@ -3031,7 +3041,7 @@ void playerCall(Game& g, int call) {
         }
         case kCallSlow:  // hold the map, execute late (the clock still sends them with 45 s left)
             c.play = kPlayDefault;
-            if (!c.executing) c.executeAt = std::max(c.executeAt, (c.phase == 0 ? c.phaseEnd + g_rules.roundTime : c.phaseEnd) - 50.0);
+            if (!c.executing) c.executeAt = std::max(c.executeAt, (c.phase == 0 ? c.phaseEnd + rules().roundTime : c.phaseEnd) - 50.0);
             break;
         case kCallStackA: case kCallStackB: case kCallSetup: {
             // CTs: three on the called site, one mid, one on the other; or the default one-mid-short-long-two-B.
@@ -3174,8 +3184,11 @@ void compPlanted(Game& g, const Vec3& at) {
 bool youPlant(Game& g) {
     Game::Comp& c = g.comp;
     bool onSite = false;
-    for (const RetakeSite& s : townRetakeSites())
+    for (size_t k = 0; k < townRetakeSites().size(); ++k) {
+        if (g.wingman && int(k) != g.wingSite) continue;  // (Wingman: its one site)
+        const RetakeSite& s = townRetakeSites()[k];
         onSite |= length2d(g.player.origin - townPoint(s.bombX, s.bombY)) < 340.0f * townScale() + 60.0f;
+    }
     if (onSite && g.defuseHeld && g.player.onGround) {
         if (c.planter != -1) { c.planter = -1; c.plantStart = g.simTime; sound(g, Sfx::Defuse, 0.7f, 0.0f, 1.3f); }
         return g.simTime - c.plantStart >= kCompPlantTime;
@@ -3283,7 +3296,7 @@ void compTick(Game& g) {
             break;
         }
     if (c.phase == 0) {
-        if (now >= c.phaseEnd) { c.phase = 1; c.phaseEnd = now + g_rules.roundTime; g.hudDirty = true; }
+        if (now >= c.phaseEnd) { c.phase = 1; c.phaseEnd = now + rules().roundTime; g.hudDirty = true; }
         return;
     }
     if (c.phase >= 2) {
@@ -3826,7 +3839,7 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     c.plantStart = -1;
     c.phase = 0;
     c.phaseEnd = g.simTime + g.freezeTime;  // (the host's match messages set the real clock)
-    c.buyUntil = g.simTime + g.freezeTime + g_rules.buyTime;
+    c.buyUntil = g.simTime + g.freezeTime + rules().buyTime;
     g.plantSent = g.defuseSent = false;
     g.bombActive = false;
     g.defuseStart = -1;
@@ -3944,7 +3957,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     if (id == 1) {
         g.dummies.assign(g.mode == 1   ? size_t(g.dmBots)
                          : g.mode == 2 ? size_t(g.rtBots)
-                         : g.mode == 3 ? size_t(g.online ? kNetSlots : g.compMates + g.compEnemies)
+                         : g.mode == 3 ? size_t(g.online ? kNetSlots : g.wingman ? 3 : g.compMates + g.compEnemies)
                          : g.mode == 5 ? size_t(kNetMaxPlayers)
                          : g.mode == 4 ? townPrefireRoutes()[size_t(std::clamp(g.pf.route, 0, int(townPrefireRoutes().size()) - 1))].bots.size()
                                        : 4,
@@ -5636,10 +5649,12 @@ struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots 
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "INFERNO"};
 constexpr int kMenuMaps = 4;  // the maps the menus offer: the Lab, Dust, Harbor, Inferno
-const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE"};
+const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE", "WINGMAN"};
 constexpr int kModeArmsRace = 6;  // (the Play screen and config's mode; in a game it's deathmatch with armsRace on)
+constexpr int kModeWingman = 7;   // (in a game: competitive with wingman on)
+const char* const kSiteNames[] = {"A", "B"};
 // The PLAY screen: the modes in the order they're offered, and a line about each (shown under the menu).
-const int kPlayModes[] = {3, 1, kModeArmsRace, 2, 4, 0};
+const int kPlayModes[] = {3, kModeWingman, 1, kModeArmsRace, 2, 4, 0};
 const char* const kModeAbout[] = {
     "THE LAB OR A MAP: A SHOOTING RANGE, PEEK BOTS AND AN AIM DRILL",
     "EVERYONE FOR THEMSELVES: RESPAWN, 10 ROUNDS AND 40 HP A KILL",
@@ -5648,6 +5663,7 @@ const char* const kModeAbout[] = {
     "WALK A ROUTE: BOTS ON EVERY COMMON ANGLE, BEAT YOUR TIME",
     "",
     "EVERY KILL A NEW GUN: RIFLES, SMGS, SHOTGUNS, SNIPERS, PISTOLS - THEN A KNIFE KILL WINS",
+    "2 V 2 ON ONE BOMBSITE: YOU AND A BOT AGAINST TWO, FIRST TO 9 ROUNDS",
 };
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
@@ -5693,7 +5709,7 @@ const char* menuTitle(int screen) {
         case kMenuCase: return "CASE";
         case kMenuStats: return "STATS";
         case kMenuLobby: return g_lobby.host ? "LOBBY - HOSTING" : "LOBBY";
-        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeArmsRace)];
+        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeWingman)];
         case kMenuOnline: return "PLAY ONLINE";
         case kMenuSound: return "SOUND";
         default: return "";
@@ -5779,6 +5795,13 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({"ENEMY SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
                 r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
                 r.push_back({"BUY TIME, SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
+            }
+            if (m.mode == kModeWingman) {
+                r.push_back({"SITE", nullptr, &c.wing_site, 1, 0, 1, kSiteNames});
+                r.push_back({"TEAMMATE SKILL", nullptr, &c.mate_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"ENEMY SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
+                r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
+                r.push_back({"FREEZE TIME, SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
             }
             if (m.mode == 1 || m.mode == kModeArmsRace) {
                 r.push_back({"BOTS", nullptr, &c.dm_bots, 1, 1, 16});
@@ -6713,7 +6736,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             if (g.net.isHost()) std::snprintf(buf, sizeof(buf), "ONLINE COMPETITIVE   HOSTING   %d PLAYER%s   TAB SCORES   B BUY", n, n == 1 ? "" : "S");
             else std::snprintf(buf, sizeof(buf), "ONLINE COMPETITIVE   PING %d MS   TAB SCORES   B BUY", g.net.pingMs());
         }
-        else if (g.mode == 3 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "COMPETITIVE   TAB SCORES   B BUY   E PLANT / DEFUSE");
+        else if (g.mode == 3 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "%s   TAB SCORES   B BUY   E PLANT / DEFUSE",
+                                                            g.wingman ? (g.wingSite == 0 ? "WINGMAN: SITE A" : "WINGMAN: SITE B") : "COMPETITIVE");
         else if (g.mode == 4 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "PREFIRE   BOTS SHOOT BACK");
         else if (g.mode == 5 && g.mapId == 1) {
             int n = 1;
@@ -6814,7 +6838,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         else if (g.mode == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   %d:%02d LEFT", left / 60, left % 60);
         else if (g.mode == 3 && g.comp.phase == 3) std::snprintf(buf, sizeof(buf), "FINAL SCORE   YOU %d : %d THEM", g.comp.youScore,
                                                                  g.comp.themScore);
-        else if (g.mode == 3) std::snprintf(buf, sizeof(buf), "COMPETITIVE   YOU %d : %d THEM   ROUND %d", g.comp.youScore,
+        else if (g.mode == 3) std::snprintf(buf, sizeof(buf), "%s   YOU %d : %d THEM   ROUND %d", g.wingman ? "WINGMAN" : "COMPETITIVE", g.comp.youScore,
                                             g.comp.themScore, g.comp.round + 1);
         else if (g.mode == 5) std::snprintf(buf, sizeof(buf), "ONLINE DEATHMATCH");
         else std::snprintf(buf, sizeof(buf), "RETAKES   WON %d   LOST %d", g.rtWon, g.rtLost);
@@ -7326,7 +7350,10 @@ int main(int argc, char** argv) {
     }
     validateEquips(g);
     g.armsRace = cfg.mode == kModeArmsRace;
-    g.mode = g.armsRace ? 1 : cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
+    g.wingman = cfg.mode == kModeWingman;
+    g.wingSite = std::clamp(cfg.wing_site, 0, 1);
+    g_wingmanOn = g.wingman;
+    g.mode = g.armsRace ? 1 : g.wingman ? 3 : cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
     renderer.setShadowSize(shadowSize(cfg.shadows));
@@ -7361,7 +7388,7 @@ int main(int argc, char** argv) {
     auto setMenu = [&](int screen) {
         if (screen == kMenuPlay) {  // the play screen starts from what's running now
             g_gameMenu.map = g.mapId == 1 ? 1 + townMap() : 0;
-            g_gameMenu.mode = g.online ? 3 : g.armsRace ? kModeArmsRace : g.mode;
+            g_gameMenu.mode = g.online ? 3 : g.armsRace ? kModeArmsRace : g.wingman ? kModeWingman : g.mode;
             g_gameMenu.bots = g.botsFire;
             g_gameMenu.drill = g.drill;
             g_gameMenu.route = g.pf.route;
@@ -7416,7 +7443,7 @@ int main(int argc, char** argv) {
     };
     auto goOnline = [&](int game) {  // hosting, or just connected: online deathmatch (0) or competitive (1) on the town map
         g.online = true;
-        g.armsRace = false;
+        g.armsRace = g.wingman = g_wingmanOn = false;
         g.mode = game == 1 ? 3 : 5;
         g_netTeamsTogether = cfg.net_teams;
         loadMap(g, renderer, 1);
@@ -7472,7 +7499,10 @@ int main(int argc, char** argv) {
         const GameMenu& m = g_gameMenu;
         leaveOnline();  // (if you were in an online game)
         g.armsRace = m.mode == kModeArmsRace;  // (deathmatch with the gun ladder)
-        g.mode = g.armsRace ? 1 : m.mode;
+        g.wingman = m.mode == kModeWingman;    // (competitive, 2 v 2 on one site)
+        g.wingSite = std::clamp(cfg.wing_site, 0, 1);
+        g_wingmanOn = g.wingman;
+        g.mode = g.armsRace ? 1 : g.wingman ? 3 : m.mode;
         g.pf.route = m.route;
         const int map = m.mode != 0 && m.map == 0 ? 1 : m.map;
         setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor, 3 Inferno)
@@ -7635,7 +7665,7 @@ int main(int argc, char** argv) {
             default:
                 if (it.action >= kActGoto) {
                     setMenu(it.action - kActGoto);
-                } else if (it.action >= kActPickMode && it.action <= kActPickMode + kModeArmsRace) {  // PLAY: that mode, set it up
+                } else if (it.action >= kActPickMode && it.action <= kActPickMode + kModeWingman) {  // PLAY: that mode, set it up
                     g_gameMenu.mode = it.action - kActPickMode;
                     if (g_gameMenu.mode != 0 && g_gameMenu.map == 0) g_gameMenu.map = 1;
                     setMenu(kMenuSetup);
@@ -7991,7 +8021,7 @@ int main(int argc, char** argv) {
         {"echo", "echo <text>"},
         {"status", "the map, the mode, the bots, online"},
         {"map", "map <lab|dust|harbor|inferno>: plays it (in this mode)"},
-        {"mode", "mode <practice|deathmatch|armsrace|retakes|competitive|prefire>: plays it (on this map)"},
+        {"mode", "mode <practice|deathmatch|armsrace|retakes|competitive|wingman|prefire>: plays it (on this map)"},
         {"restart", "starts this game over (mp_restartgame too)"},
         {"mp_restartgame", "starts this game over"},
         {"noclip", "fly through walls (offline)"},
@@ -8037,7 +8067,7 @@ int main(int argc, char** argv) {
     // Play screen's START.
     auto restartGame = [&](int map, int mode) {
         g_gameMenu.map = map >= 0 ? map : g.mapId == 1 ? 1 + townMap() : 0;
-        g_gameMenu.mode = mode >= 0 ? mode : g.armsRace ? kModeArmsRace : g.mode;
+        g_gameMenu.mode = mode >= 0 ? mode : g.armsRace ? kModeArmsRace : g.wingman ? kModeWingman : g.mode;
         g_gameMenu.bots = g.botsFire;
         g_gameMenu.drill = g.drill;
         g_gameMenu.route = g.pf.route;
@@ -8103,8 +8133,9 @@ int main(int argc, char** argv) {
             const int mode = arg == "practice" ? 0 : arg == "deathmatch" || arg == "dm" ? 1 : arg == "retakes" ? 2
                            : arg == "competitive" || arg == "comp" ? 3 : arg == "prefire" ? 4
                            : arg == "armsrace" || arg == "arms_race" || arg == "gungame" ? kModeArmsRace
+                           : arg == "wingman" ? kModeWingman
                            : !arg.empty() && arg.find_first_not_of("0123456789") == std::string::npos ? std::atoi(arg.c_str()) : -1;
-            if (mode < 0 || mode > kModeArmsRace || mode == 5) { con("mode <practice|deathmatch|armsrace|retakes|competitive|prefire>"); return; }
+            if (mode < 0 || mode > kModeWingman || mode == 5) { con("mode <practice|deathmatch|armsrace|retakes|competitive|wingman|prefire>"); return; }
             restartGame(-1, mode);
         } else if (cmd == "restart" || cmd == "mp_restartgame") {
             if (offline()) restartGame(-1, -1);
@@ -8193,17 +8224,17 @@ int main(int argc, char** argv) {
                 ", competitive " + std::to_string(cfg.comp_mates) + " teammates and " + std::to_string(cfg.comp_enemies) + " enemies");
         } else if (cmd == "mp_roundtime" || cmd == "mp_buytime" || cmd == "mp_startmoney" || cmd == "mp_maxrounds") {
             if (a.size() < 2) {
-                con(cmd + " " + (cmd == "mp_roundtime" ? std::to_string(g_rules.roundTime / 60.0)
-                                 : cmd == "mp_buytime" ? std::to_string(g_rules.buyTime)
-                                 : cmd == "mp_startmoney" ? std::to_string(g_compStartMoney) : std::to_string(g_rules.maxRounds)));
+                con(cmd + " " + (cmd == "mp_roundtime" ? std::to_string(rules().roundTime / 60.0)
+                                 : cmd == "mp_buytime" ? std::to_string(rules().buyTime)
+                                 : cmd == "mp_startmoney" ? std::to_string(g_compStartMoney) : std::to_string(rules().maxRounds)));
                 return;
             }
             if (!offline()) return;
             const double v = std::atof(a[1].c_str());
-            if (cmd == "mp_roundtime") g_rules.roundTime = std::clamp(v, 0.25, 30.0) * 60.0;
-            else if (cmd == "mp_buytime") g_rules.buyTime = std::clamp(v, 0.0, 600.0);
+            if (cmd == "mp_roundtime") rules().roundTime = std::clamp(v, 0.25, 30.0) * 60.0;  // (Wingman has its own)
+            else if (cmd == "mp_buytime") rules().buyTime = std::clamp(v, 0.0, 600.0);
             else if (cmd == "mp_startmoney") g_compStartMoney = std::clamp(int(v), 0, 16000);
-            else g_rules.maxRounds = std::clamp(int(v), 2, 60);
+            else rules().maxRounds = std::clamp(int(v), 2, 60);
             con(cmd + " " + a[1] + " (from the next round; mp_maxrounds and mp_startmoney: the next match or half)");
         } else if (cmd == "mp_freezetime") {
             if (a.size() < 2) { con("mp_freezetime " + std::to_string(cfg.freeze_time)); return; }

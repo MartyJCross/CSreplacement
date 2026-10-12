@@ -70,7 +70,7 @@ scroll, `;` puts several commands on one line (`give ak47; god`). `help` lists t
 
 - **Every setting by its config name**: `fov` shows it, `fov 100` sets it (and saves `config.cfg`, like the menus);
   `cvarlist` lists them all.
-- **Games:** `map lab|dust|harbor|inferno` (plays it in this mode), `mode practice|deathmatch|armsrace|retakes|competitive|prefire`
+- **Games:** `map lab|dust|harbor|inferno` (plays it in this mode), `mode practice|deathmatch|armsrace|retakes|competitive|wingman|prefire`
   (plays it on this map), `restart` / `mp_restartgame`, `status`.
 - **Offline cheats:** `noclip`, `god`, `kill`, `give <weapon>` (CS names: `ak47`, `m4a1_silencer`, `galilar`, `awp`,
   `ssg08`, `deagle`, `elite`, `usp_silencer`, `nova`, `xm1014`, `mac10`, `ump45`, `knife`, `hegrenade`, `flashbang`,
@@ -292,6 +292,15 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
   MAC-10s, UMP-45s, shotguns and Deagles, each with its own damage (falling off with range), armor penetration, fire
   rate, sound and model. The shotguns fire pellets. You count as wearing kevlar and a helmet, like CS deathmatch.
 - **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a reaction (0.32–0.62 s on normal) once their crosshair is on you (real aim, see competitive). Half the time they roam towards your part of the map. In a fight they use cover when there's some close by (shoot, duck behind it, peek again), else they jiggle (strafe a step, stop, shoot). They spawn out of sight of where you are and of where you'll be a moment later.
+
+## Wingman (PLAY → WINGMAN)
+
+Competitive cut down to 2 v 2 on one bombsite, like CS:GO's Wingman: you and a teammate bot against two bots, on site A
+or B (setup: SITE; B by default) of Dust, Harbor or Inferno. Everything else is competitive (buying, the economy, the
+bomb, calls, spectating), with Wingman's rules: 16 rounds, sides swap after 8, **first to 9 wins**, 1:30 rounds and 15 s
+to buy. The bomb only goes down on that site; the Ts' plays all go there (executes, rushes, splits over its ways, taking
+mid first), both CTs hold it. Setup: SITE, TEAMMATE SKILL, ENEMY SKILL, SKILL VARIANCE, FREEZE TIME. Offline only for
+now, and it doesn't count towards your rating. The console's `mp_` rules change Wingman's own while you play it.
 
 ## Arms Race (PLAY → ARMS RACE)
 

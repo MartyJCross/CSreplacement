@@ -69,6 +69,7 @@ struct Config {
     int net_game = 0;          // online, hosting: 0 deathmatch, 1 competitive
     int net_teams = 0;         // online competitive: 0 players split between the teams, 1 all on one team vs bots
     int prefire_bots_shoot = 1;  // prefire: the bots shoot back
+    int wing_site = 1;         // Wingman: the bombsite it's played on (0 A, 1 B)
 };
 
 // Loads `path`; writes a commented default file there if it doesn't exist.
