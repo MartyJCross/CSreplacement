@@ -3,6 +3,17 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.38: saved match replays
+
+- **Every match is saved whole** (deathmatch, Arms Race, competitive, Wingman; online too: your copy) to `replays/`
+  next to the game, 32 frames a second, the newest 30 kept.
+- **REPLAYS on the main menu**: the saved matches with their map, mode, result and length; one plays in the replay
+  viewer with a **round timeline** (round starts and kills along the bar, the round and score on top), **[ / ]** to jump
+  between rounds, anyone's eyes, the free camera. Console `replays`, `playdemo <n>`.
+- Replays draw everyone in the team colours they had at that moment (sides swap at half-time).
+- Tests: a saved match reads back whole (header, result, frames, shots, events) and a file cut short still plays.
+  Checked by recording a 4-round match and watching it back.
+
 ## v0.37: Wingman
 
 - **A new mode, Wingman** (PLAY → WINGMAN, console `mode wingman`): 2 v 2 on one bombsite (A or B, setup SITE, config

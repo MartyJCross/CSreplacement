@@ -59,7 +59,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | Enter | **Chat** (Shift+Enter: to your team only, in competitive). Type, Enter sends, Esc drops it. The last lines show bottom left for 12 s; online everyone sees them (a team line only your team) |
 | Middle mouse / P | **Ping**: marks the spot you're looking at for 6 s (a light on the spot, and on screen a diamond with the callout and how many metres away). Online your teammates see it in competitive, everyone in deathmatch |
 | Alt+Enter | Toggle fullscreen |
-| Esc | **Menu.** The game opens on the **main menu**: PLAY, PLAY ONLINE, INVENTORY, STATS, SETTINGS, QUIT. **PLAY** lists the modes (a line under the menu says what the highlighted one is); picking one opens its setup: the map, the mode's options (bots, skill, minutes, route...), START. **PLAY ONLINE**: your name, HOST A GAME (you set the game up in your lobby), your friend's address and JOIN, the port. **SETTINGS** has pages: Mouse + view, Crosshair + HUD, Weapons + skins, Video, Sound, Gameplay, Controls, and RESET TO DEFAULTS (press twice). In a game, Esc pauses: Resume, New game, Reset position (practice) / Restart route (prefire), Watch replay, Inventory, Settings, Main menu, Quit. Hover or ↑/↓ to select, click or Enter to press, ←/→, wheel or right click to change a setting (Shift = ×5); saved to `config.cfg`. Esc goes back |
+| Esc | **Menu.** The game opens on the **main menu**: PLAY, PLAY ONLINE, INVENTORY, STATS, REPLAYS, SETTINGS, QUIT. **PLAY** lists the modes (a line under the menu says what the highlighted one is); picking one opens its setup: the map, the mode's options (bots, skill, minutes, route...), START. **PLAY ONLINE**: your name, HOST A GAME (you set the game up in your lobby), your friend's address and JOIN, the port. **SETTINGS** has pages: Mouse + view, Crosshair + HUD, Weapons + skins, Video, Sound, Gameplay, Controls, and RESET TO DEFAULTS (press twice). In a game, Esc pauses: Resume, New game, Reset position (practice) / Restart route (prefire), Watch replay, Inventory, Settings, Main menu, Quit. Hover or ↑/↓ to select, click or Enter to press, ←/→, wheel or right click to change a setting (Shift = ×5); saved to `config.cfg`. Esc goes back |
 
 ## Console
 
@@ -457,6 +457,20 @@ Sounds come from where they are, the way two ears hear them (not a measured HRTF
 - **Through walls:** muffled (most of the top end gone) and about 10 dB quieter, like CS. Two rays from your head to the sound decide how blocked it is.
 
 `crisp.exe --dump-spatial <folder>` renders a footstep from each direction to stereo WAVs. Measured: a step on your left reaches the right ear 0.67 ms later with 62% of its highs against 75%; behind 68%; above 79%; below 66%; through a wall 49% and 10 dB down.
+
+## Saved matches (main menu → REPLAYS)
+
+Every match you play is saved whole: deathmatch, Arms Race, competitive and Wingman, offline or online (your copy). They
+go into a `replays` folder next to the game, 32 frames a second (about 10-16 MB for a full competitive match); the
+newest 30 are kept, and a match that never got going (under 20 s) isn't. **REPLAYS** on the main menu lists them,
+newest first: date, map, mode, the result (rounds; deathmatch kills-deaths) and length. Pick one and it plays in the
+replay viewer, from the start, through your eyes:
+- the bar along the bottom is the **timeline**: each round start numbered, each kill a red mark; the top says which
+  round it is and the score;
+- **[ / ]** (or Page Up / Page Down): the previous / next round (deathmatch: kill); **←/→** 5 s back / on; **↑/↓**
+  speed; **Space** / **P** pause; **Mouse 1 / 2** the next / previous player's eyes (their aim, exactly as it was);
+  **F** the free camera; **Esc** back to the list.
+- Console: `replays` (the list), `playdemo <n>`.
 
 ## Replays and the killcam
 

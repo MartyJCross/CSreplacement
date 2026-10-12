@@ -22,6 +22,7 @@
 #include "config.h"
 #include "console.h"
 #include "practice.h"
+#include <filesystem>
 #include "fx.h"
 #include "gl.h"
 #include "items.h"
@@ -49,6 +50,7 @@ struct Options {
     int screenshotFrame = 300;   // --frames N
     std::string exec;            // --exec "commands": run in the console on frame 30 (tests); --console shows it
     int execFrame = 30;          // --exec-frame N: on that frame instead
+    bool record = false;         // --record: an automated run saves its match to replays/ (tests)
     bool showConsole = false;
     // --light K (automated runs on the owner's PC: easy on it): each drawn frame is K steps of 1/240 s and at most 30
     // are drawn a second (so --frames N covers N * K / 240 s of game, at K / 8 times real time).
@@ -108,6 +110,15 @@ std::vector<PingMark> g_pings;
 struct PingShown { float x = 0, y = 0; std::string label; uint32_t color = 0; };  // (this frame's, on screen)
 std::vector<PingShown> g_pingShown;
 constexpr double kPingLife = 6.0, kChatLife = 12.0;
+// Saved matches (v0.38, owner): every match recorded to replays/ next to the game (the newest 30 kept), and the one being
+// watched from the main menu's REPLAYS (its names, its timeline). Automated runs record only with --record.
+MatchWriter g_tape;
+std::string g_tapeDir, g_youName = "YOU";
+struct TapeEntry { std::string path, label; MatchInfo info; };
+std::vector<TapeEntry> g_tapes;
+bool g_watchingTape = false;
+MatchInfo g_watchInfo;
+std::vector<MatchEvent> g_watchEvents;
 LineupBook g_lineups;
 std::string g_lineupPath;
 int g_lineupAt = -1;
@@ -123,6 +134,7 @@ Options parseArgs(int argc, char** argv) {
         else if (a == "--light") o.lightSteps = std::clamp(std::atoi(next()), 1, 48);
         else if (a == "--exec") o.exec = next();
         else if (a == "--exec-frame") o.execFrame = std::atoi(next());
+        else if (a == "--record") o.record = true;
         else if (a == "--console") o.showConsole = true;
         else if (a == "--spawn") {
             o.spawnOverride = true;
@@ -1216,6 +1228,11 @@ void recordDamage(Game& g, int attacker, int victim, float amount, bool head, co
         g.killToastHead = head;
     }
     if (g.armsRace) armsRaceKill(g, attacker, victim, weapon);
+    {  // the saved match's timeline
+        const int you = int(g.dummies.size());
+        g_tape.event({g.simTime, 1, uint8_t(g.comp.round), uint8_t(g.comp.youScore), uint8_t(g.comp.themScore),
+                      uint8_t(attacker < 0 ? you : attacker), uint8_t(victim < 0 ? you : victim)});
+    }
 }
 
 // When you die: who you damaged and who damaged you this life (CS prints this in the console).
@@ -1431,6 +1448,71 @@ void goLineup(Game& g, int step, int index = -1) {
 }
 
 extern double g_uiTime;  // (below: real time, for what shouldn't stop with a pause)
+std::string agentName(int id);
+
+// ---- Saved matches (v0.38) ----
+// The match being recorded ends: its result goes into the file (competitive: the rounds; deathmatch: kills, deaths).
+void closeTape(Game& g) {
+    if (!g_tape.isOpen()) return;
+    const std::string path = g_tape.path();
+    const bool tiny = g_tape.seconds() < 20.0;  // (a match that never got going: the one behind the menu at start-up)
+    if (g.mode == 3) g_tape.close(g.comp.youScore, g.comp.themScore);
+    else g_tape.close(g.you.kills, g.you.deaths);
+    std::error_code ec;
+    if (tiny) std::filesystem::remove(path, ec);  // (the file it made a moment ago: not worth keeping)
+}
+
+// A match starts: a new file in replays/ (and only the newest 30 kept). Deathmatch, Arms Race, competitive, Wingman.
+void startTape(Game& g) {
+    closeTape(g);
+    if (g_tapeDir.empty() || g_watchingTape || g.mapId != 1 || !(g.mode == 1 || g.mode == 3 || g.mode == 5)) return;
+    std::error_code ec;
+    std::filesystem::create_directories(g_tapeDir, ec);
+    std::vector<std::filesystem::path> old;
+    for (const auto& f : std::filesystem::directory_iterator(g_tapeDir, ec))
+        if (f.path().extension() == ".crec") old.push_back(f.path());
+    std::sort(old.begin(), old.end());  // (named by date: oldest first)
+    for (size_t k = 0; k + 29 < old.size(); ++k) std::filesystem::remove(old[k], ec);
+    SDL_Time now = 0;
+    SDL_DateTime dt{};
+    SDL_GetCurrentTime(&now);
+    SDL_TimeToDateTime(now, &dt, true);
+    char date[32], file[64];
+    std::snprintf(date, sizeof(date), "%04d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute);
+    std::snprintf(file, sizeof(file), "%04d-%02d-%02d_%02d-%02d-%02d.crec", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+    MatchInfo info;
+    info.map = 1 + townMap();
+    info.mode = g.mode == 5 ? 1 : g.mode;
+    info.wingman = g.wingman;
+    info.armsRace = g.armsRace;
+    info.date = date;
+    for (size_t i = 0; i < g.dummies.size(); ++i) info.names.push_back(agentName(int(i)));
+    info.names.push_back(g_youName);
+    g_tape.open(g_tapeDir + "/" + file, info, g.simTime);
+}
+
+// The saved matches, newest first, with a line each for the REPLAYS screen.
+void scanTapes() {
+    g_tapes.clear();
+    std::error_code ec;
+    if (g_tapeDir.empty() || !std::filesystem::exists(g_tapeDir, ec)) return;
+    for (const auto& f : std::filesystem::directory_iterator(g_tapeDir, ec)) {
+        if (f.path().extension() != ".crec") continue;
+        TapeEntry t;
+        t.path = f.path().string();
+        if (!readMatch(t.path, t.info) || t.info.seconds < 10.0f) continue;  // (empty or a few seconds: not worth a row)
+        const MatchInfo& m = t.info;
+        const int secs = int(m.seconds);
+        char line[160];
+        std::snprintf(line, sizeof(line), "%s  %s  %s  %d-%d  %d:%02d", m.date.c_str(), townMapName(std::clamp(m.map - 1, 0, kTownMaps - 1)),
+                      m.wingman ? "WINGMAN" : m.armsRace ? "ARMS RACE" : m.mode == 3 ? "COMPETITIVE" : "DEATHMATCH (K-D)",
+                      m.scoreA, m.scoreB, secs / 60, secs % 60);
+        t.label = line;
+        g_tapes.push_back(t);
+    }
+    std::sort(g_tapes.begin(), g_tapes.end(), [](const TapeEntry& a, const TapeEntry& b) { return a.path > b.path; });
+    if (g_tapes.size() > 24) g_tapes.resize(24);
+}
 
 // ---- Chat and pings (v0.36) ----
 void addChat(const std::string& who, const std::string& text, uint32_t color, bool team) {
@@ -1482,6 +1564,7 @@ void startDeathmatch(Game& g) {
     resetPosition(g);
     g.spawnProtectUntil = g.simTime + 1.0;
     if (g.armsRace) armsRaceEquip(g);
+    startTape(g);
     g.hudDirty = true;
 }
 
@@ -1845,6 +1928,8 @@ void recordReplay(Game& g) {
         a.alive = d.alive();
         a.friendly = d.friendly;
         a.lostHelmet = d.lostHelmet;
+        const size_t idx = f.agents.size();
+        if (g.mode == 3 && idx < g.team.size()) a.team = uint8_t(g.team[idx]);
         f.agents.push_back(a);
     }
     ReplayAgent you;
@@ -1855,15 +1940,20 @@ void recordReplay(Game& g) {
     you.weapon = uint8_t(g.weapon->def->id);
     you.nade = uint8_t(g.nadeType);
     you.alive = g.deadUntil < 0 && !(g.mode == 3 && g.comp.youDead);
+    if (g.mode == 3) you.team = uint8_t(g.comp.youTeam);
     f.agents.push_back(you);
     for (const Game::Smoke& sm : g.smokes) f.smokes.push_back({sm.pos, sm.start});
     for (const Game::Nade& n : g.nades) f.nades.push_back({n.pos, uint8_t(n.type)});
     for (const Game::Fire& fi : g.fires) f.fires.push_back({fi.pos, fi.start});
+    if (g_tape.isOpen() && (g.replayTicks & 2) == 0) g_tape.frame(f);  // (the saved match: 32 a second)
 }
 
 // A shot for the replay (shooter: a dummy index, or -1 for you).
 void replayShot(Game& g, const Vec3& from, const Vec3& to, int shooter, int weapon) {
-    if (g.mapId == 1) g.replay.shot({g.simTime, from, to, shooter < 0 ? int(g.dummies.size()) : shooter, uint8_t(weapon)});
+    if (g.mapId != 1) return;
+    const ReplayShot s{g.simTime, from, to, shooter < 0 ? int(g.dummies.size()) : shooter, uint8_t(weapon)};
+    g.replay.shot(s);
+    g_tape.shot(s);
 }
 
 // A gunshot lights the walls round it for a moment (warm, about 400 units; fades in ~50 ms). One light at a
@@ -2158,6 +2248,7 @@ void teamRadio(Game& g, int bot, const std::string& msg) {
 void startCompRound(Game& g) {
     Game::Comp& c = g.comp;
     c.roundStartAt = g.simTime;
+    g_tape.event({g.simTime, 0, uint8_t(c.round), uint8_t(c.youScore), uint8_t(c.themScore), 255, 255});
     g_fadeFrom = g_uiTime;
     const bool halfTime = c.round == rules().maxRounds / 2;
     if (halfTime) {  // swap sides: fresh economy
@@ -2507,6 +2598,7 @@ void startCompMatch(Game& g) {
     c.youDead = true;
     resetRecord(g);
     for (Dummy& d : g.dummies) d.respawnLeft = 1.0f;  // "died": no kit to carry over
+    startTape(g);
     startCompRound(g);
 }
 
@@ -3817,7 +3909,9 @@ void netCompRoundStart(Game& g, const NetRound& r) {
         c.botMoney.assign(g.dummies.size(), 0);  // (kill rewards are counted for everyone)
         c.botGun.assign(g.dummies.size(), uint8_t(kWPistol));
         c.youDead = true;
+        startTape(g);  // (online: your copy of the match is saved too)
     }
+    g_tape.event({g.simTime, 0, uint8_t(c.round), uint8_t(c.youScore), uint8_t(c.themScore), 255, 255});
     if (r.flags & kRoundHalf) {  // swapped sides: everyone starts over
         c.money = g_compStartMoney;
         c.youDead = true;
@@ -3948,6 +4042,7 @@ void startNetCompClient(Game& g) {
 }
 
 void loadMap(Game& g, Renderer& r, int id) {
+    closeTape(g);  // (the match being saved ends here)
     g_fadeFrom = g_uiTime;
     g.mapId = id;
     g.rv = Game::ReplayView{};  // no killcam or replay carried over from the last game
@@ -5602,11 +5697,13 @@ enum MenuScreen {
     kMenuSetup,  // PLAY: the chosen mode's map and options, then START
     kMenuOnline, // ONLINE: your name, host a game, join one
     kMenuSound,  // a settings page (after the others so the numbers above stay put)
+    kMenuReplays,  // REPLAYS: the saved matches (v0.38)
 };
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
                   kActReplay, kActLobbyTeam, kActLobbyStart, kActInfo,  // kActInfo: a line of text (does nothing)
                   kActOpenCase, kActSkipCase, kActEquipNew, kActResetSettings, kActOpenKnifeCase,
                   kActPickMode = 50,  // + a mode: the PLAY screen's choice, on to its setup
+                  kActWatch = 70,     // + a saved match (the REPLAYS screen): watch it (up to 29)
                   kActGoto = 100 };
 constexpr int goTo(MenuScreen m) { return int(kActGoto) + int(m); }  // a button that opens screen m
 
@@ -5708,6 +5805,7 @@ const char* menuTitle(int screen) {
         case kMenuInventory: return "INVENTORY";
         case kMenuCase: return "CASE";
         case kMenuStats: return "STATS";
+        case kMenuReplays: return "REPLAYS";
         case kMenuLobby: return g_lobby.host ? "LOBBY - HOSTING" : "LOBBY";
         case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeWingman)];
         case kMenuOnline: return "PLAY ONLINE";
@@ -5727,7 +5825,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuMain:
             return {button("PLAY", goTo(kMenuPlay)), button("PLAY ONLINE", goTo(kMenuOnline)),
                     button("INVENTORY", goTo(kMenuInventory)), button("STATS", goTo(kMenuStats)),
-                    button("SETTINGS", goTo(kMenuSettings)), button("QUIT", kActQuit)};
+                    button("REPLAYS", goTo(kMenuReplays)), button("SETTINGS", goTo(kMenuSettings)), button("QUIT", kActQuit)};
         case kMenuPause: {
             std::vector<MenuItem> r = {button("RESUME", kActResume), button("NEW GAME", goTo(kMenuPlay))};
             if (mode == 0) r.push_back(button("RESET POSITION", kActReset));
@@ -5849,6 +5947,13 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         }
         case kMenuControls: return {back};
         case kMenuStats: return {back};
+        case kMenuReplays: {  // the saved matches, newest first (scanTapes when the screen opens)
+            std::vector<MenuItem> r;
+            for (size_t k = 0; k < g_tapes.size(); ++k) r.push_back(button(g_tapes[k].label.c_str(), kActWatch + int(k)));
+            if (g_tapes.empty()) r.push_back(button("NO SAVED MATCHES YET: EVERY DEATHMATCH, ARMS RACE, COMPETITIVE AND WINGMAN IS SAVED", kActInfo));
+            r.push_back(back);
+            return r;
+        }
         case kMenuMouse:
             return {{"SENSITIVITY", &c.sensitivity, nullptr, 0.02f, 0.05f, 20.0f},
                     {"SCOPED SENSITIVITY RATIO", &c.zoom_sensitivity_ratio, nullptr, 0.05f, 0.1f, 3.0f},
@@ -6540,8 +6645,11 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
 
     if (g.rv.on) {  // a replay: its own HUD instead of the game's
         const float cx = float(w / 2), cy = float(h / 2), fs = float(s);
-        const int you = int(g.dummies.size());
-        auto who = [&](int id) { return id == you ? std::string("YOU") : id >= 0 ? agentName(id) : std::string("FREE CAMERA"); };
+        const int you = g_watchingTape ? int(g_watchInfo.names.size()) - 1 : int(g.dummies.size());
+        auto who = [&](int id) {
+            if (g_watchingTape && id >= 0 && id < int(g_watchInfo.names.size())) return g_watchInfo.names[size_t(id)];
+            return id == you ? std::string("YOU") : id >= 0 ? agentName(id) : std::string("FREE CAMERA");
+        };
         hud.rect(cx - 1.0f * fs, cy - 1.0f * fs, 2.0f * fs, 2.0f * fs, 0xFFFFFFC0);  // where they aim
         if (g.rv.killcam) {
             const std::string title = "KILLCAM";
@@ -6562,9 +6670,29 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         const float bx = 40.0f * fs, bw = float(w) - 80.0f * fs, by = float(h) - 44.0f * fs;
         hud.rect(bx, by, bw, 6.0f * fs, 0x000000C0);
         hud.rect(bx, by, bw * float((g.rv.t - t0) / (t1 - t0)), 6.0f * fs, 0xFFD060FF);
+        if (g_watchingTape) {  // the timeline: round starts (numbered), kills (red), and where the match stands
+            const MatchEvent* latest = nullptr;
+            for (const MatchEvent& e : g_watchEvents) {
+                const float ex = bx + bw * float(std::clamp((e.t - t0) / (t1 - t0), 0.0, 1.0));
+                if (e.kind == 0) {
+                    hud.rect(ex - 1.0f * fs, by - 7.0f * fs, 2.0f * fs, 13.0f * fs, 0xFFFFFFE0);
+                    if (e.round % 3 == 0 || g_watchEvents.size() < 40) {
+                        const std::string n = std::to_string(e.round + 1);
+                        hud.text(ex - hud.textWidth(n) / 2, by - 17.0f * fs, n, 0xC8C8C8FF);
+                    }
+                } else {
+                    hud.rect(ex - 1.0f * fs, by - 3.0f * fs, 2.0f * fs, 3.0f * fs, 0xFF5050FF);
+                }
+                if (e.kind == 0 && e.t <= g.rv.t) latest = &e;
+            }
+            const std::string where = latest ? "ROUND " + std::to_string(latest->round + 1) + "   " + std::to_string(latest->scoreA) + " : " +
+                                                   std::to_string(latest->scoreB)
+                                             : g_watchInfo.date;
+            hud.text(cx - hud.textWidth(where) / 2, 32.0f * fs, where, 0xFFFFFFFF);
+        }
         const char* keys = g.rv.pov < 0
             ? "WASD + MOUSE FLY (SHIFT SLOW, SPACE/CTRL UP/DOWN)   F BACK TO PLAYERS   LEFT/RIGHT -5/+5 S   UP/DOWN SPEED   P PAUSE   ESC EXIT"
-            : "MOUSE 1 / 2 NEXT / PREVIOUS PLAYER   F FREE CAMERA   LEFT/RIGHT -5/+5 S   UP/DOWN SPEED   SPACE PAUSE   ESC EXIT";
+            : "MOUSE 1 / 2 NEXT / PREVIOUS PLAYER   F FREE CAMERA   LEFT/RIGHT -5/+5 S   [ ] ROUNDS   UP/DOWN SPEED   SPACE PAUSE   ESC EXIT";
         hud.text(cx - hud.textWidth(keys) / 2, by + 14.0f * fs, keys, 0xC0C0C0FF);
         return;
     }
@@ -7332,6 +7460,9 @@ int main(int argc, char** argv) {
     }
     g_inv.load(g_invPath);
     if (automated) g_invPath.clear();
+    g_tapeDir = std::string(base ? base : "") + "replays";  // saved matches
+    if (automated && !opt.record) g_tapeDir.clear();
+    g_youName = Net::cleanName(cfg.player_name);
     g_lineupPath = std::string(base ? base : "") + "lineups.txt";  // grenade lineups (practice)
     g_lineups.load(g_lineupPath);
     if (automated) g_lineupPath.clear();  // (screenshots and benches show your skins but never save over them)
@@ -7394,6 +7525,7 @@ int main(int argc, char** argv) {
             g_gameMenu.route = g.pf.route;
         }
         if (screen == kMenuInventory) refreshChoices();
+        if (screen == kMenuReplays) scanTapes();
         g_menu.screen = screen;
         g_menu.sel = 0;
         paused = screen != kMenuNone;
@@ -7447,6 +7579,7 @@ int main(int argc, char** argv) {
         g.mode = game == 1 ? 3 : 5;
         g_netTeamsTogether = cfg.net_teams;
         loadMap(g, renderer, 1);
+        if (g.mode == 5) startTape(g);  // (online deathmatch: saved like any match)
         g_menu.root = kMenuPause;
         setMenu(kMenuNone);
         if (opt.spawnOverride) {  // (tests: start where told)
@@ -7535,6 +7668,31 @@ int main(int argc, char** argv) {
         } else {
             netNotice("COULDN'T JOIN", err);
         }
+    };
+    // A saved match (REPLAYS): its map and mode loaded behind (frozen while you watch), everything in it into the replay,
+    // the viewer from the start through your eyes. Esc comes back to the list.
+    auto watchTape = [&](int k) {
+        if (k < 0 || k >= int(g_tapes.size()) || g.online) return;
+        MatchInfo info;
+        if (!readMatch(g_tapes[size_t(k)].path, info)) return;
+        g_watchingTape = true;  // (no recording while it loads)
+        g.armsRace = info.armsRace;
+        g.wingman = g_wingmanOn = info.wingman;
+        g.mode = info.mode == 1 ? 1 : 3;
+        setTownMap(std::clamp(info.map - 1, 0, kTownMaps - 1));
+        loadMap(g, renderer, 1);
+        if (!readMatch(g_tapes[size_t(k)].path, g_watchInfo, &g.replay, &g_watchEvents) || g.replay.empty()) {
+            g_watchingTape = false;
+            return;
+        }
+        g.rv = Game::ReplayView{};
+        g.rv.on = true;
+        g.rv.t = g.replay.start();
+        g.rv.end = g.replay.end();
+        g.rv.pov = int(g_watchInfo.names.size()) - 1;  // you
+        g.rv.shotsDone = g.rv.t;
+        g.replayFx = Effects{};
+        setMenu(kMenuNone);
     };
     // Row `row` was pressed (Enter, click: press = true) or nudged (arrows, wheel, right click).
     // Settings change by `dir` steps either way and save straight away; buttons only react to presses.
@@ -7665,6 +7823,8 @@ int main(int argc, char** argv) {
             default:
                 if (it.action >= kActGoto) {
                     setMenu(it.action - kActGoto);
+                } else if (it.action >= kActWatch) {
+                    watchTape(it.action - kActWatch);
                 } else if (it.action >= kActPickMode && it.action <= kActPickMode + kModeWingman) {  // PLAY: that mode, set it up
                     g_gameMenu.mode = it.action - kActPickMode;
                     if (g_gameMenu.mode != 0 && g_gameMenu.map == 0) g_gameMenu.map = 1;
@@ -8047,6 +8207,8 @@ int main(int argc, char** argv) {
         {"lineup_save", "lineup_save [name]: saves your last throw as a lineup (practice; L)"},
         {"lineup_delete", "lineup_delete <n>: deletes lineup n on this map"},
         {"sv_rethrow_last_grenade", "throws your last grenade again (practice; X)"},
+        {"replays", "the saved matches (REPLAYS on the main menu)"},
+        {"playdemo", "playdemo <n>: watches saved match n"},
         {"say", "say <text>: chat to everyone (Enter)"},
         {"ping", "marks the spot you're looking at (middle mouse or P)"},
         {"say_team", "say_team <text>: chat to your team (Shift+Enter, competitive)"},
@@ -8265,6 +8427,16 @@ int main(int argc, char** argv) {
                 g_lineupAt = -1;
             } else {
                 rethrowLast(g);
+            }
+        } else if (cmd == "replays" || cmd == "playdemo") {
+            scanTapes();
+            if (cmd == "replays") {
+                if (g_tapes.empty()) con("no saved matches yet");
+                for (size_t k = 0; k < g_tapes.size(); ++k) con(std::to_string(k + 1) + "  " + g_tapes[k].label);
+            } else {
+                const int n = a.size() > 1 ? std::atoi(a[1].c_str()) - 1 : 0;
+                if (n < 0 || n >= int(g_tapes.size())) { con("playdemo <1-" + std::to_string(g_tapes.size()) + ">"); return; }
+                watchTape(n);
             }
         } else if (cmd == "ping") {
             pingHere(g);
@@ -8530,9 +8702,34 @@ int main(int argc, char** argv) {
                         const int agents = int(now.agents.size());
                         if (g.rv.killcam) {
                             if (sc == SDL_SCANCODE_ESCAPE) g.rv.t = g.rv.end;  // skip (or a click)
+                        } else if (sc == SDL_SCANCODE_ESCAPE && g_watchingTape) {  // a saved match: back to the list
+                            g.rv.on = false;
+                            g_watchingTape = false;
+                            g.replay.setCapacity(size_t(Replay::kRate * Replay::kSeconds), 20000);
+                            g_menu.root = kMenuMain;
+                            setMenu(kMenuReplays);
                         } else if (sc == SDL_SCANCODE_ESCAPE) {
                             g.rv.on = false;
                             setMenu(kMenuPause);
+                        } else if ((sc == SDL_SCANCODE_LEFTBRACKET || sc == SDL_SCANCODE_RIGHTBRACKET ||
+                                    sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN) && g_watchingTape) {
+                            // the previous / next round (deathmatch: kill), a moment before it
+                            const bool fwd = sc == SDL_SCANCODE_RIGHTBRACKET || sc == SDL_SCANCODE_PAGEDOWN;
+                            bool rounds = false;
+                            for (const MatchEvent& me : g_watchEvents) rounds = rounds || me.kind == 0;
+                            double to = fwd ? 1e18 : -1e18;
+                            for (const MatchEvent& me : g_watchEvents) {
+                                if ((me.kind == 0) != rounds) continue;
+                                const double at = me.t - (rounds ? 0.0 : 2.0);
+                                if (fwd && at > g.rv.t + 0.5 && at < to) to = at;
+                                if (!fwd && at < g.rv.t - 1.5 && at > to) to = at;
+                            }
+                            if (std::fabs(to) < 1e17) {
+                                g.rv.t = std::clamp(to, g.replay.start(), g.replay.end());
+                                g.rv.shotsDone = g.rv.t;
+                                g.replayFx = Effects{};
+                                g.rv.paused = false;
+                            }
                         } else if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT) {
                             g.rv.t = std::clamp(g.rv.t + (sc == SDL_SCANCODE_LEFT ? -5.0 : 5.0), g.replay.start(), g.replay.end());
                             g.rv.shotsDone = g.rv.t;
@@ -8961,7 +9158,12 @@ int main(int argc, char** argv) {
             keepRenderPos = g.lastDummyRenderPos;
             g.lastDummyRenderPos.resize(g.dummies.size());
             keepTeam = g.team;
-            if (g.mode == 3 && !g.team.empty()) g.team.push_back(g.comp.youTeam);  // you, in your colours
+            if (!replayNow.agents.empty() && replayNow.agents[0].team != 255) {  // the teams as recorded (sides swap)
+                g.team.resize(replayNow.agents.size());
+                for (size_t i = 0; i < replayNow.agents.size(); ++i) g.team[i] = replayNow.agents[i].team & 1;
+            } else if (g.mode == 3 && !g.team.empty()) {
+                g.team.push_back(g.comp.youTeam);  // you, in your colours
+            }
             g.spec = g.rv.pov;  // (not their own body in front of their eyes)
             g.simTime = replayNow.t;
         }
@@ -9519,6 +9721,7 @@ int main(int argc, char** argv) {
         stats.push(float(dt));
     }
 
+    closeTape(g);  // (the match you were in: its file gets its result)
     audio.shutdown();
     SDL_GL_DestroyContext(ctx);
     SDL_DestroyWindow(window);

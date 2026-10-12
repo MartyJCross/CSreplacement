@@ -2224,6 +2224,72 @@ void testLineups() {
     CHECK(bad == 0, "%d", bad);
 }
 
+// Saved matches (v0.38): a match written as it's played reads back - the header (map, mode, names, the result patched in
+// on close), every frame (to the precision kept), the shots and the timeline's events; a file cut short still plays.
+void testMatchTape() {
+    std::printf("saved matches\n");
+    MatchInfo info;
+    info.map = 3;
+    info.mode = 3;
+    info.wingman = true;
+    info.date = "2026-10-12 15:30";
+    info.names = {"ALEX", "BLAKE", "MARTY"};
+    const std::string path = "tape_test.crec";
+    MatchWriter w;
+    int bad = !w.open(path, info, 100.0);
+    for (int k = 0; k < 64; ++k) {  // two seconds at 32 a second: three people walking, one dies
+        ReplayFrame f;
+        f.t = 100.0 + k / 32.0;
+        for (int a = 0; a < 3; ++a) {
+            ReplayAgent ag;
+            ag.pos = {float(a) * 100.0f + float(k) * 4.0f, 50.0f, 16.0f};
+            ag.yaw = 10.0f * float(a) + float(k);
+            ag.pitch = -5.25f;
+            ag.team = uint8_t(a == 2 ? 1 : 0);
+            ag.alive = !(a == 1 && k > 40);
+            ag.weapon = uint8_t(a);
+            f.agents.push_back(ag);
+        }
+        if (k > 10) f.smokes.push_back({Vec3{5, 6, 7}, 100.25});
+        w.frame(f);
+        if (k == 20) w.shot({f.t, Vec3{1, 2, 3}, Vec3{4, 5, 6}, 2, 0});
+    }
+    w.event({100.0, 0, 0, 0, 0, 255, 255});
+    w.event({101.3, 1, 0, 0, 0, 2, 1});
+    w.close(9, 7);
+    MatchInfo head;
+    bad += !readMatch(path, head);
+    bad += head.map != 3 || !head.wingman || head.names.size() != 3 || head.names[2] != "MARTY" || head.scoreA != 9 ||
+           head.scoreB != 7 || head.date != info.date || std::fabs(head.seconds - 63.0f / 32.0f) > 0.01f;
+    Replay r;
+    std::vector<MatchEvent> ev;
+    MatchInfo full;
+    bad += !readMatch(path, full, &r, &ev);
+    bad += r.frames() != 64 || ev.size() != 2 || ev[1].killer != 2 || ev[1].victim != 1 || std::fabs(ev[1].t - 1.3) > 0.001;
+    ReplayFrame at;
+    r.sample(1.0, at);  // (times from the match's start)
+    bad += at.agents.size() != 3 || std::fabs(at.agents[1].pos.x - (100.0f + 32.0f * 4.0f)) > 0.01f ||
+           std::fabs(at.agents[1].pitch + 5.25f) > 0.01f || at.agents[2].team != 1 || at.smokes.size() != 1 ||
+           std::fabs(float(at.smokes[0].start) - 0.25f) > 0.001f;
+    r.sample(1.9, at);
+    bad += at.agents[1].alive;
+    std::vector<ReplayShot> shots;
+    r.shotsBetween(0.0, 2.0, shots);
+    bad += shots.size() != 1 || shots[0].shooter != 2 || shots[0].to.y != 5.0f;
+    // Cut short (a crash, a quit mid-match): what's there still plays.
+    {
+        std::ifstream in(path, std::ios::binary);
+        std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+        std::ofstream(path, std::ios::binary).write(data.data(), std::streamsize(data.size() * 2 / 3));
+    }
+    Replay cut;
+    bad += !readMatch(path, full, &cut) || cut.frames() < 30 || cut.frames() >= 64;
+    std::remove(path.c_str());
+    std::printf("  header, %zu frames, shots, events, a cut-short file: %d wrong\n", r.frames(), bad);
+    CHECK(bad == 0, "%d", bad);
+}
+
 void testBotFire() {
     std::printf("bots and fire\n");
     const NavGrid& nav = dustNav();
@@ -2923,6 +2989,7 @@ int main() {
     testConsole();
     testArmsRace();
     testLineups();
+    testMatchTape();
     testHarbor();
     testInferno();
     testReplay();

@@ -49,7 +49,8 @@ prototype/
                           hitboxes (yaw, crouch, model scale; shots test in the dummy's model space using
                           shownYaw/shownCrouch); grenade throw/flight/prediction
     stats.*               your career: MatchRecord, Career (rating: Elo vs bot level, ranks), stats.txt
-    replay.*              replays: Replay ring (64 Hz, 150 s) of ReplayFrame/ReplayAgent + ReplayShot; sample()
+    replay.*              replays: Replay ring (64 Hz, 150 s; setCapacity) of ReplayFrame/ReplayAgent + ReplayShot; sample();
+                          saved matches (v0.38): MatchWriter / readMatch (.crec: header, frames, shots, MatchEvents)
     items.*               skins (allSkins), rarities and CS odds, rollCase, Inventory (inventory.txt)
     nav.*                 NavGrid on the town grid: walkable/roamable cells, Dijkstra routes, followPath
     bots.*                bot brains (spawn anywhere, roam or walk to a goal, hold, view cone, pick a target,
@@ -358,6 +359,13 @@ spotting, hitmarker + tick, damage-direction arcs, competitive spectating (`spec
 light (`muzzle_brightness` 0.45 default, walls only, `Renderer::setFlash`, shader `flashLit`; `muzzleLight()` on every
 shot). Grenades: smoke, flash (`flashBang`), HE, molotov; CS:GO throw physics shared with the preview and bots.
 
+**Saved matches** (v0.38, owner): `g_tape` (MatchWriter) opened by `startTape` (startCompMatch, startDeathmatch, a
+client's new match, online DM) and closed by `closeTape` (loadMap, exit; under 20 s it's deleted) into `replays/` (newest 30;
+automated runs only with `--record`); recordReplay writes every 4th tick, replayShot the shots, recordDamage kills and
+startCompRound / netCompRoundStart round starts as MatchEvents; `ReplayAgent::team` per frame. REPLAYS
+(`kMenuReplays`, `scanTapes`, `kActWatch` + n) -> `watchTape`: loads the map and mode (`g_watchingTape` blocks
+recording), `readMatch` into `g.replay`, the viewer; its HUD names agents from `g_watchInfo`, draws the timeline from
+`g_watchEvents`, [ ] jump rounds, Esc back to the list. Console `replays`, `playdemo`. `testMatchTape`.
 **Replays & killcam** (`Game::replay`, `rv`, `recordReplay` every other tick, `replayShot`, `stepReplay`,
 `startReplayViewer`): the renderer swaps the recorded dummies/smokes/fx in for the world pass and restores them. The
 killcam (`killcam`) starts from `hurtPlayer` when a bot kills you; a click skips it. Until it starts (or you respawn) the
@@ -432,7 +440,7 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10 (11 s
 ## 8. Roadmap
 
 **In progress (owner, 2026-10-12): six features, one version each:** console (v0.33, done), Arms Race (v0.34, done), grenade
-practice (v0.35, done), chat + ping marker (v0.36, done), Wingman (v0.37, done), Wingman, saved
+practice (v0.35, done), chat + ping marker (v0.36, done), Wingman (v0.37, done), saved replays (v0.38, done). All six done., Wingman, saved
 match replays with a round timeline.
 **Done in v0.32** (owner, 2026-10-12): bots fairer up close (human reactions, re-peeks), random spawns, plays by
 spawn.
