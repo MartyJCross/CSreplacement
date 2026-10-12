@@ -2055,8 +2055,12 @@ void startCompRound(Game& g) {
     // Dust's long, short, tunnels, lowers or mid to B (owner, v0.26: mid is open now the spawns are walled off).
     const TownTactics& tac = townTactics();
     const float pr = rnd(g);
-    const int play = pr < 0.26f ? kPlayExecute : pr < 0.38f ? kPlayRush : pr < 0.60f ? kPlaySplit
-                   : pr < 0.76f ? kPlayFake : pr < 0.86f ? kPlayMid : kPlayDefault;
+    int play = pr < 0.26f ? kPlayExecute : pr < 0.38f ? kPlayRush : pr < 0.60f ? kPlaySplit
+             : pr < 0.76f ? kPlayFake : pr < 0.86f ? kPlayMid : kPlayDefault;
+    // A split needs two ways onto the site, mid control one from mid and one not (Inferno's B: banana is the only way).
+    if ((play == kPlaySplit && waysTo(c.siteTarget).size() < 2) ||
+        (play == kPlayMid && (waysTo(c.siteTarget, 1).empty() || waysTo(c.siteTarget, 0).empty())))
+        play = kPlayExecute;
     // A way from `from` (not `notThis`): the ones that keep out of mid three times as likely as each one through it
     // (owner, v0.26.1: the Ts went through mid 7 rounds in 10).
     auto pick = [&](const std::vector<int>& from, int notThis = -1) {
@@ -5287,7 +5291,7 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 // The PLAY screen's choices; they only take effect on START.
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
-const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR"};
+const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "INFERNO"};
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE"};
 // The PLAY screen: the modes in the order they're offered, and a line about each (shown under the menu).
 const int kPlayModes[] = {3, 1, 2, 4, 0};
@@ -5302,7 +5306,7 @@ const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
 const char* const kNetGameNames[] = {"DEATHMATCH", "COMPETITIVE"};
-const char* const kTownMapNames[] = {"DUST", "HARBOR"};
+const char* const kTownMapNames[] = {"DUST", "HARBOR", "INFERNO"};
 
 // ---- The online lobby: hosting opens it, friends who join land in it, the host starts the game from it. ----
 struct LobbyState {
@@ -5376,7 +5380,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
             const bool comp = (L.host ? c.net_game : L.game) == 1;
             if (L.host) {
                 r.push_back({"GAME", nullptr, &c.net_game, 1, 0, 1, kNetGameNames});
-                r.push_back({"MAP", nullptr, &g_lobbyMapSel, 1, 0, 1, kTownMapNames});
+                r.push_back({"MAP", nullptr, &g_lobbyMapSel, 1, 0, kTownMaps - 1, kTownMapNames});
                 if (comp) {
                     r.push_back({"TEAMMATES (PLAYERS + BOTS)", nullptr, &c.comp_mates, 1, 0, 4});
                     r.push_back({"ENEMIES (PLAYERS + BOTS)", nullptr, &c.comp_enemies, 1, 1, 5});
@@ -5385,7 +5389,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     r.push_back({"FREEZE TIME (BUY), SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
                 }
             } else {
-                L.lines[2] = std::string("THE HOST'S GAME: ") + (comp ? "COMPETITIVE" : "DEATHMATCH") + " ON " + kTownMapNames[L.map & 1];
+                L.lines[2] = std::string("THE HOST'S GAME: ") + (comp ? "COMPETITIVE" : "DEATHMATCH") + " ON " + kTownMapNames[std::clamp(L.map, 0, kTownMaps - 1)];
                 r.push_back(button(L.lines[2].c_str(), kActInfo));
             }
             std::string sides[2];
@@ -5416,10 +5420,10 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
         case kMenuSetup: {  // the mode's map first, then its options, then START
             const GameMenu& m = g_gameMenu;
             std::vector<MenuItem> r;
-            if (m.mode == 0) r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 2, kMapNames});
+            if (m.mode == 0) r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 0, 3, kMapNames});
             else {
                 if (g_gameMenu.map == 0) g_gameMenu.map = 1;
-                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 1, 2, kMapNames});
+                r.push_back({"MAP", nullptr, &g_gameMenu.map, 1, 1, 3, kMapNames});
             }
             if (m.mode == 3) {
                 r.push_back({"TEAMMATES", nullptr, &c.comp_mates, 1, 0, 4});
@@ -6898,7 +6902,7 @@ int main(int argc, char** argv) {
     auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
     renderer.setShadowSize(shadowSize(cfg.shadows));
     setDustScale(kDustSize);
-    setTownMap(cfg.map == 2 ? 1 : 0);
+    setTownMap(cfg.map >= 2 ? cfg.map - 1 : 0);
     loadMap(g, renderer, cfg.map >= 1 || g.mode != 0 ? 1 : 0);
     // Settings changed (menu, config reload): a new Dust size rebuilds the map right away.
     int lastPreset = cfg.graphics_preset;
@@ -6996,10 +7000,10 @@ int main(int argc, char** argv) {
     };
     // The lobby's START (the host): everyone in the lobby goes in, on the teams they picked.
     auto startLobbyGame = [&]() {
-        setTownMap(g_lobbyMapSel & 1);
+        setTownMap(g_lobbyMapSel);
         if (g_lobbyMapSel == 0) setDustScale(kDustSize);
         for (int id = 0; id < kNetMaxPlayers; ++id) g.netTeam[id] = g.net.connected(id) ? g_lobby.team[id] & 1 : -1;
-        g.net.setGame(uint8_t((cfg.net_game == 1 ? 1 : 0) | (g_lobbyMapSel & 1) << 1), townScale());  // late joiners: straight in
+        g.net.setGame(uint8_t((cfg.net_game == 1 ? 1 : 0) | g_lobbyMapSel << 1), townScale());  // late joiners: straight in
         g.net.sendStart();
         g_lobby.on = false;
         applyConfig(g, cfg);
@@ -7040,7 +7044,7 @@ int main(int argc, char** argv) {
         g.mode = m.mode;
         g.pf.route = m.route;
         const int map = m.mode != 0 && m.map == 0 ? 1 : m.map;
-        setTownMap(map == 2 ? 1 : 0);
+        setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor, 3 Inferno)
         loadMap(g, renderer, map >= 1 ? 1 : 0);
         if (g.mode == 4) g.botsFire = cfg.prefire_bots_shoot != 0;
         if (g.mode == 0) {
@@ -7399,7 +7403,7 @@ int main(int argc, char** argv) {
                     break;
                 case NetEvent::Start:  // the host started the game from the lobby: in we go
                     if (!g_lobby.on || g_lobby.host) break;
-                    setTownMap(g_lobby.map & 1);
+                    setTownMap(g_lobby.map);
                     setDustScale(g_lobby.scale);
                     g_lobby.on = false;
                     goOnline(g_lobby.game);
@@ -7841,7 +7845,7 @@ int main(int argc, char** argv) {
             if (now >= nextLobby) {
                 nextLobby = now + 0.5;
                 NetLobby l;
-                l.game = uint8_t((cfg.net_game == 1 ? 1 : 0) | (g_lobbyMapSel & 1) << 1);
+                l.game = uint8_t((cfg.net_game == 1 ? 1 : 0) | g_lobbyMapSel << 1);
                 l.townScale = g_lobbyMapSel == 0 ? kDustSize : townScale();
                 for (int id = 0; id < kNetMaxPlayers; ++id) l.team[id] = uint8_t(g_lobby.team[id] & 1);
                 g.net.sendLobby(l);

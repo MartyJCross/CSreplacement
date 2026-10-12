@@ -885,7 +885,7 @@ bool Audio::dumpWavs(const std::string& dir, const std::string& assetDir) {
             f.write("data", 4); u32(bytes);
             for (float x : clip) u16(uint16_t(int16_t(std::clamp(x, -1.0f, 1.0f) * 32767.0f)));
         }
-    for (int k = 1; k < 3; ++k) {  // the ambience beds, stereo
+    for (int k = 1; k < 4; ++k) {  // the ambience beds, stereo
         const std::vector<float> bed = ambienceBed(k);
         std::ofstream f(dir + "/ambience_" + std::to_string(k) + ".wav", std::ios::binary);
         if (!f) return false;
@@ -987,7 +987,22 @@ std::vector<float> ambienceBed(int which) {
                 }
             }
         }
-    } else if (which == 1) {  // a distant bird: little rising chirps in twos and threes
+    }
+    if (which == 3) {  // Inferno: a summer afternoon in the village, cicadas buzzing far off, swelling and fading
+        float lp = 0;
+        const float a = lpCoef(5200.0f);
+        for (size_t i = 0; i < n; ++i) {
+            const float t = float(i) / kRate;
+            const float pulse = 0.5f + 0.5f * std::sin(2.0f * kPi * 48.0f * t);  // the buzz's rattle
+            const float swell = 0.35f + 0.65f * std::pow(0.5f + 0.5f * std::sin(t * 0.37f), 2.0f);
+            const float x = rng.noise();
+            lp += a * (x - lp);
+            const float v = (x - lp) * pulse * swell * 0.010f;
+            ch[0][i] += v * (0.8f + 0.2f * std::sin(t * 0.21f));
+            ch[1][i] += v * (0.8f - 0.2f * std::sin(t * 0.21f));
+        }
+    }
+    if (which == 1 || which == 3) {  // a distant bird: little rising chirps in twos and threes
         for (float t0 = 1.5f; t0 < kLen - 1.0f; t0 += 3.0f + 4.0f * (rng.noise() * 0.5f + 0.5f)) {
             const float pan = rng.noise() * 0.9f, base = 2600.0f + 900.0f * (rng.noise() * 0.5f + 0.5f);
             for (int k = 0, chirps = 2 + int((rng.noise() * 0.5f + 0.5f) * 2.0f); k < chirps; ++k) {
@@ -1078,7 +1093,7 @@ bool Audio::init(float masterVolume, const std::string& assetDir) {
     mixBuf_.resize(4096 * 2);
     wetBuf_.resize(4096 * 2);
     reverb_.init();
-    for (int k = 1; k < 3; ++k) amb_[k] = ambienceBed(k);
+    for (int k = 1; k < 4; ++k) amb_[k] = ambienceBed(k);
     SDL_AudioSpec spec{SDL_AUDIO_F32, 2, kRate};
     stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &Audio::callback, this);
     if (!stream_) return false;
@@ -1256,7 +1271,7 @@ void Audio::mix(float* out, int frames) {
             out[i * 2 + 1] += a[ambPos_ * 2 + 1] * ambGain_;
             if (++ambPos_ * 2 >= a.size()) ambPos_ = 0;
         }
-        if (ambGain_ <= 0.0f && want != ambPlaying_ && want >= 0 && want < 3) {
+        if (ambGain_ <= 0.0f && want != ambPlaying_ && want >= 0 && want < 4) {
             ambPlaying_ = want;
             ambPos_ = 0;
         }

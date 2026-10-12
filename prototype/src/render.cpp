@@ -1131,11 +1131,12 @@ void Renderer::setPost(bool on) {
 }
 
 void Renderer::setGrade(int look) {
-    // Per map: 0 the Lab (neutral), 1 Dust (warm, sun-baked), 2 Harbor (cooler, sea air). The stylized look is a
-    // bolder grade: more saturated, a little more contrast.
-    static const float kTint[3][3] = {{1.0f, 1.0f, 1.0f}, {1.04f, 1.0f, 0.93f}, {0.97f, 1.0f, 1.04f}};
-    static const float kGrade[3][3] = {{0.10f, 1.02f, 0.10f}, {0.22f, 1.10f, 0.20f}, {0.18f, 1.06f, 0.18f}};
-    look_ = std::clamp(look, 0, 2);
+    // Per map: 0 the Lab (neutral), 1 Dust (warm, sun-baked), 2 Harbor (cooler, sea air), 3 Inferno (a warm Italian
+    // afternoon, a touch golden). The stylized look is a bolder grade: more saturated, a little more contrast.
+    static const float kTint[4][3] = {{1.0f, 1.0f, 1.0f}, {1.04f, 1.0f, 0.93f}, {0.97f, 1.0f, 1.04f}, {1.05f, 1.0f, 0.92f}};
+    static const float kGrade[4][3] = {{0.10f, 1.02f, 0.10f}, {0.22f, 1.10f, 0.20f}, {0.18f, 1.06f, 0.18f},
+                                       {0.20f, 1.12f, 0.18f}};
+    look_ = std::clamp(look, 0, 3);
     const float sat = style_ == 1 ? 1.18f : 1.0f, con = style_ == 1 ? 1.25f : 1.0f;
     glUseProgram(postProgram_);
     glUniform3f(uPostTint_, kTint[look_][0], kTint[look_][1], kTint[look_][2]);

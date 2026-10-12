@@ -103,7 +103,7 @@ private:
     std::vector<float> wetBuf_, roomBuf_;
     std::atomic<float> roomWet_{0.0f}, roomSize_{0.0f};
     // Ambience loops (stereo, interleaved), made at init; which one plays, and how loud.
-    std::vector<float> amb_[3];
+    std::vector<float> amb_[4];  // 1 Dust, 2 Harbor, 3 Inferno
     std::atomic<int> ambWhich_{0};
     std::atomic<float> ambTarget_{0.0f};
     int ambPlaying_ = 0;     // audio thread: the loop playing now (switches when faded out)

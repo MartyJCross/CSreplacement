@@ -80,7 +80,7 @@ World buildLab();
 // The town maps, built from named floor areas on a 32-unit grid (flat areas, ramps, roofed tunnels; everything
 // else is solid wall): 0 Dust2 at real scale (~4200 x 4250 units, scaled by setDustScale: the game uses 90%), 1 Harbor (Crisp's own
 // map, ~3100 x 3500, its own size). +y = north. Every town function below works on the active one.
-constexpr int kTownMaps = 2;
+constexpr int kTownMaps = 3;  // 0 Dust, 1 Harbor, 2 Inferno
 bool setTownMap(int map);  // true if it changed: rebuild the world (buildTown) and anything built from the grid
 int townMap();
 const char* townMapName(int map);
@@ -94,6 +94,7 @@ struct MapGrid {
     std::vector<float> floor;    // floor height per cell (kNoFloor = solid wall)
     std::vector<float> ceiling;  // absolute ceiling height of roofed cells, kOpenSky otherwise
     std::vector<int> area;       // index of the named area the cell belongs to, -1 for walls
+    std::vector<uint8_t> slope;  // 1 = part of a smooth ramp (stairs are ramps): walked as a slope, not as steps
     static constexpr float kNoFloor = -1e9f, kOpenSky = 1e9f;
     int index(int i, int j) const { return j * w + i; }
     bool walkable(int i, int j) const { return i >= 0 && j >= 0 && i < w && j < h && floor[size_t(index(i, j))] > kNoFloor; }

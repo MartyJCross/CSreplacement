@@ -392,6 +392,11 @@ const DustArea kHarborAreas[] = {
     {"B CT PATH", -650, 1300, -450, 1500, 0, 0, 0, kHSand, 0},
 };
 
+// Inferno (CS2's de_inferno, real size and coordinates): plaster and terracotta, cobbled streets, dirt on banana.
+constexpr uint32_t kIStreet = 0xb0a38c, kISite = 0xcbb898, kIDirt = 0xb39a74, kIWood = 0x8c6c4e, kIStone = 0xc1b195,
+                   kIGrass = 0x8f915c, kIPlaster = 0xdcc7a2, kITerracotta = 0xa65d3f;
+#include "inferno_layout.h"
+
 // Walls that must hold at every map size: areas whose gap is thinner than a grid cell at some sizes would touch
 // there (and you'd see through). The first area of each pair gives up its edge cells to a wall.
 const char* const kDustSeparate[][2] = {
@@ -411,12 +416,15 @@ struct TownDef {
     uint32_t shades[3];
     const char* const (*separate)[2];
     int separateCount;
+    float minWallTop;  // no wall lower than this (Inferno: its upper floors look out over the low streets' walls)
 };
-const TownDef kTowns[2] = {
+const TownDef kTowns[kTownMaps] = {
     {"DUST", kDustAreas, kDustAreaCount, -2400, -1216, 1952, 3264, true, {kDStone, 0xd2bd94, 0xc7b089}, kDustSeparate,
-     int(sizeof(kDustSeparate) / sizeof(kDustSeparate[0]))},
+     int(sizeof(kDustSeparate) / sizeof(kDustSeparate[0])), 0},
     {"HARBOR", kHarborAreas, int(sizeof(kHarborAreas) / sizeof(kHarborAreas[0])), -1650, -1650, 1500, 1950, false,
-     {0xdcd6c8, 0xcfc8b6, 0xc2bba8}, nullptr, 0},
+     {0xdcd6c8, 0xcfc8b6, 0xc2bba8}, nullptr, 0, 0},
+    {"INFERNO", kInfernoAreas, int(sizeof(kInfernoAreas) / sizeof(kInfernoAreas[0])), -1760, -768, 2688, 3552, false,
+     {kIPlaster, 0xd2b993, 0xc9ab84}, nullptr, 0, 520},
 };
 constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
 
@@ -466,7 +474,7 @@ float MapGrid::floorAt(float x, float y) const {
 namespace {
 
 float g_dustScale = 0.6f;   // setDustScale (Dust2 only: Harbor is built at its own size; the game sets 0.9)
-int g_town = 0;             // the active town map: 0 Dust2, 1 Harbor
+int g_town = 0;             // the active town map: 0 Dust2, 1 Harbor, 2 Inferno
 bool g_dustBuilt = false;
 MapGrid g_dustGrid;
 const TownDef& town() { return kTowns[g_town]; }
@@ -495,6 +503,7 @@ void buildDustGrid() {
     m.floor.assign(n, MapGrid::kNoFloor);
     m.ceiling.assign(n, MapGrid::kOpenSky);
     m.area.assign(n, -1);
+    m.slope.assign(n, 0);
     for (int a = 0; a < td.count; ++a) {
         const DustArea& d = td.areas[a];
         float x0, x1, y0, y1;
@@ -511,6 +520,7 @@ void buildDustGrid() {
                 m.floor[c] = z;
                 m.ceiling[c] = d.roof > 0 ? z + d.roof : MapGrid::kOpenSky;  // headroom never shrinks
                 m.area[c] = a;
+                m.slope[c] = d.axis != 0;
             }
     }
     // The walls that must hold: any cell of the first area touching (sides or corners) the second becomes wall.
@@ -530,6 +540,7 @@ void buildDustGrid() {
                 if (touches) carve.push_back(size_t(m.index(i, j)));
             }
         for (size_t c : carve) {
+            m.slope[c] = 0;
             m.floor[c] = MapGrid::kNoFloor;
             m.ceiling[c] = MapGrid::kOpenSky;
             m.area[c] = -1;
@@ -603,7 +614,7 @@ void layOnRamp(Box& b, const Box& ramp, float lift) {
 }
 
 bool townMidArea(const Vec3& p) {
-    static const char* const kMid[] = {"MID", "TOP MID", "MID DOORS", "CATWALK", "MARKET"};
+    static const char* const kMid[] = {"MID", "TOP MID", "MID DOORS", "CATWALK", "MARKET", "BOTTOM MID"};
     const char* name = townCallout(p);
     for (const char* m : kMid)
         if (std::strcmp(name, m) == 0) return true;
@@ -617,7 +628,7 @@ bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat) {
     const int a = m.area[size_t(m.index(i, j))];
     if (a < 0) return false;
     color = town().areas[a].color;
-    paved = color == kDSite || color == kHSite;
+    paved = color == kDSite || color == kHSite || color == kISite;
     flat = town().areas[a].axis == 0;
     return true;
 }
@@ -630,11 +641,13 @@ Vec3 townPoint(float x, float y) {
 std::vector<Vec3> townTeamSpawns(int side) {
     // Spread over each spawn, the first (yours) at the front, and off the long sightline through mid doors
     // (T spawn <-> CT spawn), so nobody can see the other team when the round starts (tested).
-    static const float xy[2][2][5][2] = {
+    static const float xy[kTownMaps][2][5][2] = {
         {{{-300, -700}, {-700, -760}, {-80, -800}, {-200, -960}, {-600, -1020}},   // Dust2: T spawn
          {{-260, 2620}, {-100, 2650}, {-180, 2820}, {-320, 2960}, {-60, 2980}}},  // CT spawn (out of the doors' line)
         {{{-420, -1330}, {-250, -1500}, {-40, -1360}, {100, -1520}, {-320, -1400}},  // Harbor: T spawn
          {{-120, 1450}, {120, 1450}, {0, 1620}, {-200, 1680}, {200, 1680}}},       // CT spawn
+        {{{-1616, 656}, {-1552, 528}, {-1616, 400}, {-1584, 272}, {-1648, 144}},   // Inferno: T spawn
+         {{2384, 1840}, {2448, 2000}, {2416, 2160}, {2480, 2288}, {2352, 2416}}},  // CT spawn
     };
     std::vector<Vec3> out;
     for (const auto& p : xy[g_town][side == 0 ? 0 : 1]) out.push_back(townPoint(p[0], p[1]));
@@ -672,6 +685,37 @@ const std::vector<RetakeSite>& townRetakeSites() {
              {-300, 1400, -1000, 1100},  // CT spawn, through the CT path
          }},
     };
+    static const std::vector<RetakeSite> inferno = {
+        {"A", 2000, 528,  // bomb: the middle of the site, by the boxes
+         {
+             {2256, 784, 2000, 1150},   // the site's north-east corner, watching arch / long
+             {1840, 80, 1450, 600},    // the short corner, watching top mid
+             {2288, 432, 2400, 1150},   // graveyard, watching library
+             {2128, -336, 2000, 400},   // pit, watching the bomb
+             {2000, 592, 1600, 1150},   // the north-west corner, watching arch
+             {2288, 240, 1500, 300},    // the south side, watching short
+         },
+         {
+             {1808, 1136, 2000, 500},   // arch / A long
+             {2544, 1296, 2200, 600},   // library
+             {1424, 688, 1800, 300},    // top mid, down short
+         }},
+        {"B", 528, 2640,  // bomb: beside the fountain
+         {
+             {80, 3088, 900, 2850},    // dark, watching CT
+             {496, 3248, 900, 2850},    // coffins
+             {720, 2480, 850, 2750},    // first oranges
+             {176, 2512, 500, 2900},     // the banana-side corner
+             {432, 3408, 300, 2900},    // back of the site
+             {496, 2960, 1100, 2900},   // the CT edge
+         },
+         {
+             {1008, 2736, 450, 2850},   // CT
+             {944, 3216, 400, 3000},    // construction
+             {560, 2064, 400, 2700},    // banana, past the car
+         }},
+    };
+    if (g_town == 2) return inferno;
     if (g_town == 1) return harbor;
     static const std::vector<RetakeSite> sites = {
         {"A", 1380, 2560,  // bomb: beside the default box
@@ -716,6 +760,15 @@ const std::vector<RetakeSpot>& townCtSpots(int role) {
          {-1420, 900, -1050, 500}, {-760, 850, -700, 300}, {-1550, 1200, -1050, 500}},
     };
     if (g_town == 1) return harbor[std::clamp(role, 0, kCtRoles - 1)];
+    static const std::vector<RetakeSpot> inferno[kCtRoles] = {
+        {{1424, 720, 600, 650}, {1424, 784, 600, 700}, {1584, 1072, 700, 700}},       // mid: top mid / arch, down mid
+        {{1424, 176, 1150, 250}, {1424, 368, 1000, 300}, {1840, 80, 1450, 300}},   // short: down short, boiler
+        {{2128, -336, 1700, -100}, {2288, -336, 1800, -100}, {2288, 240, 1800, -60}},  // apps: pit / site, on balcony
+        {{2224, 720, 1850, 250}, {2288, 432, 1900, 300}, {2000, 592, 1500, 700}},   // an extra on A
+        {{720, 2480, 400, 1900}, {496, 3248, 450, 2400}, {208, 2608, 450, 2300},    // B: banana and the site
+         {816, 2384, 450, 2200}, {432, 3408, 300, 2700}, {496, 2960, 400, 2300}},
+    };
+    if (g_town == 2) return inferno[std::clamp(role, 0, kCtRoles - 1)];
     static const std::vector<RetakeSpot> spots[kCtRoles] = {
         {   // mid: beside mid doors on the CT side, or back towards B, watching the way out of the doors; or in the
             // doors, contesting mid (owner, v0.26: mid is open)
@@ -793,6 +846,39 @@ const std::vector<PrefireRoute>& townPrefireRoutes() {
              {720, 1350, 650, 1000},   // CT side
          }},
     };
+    static const std::vector<PrefireRoute> inferno = {
+        {"BANANA", {112, 1104, 250, 1700},
+         {
+             {208, 1520, 150, 1150},    // halfway up banana
+             {464, 1936, 250, 1400},    // sandbags
+             {560, 2064, 300, 1700},    // the car
+             {720, 2480, 400, 2000},    // first oranges
+             {208, 2608, 400, 2200},    // the banana-side corner
+             {496, 2960, 400, 2300},    // the CT edge
+             {496, 3248, 400, 2400},    // coffins
+             {80, 3088, 400, 2400},    // dark
+         }},
+        {"APARTMENTS", {1136, -656, 1150, -300},
+         {
+             {1232, -144, 1150, -600},  // top of the stairs
+             {1488, -336, 1200, -300},  // close apps
+             {1712, -336, 1300, -300},  // the corridor's end
+             {2128, -336, 1900, -100},  // pit
+             {2288, 240, 1900, -100},   // the south side of the site
+             {2224, 720, 1900, -50},    // the site's north-east corner
+             {2288, 432, 1950, -50},    // graveyard
+         }},
+        {"MID", {208, 624, 900, 650},
+         {
+             {720, 624, 300, 650},      // mid
+             {1104, 528, 400, 650},     // the underpass's mouth
+             {1424, 720, 700, 650},     // top mid
+             {1424, 176, 1450, 600},    // down short
+             {1840, 80, 1450, 450},    // the short corner
+             {2224, 720, 1500, 300},    // the site's north-east corner
+         }},
+    };
+    if (g_town == 2) return inferno;
     if (g_town == 1) return harbor;
     static const std::vector<PrefireRoute> routes = {
         {"A LONG", {540, -400, 540, 300},
@@ -843,13 +929,14 @@ const std::vector<PrefireRoute>& townPrefireRoutes() {
 }
 
 MapSpawn townSpawn() {
+    if (g_town == 2) return {townPoint(-1584, 400), 0.0f};  // Inferno: T spawn, facing east
     const float sc = scaleNow(), x = (g_town == 1 ? 0.0f : -350.0f) * sc, y = (g_town == 1 ? -1350.0f : -800.0f) * sc;
     return {{x, y, townGrid().floorAt(x, y)}, 90.0f};
 }
 
 const TownTactics& townTactics() {
     // (v0.26, owner: mid is open now the spawns are walled off from it; short and lowers are plays.)
-    static const TownTactics kTactics[2] = {
+    static const TownTactics kTactics[kTownMaps] = {
         {   // Dust2
             {
                 {"LONG", 0, false, {1500, 1100}, {1450, 2300, 0}, {1400, 2650, 140}, "LONG A"},        // smoke the ramp's top
@@ -872,6 +959,16 @@ const TownTactics& townTactics() {
             {{0, 0}, {150, -250}},  // mid, the market's end
             {{1050, 500, 1050, -600}, {0, 300, 0, -600}, {-1050, 300, -1050, -600}},
             {"PUSHING DOCKS", "PUSHING MID", "PUSHING UNDERPASS"},
+        },
+        {   // Inferno: A through apartments or mid and short; B up banana
+            {
+                {"APPS", 0, false, {1136, -656}, {2400, 500, 0}, {2000, 450, 140}, "CLOSE APPS"},     // smoke graveyard
+                {"SHORT", 0, true, {720, 624}, {1650, 1100, 0}, {1600, 250, 140}, "A SHORT"},        // smoke arch
+                {"BANANA", 1, false, {112, 1264}, {1000, 2850, 0}, {450, 2650, 160}, "BANANA"},       // smoke CT
+            },
+            {{656, 592}, {912, 656}},  // mid, the underpass's mouth
+            {{1488, -336, 1150, -300}, {1104, 528, 400, 650}, {304, 1776, 200, 1250}},
+            {"PUSHING APPS", "PUSHING MID", "PUSHING BANANA"},
         },
     };
     return kTactics[g_town];
@@ -962,7 +1059,8 @@ World buildTown() {
         if (m.area[c] >= 0 && !smooth[c]) key[c] = (zKey(m.floor[c]) << 24) | int64_t(td.areas[m.area[c]].color);
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
-        if (uint32_t(k & 0xFFFFFF) == kDSite || uint32_t(k & 0xFFFFFF) == kHSite) w.solids.back().material = kMatPaving;  // the sites are paved
+        const uint32_t fc = uint32_t(k & 0xFFFFFF);
+        if (fc == kDSite || fc == kHSite || fc == kISite) w.solids.back().material = kMatPaving;  // the sites are paved
     });
 
     // Walls: each 5x5-cell block is its own building with its own height (so the skyline isn't one flat
@@ -977,7 +1075,7 @@ World buildTown() {
     for (int j = 0; j < m.h; ++j)
         for (int i = 0; i < m.w; ++i) {
             size_t c = size_t(m.index(i, j));
-            if (m.area[c] < 0) top[c] = wallTop(nearZ[c]) + blockExtra(i, j);
+            if (m.area[c] < 0) top[c] = std::max(wallTop(nearZ[c]) + blockExtra(i, j), td.minWallTop);
         }
     const uint32_t* shades = td.shades;
     for (size_t c = 0; c < n; ++c) key[c] = m.area[c] < 0 ? zKey(top[c]) : -1;
@@ -1179,6 +1277,8 @@ World buildTown() {
         prop(-800, 1240, -740, 1300, 64, kDCrate);            // B site, by the CT path
         prop(-1000, 780, -940, 840, 48, kDCrate);
         prop(-780, 500, -730, 550, 48, kDCrate);              // the alley
+    } else if (g_town == 2) {  // Inferno: the measured small props, and its crates, carts and barrels
+        for (const auto& p : kInfernoSmallProps) prop(p[0], p[1], p[2], p[3], 56, kDCrate);
     } else {
     prop(-500, -800, -440, -740, 64, kDCrate);    // T spawn crates
     prop(-60, -1000, 20, -920, 64, kDCrate);
@@ -1243,7 +1343,7 @@ World buildTown() {
         if (!ramp && std::fabs(b.mins.z - m.floorAt(cx, cy)) > 1.0f) continue;  // a crate on a crate
         if (ramp && b.mins.z > rampTopAt(*ramp, cx, cy) + 8.0f) continue;
         const uint32_t col = td.areas[area].color;
-        const uint8_t paved = col == kDSite || col == kHSite ? 1 : 0;
+        const uint8_t paved = col == kDSite || col == kHSite || col == kISite ? 1 : 0;
         const float z0 = b.mins.z - 1, z1 = b.mins.z + 0.15f, wd = 16;
         const Box strips[4] = {{{b.maxs.x, b.mins.y, z0}, {b.maxs.x + wd, b.maxs.y, z1}, col, uint8_t(kMatShade + 0 + paved)},
                                {{b.mins.x - wd, b.mins.y, z0}, {b.mins.x, b.maxs.y, z1}, col, uint8_t(kMatShade + 2 + paved)},
@@ -1337,7 +1437,7 @@ World buildTown() {
     if (g_town == 1) {
         arch(-250, -365, 250, -335, 176);  // the market into mid
         arch(-450, 1235, 450, 1265, 190);  // the CT ramp into CT spawn
-    } else {
+    } else if (g_town == 0) {
         arch(-300, 280, 20, 320, 176);    // top mid into mid
         arch(150, 2330, 330, 2370, 176);  // top of the short stairs
         arch(-450, 2335, 120, 2365, 196); // CT mid into CT spawn
@@ -1363,6 +1463,17 @@ const std::vector<PeekSpot>& townPeekSpots() {
             return p;
         };
         auto at = [&](float x, float y) { return rel(x, y, 0, 0); };
+        if (g_town == 2) {
+            spots = {
+                {at(1424, 784), at(1424, 720)},      // arch -> top mid
+                {at(720, 2480), at(752, 2288)},      // first oranges -> banana
+                {at(2224, 720), at(2000, 592)},      // A site corner -> the site
+                {at(1840, 80), at(1712, 48)},      // the short corner -> short
+                {at(496, 2960), at(752, 2864)},      // B's CT edge -> CT
+                {at(2128, -336), at(1712, -336)},    // pit -> under the balcony
+            };
+            return spots;
+        }
         if (g_town == 1) {
             spots = {
                 {at(960, -380), at(1100, -380)},     // behind the blue container -> down the docks

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <cstring>
 #include <set>
 #include <string>
@@ -597,6 +598,7 @@ Vec3 dpt(float x, float y) {
 
 // Runs a simulated player along `path` (holding W, steering at a point a little ahead) and returns
 // the time taken, or -1 if they got stuck.
+Vec3 g_stuckAt;  // where the last runRoute got stuck
 float runRoute(const std::vector<Vec3>& path, float speed, float* distance, const World* world = nullptr) {
     PlayerState ps = spawnAt(path.front());
     size_t wp = 1;
@@ -606,13 +608,20 @@ float runRoute(const std::vector<Vec3>& path, float speed, float* distance, cons
         Vec3 d = path[wp] - ps.origin;
         d.z = 0;
         if (length(d) < 40.0f) { ++wp; lastProgress = ticks; continue; }
-        Vec3 aim = path[std::min(wp + 2, path.size() - 1)] - ps.origin;
+        // (round a tight corner: after half a second without a waypoint, aim at the next one, not two on)
+        Vec3 aim = path[ticks - lastProgress > kTickRate / 2 ? wp : std::min(wp + 2, path.size() - 1)] - ps.origin;
         MoveInput in;
         in.forward = 1;
+        // Caught on a corner for a second (a 64-wide doorway the route hugs): strafe left and right a little, like
+        // a player would, until it's through.
+        if (ticks - lastProgress > kTickRate) in.side = (ticks / 24) % 2 ? 1.0f : -1.0f;
         Vec3 before = ps.origin;
         playerMove(ps, in, std::atan2(aim.y, aim.x) / kDegToRad, speed, world ? *world : dust());
         travelled += length2d(ps.origin - before);
-        if (++ticks - lastProgress > kTickRate * 3) return -1.0f;  // no waypoint for 3 s: stuck
+        if (++ticks - lastProgress > kTickRate * 3) {  // no waypoint for 3 s: stuck
+            g_stuckAt = ps.origin;
+            return -1.0f;
+        }
     }
     if (distance) *distance = travelled;
     return float(ticks) * kTickDt;
@@ -738,7 +747,9 @@ void testDustDeathmatch() {
     for (const auto& s : seen) minAreas = std::min(minAreas, s.size());
     std::printf("  10 bots, 2 min: each walked at least %.0f units and saw at least %zu areas; %zu areas in all; "
                 "feet at most %.1f into the floor\n", double(minWalk), minAreas, all.size(), double(worstSink));
-    CHECK(minWalk > 12000.0f && minAreas >= 6 && all.size() >= 20 && worstSink <= 8.5f, "walk %.0f areas %zu/%zu",
+    // (on a ramp the grid keeps steps, up to 26 a cell since v0.29, and a bot follows the smooth slope between them:
+    // up to half a step under the stepped floor is still on the ramp you see)
+    CHECK(minWalk > 12000.0f && minAreas >= 6 && all.size() >= 20 && worstSink <= 13.0f, "walk %.0f areas %zu/%zu",
           double(minWalk), minAreas, all.size());
 
     // Sight: a bot looking away doesn't see you; once you shoot it, it turns on you.
@@ -1425,9 +1436,9 @@ void testSpawnsOffMid() {
     std::printf("spawns off mid\n");
     int seen = 0;
     float closest = 1e9f;
-    for (int town = 0; town < 2; ++town)
+    for (int town = 0; town < kTownMaps; ++town)
         for (float sc : {0.5f, 0.6f, 0.8f, 0.95f, 1.0f}) {
-            if (town == 1 && sc != 0.6f) continue;  // (Harbor has one size)
+            if (town >= 1 && sc != 0.6f) continue;  // (Harbor and Inferno have one size)
             setTownMap(town);
             setDustScale(sc);
             const World w = buildTown();
@@ -1473,9 +1484,9 @@ void testCompWays() {
     std::printf("competitive ways in\n");
     const float keep = townScale();
     int bad = 0;
-    for (int town = 0; town < 2; ++town)
+    for (int town = 0; town < kTownMaps; ++town)
         for (float sc : {0.6f, 0.8f, 0.9f, 0.95f}) {
-            if (town == 1 && sc != 0.6f) continue;  // (Harbor has one size)
+            if (town >= 1 && sc != 0.6f) continue;  // (Harbor and Inferno have one size)
             setTownMap(town);
             setDustScale(sc);
             const World w = buildTown();
@@ -1591,7 +1602,7 @@ void testRetakeSpread() {
     std::printf("retakes from different sides\n");
     const float keep = townScale();
     int same = 0;
-    for (int town = 0; town < 2; ++town) {
+    for (int town = 0; town < kTownMaps; ++town) {
         setTownMap(town);
         setDustScale(0.9f);
         const World w = buildTown();
@@ -1600,8 +1611,10 @@ void testRetakeSpread() {
         const RetakeSite& a = townRetakeSites()[0];
         std::vector<Vec3> entries;
         for (const RetakeSpot& e : a.entries) entries.push_back(townPoint(e.x, e.y));
-        const std::vector<Vec3> cts = town == 0 ? std::vector<Vec3>{townPoint(-180, 2820), townPoint(-620, 2000)}
-                                                : std::vector<Vec3>{townPoint(0, 1620), townPoint(-370, 600)};
+        const RetakeSpot& midSpot = townCtSpots(kCtMid)[0];  // (Inferno: top mid)
+        const std::vector<Vec3> cts = town == 0   ? std::vector<Vec3>{townPoint(-180, 2820), townPoint(-620, 2000)}
+                                      : town == 1 ? std::vector<Vec3>{townPoint(0, 1620), townPoint(-370, 600)}
+                                                  : std::vector<Vec3>{townTeamSpawns(1)[0], townPoint(midSpot.x, midSpot.y)};
         const std::vector<int> way = spreadEntries(nav, cts, entries, townPoint(a.bombX, a.bombY), 650.0f * townScale(), 2.5f, 1500.0f);
         std::printf("  %s: CT spawn -> %s, CT mid -> %s\n", townMapName(town), way[0] >= 0 ? townCallout(entries[size_t(way[0])]) : "straight in",
                     way[1] >= 0 ? townCallout(entries[size_t(way[1])]) : "straight in");
@@ -1883,6 +1896,151 @@ void testHarbor() {
     setTownMap(0);
 }
 
+// Inferno (v0.29, owner: CS2's layout as accurately as possible): every bot spot standable and reachable, real bot
+// trips, spawns out of each other's sight, no holes, and the lanes' run times against CS2's.
+void testInferno() {
+    std::printf("inferno\n");
+    setTownMap(2);
+    const World w = buildTown();
+    NavGrid nav;
+    nav.build(townGrid(), w, townSpawn().pos);
+    if (std::ifstream("CRISP_DUMP").good()) {  // (debugging: the nav grid, one character a cell, north up)
+        const MapGrid& g = townGrid();
+        std::ofstream f("inferno_nav.txt");
+        f << g.x0 << " " << g.y0 << " " << g.w << " " << g.h << "\n";
+        for (int j = g.h - 1; j >= 0; --j) {
+            for (int i = 0; i < g.w; ++i) {
+                const Vec3 c = g.center(i, j);
+                f << (!g.walkable(i, j) ? '#' : nav.roamable(c) ? '.' : nav.standable(c) ? 'x' : 'o');
+            }
+            f << "\n";
+        }
+    }
+    std::printf("  %zu boxes, %s\n", w.solids.size(), townMapName(2));
+    CHECK(std::string(townCallout(townSpawn().pos)) == "T SPAWN", "callout %s", townCallout(townSpawn().pos));
+    auto P = [](const RetakeSpot& h) { return townPoint(h.x, h.y); };
+    struct Spot { const char* what; Vec3 p; };
+    std::vector<Spot> spots;
+    for (int side = 0; side < 2; ++side)
+        for (const Vec3& p : townTeamSpawns(side)) spots.push_back({side ? "CT spawn" : "T spawn", p});
+    for (const RetakeSite& site : townRetakeSites()) {
+        spots.push_back({"bomb", townPoint(site.bombX, site.bombY)});
+        for (const RetakeSpot& h : site.holds) spots.push_back({"retake hold", P(h)});
+        for (const RetakeSpot& h : site.entries) spots.push_back({"retake entry", P(h)});
+    }
+    for (int r = 0; r < kCtRoles; ++r)
+        for (const RetakeSpot& h : townCtSpots(r)) spots.push_back({"CT spot", P(h)});
+    for (const PrefireRoute& rt : townPrefireRoutes()) {
+        spots.push_back({rt.name, P(rt.start)});
+        for (const RetakeSpot& h : rt.bots) spots.push_back({rt.name, P(h)});
+    }
+    for (const PeekSpot& ps : townPeekSpots()) {
+        spots.push_back({"peek cover", ps.cover});
+        spots.push_back({"peek", ps.peek});
+    }
+    const TownTactics& tac = townTactics();
+    for (const TownWay& wy : tac.ways) spots.push_back({wy.name, townPoint(wy.stage[0], wy.stage[1])});
+    for (const auto& m : tac.mid) spots.push_back({"mid control", townPoint(m[0], m[1])});
+    for (const RetakeSpot& h : tac.pushes) spots.push_back({"push", P(h)});
+    int bad = 0, unreachable = 0;
+    std::vector<Vec3> path;
+    for (const Spot& sp : spots) {
+        // (+6: on a ramp the grid's floor height is a few units under the slope's surface; spawning drops you onto it)
+        const bool clear = sp.p.z > MapGrid::kNoFloor && w.boxFits(sp.p + Vec3{0, 0, 6.0f}, hullMins(), hullMaxs(false)) &&
+                           w.traceBox(sp.p + Vec3{0, 0, 6.0f}, sp.p - Vec3{0, 0, 12}, hullMins(), hullMaxs(false)).fraction < 1.0f;
+        const bool route = nav.findPath(townTeamSpawns(0)[0], sp.p, path);
+        if (!clear) std::printf("    %s (%.0f, %.0f) is not standing room\n", sp.what, double(sp.p.x), double(sp.p.y));
+        if (!route) std::printf("    %s (%.0f, %.0f) has no route from T spawn\n", sp.what, double(sp.p.x), double(sp.p.y));
+        bad += !clear;
+        unreachable += !route;
+    }
+    std::printf("  %zu bot spots: %d not standing room, %d unreachable\n", spots.size(), bad, unreachable);
+    CHECK(bad == 0 && unreachable == 0, "inferno spots: %d bad, %d unreachable", bad, unreachable);
+
+    // Real bots walk to the competitive spots from both spawns.
+    BotSenses sense;
+    sense.world = &w;
+    sense.nav = &nav;
+    int reached = 0, failed = 0;
+    for (int side = 0; side < 2; ++side)
+        for (const Spot& sp : spots) {
+            if (std::string(sp.what) != "retake hold" && std::string(sp.what) != "CT spot" && std::string(sp.what) != "stage") continue;
+            uint32_t rng = 7u;
+            Dummy d;
+            BotBrain b;
+            spawnDeathmatchBot(d, b, townTeamSpawns(side)[0], rng);
+            b.holdOnly = true;
+            b.goal = sp.p;
+            b.hasGoal = true;
+            for (int t = 0; t < kTickRate * 60 && b.hasGoal; ++t) {
+                sense.now = double(t) * kTickDt;
+                d.prevPos = d.pos;
+                updateDeathmatchBot(d, b, sense, rng);
+            }
+            if (length2d(d.pos - sp.p) < 130.0f) ++reached;
+            else {
+                ++failed;
+                std::printf("    from %s: stopped %.0f short of %s (%.0f, %.0f)\n", side ? "CT" : "T", double(length2d(d.pos - sp.p)),
+                            sp.what, double(sp.p.x), double(sp.p.y));
+            }
+        }
+    std::printf("  %d of %d bot trips reached their spot\n", reached, reached + failed);
+    CHECK(failed == 0, "%d inferno trips failed", failed);
+
+    // Nobody sees the other team's spawn when the round starts.
+    int seen = 0;
+    for (const Vec3& a : townTeamSpawns(0))
+        for (const Vec3& b : townTeamSpawns(1))
+            seen += w.traceRay(a + Vec3{0, 0, kStandEye}, b + Vec3{0, 0, kStandEye}).fraction >= 1.0f;
+    CHECK(seen == 0, "inferno: %d spawn pairs see each other", seen);
+
+    // No holes.
+    int escapes = 0, total = 0;
+    for (int k = 0; k < 400; ++k) {
+        const Vec3 eye = nav.roamPoint((float(k) + 0.5f) / 400.0f, false) + Vec3{0, 0, kStandEye};
+        for (int yi = 0; yi < 36; ++yi)
+            for (float pitch : {0.0f, 2.0f, 5.0f, 15.0f, 45.0f}) {
+                ++total;
+                const bool out = w.traceRay(eye, eye + anglesToForward(pitch, float(yi) * 10.0f) * 12000.0f).fraction >= 1.0f;
+                if (out)
+                    std::printf("    a ray from (%.0f, %.0f, %.0f) %s, yaw %d pitch %.0f, got out\n", double(eye.x), double(eye.y),
+                                double(eye.z), townCallout(eye), yi * 10, double(pitch));
+                escapes += out;
+            }
+    }
+    std::printf("  %d rays, %d got out of the map; spawns that see each other: %d\n", total, escapes, seen);
+    CHECK(escapes == 0, "inferno: %d rays escaped", escapes);
+
+    // The lanes at knife speed.
+    struct Leg { const char* a; Vec3 from; const char* b; Vec3 to; float minS, maxS; };
+    const RetakeSite &sa = townRetakeSites()[0], &sb = townRetakeSites()[1];
+    const Vec3 tSp = townSpawn().pos, ctSp = townTeamSpawns(1)[0], aSite = townPoint(sa.bombX, sa.bombY),
+               bSite = townPoint(sb.bombX, sb.bombY), banana = townPoint(tac.ways[2].stage[0], tac.ways[2].stage[1]),
+               topMid = P(townCtSpots(kCtMid)[0]), apps = P(tac.pushes[0]);
+    std::printf("  T spawn start (%.0f, %.0f, %.0f) standable %d roamable %d\n", double(tSp.x), double(tSp.y), double(tSp.z),
+                int(nav.standable(tSp)), int(nav.roamable(tSp)));
+    const Leg legs[] = {{"T spawn", tSp, "A site", aSite, 12, 26},  {"T spawn", tSp, "B site", bSite, 10, 24},
+                        {"T spawn", tSp, "banana", banana, 4, 14},  {"T spawn", tSp, "top mid", topMid, 6, 18},
+                        {"T spawn", tSp, "close apps", apps, 7, 20}, {"CT spawn", ctSp, "A site", aSite, 2, 10},
+                        {"CT spawn", ctSp, "B site", bSite, 4, 14},  {"CT spawn", ctSp, "top mid", topMid, 3, 12}};
+    for (const Leg& l : legs) {
+        const bool found = nav.findPath(l.from, l.to, path);
+        float dist = 0, secs = found ? runRoute(path, 250.0f, &dist, &w) : -1.0f;
+        std::printf("  %-8s -> %-12s %5.1f s  (%4.0f units)\n", l.a, l.b, double(secs), double(dist));
+        if (found && secs < 0) {
+            std::printf("    stuck at (%.0f, %.0f, %.0f) %s\n", double(g_stuckAt.x), double(g_stuckAt.y), double(g_stuckAt.z),
+                        townCallout(g_stuckAt));
+            for (const Box& b : w.solids)  // (debugging: what's in the way)
+                if (b.mins.x < g_stuckAt.x + 30 && b.maxs.x > g_stuckAt.x - 30 && b.mins.y < g_stuckAt.y + 30 &&
+                    b.maxs.y > g_stuckAt.y - 30 && b.maxs.z > g_stuckAt.z - 40 && b.mins.z < g_stuckAt.z + 72)
+                    std::printf("      box (%.0f %.0f %.0f)-(%.0f %.0f %.0f) slope %d low %.0f\n", double(b.mins.x), double(b.mins.y),
+                                double(b.mins.z), double(b.maxs.x), double(b.maxs.y), double(b.maxs.z), int(b.slope), double(b.lowZ));
+        }
+        CHECK(found && secs >= l.minS && secs <= l.maxS, "inferno %s -> %s: %.1f s", l.a, l.b, double(secs));
+    }
+    setTownMap(0);
+}
+
 // Bots use the whole arsenal: the team's buy call, each role's buy (AWPer, rifles by side, force guns), kept guns,
 // deathmatch picks, fire cadence by gun and damage falloff.
 void testBotArsenal() {
@@ -2145,6 +2303,7 @@ int main() {
     testRetakeSpread();
     testBotPreaim();
     testHarbor();
+    testInferno();
     testReplay();
     testBotCover();
     testBotsFightEachOther();
