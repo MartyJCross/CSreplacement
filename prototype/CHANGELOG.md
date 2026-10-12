@@ -3,6 +3,22 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.32: random spawns, plays by spawn, fairer bots up close
+
+- **Bots were too quick to counter up close** (owner): reactions are now a person's: 0.21-0.36 s for an expert (was
+  0.12-0.27), 0.26-0.46 hard, 0.32-0.62 normal, 0.50-0.90 easy; being pre-aimed takes a fifth off (was a third), never
+  under 0.18 s. Re-peeking an angle a bot has just seen you at costs it 70% of a reaction (it used to fire the moment
+  you showed). Someone crossing its view fast (up close, strafing) is harder for its hand to follow. Measured with a wide
+  peek at 300 units on an expert holding the angle: its first shot 0.13 -> 0.23 s, first hit 0.21 -> 0.37 s, kill
+  0.47 -> 0.61 s after it could first see you.
+- **Random spawns** (owner): ten spots a side (the map's five and five more found in each spawn area, out of sight of
+  mid and of the other team, as far a run from mid), shuffled every round, you included.
+- **Plays by where they spawn** (owner): the Ts nearest each group's way in make up that group, and the CTs nearest
+  each spot of the setup take it.
+- Online: protocol 11 (spawn spots), so both players need this version.
+- Tests: a peek and re-peek on a bot holding the angle per skill, every spawn spot checked like the old five, plays by
+  spawn walk less than the old split.
+
 ## v0.31: bots aim for real and check their angles
 
 - **Real aim** (owner: "actually aim"): a bot's bullets go along its crosshair. Its hand is a spring: it notices you,

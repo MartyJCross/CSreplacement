@@ -316,6 +316,13 @@ online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
   `focus`/`focusTime`); reaction in the sim (`react`, `seenFor`, noticing = 35% of it); `botReady` gates fire,
   `botShotDir` = crosshair + recoil not pulled down (`control`) + standing spread, `botNextShot` sprays close / bursts /
   taps. main.cpp uses it in the town modes 1-4 (`realAim`); practice's peek bots and the Lab keep the old model.
+  v0.32 (owner: "over tuned... hard to even counter" up close): reactions as a person's (expert 0.21-0.36, floor
+  0.18, pre-aimed x0.8), a re-peek after 0.2 s out of sight = 70% of a reaction (floor 0.15), `BotBrain::crossing`
+  (fast angular movement) cuts `lead` (x40/(40+c)) and grows the aim error; `testBotPeek` prints peek / re-peek times.
+- Spawns (v0.32, owner): `spawnSpots` (bots.cpp; `Game::spawnSpots`, built in loadMap: the five `townTeamSpawns` + up to
+  ten found in the spawn areas, checked out of mid's / the other side's sight and a 520-unit run from mid), shuffled
+  per round in startCompRound (you too; `netSpawn` indexes it). `assignNearest` puts Ts in the play's groups and CTs on
+  the setup's spots by where they spawned (`testSpawnGroups`; `testSpawnsOffMid` checks every spot).
   Bots never freeze (`pathTo` snaps unreachable goals, `nearestRoamable`; `backHome`); automated runs log STUCK.
 - Bot skill (`bots.h BotSkill`, `skillAt` blends levels): mate/enemy skill, `skill_variance` (0/1/2: ±0.5 or ±1 level
   per bot per match, `botSkillOf`). Reaction restarts only on losing sight; slower after a quiet spell (`surprise`).
@@ -382,7 +389,7 @@ Competitive: host runs `compTick`/bots/`netRoster`, sends `NetRound`, `NetMatch`
 `compClientTick`. Sounds are heard from `Game::earPos/earYaw` (the camera: your eyes or the spectated
 player's; set each frame). Spectating draws `Game::specVm` (their weapon, shots via `shotAt`, reloads, throws from
 `nades` owner); dead free-fly: no gun, Space/Ctrl up/down, your body frozen while spectating. The welcome carries map size and (game byte: bit 0 game, bits 1+ map) the town map.
-`kNetProtocol` (10, net.h) must match. Test with two copies in separate folders: `crisp --host` and `crisp --join 127.0.0.1`.
+`kNetProtocol` (11, net.h) must match. Test with two copies in separate folders: `crisp --host` and `crisp --join 127.0.0.1`.
 
 **v0.22 polish** (main.cpp unless noted): `matchCues` (Sfx RoundStart/BombPlanted/RoundWin/RoundLose), round banner +
 MVP (`Comp::mvp/mvpWhy/plantedBy/defusedBy`), match-end screen (phase 3, 15 s; `--rounds N` ends matches sooner for
@@ -393,10 +400,12 @@ tests), CS top bar (`kTeamColor`), kill feed icons (`FeedEntry` killer/victim/we
 in the VS by `uTime`), contact shadows (world.cpp: decor with `kMatShade`, alpha 30..37; blobs `makeBlobShadow` 46..49;
 `layOnRamp`, sheets in the VS), animation (Dummy `shotAt/reloadUntil/mag/busy/air/landedAt`; bots reload; net flags
 kNetReload/kNetDuck), lobby (`kMenuLobby`, `LobbyState g_lobby`, net kLobby/kTeamPick/kStart/kBye, `kNetLobbyOpen`
-in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
+in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10 (11 since v0.32: spawn spot indices).
 
 ## 8. Roadmap
 
+**Done in v0.32** (owner, 2026-10-12): bots fairer up close (human reactions, re-peeks), random spawns, plays by
+spawn.
 **Done in v0.31** (owner, 2026-10-12: bots "actually aim + look towards hotspots of the maps as they move"; chatter
 not wanted): real aim, checking spots, `--light`. Offered, not chosen: personalities, body language (crouch spray,
 shift-walk, flash stagger).

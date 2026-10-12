@@ -21,10 +21,11 @@ struct BotSkill {
 };
 inline const BotSkill& botSkill(int level) {
     static const BotSkill kSkills[4] = {
-        {0.45f, 0.40f, 1.80f, 1.30f, 32, 0.00f, 13.0f, 0.30f, 1.40f, 0.30f, "EASY"},
-        {0.25f, 0.30f, 1.00f, 1.00f, 26, 0.00f, 18.0f, 0.50f, 1.00f, 0.50f, "NORMAL"},  // how they've always played
-        {0.18f, 0.20f, 0.70f, 0.90f, 19, 0.20f, 24.0f, 0.65f, 0.70f, 0.70f, "HARD"},
-        {0.12f, 0.15f, 0.50f, 0.85f, 13, 0.40f, 30.0f, 0.80f, 0.50f, 0.85f, "EXPERT"},
+        // (v0.32, owner: too quick to counter up close: reactions as a person's, 0.21 s at the quickest)
+        {0.50f, 0.40f, 1.80f, 1.30f, 32, 0.00f, 13.0f, 0.30f, 1.40f, 0.30f, "EASY"},
+        {0.32f, 0.30f, 1.00f, 1.00f, 26, 0.00f, 18.0f, 0.50f, 1.00f, 0.50f, "NORMAL"},
+        {0.26f, 0.20f, 0.70f, 0.90f, 19, 0.20f, 24.0f, 0.65f, 0.70f, 0.70f, "HARD"},
+        {0.21f, 0.15f, 0.50f, 0.85f, 13, 0.40f, 30.0f, 0.80f, 0.50f, 0.85f, "EXPERT"},
     };
     return kSkills[level < 0 ? 0 : level > 3 ? 3 : level];
 }
@@ -112,6 +113,7 @@ struct BotBrain {
     // Reaction: drawn when it spots someone (`react`, seconds), `seenFor` counts from then (-1: nobody). It starts to
     // move its hand after a part of it (noticing) and fires once the whole has passed and it's on target.
     float react = 0, seenFor = -1;
+    float crossing = 0;   // how fast its target crosses its view (degrees a second): fast is hard to follow
     int aimTarget = -3;   // who it's aiming at (BotTarget::id)
     float spray = 0;      // shots into its spray (the recoil it's fighting), recovers like yours between bursts
     int burstLeft = -1;   // shots left in this burst (automatic guns: botNextShot)
@@ -173,6 +175,19 @@ constexpr float kBotRunSpeed = 215.0f;  // rifle run speed (estimates; a bot run
 
 
 float botRand(uint32_t& state);  // 0..1, xorshift (bots only: the player's shots never use randomness)
+
+// Competitive spawn spots (v0.32, owner: "make spawn positions random"): per side (0 T, 1 CT) the map's five
+// (townTeamSpawns) and more in the same spawn area, up to `count`, spread out (at least 90 units apart), with room
+// round them, on the spawn's level, out of sight of mid and of every spot of the other side, so a round still starts
+// unseen, and a run of at least 520 (real) units from mid like the map's own. The same on every machine for a map (online games send an index into it).
+void spawnSpots(const World& world, const NavGrid& nav, int count, std::vector<Vec3> out[2]);
+
+// Who goes where by where they stand (v0.32, owner: "bots should make plays together based off their spawns"): for
+// each point in `from`, the index of the goal in `goals` it takes (at most `room[k]` take goal k), or what `taken`
+// already says (-1: free). Nearest first, relative to its other choices: by how much shorter its route there is than
+// its average route, so the ones spawned on a way's side take that way.
+std::vector<int> assignNearest(const NavGrid& nav, const std::vector<Vec3>& from, const std::vector<Vec3>& goals,
+                               std::vector<int> room, std::vector<int> taken);
 
 // A random standing spot anywhere on the walkable map: at least `minDist` from every watcher and out of
 // their sight, and not on top of an occupied spot. Falls back to the best of the spots tried.

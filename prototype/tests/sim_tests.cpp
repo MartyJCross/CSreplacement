@@ -1437,8 +1437,8 @@ bool midArea(const char* name) {
 // Spawns in their own area (owner, v0.24): on both maps, at every Dust size, nobody in mid can see any team spawn
 // point, and getting to mid from one is a run (the walls between spawn and mid, the dog-leg paths).
 void testSpawnsOffMid() {
-    std::printf("spawns off mid\n");
-    int seen = 0;
+    std::printf("spawns off mid (every competitive spawn spot, v0.32: ten a side, shuffled each round)\n");
+    int seen = 0, few = 0, cramped = 0, facing = 0;
     float closest = 1e9f;
     for (int town = 0; town < kTownMaps; ++town)
         for (float sc : {0.5f, 0.6f, 0.8f, 0.95f, 1.0f}) {
@@ -1454,8 +1454,24 @@ void testSpawnsOffMid() {
                 for (int i = 0; i < m.w; ++i)
                     if (m.walkable(i, j) && midArea(townCallout(m.center(i, j)))) mid.push_back(m.center(i, j));
             std::vector<Vec3> path;
+            std::vector<Vec3> spots[2];
+            spawnSpots(w, nav, 10, spots);
+            for (int side = 0; side < 2; ++side) {
+                few += spots[side].size() < 7 && (town != 0 || sc >= 0.8f);  // (the game plays Dust at 90%)
+                for (size_t a = 0; a < spots[side].size(); ++a) {
+                    if (a >= 5) {  // (the new ones: the map's five are hand-placed)
+                        cramped += !nav.standable(spots[side][a]);
+                        for (size_t b = 0; b < a; ++b) cramped += length2d(spots[side][a] - spots[side][b]) < 89.0f;
+                    }
+                    if (side == 0)
+                        for (const Vec3& o : spots[1])
+                            facing += w.traceRay(spots[0][a] + Vec3{0, 0, 64}, o + Vec3{0, 0, 64}).fraction >= 1.0f;
+                }
+            }
+            if (town != 0 || sc == 0.95f)
+                std::printf("  %s: %zu T spawn spots, %zu CT\n", townMapName(town), spots[0].size(), spots[1].size());
             for (int side = 0; side < 2; ++side)
-                for (const Vec3& sp : townTeamSpawns(side)) {
+                for (const Vec3& sp : spots[side]) {
                     for (const Vec3& c : mid)
                         if (w.traceRay(c + Vec3{0, 0, 64}, sp + Vec3{0, 0, 64}).fraction >= 1.0f) {
                             ++seen;
@@ -1478,7 +1494,10 @@ void testSpawnsOffMid() {
     setDustScale(0.6f);
     std::printf("  team spawns seen from mid: %d; the shortest run from a spawn to mid: %.0f units (real size)\n", seen,
                 double(closest));
+    std::printf("  maps short of seven spots a side: %d; spots without room or too close together: %d; T and CT spots that see each other: %d\n",
+                few, cramped, facing);
     CHECK(seen == 0 && closest > 500.0f, "spawns must be out of mid's sight and a run away (%d seen, %.0f)", seen, double(closest));
+    CHECK(few == 0 && cramped == 0 && facing == 0, "few %d cramped %d facing %d", few, cramped, facing);
 }
 
 // The Ts' ways onto the sites (owner, v0.26: short, lowers and mid to B are plays now that mid is open): every
@@ -1779,6 +1798,101 @@ DuelResult duel(int level, float dist, int move, bool oldModel, int trials) {
     return r;
 }
 
+// Peeking a bot that holds the angle (v0.32, owner: "their reaction time and adjustment speed at close range is
+// hard to even counter... especially when they've seen you at the angle and are holding it"). The bot is aimed at
+// the corner; you swing out from behind it at full speed and stop (a wide peek), at `dist`. `repeek`: you showed
+// yourself for 0.3 s first, stepped back behind the corner for 0.4 s and peek again. Times from the moment it could first see you:
+// its first shot, its first hit, and the kill (AK, you in kevlar + helmet; 3 s at most).
+struct PeekResult { float shot = 0, hit = 0, kill = 0; };
+
+PeekResult peekBot(int level, float dist, bool repeek, int trials) {
+    World w;
+    Box wall;
+    wall.mins = {dist - 60.0f, 30.0f, 0};
+    wall.maxs = {dist - 20.0f, 600.0f, 200.0f};
+    w.solids.push_back(wall);
+    const BotSkill sk = botSkill(level);
+    const WeaponDef& gd = weaponDef(kWRifle);
+    PeekResult r;
+    float shotSum = 0, hitSum = 0, killSum = 0;
+    int shots = 0, hits = 0;
+    for (int trial = 0; trial < trials; ++trial) {
+        uint32_t rng = 777u + uint32_t(trial) * 7919u + uint32_t(level) * 31u;
+        Dummy d;
+        BotBrain b;
+        spawnDeathmatchBot(d, b, Vec3{0, 0, 0}, rng);
+        d.yaw = d.prevYaw = 0.0f;  // on the corner
+        b.frozen = true;
+        b.state = 1;
+        BotSenses s;
+        s.world = &w;
+        s.nav = &dustNav();
+        s.playerUp = true;
+        s.skill = sk;
+        // Your sideways position over time: just behind the corner at 50, swing out to -60 at 250 u/s and stop; a
+        // re-peek shows you for 0.3 s first, steps back behind the corner and waits 0.4 s.
+        const float out = 0.44f;  // seconds from 50 to -60
+        const float start = repeek ? out + 0.3f + out + 0.4f : 0.0f;
+        auto side = [&](float t) {
+            if (repeek && t < start) {
+                if (t < out) return 50.0f - 250.0f * t;
+                if (t < out + 0.3f) return -60.0f;
+                if (t < out + 0.3f + out) return -60.0f + 250.0f * (t - out - 0.3f);
+                return 50.0f;
+            }
+            const float u = t - start;
+            return u < out ? 50.0f - 250.0f * u : -60.0f;
+        };
+        float cooldown = 0, dealt = 0, seenAt = -1, firstShot = -1, firstHit = -1;
+        for (int t = 0; t < kTickRate * 6; ++t) {
+            const float now = float(t) * float(kTickDt);
+            s.now = now;
+            const Vec3 you{dist, side(now), 0};
+            s.playerOrigin = you;
+            s.playerEye = you + Vec3{0, 0, kStandEye};
+            d.prevPos = d.pos;
+            updateDeathmatchBot(d, b, s, rng);
+            cooldown -= float(kTickDt);
+            const Vec3 eye = d.pos + Vec3{0, 0, dummyEyeZ()};
+            if (now >= start && seenAt < 0 && w.traceRay(eye, s.playerEye).fraction >= 1.0f) seenAt = now;
+            if (!botReady(b) || cooldown > 0) continue;
+            const float r1 = botRand(rng), r2 = botRand(rng);
+            const Vec3 dir = botShotDir(d, b, gd, sk, r1, r2);
+            cooldown = botNextShot(kWRifle, dist, b, botRand(rng), sk.fireScale);
+            d.shotAt = now;
+            if (seenAt < 0) continue;  // (the first look of a re-peek: not counted)
+            if (firstShot < 0) firstShot = now - seenAt;
+            float best = w.traceRay(eye, eye + dir * 5000.0f).fraction * 5000.0f, tt;
+            int hit = 0;
+            if (rayHitsBox(eye, dir, best, you + Vec3{-13, -13, 0}, you + Vec3{13, 13, kStandHeight - 10}, tt) && tt >= 0) { best = tt; hit = 1; }
+            if (rayHitsBox(eye, dir, best, you + Vec3{-5, -5, kStandHeight - 10}, you + Vec3{5, 5, kStandHeight}, tt) && tt >= 0) { best = tt; hit = 2; }
+            if (!hit) continue;
+            if (firstHit < 0) firstHit = now - seenAt;
+            const HitGroup grp = hit == 2 ? kHead : kChest;
+            dealt += armoredDamage(damageAt(gd, best) * hitGroupDamageScale(grp), grp, 100.0f, true, gd.armorRatio);
+            if (dealt >= 100.0f) break;
+        }
+        if (firstShot >= 0) { shotSum += firstShot; ++shots; }
+        if (firstHit >= 0) { hitSum += firstHit; ++hits; }
+        killSum += dealt >= 100.0f && seenAt >= 0 ? std::min(3.0f, float(s.now) - seenAt) : 3.0f;
+    }
+    r.shot = shots ? shotSum / float(shots) : 9.0f;
+    r.hit = hits ? hitSum / float(hits) : 9.0f;
+    r.kill = killSum / float(trials);
+    return r;
+}
+
+void testBotPeek() {
+    std::printf("peeking a bot that holds the angle (times from when it can first see you)\n");
+    for (int level = 0; level < 4; ++level)
+        for (float dist : {300.0f, 800.0f}) {
+            const PeekResult p = peekBot(level, dist, false, 60), q = peekBot(level, dist, true, 60);
+            std::printf("  %-6s %4.0f u: first shot %.2f s, first hit %.2f s, kill %.2f s   re-peek: %.2f, %.2f, %.2f\n",
+                        botSkill(level).name, double(dist), double(p.shot), double(p.hit), double(p.kill), double(q.shot),
+                        double(q.hit), double(q.kill));
+        }
+}
+
 void testBotAim() {
     std::printf("bots aim for real (an AK duel in the open, %s)\n", "you in kevlar + helmet, 3 s at most");
     const char* moves[3] = {"still", "ADAD", "running"};
@@ -1927,6 +2041,49 @@ void testBotChecks() {
     std::printf("  two walking together: on the same angle %.0f%% of the time (not sharing: %.0f%%)\n",
                 double(apart.same * 100), double(together.same * 100));
     CHECK(apart.same < 0.3f && apart.same < together.same, "%.2f vs %.2f", double(apart.same), double(together.same));
+}
+
+// Plays by where they spawned (v0.32): on Dust's T spawn, four Ts from random spots split two and two between long
+// and tunnels; the ones assigned by where they stand walk less than the old split (in the order they were listed).
+void testSpawnGroups() {
+    std::printf("plays by where the bots spawn\n");
+    const NavGrid& nav = dustNav();
+    std::vector<Vec3> spots[2];
+    spawnSpots(dust(), nav, 10, spots);
+    const TownTactics& tac = townTactics();
+    std::vector<Vec3> goals;
+    for (const TownWay& w : tac.ways)
+        if (std::string(w.name) == "LONG" || std::string(w.name) == "TUNNELS") goals.push_back(dpt(w.stage[0], w.stage[1]));
+    CHECK(goals.size() == 2, "%zu", goals.size());
+    if (goals.size() != 2) return;
+    std::vector<Vec3> path;
+    auto len = [&](const Vec3& a, const Vec3& b) {
+        if (!nav.findPath(a, b, path)) return 1e6f;
+        float l = 0;
+        for (size_t k = 1; k < path.size(); ++k) l += length2d(path[k] - path[k - 1]);
+        return l;
+    };
+    uint32_t rng = 21u;
+    float byOrder = 0, bySpawn = 0;
+    int better = 0, rounds = 0;
+    for (int round = 0; round < 40; ++round) {
+        std::vector<Vec3> from = spots[0];
+        for (size_t k = from.size(); k > 1; --k) std::swap(from[k - 1], from[size_t(botRand(rng) * float(k)) % k]);
+        from.resize(4);
+        const std::vector<int> got = assignNearest(nav, from, goals, {2, 2}, {});
+        float a = 0, b = 0;
+        for (size_t k = 0; k < from.size(); ++k) {
+            a += len(from[k], goals[k % 2]);
+            b += len(from[k], goals[size_t(got[k])]);
+        }
+        byOrder += a;
+        bySpawn += b;
+        better += b <= a + 1.0f;
+        ++rounds;
+    }
+    std::printf("  four Ts, two to long and two to tunnels, 40 random spawns: %.0f units walked a round (in order: %.0f)\n",
+                double(bySpawn / float(rounds)), double(byOrder / float(rounds)));
+    CHECK(better == rounds && bySpawn < byOrder, "%d of %d, %.0f vs %.0f", better, rounds, double(bySpawn), double(byOrder));
 }
 
 void testBotFire() {
@@ -2622,7 +2779,9 @@ int main() {
     testRetakeSpread();
     testBotPreaim();
     testBotAim();
+    testBotPeek();
     testBotChecks();
+    testSpawnGroups();
     testHarbor();
     testInferno();
     testReplay();

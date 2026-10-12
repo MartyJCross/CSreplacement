@@ -310,6 +310,8 @@ struct Game {
     // (NavGrid::hidingSpots); per side and angle, which bot covers it (teammates split the angles).
     size_t keyAngles[2] = {0, 0}, keyAllAngles = 0;
     std::vector<SpotClaim> looked[2];
+    // Competitive spawn spots per side (spawnSpots: the map's five and more), shuffled every round (v0.32).
+    std::vector<Vec3> spawnSpots[2];
     uint32_t nextDropId = 1;
 
     // Map + bot AI (Dust: hide behind cover, peek, hold, return).
@@ -2010,7 +2012,16 @@ void startCompRound(Game& g) {
     g.spec = -1;
     if (netHost(g)) netRoster(g);
     const int youSide = c.youTeam;
-    g.spawn = townTeamSpawns(youSide)[0];
+    // Random spawns (v0.32, owner): each side's spots shuffled every round, you on one of them like everyone else.
+    for (int side = 0; side < 2; ++side)
+        if (g.spawnSpots[side].empty()) g.spawnSpots[side] = townTeamSpawns(side);
+    std::vector<int> spotOrder2[2];
+    for (int side = 0; side < 2; ++side) {
+        const size_t n = g.spawnSpots[side].size();
+        for (size_t k = 0; k < n; ++k) spotOrder2[side].push_back(int(k));
+        for (size_t k = n; k > 1; --k) std::swap(spotOrder2[side][k - 1], spotOrder2[side][size_t(rnd(g) * float(k)) % k]);
+    }
+    g.spawn = g.spawnSpots[youSide][size_t(spotOrder2[youSide][0])];
     g.spawnYaw = youSide == 0 ? 90.0f : -90.0f;
     g.hp = 100;
     g.deadUntil = -1;
@@ -2032,8 +2043,9 @@ void startCompRound(Game& g) {
         const float armor = died ? 0.0f : d.armor;
         const bool helmet = !died && d.helmet;
         if (died) g.comp.botGun[i] = kWPistol;
-        const int spot = slot[side]++;
-        const Vec3 sp = townTeamSpawns(side)[size_t(spot) % 5];
+        const std::vector<int>& order = spotOrder2[side];
+        const int spot = order[size_t(slot[side]++) % order.size()];
+        const Vec3 sp = g.spawnSpots[side][size_t(spot)];
         if (!isBot(g, i)) {  // another player: alive at their spawn (their game puts them there and keeps their kit)
             g.netSpawn[i] = spot;
             d = Dummy{};
@@ -2152,22 +2164,67 @@ void startCompRound(Game& g) {
         for (size_t k = n; k > 1; --k) std::swap(spotOrder[r][k - 1], spotOrder[r][size_t(rnd(g) * float(k)) % k]);
     }
     int roleUsed[kCtRoles] = {};
-    int tCount = 0, ctCount = 0, fakers = 0;
     std::vector<int> inGroup(c.stages.size(), 0);
     std::vector<int> ctRole(g.dummies.size(), -1);
     std::vector<RetakeSpot> ctSpot(g.dummies.size(), RetakeSpot{0, 0, 0, 0});
+    // Who goes where by where they spawned (v0.32, owner: "bots should make plays together based off their
+    // spawns"): the Ts nearest a group's staging point make up that group (the carrier stays with the main one), and
+    // the CTs nearest each spot of the setup take it. Nearest relative to the bot's other choices: by how much
+    // shorter its run there is than its average run.
+    std::vector<int> tBots, ctBots;
+    for (size_t i = 0; i < g.dummies.size(); ++i)
+        if (isBot(g, i) && g.dummies[i].alive()) (g.team[i] == 0 ? tBots : ctBots).push_back(int(i));
+    // Each bot in `bots` to one of `goals` (`room[k]` bots at most), nearest first (assignNearest); `taken` (by dummy
+    // index, -1 free) presets some and gets the answers.
+    auto byNearest = [&](const std::vector<int>& bots, const std::vector<Vec3>& goals, const std::vector<int>& room,
+                         std::vector<int>& taken) {
+        std::vector<Vec3> from;
+        std::vector<int> preset;
+        for (int b : bots) {
+            from.push_back(g.dummies[size_t(b)].pos);
+            preset.push_back(taken[size_t(b)]);
+        }
+        const std::vector<int> got = assignNearest(g.nav, from, goals, room, preset);
+        for (size_t k = 0; k < bots.size(); ++k) taken[size_t(bots[k])] = got[k];
+    };
+    std::vector<int> groupOf(g.dummies.size(), -1);
+    {
+        const int groups = int(c.stages.size()), n = int(tBots.size());
+        std::vector<int> room(size_t(groups), 0);
+        if (play == kPlayFake && groups > 1) {  // two fakers, the rest on the real way
+            room[1] = std::min(2, std::max(0, n - 1));
+            room[0] = n - room[1];
+        } else {
+            for (int k = 0; k < n; ++k) room[size_t(k % groups)]++;
+        }
+        if (c.carrier >= 0 && g.team[size_t(c.carrier)] == 0 && isBot(g, size_t(c.carrier)) && room[0] > 0) {
+            groupOf[size_t(c.carrier)] = 0;
+            --room[0];
+        }
+        byNearest(tBots, c.stages, room, groupOf);
+    }
+    std::vector<int> ctPick(g.dummies.size(), -1);
+    std::vector<int> pickRole;
+    std::vector<RetakeSpot> pickSpot;
+    {
+        std::vector<Vec3> goals;
+        for (size_t k = 0; k < ctBots.size(); ++k) {
+            const int role = setup[k % 5];
+            const std::vector<RetakeSpot>& spots = townCtSpots(role);
+            const RetakeSpot& h = spots[size_t(spotOrder[role][size_t(roleUsed[role]++) % spots.size()])];
+            pickRole.push_back(role);
+            pickSpot.push_back(h);
+            goals.push_back(townPoint(h.x, h.y));
+        }
+        byNearest(ctBots, goals, std::vector<int>(goals.size(), 1), ctPick);
+    }
     for (size_t i = 0; i < g.dummies.size(); ++i) {
         BotBrain& b = g.bots[i];
         Dummy& d = g.dummies[i];
         if (!isBot(g, i) || !d.alive()) continue;
         if (g.team[i] == 0) {
-            // Its group: the carrier with the main one; the rest spread over the play's groups (a fake: two fakers).
-            int group = 0;
-            if (int(i) != c.carrier && c.stages.size() > 1) {
-                if (play == kPlayFake) group = fakers < 2 ? (++fakers, 1) : 0;
-                else group = (tCount + 1) % int(c.stages.size());
-            }
-            ++tCount;
+            // Its group: the carrier with the main one; the rest by where they spawned (above; a fake: two fakers).
+            const int group = std::clamp(groupOf[i], 0, int(c.stages.size()) - 1);
             c.stageOf[i] = group;
             c.faker[i] = play == kPlayFake && group == 1;
             const int k = inGroup[size_t(group)]++;
@@ -2175,9 +2232,9 @@ void startCompRound(Game& g) {
             Vec3 p = base + Vec3{float(k % 3 - 1) * 48.0f, float(k / 3) * 48.0f, 0};
             b.goal = g.nav.standable(p) ? p : base;
         } else {
-            const int role = setup[ctCount++ % 5];
-            const std::vector<RetakeSpot>& spots = townCtSpots(role);
-            const RetakeSpot& h = spots[size_t(spotOrder[role][size_t(roleUsed[role]++) % spots.size()])];
+            const size_t mine = size_t(std::max(0, ctPick[i])) % std::max<size_t>(1, pickRole.size());
+            const int role = pickRole[mine];
+            const RetakeSpot& h = pickSpot[mine];
             ctRole[i] = role;
             ctSpot[i] = h;
             b.goal = townPoint(h.x, h.y);
@@ -3579,7 +3636,8 @@ void netCompRoundStart(Game& g, const NetRound& r) {
     for (Game::Stats& st : g.botStats) st.roundKills = 0;
     g.you.roundKills = 0;
     const int side = c.youTeam;
-    g.spawn = townTeamSpawns(side)[size_t(r.spawn[me]) % 5];
+    const std::vector<Vec3>& spots = g.spawnSpots[side].empty() ? townTeamSpawns(side) : g.spawnSpots[side];
+    g.spawn = spots[size_t(r.spawn[me]) % spots.size()];
     g.spawnYaw = side == 0 ? 90.0f : -90.0f;
     if (playing) {
         g.noclip = false;
@@ -3764,6 +3822,8 @@ void loadMap(Game& g, Renderer& r, int id) {
         }
     }
     for (int side = 0; side < 2; ++side) g.looked[side].assign(g.angles[side].size(), SpotClaim{});
+    for (auto& s : g.spawnSpots) s.clear();
+    if (id == 1) spawnSpots(g.world, g.nav, 10, g.spawnSpots);
     g.spottedUntil.assign(g.dummies.size(), -1.0);
     if (id == 1)  // particles land on Dust's floors (which aren't all at height 0)
         g.fx.setGround([](float x, float y) {

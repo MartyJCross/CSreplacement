@@ -1,6 +1,7 @@
 #include "bots.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include "movement.h"
 
 namespace {
@@ -308,6 +309,109 @@ Vec3 randomSpawnPoint(const NavGrid& nav, const World& world, const std::vector<
     return best;
 }
 
+void spawnSpots(const World& world, const NavGrid& nav, int count, std::vector<Vec3> out[2]) {
+    const MapGrid& m = townGrid();
+    std::vector<Vec3> mid;  // every mid cell, at eye height
+    for (int j = 0; j < m.h; ++j)
+        for (int i = 0; i < m.w; ++i)
+            if (m.walkable(i, j) && townMidArea(m.center(i, j))) mid.push_back(m.center(i, j) + Vec3{0, 0, 64});
+    for (int side = 0; side < 2; ++side) out[side] = townTeamSpawns(side);
+    for (int side = 0; side < 2; ++side) {
+        std::vector<Vec3>& spots = out[side];
+        const std::vector<Vec3> base = spots;
+        // Candidates: roomy cells in the spawn's own areas, near its five and on their level.
+        std::vector<Vec3> cand;
+        for (int j = 0; j < m.h; ++j)
+            for (int i = 0; i < m.w; ++i) {
+                const Vec3 c = m.center(i, j);
+                if (!nav.roamable(c)) continue;
+                bool area = false, near = false;
+                for (const Vec3& b : base) {
+                    area = area || std::strcmp(townCallout(c), townCallout(b)) == 0;
+                    near = near || (length2d(c - b) < 400.0f && std::fabs(c.z - b.z) < 40.0f);
+                }
+                if (!area || !near) continue;
+                bool roomy = true;
+                for (const Vec3& o : {Vec3{24, 0, 0}, Vec3{-24, 0, 0}, Vec3{0, 24, 0}, Vec3{0, -24, 0}})
+                    roomy = roomy && nav.standable(c + o);
+                if (roomy) cand.push_back(c);
+            }
+        // Spread them: each time the candidate farthest from the spots so far, if nobody can see it from mid or the
+        // other side's spawn (checked only for the one picked: most never are).
+        std::vector<char> bad(cand.size(), 0);
+        while (int(spots.size()) < count) {
+            int best = -1;
+            float bestGap = 90.0f;
+            for (size_t k = 0; k < cand.size(); ++k) {
+                if (bad[k]) continue;
+                float gap = 1e30f;
+                for (const Vec3& p : spots) gap = std::min(gap, length2d(cand[k] - p));
+                if (gap >= bestGap) { bestGap = gap; best = int(k); }
+            }
+            if (best < 0) break;
+            const Vec3 eye = cand[size_t(best)] + Vec3{0, 0, 64};
+            bool seen = false;
+            for (const Vec3& p : mid)
+                if (world.traceRay(p, eye).fraction >= 1.0f) { seen = true; break; }
+            for (const Vec3& p : out[1 - side])
+                if (!seen && world.traceRay(p + Vec3{0, 0, 64}, eye).fraction >= 1.0f) seen = true;
+            if (!seen) {  // a run to mid at least as long as the map's own spots have (to the mid cells nearest it)
+                std::pair<float, size_t> nearMid[12];
+                size_t n = 0;
+                for (size_t k = 0; k < mid.size(); ++k) {
+                    const std::pair<float, size_t> e{length2d(mid[k] - eye), k};
+                    if (n < 12) nearMid[n++] = e;
+                    else {
+                        size_t worst = 0;
+                        for (size_t q = 1; q < n; ++q)
+                            if (nearMid[q].first > nearMid[worst].first) worst = q;
+                        if (e.first < nearMid[worst].first) nearMid[worst] = e;
+                    }
+                }
+                static std::vector<Vec3> route;  // (sim thread only)
+                for (size_t q = 0; q < n && !seen; ++q) {
+                    if (!nav.findPath(cand[size_t(best)], mid[nearMid[q].second] - Vec3{0, 0, 64}, route)) continue;
+                    float len = 0;
+                    for (size_t z = 1; z < route.size(); ++z) len += length2d(route[z] - route[z - 1]);
+                    seen = len < 520.0f * townScale();
+                }
+            }
+            if (seen) bad[size_t(best)] = 1;
+            else spots.push_back(cand[size_t(best)]);
+        }
+    }
+}
+
+std::vector<int> assignNearest(const NavGrid& nav, const std::vector<Vec3>& from, const std::vector<Vec3>& goals,
+                               std::vector<int> room, std::vector<int> taken) {
+    taken.resize(from.size(), -1);
+    room.resize(goals.size(), 0);
+    static std::vector<Vec3> route;  // (sim thread only)
+    auto routeLen = [&](const Vec3& a, const Vec3& b) {
+        if (!nav.findPath(a, b, route)) return 1e6f;
+        float len = 0;
+        for (size_t k = 1; k < route.size(); ++k) len += length2d(route[k] - route[k - 1]);
+        return len;
+    };
+    struct Pair { float pref; int who, goal; };
+    std::vector<Pair> pairs;
+    for (size_t w = 0; w < from.size(); ++w) {
+        if (taken[w] >= 0) continue;
+        std::vector<float> len(goals.size());
+        float mean = 0;
+        for (size_t k = 0; k < goals.size(); ++k) mean += (len[k] = routeLen(from[w], goals[k]));
+        mean /= float(std::max<size_t>(1, goals.size()));
+        for (size_t k = 0; k < goals.size(); ++k) pairs.push_back({len[k] - mean, int(w), int(k)});
+    }
+    std::stable_sort(pairs.begin(), pairs.end(), [](const Pair& x, const Pair& y) { return x.pref < y.pref; });
+    for (const Pair& p : pairs)
+        if (taken[size_t(p.who)] < 0 && room[size_t(p.goal)] > 0) {
+            taken[size_t(p.who)] = p.goal;
+            --room[size_t(p.goal)];
+        }
+    return taken;
+}
+
 void spawnDeathmatchBot(Dummy& d, BotBrain& b, const Vec3& at, uint32_t& rng) {
     d.pos = d.prevPos = at;
     d.yaw = d.prevYaw = botRand(rng) * 360.0f - 180.0f;
@@ -352,6 +456,8 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
     // In a hurry (the bomb carrier, the clock running out): don't stop for someone far away, keep going.
     if (chosen && b.urgent && length2d(chosen->origin - d.pos) > 1000.0f) chosen = nullptr;
     if (chosen && !b.sees) b.sightOff = std::fabs(wrapDeg(yawTo(d.pos, chosen->origin) - d.yaw));  // (before it turns)
+    const bool wasSeeing = b.sees;
+    const double sawBefore = b.lastSawAt;
     b.sees = chosen != nullptr;
     b.target = chosen ? chosen->id : -2;
     const float toYaw = chosen ? yawTo(d.pos, chosen->origin) : yawTo(d.pos, b.lastSeen);
@@ -396,9 +502,15 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
         if (b.seenFor < 0) {
             // Spotted after a while without anyone in sight: a human-ish reaction time, a bit slower after a quiet
             // spell (surprise); someone appearing near where it was already aiming (crosshair placement, owner v0.26)
-            // gets 65% of it, fading out by 30 degrees off.
-            b.react = (sk.reactMin + botRand(rng) * sk.reactRange + 0.2f * b.surprise) *
-                      (0.65f + 0.35f * std::clamp((b.sightOff - 10.0f) / 20.0f, 0.0f, 1.0f));
+            // gets 80% of it (v0.32: was 65%), fading out by 30 degrees off; never under 0.18 s.
+            b.react = std::max(0.18f, (sk.reactMin + botRand(rng) * sk.reactRange + 0.2f * b.surprise) *
+                                          (0.8f + 0.2f * std::clamp((b.sightOff - 10.0f) / 20.0f, 0.0f, 1.0f)));
+            b.seenFor = 0;
+            b.burstLeft = -1;
+        } else if (!wasSeeing && s.now - sawBefore >= 0.2) {
+            // Back in sight after ducking out (a re-peek, v0.32): it's aimed where they went, but it still has to
+            // see them and pull the trigger - 70% of a reaction, at least 0.15 s (it used to fire the moment they showed).
+            b.react = std::max(0.15f, 0.7f * (sk.reactMin + botRand(rng) * sk.reactRange));
             b.seenFor = 0;
             b.burstLeft = -1;
         } else {
@@ -423,7 +535,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
         // Aim error: a target point that wanders round where it means to aim (picked again every 0.15-0.3 s, eased
         // towards), 3x the skill's error when it has just found them, settling to 1x as it tracks (focus); fast
         // movement across its view slows the settling.
-        const float spread = 0.8f * sk.aimError * (1.0f + 2.0f * (1.0f - b.focus));
+        const float spread = 0.8f * sk.aimError * (1.0f + 2.0f * (1.0f - b.focus)) * (1.0f + b.crossing / 60.0f);
         if ((b.errTimer -= dt) <= 0) {
             b.aimErrTo = {(botRand(rng) * 2.0f - 1.0f) * spread, (botRand(rng) * 2.0f - 1.0f) * spread * 0.75f, 0};
             b.errTimer = 0.15f + botRand(rng) * 0.15f;
@@ -642,9 +754,13 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
         wantYaw = seenYaw + b.aimErr.x;
         wantPitch = seenPitch + b.aimErr.y;
         const float crossing = std::sqrt(yawRate * yawRate + pitchRate * pitchRate);
-        if (b.sees) b.focus = std::min(1.0f, b.focus + dt / sk.focusTime / (1.0f + crossing / 40.0f));
-        steer(d.yaw, b.yawVel, wantYaw, yawRate * sk.lead, sk.flick, 0.7f, 30.0f * sk.flick);
-        steer(d.pitch, b.pitchVel, wantPitch, pitchRate * sk.lead, sk.flick, 0.7f, 30.0f * sk.flick);
+        b.crossing += (crossing - b.crossing) * (1.0f - std::exp(-dt / 0.1f));  // (smoothed: a step isn't a flick)
+        if (b.sees) b.focus = std::min(1.0f, b.focus + dt / sk.focusTime / (1.0f + b.crossing / 40.0f));
+        // Following someone across its view: the faster they cross it (up close, strafing), the less of it its hand
+        // keeps up with (v0.32).
+        const float lead = sk.lead * 40.0f / (40.0f + b.crossing);
+        steer(d.yaw, b.yawVel, wantYaw, yawRate * lead, sk.flick, 0.7f, 30.0f * sk.flick);
+        steer(d.pitch, b.pitchVel, wantPitch, pitchRate * lead, sk.flick, 0.7f, 30.0f * sk.flick);
     } else {
         if (b.sees) {  // noticing: its hand carries on for a moment, then stops
             wantYaw = d.yaw;
