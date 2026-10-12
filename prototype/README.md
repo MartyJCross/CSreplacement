@@ -103,25 +103,30 @@ In practice mode the 4 bots peek from cover: the long corner, mid doors, the B a
 
 ## Inferno (every mode: MAP INFERNO)
 
-**CS2's Inferno**, as accurate as the box world allows (a copy for personal testing, like Dust): its real size, its
-real coordinates and heights, its callouts. T spawn in the west, CT spawn in the north-east:
-- **B:** out of T spawn up the **T ramp** to **bottom mid** and up **banana** past the **car** onto **B site** (the
-  **fountain** with its statue in the middle, box stacks, **dark** and **coffins** at the back). The CTs come from
-  **CT** and **construction**.
-- **Mid and A:** **mid** runs east from bottom mid to **top mid**, where it splits: **A short** south past **boiler**
-  onto the site, **arch** north onto **A long**. **Second mid** runs below it, with the **underpass** between them.
-- **Apartments:** **T apps** (upstairs, over the alley) near T spawn; **CT apps** up its stairs from second mid,
-  **close apps** along to the **balcony** over **pit**. **A site** has its boxes, **graveyard** beside it, **library**
-  off A long towards **CT spawn**, and **speedway** from arch back to B.
-- Plaster houses with terracotta roofs, shutters and window boxes, cobbled streets, a summer afternoon's cicadas.
+**CS2's Inferno, built by hand** (a copy for personal testing, like Dust): its real size and coordinates, its rooms,
+streets, stairs and doorways laid out one by one on a fine 16-unit grid (thin walls, doorways their real width),
+each placed and given its height against CS2's radar and measurements. T spawn in the west, CT spawn north-east:
+- **B:** out of T spawn up the **T ramp** to **bottom mid** and up **banana** (the **logs** at the bottom,
+  **sandbags** half way, the **car** at the top) onto **B site**: red brick round the **fountain** and its statue, box
+  stacks you can climb, **dark** and **coffins** at the back, the curved walls of the **apse**. The CTs come from **CT**
+  and **construction**.
+- **Mid and A:** **mid** runs east from bottom mid to **top mid**, where it splits: **A short** south onto the site,
+  **arch** north onto **A long**. **Second mid** loops round the block below it; the **underpass** runs under bottom mid
+  (down its stairwell) to the alley.
+- **Apartments:** **T apps** up its stairs from the T ramp, with the **bridge** over the alley (you can cross it and
+  walk under it); **CT apps** up its stairs from second mid, **boiler** down to top mid, **close apps** along to the
+  **balcony**: drop off it into **pit** and A. **A site** is raised, with its boxes and the truck, **graveyard** beside
+  it, **library** (bookshelves) off A long towards **CT spawn**, and **speedway** from the arch back to B.
+- Plaster and stone houses with terracotta roofs, shutters and window boxes, cobbled streets, cicadas.
 - Everything works there: practice, deathmatch, retakes, competitive (the Ts go through **apps**, **short** or up
   **banana**; B has one way in, so no split or mid control onto B), prefire (BANANA, APARTMENTS, MID) and online.
-- **At knife speed:** T spawn to B 17.0 s, to A 20.1 s, to banana 9.7 s, to top mid 14.0 s; CT spawn to B 9.8 s, to A
-  7.8 s, to top mid 6.8 s.
-- Tested (`testInferno`): its 92 bot spots are standing room with a route, real bots walk to every competitive spot
-  from both spawns (60 of 60), the spawns can't see each other, and 72,000 rays find no holes.
-- Simplified where the box world can't follow: one floor per spot (where the T apps bridge crosses the alley, you walk
-  the alley), stairs are smooth ramps, walls are at least 32 units thick and doorways a little narrower in places.
+- **At knife speed:** T spawn to B 15.5 s, to A 19.1 s, to banana 8.3 s, to top mid 13.1 s; CT spawn to B
+  8.9 s, to A 6.8 s, to top mid 6.7 s.
+- Tested (`testInferno`): no floor holes, no slivers or stray cells, every bot spot standing room with a route, real
+  bots walk to every competitive spot (60 of 60), the spawns can't see each other, 72,000 rays find no way out, and the
+  player walks every main route (into both apps, over the balcony, through the underpass) without catching on anything.
+- Simplified: stairs are smooth ramps, the underpass is walkable standing up, and where two floors stack (the bridge,
+  bottom mid over the underpass) the upper one is a solid walkway the bots don't use.
 
 ## Radar
 

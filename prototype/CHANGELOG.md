@@ -3,6 +3,18 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.30: Inferno, rebuilt by hand
+
+- **Inferno rebuilt by hand** (owner: the generated one was "a mess", spikes and gaps, apps you couldn't get into):
+  ~180 deliberate areas on a 16-unit grid (rooms, streets, stairs as ramps, doorways at their real width, thin walls),
+  each placed and given its height against CS2's radar and measurements; walkways over streets (the T apps bridge,
+  bottom mid over the underpass); hand-placed props (banana's logs, sandbags and car, the B boxes and statue, the
+  coffin, library's shelves, the cart, barrels, benches); B's square in red brick.
+- **Ramps:** a steep ramp could block you at its top edge (Inferno's balcony): fixed in the collision for every map.
+- **Bots:** they drop off ledges (the balcony into pit), climb stairs as slopes, and a group sets off in file, a third
+  of a second apart, instead of all at once (two walked on each other at the top of banana).
+- Tests: no holes, slivers or stray cells; the player walks every main route without catching on anything.
+
 ## v0.29: Inferno
 
 - **A new map: Inferno**, CS2's, as accurate as possible: its real size, coordinates and heights, measured from the

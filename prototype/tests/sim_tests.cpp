@@ -599,15 +599,19 @@ Vec3 dpt(float x, float y) {
 // Runs a simulated player along `path` (holding W, steering at a point a little ahead) and returns
 // the time taken, or -1 if they got stuck.
 Vec3 g_stuckAt;  // where the last runRoute got stuck
+Vec3 g_stallAt;  // where the last runRoute stalled longest (for g_stallTicks ticks)
+int g_stallTicks = 0;
 float runRoute(const std::vector<Vec3>& path, float speed, float* distance, const World* world = nullptr) {
     PlayerState ps = spawnAt(path.front());
     size_t wp = 1;
     int ticks = 0, lastProgress = 0;
     float travelled = 0;
+    g_stallTicks = 0;
     while (wp < path.size()) {
         Vec3 d = path[wp] - ps.origin;
         d.z = 0;
         if (length(d) < 40.0f) { ++wp; lastProgress = ticks; continue; }
+        if (ticks - lastProgress > g_stallTicks) { g_stallTicks = ticks - lastProgress; g_stallAt = ps.origin; }
         // (round a tight corner: after half a second without a waypoint, aim at the next one, not two on)
         Vec3 aim = path[ticks - lastProgress > kTickRate / 2 ? wp : std::min(wp + 2, path.size() - 1)] - ps.origin;
         MoveInput in;
@@ -1819,7 +1823,7 @@ void testHarbor() {
     for (const Spot& sp : spots) {
         // (+6: on a ramp the grid's floor height is a few units under the slope's surface; spawning drops you onto it)
         const bool clear = sp.p.z > MapGrid::kNoFloor && w.boxFits(sp.p + Vec3{0, 0, 6.0f}, hullMins(), hullMaxs(false)) &&
-                           w.traceBox(sp.p + Vec3{0, 0, 6.0f}, sp.p - Vec3{0, 0, 12}, hullMins(), hullMaxs(false)).fraction < 1.0f;
+                           w.traceBox(sp.p + Vec3{0, 0, 6.0f}, sp.p - Vec3{0, 0, 24}, hullMins(), hullMaxs(false)).fraction < 1.0f;
         const bool route = nav.findPath(townTeamSpawns(0)[0], sp.p, path);
         if (!clear) std::printf("    %s (%.0f, %.0f) is not standing room\n", sp.what, double(sp.p.x), double(sp.p.y));
         if (!route) std::printf("    %s (%.0f, %.0f) has no route from T spawn\n", sp.what, double(sp.p.x), double(sp.p.y));
@@ -1911,7 +1915,8 @@ void testInferno() {
         for (int j = g.h - 1; j >= 0; --j) {
             for (int i = 0; i < g.w; ++i) {
                 const Vec3 c = g.center(i, j);
-                f << (!g.walkable(i, j) ? '#' : nav.roamable(c) ? '.' : nav.standable(c) ? 'x' : 'o');
+                const bool ramp = g.slope.size() == g.floor.size() && g.slope[size_t(g.index(i, j))];
+                f << (!g.walkable(i, j) ? '#' : nav.roamable(c) ? (ramp ? ',' : '.') : nav.standable(c) ? 'x' : 'o');
             }
             f << "\n";
         }
@@ -1947,7 +1952,7 @@ void testInferno() {
     for (const Spot& sp : spots) {
         // (+6: on a ramp the grid's floor height is a few units under the slope's surface; spawning drops you onto it)
         const bool clear = sp.p.z > MapGrid::kNoFloor && w.boxFits(sp.p + Vec3{0, 0, 6.0f}, hullMins(), hullMaxs(false)) &&
-                           w.traceBox(sp.p + Vec3{0, 0, 6.0f}, sp.p - Vec3{0, 0, 12}, hullMins(), hullMaxs(false)).fraction < 1.0f;
+                           w.traceBox(sp.p + Vec3{0, 0, 6.0f}, sp.p - Vec3{0, 0, 24}, hullMins(), hullMaxs(false)).fraction < 1.0f;
         const bool route = nav.findPath(townTeamSpawns(0)[0], sp.p, path);
         if (!clear) std::printf("    %s (%.0f, %.0f) is not standing room\n", sp.what, double(sp.p.x), double(sp.p.y));
         if (!route) std::printf("    %s (%.0f, %.0f) has no route from T spawn\n", sp.what, double(sp.p.x), double(sp.p.y));
@@ -2011,6 +2016,52 @@ void testInferno() {
     std::printf("  %d rays, %d got out of the map; spawns that see each other: %d\n", total, escapes, seen);
     CHECK(escapes == 0, "inferno: %d rays escaped", escapes);
 
+    // Every floor cell has floor under it (no hole to fall through).
+    {
+        const MapGrid& g = townGrid();
+        int holes = 0;
+        for (int j = 0; j < g.h; ++j)
+            for (int i = 0; i < g.w; ++i) {
+                if (!g.walkable(i, j)) continue;
+                const Vec3 c = g.center(i, j);
+                if (w.traceRay(c + Vec3{0, 0, 30}, c - Vec3{0, 0, 30}).fraction >= 1.0f) {
+                    if (holes < 8) std::printf("    no floor under (%.0f, %.0f, %.0f) %s\n", double(c.x), double(c.y), double(c.z), townCallout(c));
+                    ++holes;
+                }
+            }
+        std::printf("  %d floor cells with nothing under them\n", holes);
+        CHECK(holes == 0, "inferno: %d holes in the floor", holes);
+        // Clean (owner, v0.29: the generated map was all spikes and gaps): no floor cell squeezed between walls on
+        // opposite sides (a 16-unit sliver nobody fits through), no lone cell standing apart from all its neighbours,
+        // and the small steps between level floors counted (a few are real: kerbs, a step up by the car).
+        int slivers = 0, lone = 0, small = 0;
+        auto wall = [&](int a, int b) { return !g.walkable(a, b); };
+        for (int j = 1; j + 1 < g.h; ++j)
+            for (int i = 1; i + 1 < g.w; ++i) {
+                if (!g.walkable(i, j)) continue;
+                const float z = g.floor[size_t(g.index(i, j))];
+                if ((wall(i - 1, j) && wall(i + 1, j)) || (wall(i, j - 1) && wall(i, j + 1))) {
+                    if (slivers < 6) std::printf("    a sliver at (%.0f, %.0f) %s\n", double(g.center(i, j).x), double(g.center(i, j).y), townCallout(g.center(i, j)));
+                    ++slivers;
+                }
+                int near = 0;
+                for (int k = 0; k < 4; ++k) {
+                    const int a = i + (k == 0) - (k == 1), b = j + (k == 2) - (k == 3);
+                    if (!g.walkable(a, b)) continue;
+                    const float dz = std::fabs(g.floor[size_t(g.index(a, b))] - z);
+                    near += dz <= 18.0f;
+                    const bool ramps = g.slope[size_t(g.index(i, j))] || g.slope[size_t(g.index(a, b))];
+                    if (k % 2 == 0 && !ramps && dz > 1.0f && dz < 12.0f) ++small;
+                }
+                if (near == 0) {
+                    if (lone < 6) std::printf("    a lone cell at (%.0f, %.0f) %s\n", double(g.center(i, j).x), double(g.center(i, j).y), townCallout(g.center(i, j)));
+                    ++lone;
+                }
+            }
+        std::printf("  %d slivers, %d lone cells, %d small steps between level floors\n", slivers, lone, small);
+        CHECK(slivers == 0 && lone == 0, "inferno: %d slivers, %d lone cells", slivers, lone);
+    }
+
     // The lanes at knife speed.
     struct Leg { const char* a; Vec3 from; const char* b; Vec3 to; float minS, maxS; };
     const RetakeSite &sa = townRetakeSites()[0], &sb = townRetakeSites()[1];
@@ -2022,14 +2073,28 @@ void testInferno() {
     const Leg legs[] = {{"T spawn", tSp, "A site", aSite, 12, 26},  {"T spawn", tSp, "B site", bSite, 10, 24},
                         {"T spawn", tSp, "banana", banana, 4, 14},  {"T spawn", tSp, "top mid", topMid, 6, 18},
                         {"T spawn", tSp, "close apps", apps, 7, 20}, {"CT spawn", ctSp, "A site", aSite, 2, 10},
-                        {"CT spawn", ctSp, "B site", bSite, 4, 14},  {"CT spawn", ctSp, "top mid", topMid, 3, 12}};
+                        {"CT spawn", ctSp, "B site", bSite, 4, 14},  {"CT spawn", ctSp, "top mid", topMid, 3, 15},
+                        // the player's walks through the tight bits: into T apps, out of close apps over the balcony
+                        // (a drop) onto A, through the underpass, to construction and library
+                        {"T spawn", tSp, "T apps", townPoint(-200, 320), 4, 16},
+                        {"close apps", apps, "A site", aSite, 2, 10},
+                        {"bottom mid", townPoint(120, 640), "second mid", townPoint(520, -64), 1, 8},
+                        {"CT spawn", ctSp, "construction", townPoint(1000, 3300), 4, 14},
+                        {"CT spawn", ctSp, "library", townPoint(2400, 1400), 1, 8}};
     for (const Leg& l : legs) {
         const bool found = nav.findPath(l.from, l.to, path);
         float dist = 0, secs = found ? runRoute(path, 250.0f, &dist, &w) : -1.0f;
         std::printf("  %-8s -> %-12s %5.1f s  (%4.0f units)\n", l.a, l.b, double(secs), double(dist));
+        if (found && secs > l.maxS)
+            std::printf("    stalled %.1f s at (%.0f, %.0f, %.0f) %s\n", double(g_stallTicks) * kTickDt, double(g_stallAt.x),
+                        double(g_stallAt.y), double(g_stallAt.z), townCallout(g_stallAt));
         if (found && secs < 0) {
             std::printf("    stuck at (%.0f, %.0f, %.0f) %s\n", double(g_stuckAt.x), double(g_stuckAt.y), double(g_stuckAt.z),
                         townCallout(g_stuckAt));
+            for (size_t q = 0; q < path.size(); ++q)  // (debugging: the route)
+                if (length2d(path[q] - g_stuckAt) < 160.0f)
+                    std::printf("      waypoint %zu (%.0f, %.0f, %.0f) %s\n", q, double(path[q].x), double(path[q].y), double(path[q].z),
+                                townCallout(path[q]));
             for (const Box& b : w.solids)  // (debugging: what's in the way)
                 if (b.mins.x < g_stuckAt.x + 30 && b.maxs.x > g_stuckAt.x - 30 && b.mins.y < g_stuckAt.y + 30 &&
                     b.maxs.y > g_stuckAt.y - 30 && b.maxs.z > g_stuckAt.z - 40 && b.mins.z < g_stuckAt.z + 72)
@@ -2037,6 +2102,11 @@ void testInferno() {
                                 double(b.mins.z), double(b.maxs.x), double(b.maxs.y), double(b.maxs.z), int(b.slope), double(b.lowZ));
         }
         CHECK(found && secs >= l.minS && secs <= l.maxS, "inferno %s -> %s: %.1f s", l.a, l.b, double(secs));
+        // ... and never caught on anything on the way (a snag on a corner, a step, a doorway)
+        if (found && secs > 0 && g_stallTicks > kTickRate * 3 / 4)
+            std::printf("    caught %.2f s at (%.0f, %.0f, %.0f) %s\n", double(g_stallTicks) * kTickDt, double(g_stallAt.x),
+                        double(g_stallAt.y), double(g_stallAt.z), townCallout(g_stallAt));
+        CHECK(!found || secs < 0 || g_stallTicks <= kTickRate * 3 / 4, "inferno %s -> %s: caught on the way", l.a, l.b);
     }
     setTownMap(0);
 }

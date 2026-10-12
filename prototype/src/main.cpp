@@ -417,6 +417,10 @@ struct Game {
         // are thrown after it).
         struct Throw { int bot; int type; Vec3 target; double from, until, nextTry; bool afterPlant = false; };
         std::vector<Throw> throws;
+        // A group setting off goes in file, a third of a second apart (all at once, they walked on each other at the
+        // first corner: Inferno's top of banana, v0.29): who goes, when, where.
+        struct Later { int bot; double at; Vec3 to; bool hold; RetakeSpot h; bool hasH; };
+        std::vector<Later> later;
         int carrier = -3;                   // bomb: -1 you, i = bot i, -2 dropped on the floor, -3 nobody
         Vec3 dropped;
         int planter = -3, defuser = -3;     // who is planting / defusing (-1 you, bot index)
@@ -2120,6 +2124,7 @@ void startCompRound(Game& g) {
     c.stageOf.assign(g.dummies.size(), 0);
     c.faker.assign(g.dummies.size(), 0);
     c.throws.clear();
+    c.later.clear();
     c.executing = c.rotated = false;
     c.executeAt = g.simTime + g.freezeTime + (play == kPlayRush ? 0.0 : play == kPlayDefault ? 32.0 : play == kPlayMid ? 20.0 : 14.0);
     c.pushers.clear();
@@ -2696,6 +2701,7 @@ void playerCall(Game& g, int call) {
             std::fill(c.stageOf.begin(), c.stageOf.end(), 0);
             std::fill(c.faker.begin(), c.faker.end(), char(0));
             c.throws.clear();
+            c.later.clear();
             c.executing = c.sent = c.rotated = false;
             c.executeAt = rush ? now : live;
             mates([&](size_t i, int k) {
@@ -2724,6 +2730,7 @@ void playerCall(Game& g, int call) {
             c.stagePoint = c.stages[0];
             std::fill(c.faker.begin(), c.faker.end(), char(0));
             c.throws.clear();
+            c.later.clear();
             c.executing = c.sent = c.rotated = false;
             c.executeAt = live + 18.0;
             int inMid = 0;
@@ -3199,19 +3206,27 @@ void compTick(Game& g) {
             c.groupSent[k] = 1;
             if (k == 0) radio(c.carrier >= 0 ? c.carrier : firstAlive(0), c.siteTarget == 0 ? "GOING A" : "GOING B");
             if (c.groupWay[k] >= 0 && townTactics().ways[size_t(c.groupWay[k])].site == c.siteTarget) siteUtility(c.groupWay[k], int(k));
+            int order = 0;  // (each one a third of a second after the one before)
             for (size_t i = 0; i < g.dummies.size(); ++i) {
                 if (!g.dummies[i].alive() || !isBot(g, i) || g.team[i] != 0) continue;
                 const int grp = i < c.stageOf.size() ? c.stageOf[i] : 0;
                 if (size_t(grp) != k && !(size_t(grp) >= c.stages.size() && k == 0)) continue;
-                if (int(i) == c.carrier) {
-                    sendBot(g, i, bombSpot, true);
-                } else {
-                    const RetakeSpot& h = s.holds[size_t(c.holdNext++) % s.holds.size()];
-                    sendBot(g, i, townPoint(h.x, h.y), true, &h);
+                Game::Comp::Later l{int(i), now + 0.33 * double(order++), bombSpot, true, RetakeSpot{}, false};
+                if (int(i) != c.carrier) {
+                    l.h = s.holds[size_t(c.holdNext++) % s.holds.size()];
+                    l.to = townPoint(l.h.x, l.h.y);
+                    l.hasH = true;
                 }
+                c.later.push_back(l);
             }
         }
         c.sent = all;
+    }
+    for (size_t q = 0; q < c.later.size();) {  // the group's members setting off in turn
+        const Game::Comp::Later& l = c.later[q];
+        if (now < l.at) { ++q; continue; }
+        if (g.dummies[size_t(l.bot)].alive() && !c.planted) sendBot(g, size_t(l.bot), l.to, l.hold, l.hasH ? &l.h : nullptr);
+        c.later.erase(c.later.begin() + long(q));
     }
     static const char* const kNadeLogName[] = {"smoke", "flash", "HE", "molotov"};
     for (size_t q = 0; q < c.throws.size();) {
@@ -3430,8 +3445,8 @@ void compTick(Game& g) {
                 float& t = together[i * n + j];
                 if (t <= 2.0f && t + float(kTickDt) > 2.0f)
                     std::ofstream(g_compLog, std::ios::app) << "  STACK bots " << i << " and " << j << " ("
-                                                            << (g.team[i] == 0 ? "T" : "CT") << ") at " << townCallout(a.pos)
-                                                            << " t=" << int(now) << "s\n";
+                                                            << (g.team[i] == 0 ? "T" : "CT") << ") at " << townCallout(a.pos) << " ("
+                                                            << int(a.pos.x) << ", " << int(a.pos.y) << ") t=" << int(now) << "s\n";
                 t += float(kTickDt);
             }
     }
@@ -5292,7 +5307,7 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "INFERNO"};
-constexpr int kMenuMaps = 3;  // the maps the menus offer (4 with Inferno: hidden while it's rebuilt by hand)
+constexpr int kMenuMaps = 4;  // the maps the menus offer: the Lab, Dust, Harbor, Inferno
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE"};
 // The PLAY screen: the modes in the order they're offered, and a line about each (shown under the menu).
 const int kPlayModes[] = {3, 1, 2, 4, 0};

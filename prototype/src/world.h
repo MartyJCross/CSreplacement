@@ -29,9 +29,12 @@ float rampTopAt(const Box& b, float x, float y);
 // `lift` units above it.
 void layOnRamp(Box& b, const Box& ramp, float lift);
 
-// The (outward) planes of a ramp, as n.p <= d. Six of them: four sides, bottom, and the slope.
+// The (outward) planes of a ramp, as n.p <= d. Seven of them: four sides, bottom, the slope, and a flat cap at the
+// ramp's top (a bevel: without it the slope's plane, carried on past the high edge, caught a box standing level with that
+// edge, and a steep ramp couldn't be walked onto from its top: Inferno's balcony, v0.29).
 struct Plane { Vec3 n; float d; };
-void rampPlanes(const Box& b, Plane out[6]);
+constexpr int kRampPlanes = 7;
+void rampPlanes(const Box& b, Plane out[kRampPlanes]);
 
 struct TraceResult {
     float fraction = 1.0f;  // 0..1 of the way from start to end

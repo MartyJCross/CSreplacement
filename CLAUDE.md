@@ -41,7 +41,7 @@ prototype/
     vecmath.h             Vec3/Mat4, Z-up, Source-style angles (pitch + = down, yaw + = left)
     world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor) from named areas
                           on a 32u grid: buildTown(), townGrid(), spawns, retake sites, CT spots, prefire routes, peek
-                          spots, TownTactics (bot plays), doors, facades; KZ course constants; inferno_layout.h = Inferno's areas
+                          spots, TownTactics (bot plays), doors, facades; KZ course constants; inferno_hand.h = Inferno's hand-built areas
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
     combat.*              weapons (WeaponId: rifle = AK-47, pistol, knife, grenade, sniper = AWP, Berettas, Deagle, Nova,
                           MAC-10, M4A1-S, Galil, SSG 08, UMP-45, XM1014; weaponDef; armorRatio per gun; `scope`), recoil
@@ -93,8 +93,8 @@ prototype/
    per-frame model draws go in a `DrawList`), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
 5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). **Inferno** (v0.29, owner: "build Inferno from CS2, as accurate and
    detailed as possible") is under the same exception: its layout, heights and callouts were measured from CS2's radar
-   and the community nav mesh (awpy-data) as references and turned into the area table `inferno_layout.h` by a
-   converter kept outside the repo; no Valve file ships. Revisit both before anything is shared publicly; Harbor is
+   and the community nav mesh (awpy-data) as references, and the area table `inferno_hand.h` was placed by hand
+   against them (v0.30); no Valve file ships. Revisit both before anything is shared publicly; Harbor is
    Crisp's own map and is free to share.
 6. **Keep it portable to MSVC.** C++20, standard library and SDL3 only. No GCC/Clang-only extensions. Code must compile warning-clean with `-Wall -Wextra -pedantic` (Linux/GCC: CI runs it; check locally, §10) and `/W4` (MSVC).
 7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`, `testInferno`,
@@ -251,16 +251,19 @@ KnifeHit, KnifeWall; `--stab N`.
 - **Harbor** (Crisp's own map, its own size): docks → raised A site, market/mid/mid doors, roofed warehouse → A short,
   roofed underpass and alley → B with a back platform. `testHarbor` checks its 99 spots, 70 bot trips, spawn
   visibility, holes and lane times.
-- **Inferno** (v0.29, `setTownMap(2)`, `inferno_layout.h`: `kInfernoAreas` 835 areas at CS2's real size and
-  coordinates, not scalable, `kInfernoSmallProps` with heights): flats and straight ramps fitted to the measured floor
-  (stairs are ramps; nav: `MapGrid::slope`, a ramp cell may rise 26 in `canStep`), callout zones name them, interiors
-  roofed (T/CT apps, close apps, boiler, library, underpass). Its look (buildTown `inferno`/`g_town == 2`): terracotta
-  wall caps and eaves, stone footing, shutters + flower boxes, cobbled streets paved (`kIStreet`), `minWallTop` 520 (upper
-  floors look over the streets). Ways APPS / SHORT / BANANA; B has one way, so no split / mid control there.
-  `testInferno` (92 spots, 60 trips, spawn sight, holes, lane times). Regenerating the layout: the converter (outside
-  the repo) rasterised the nav polygons at 32 u (grown 16 u back to the walls, a cell is floor at 12/16 coverage),
-  kept one level where floors stack, fitted rectangles along each cell's slope direction; then spots were snapped to
-  standing room against the game's own nav (`sim_tests` writes `inferno_nav.txt` when a file `CRISP_DUMP` exists).
+- **Inferno** (v0.30, rebuilt by hand after the owner rejected the generated v0.29: "a mess"; `setTownMap(2)`,
+  `inferno_hand.h`: `kInfernoAreas` ~180 hand-placed areas at CS2's real size and coordinates, `TownDef::cell` 16,
+  "WALL" areas carve pillars / inner walls, `kInfernoDecks` (`TownDeck`: the T apps bridge, bottom mid's floor over the
+  underpass: solid walkways, the grid keeps the street), `kInfernoSmallProps` with heights). How it was built (redo it
+  this way): scratchpad tools render CS2's radar + the community nav mesh (awpy-data navs.zip, measured at 8 u, grown 16
+  u to the walls) under the hand table, a cell-by-cell comparison (green right height, red wrong, blue missing, magenta
+  extra; ~77% match, the rest one-cell edges), height profiles along strips; spots snapped onto the game's own nav
+  (`sim_tests` writes `inferno_nav.txt` when a file `CRISP_DUMP` exists). Nav on a 16 u grid: a ramp cell may rise 26
+  (`MapGrid::slope`, both cells ramps), ledge drops two cells on (`NavGrid::canDrop`), the clear check needs ~92 of
+  headroom (roofs at least 100 over walkways). Its look (`g_town == 2`): terracotta caps and eaves, stone footing,
+  shutters + flower boxes, cobbles (`kIStreet` paved), B's brick (`kIBrick`), `minWallTop` 520. Ways APPS (gathers in
+  close apps, through BALCONY) / SHORT / BANANA; B has one way, so no split / mid control there. `testInferno`: holes,
+  slivers / lone cells, spots, trips, spawn sight, rays, lane times and player walks that must not catch (0.75 s).
 - Doors (end of buildTown): frames + leaves on the doorway's cells (`cellsOf`, `frame`, `openLeaf`). Facade decor
   (`World::decor`) is drawn, never collided: keep it thin/flat or above head height. Surfaces by material alpha in the
   box shader (240 stone, 236 paving, 224 wood, 208 metal; the Lab keeps the 255 dev grid).
@@ -385,7 +388,9 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10.
 
 ## 8. Roadmap
 
-**Done in v0.29** (owner, 2026-10-12): Inferno (CS2's), every mode; see §7 Maps.
+**Done in v0.30** (owner, 2026-10-12: "build it by hand", with a plan of how to make it good): Inferno rebuilt by
+hand on a 16 u grid with decks, ramp collision cap (`kRampPlanes` 7), nav ledge drops, staggered group sends.
+**Done in v0.29**: Inferno (CS2's) generated from measurements; rejected by the owner (spikes, gaps, apps unreachable).
 
 **Done in v0.28** (owner, 2026-10-11): knife attacks, bot utility, drops (G + NEED A DROP), StatTrak, every skin
 factory new (v0.27.2 before it: refunds, the butterfly redone side on, a Q fix). Known: an occasional STUCK in
@@ -438,8 +443,7 @@ Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competit
 saving, fire avoidance), the performance check (A* routes, mixer lock).
 Offered, not chosen yet: defuse kits (10 s defuse without), bots dropping guns for each other, server-authoritative
 netcode with lag compensation (`docs/04`), practice tools (grenade lineups, spray-pattern overlay, CS-style console),
-trade-ups, stickers, ladders, net_graph; for Inferno: hand-placed props (banana's logs and sandbags, the car, carts,
-hay), the T apps bridge over the alley (one floor per cell now), crouch-only underpass.
+trade-ups, stickers, ladders, net_graph; for Inferno: a crouch-only underpass, real stair steps, bots on the decks.
 
 ## 9. The owner: who they are, what they want, the history
 

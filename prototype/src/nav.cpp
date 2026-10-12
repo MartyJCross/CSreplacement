@@ -47,6 +47,13 @@ void NavGrid::build(const MapGrid& grid, const World& world, const Vec3& seed) {
                 for (int di = -1; di <= 1; ++di) {
                     if ((di && dj) || (!di && !dj)) continue;
                     int a = i + di, b = j + dj;
+                    // (off a ledge: forwards from here two cells on; backwards from two cells back)
+                    const int fa = i + (forward ? 2 : -2) * di, fb = j + (forward ? 2 : -2) * dj;
+                    if (fa >= 0 && fb >= 0 && fa < m.w && fb < m.h && !seen[size_t(m.index(fa, fb))] &&
+                        (forward ? canDrop(i, j, di, dj) : canDrop(fa, fb, di, dj))) {
+                        seen[size_t(m.index(fa, fb))] = 1;
+                        stack.push_back(m.index(fa, fb));
+                    }
                     if (!clear(a, b) || seen[size_t(m.index(a, b))]) continue;
                     if (forward ? !canStep(i, j, a, b) : !canStep(a, b, i, j)) continue;
                     seen[size_t(m.index(a, b))] = 1;
@@ -106,9 +113,19 @@ bool NavGrid::canStep(int a, int b, int c, int d) const {
     const MapGrid& m = *grid_;
     size_t p = size_t(m.index(a, b)), q = size_t(m.index(c, d));
     // Up a smooth ramp (Inferno's stairs: up to ~21 units a cell, a 33 degree slope) it's a walk, not a step.
-    const bool ramp = m.slope.size() == m.floor.size() && (m.slope[p] || m.slope[q]);
+    const bool ramp = m.slope.size() == m.floor.size() && m.slope[p] && m.slope[q];
     if (m.floor[q] - m.floor[p] > (ramp ? 26.0f : MoveParams{}.stepSize)) return false;
     return std::min(m.ceiling[p], m.ceiling[q]) - std::max(m.floor[p], m.floor[q]) >= kStandHeight + 2;
+}
+
+bool NavGrid::canDrop(int a, int b, int di, int dj) const {
+    const int mi = a + di, mj = b + dj, fi = a + 2 * di, fj = b + 2 * dj;
+    if (!clear(a, b) || !clear(fi, fj) || clear(mi, mj) || !grid_->walkable(mi, mj)) return false;
+    const MapGrid& m = *grid_;
+    const float top = m.floor[size_t(m.index(a, b))], mid = m.floor[size_t(m.index(mi, mj))],
+                far = m.floor[size_t(m.index(fi, fj))];
+    if (top - mid < 24.0f || std::fabs(mid - far) > MoveParams{}.stepSize) return false;  // a real drop onto level ground
+    return std::min(m.ceiling[size_t(m.index(fi, fj))], m.ceiling[size_t(m.index(mi, mj))]) - far >= kStandHeight + 2;
 }
 
 bool NavGrid::standable(const Vec3& p) const {
@@ -146,6 +163,16 @@ bool NavGrid::findPath(const Vec3& from, const Vec3& to, std::vector<Vec3>& out)
         if (c == goal) { found = true; break; }
         for (int dj = -1; dj <= 1; ++dj)
             for (int di = -1; di <= 1; ++di) {
+                if ((di == 0) != (dj == 0) && canDrop(i, j, di, dj)) {  // off a ledge, two cells on
+                    const int nb = m.index(i + 2 * di, j + 2 * dj);
+                    const float nd = dist_[size_t(c)] + 2.0f + float(edge_[size_t(nb)]);
+                    if (nd < dist_[size_t(nb)]) {
+                        dist_[size_t(nb)] = nd;
+                        prev_[size_t(nb)] = c;
+                        heap_.push_back({nd + estimate(nb), nb});
+                        std::push_heap(heap_.begin(), heap_.end(), cmp);
+                    }
+                }
                 if ((!di && !dj) || !canStep(i, j, i + di, j + dj)) continue;
                 // Diagonals only where both straight neighbours are walkable too (no corner cutting).
                 if (di && dj && !(canStep(i, j, i + di, j) && canStep(i, j, i, j + dj) &&

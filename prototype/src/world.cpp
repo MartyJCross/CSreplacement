@@ -16,11 +16,10 @@ float offsetDist(const Plane& p, const Vec3& mins, const Vec3& maxs) {
 }
 
 // Sweeps a box (mins/maxs) from start along delta against a ramp, Quake-style (clip against each plane
-// pushed out by the box). For an axis-aligned ramp these planes are every separating axis, so it's
-// exact. Returns the entry fraction and normal, -1 for no hit; `inside` if it starts embedded.
+// pushed out by the box, the cap at the top included). Returns the entry fraction and normal, -1 for no hit; `inside` if it starts embedded.
 float sweepRamp(const Box& b, const Vec3& start, const Vec3& delta, const Vec3& mins, const Vec3& maxs, Vec3& normal,
                 bool& inside) {
-    Plane pl[6];
+    Plane pl[kRampPlanes];
     rampPlanes(b, pl);
     float enter = -1.0f, leave = 2.0f, nearest = -1e30f, nearestD2 = 0;
     Vec3 enterN, nearestN;
@@ -56,7 +55,7 @@ float sweepRamp(const Box& b, const Vec3& start, const Vec3& delta, const Vec3& 
 }
 
 bool overlapsRamp(const Box& b, const Vec3& origin, const Vec3& mins, const Vec3& maxs) {
-    Plane pl[6];
+    Plane pl[kRampPlanes];
     rampPlanes(b, pl);
     for (const Plane& p : pl)
         if (dot(origin, p.n) - offsetDist(p, mins, maxs) >= 0) return false;
@@ -64,7 +63,7 @@ bool overlapsRamp(const Box& b, const Vec3& origin, const Vec3& mins, const Vec3
 }
 }  // namespace
 
-void rampPlanes(const Box& b, Plane out[6]) {
+void rampPlanes(const Box& b, Plane out[kRampPlanes]) {
     out[0] = {{-1, 0, 0}, -b.mins.x};
     out[1] = {{1, 0, 0}, b.maxs.x};
     out[2] = {{0, -1, 0}, -b.mins.y};
@@ -83,6 +82,7 @@ void rampPlanes(const Box& b, Plane out[6]) {
     }
     float len = length(n);
     out[5] = {n * (1.0f / len), d / len};
+    out[6] = {{0, 0, 1}, b.maxs.z};  // the cap
 }
 
 bool rayHitsBox(const Vec3& start, const Vec3& dir, float maxT, const Vec3& bmin, const Vec3& bmax,
@@ -395,8 +395,8 @@ const DustArea kHarborAreas[] = {
 // Inferno (CS2's de_inferno, real size and coordinates): plaster and terracotta, cobbled streets, dirt on banana.
 constexpr uint32_t kIStreet = 0x989389, kISite = 0xc6b79c, kIDirt = 0xab9473, kIWood = 0x8c6c4e, kIStone = 0xc1b195,
                    kIGrass = 0x8f915c, kIPlaster = 0xe4d3b2, kITerracotta = 0xa9573a, kIFooting = 0x8e877a,
-                   kIFlowers = 0xc23b4e, kILeaves = 0x4f6b35;
-#include "inferno_layout.h"
+                   kIFlowers = 0xc23b4e, kILeaves = 0x4f6b35, kIBrick = 0xb06c55;  // (B's square: terracotta brick)
+#include "inferno_hand.h"
 
 // Walls that must hold at every map size: areas whose gap is thinner than a grid cell at some sizes would touch
 // there (and you'd see through). The first area of each pair gives up its edge cells to a wall.
@@ -428,7 +428,7 @@ const TownDef kTowns[kTownMaps] = {
     {"HARBOR", kHarborAreas, int(sizeof(kHarborAreas) / sizeof(kHarborAreas[0])), -1650, -1650, 1500, 1950, false,
      {0xdcd6c8, 0xcfc8b6, 0xc2bba8}, nullptr, 0, 0, 32, nullptr, 0},
     {"INFERNO", kInfernoAreas, int(sizeof(kInfernoAreas) / sizeof(kInfernoAreas[0])), -1760, -768, 2688, 3552, false,
-     {kIPlaster, 0xdbb28c, 0xd0bf9f}, nullptr, 0, 520, kInfernoCell, kInfernoDecks,
+     {kIPlaster, 0xd6b26c, 0xc9b9a0}, nullptr, 0, 520, kInfernoCell, kInfernoDecks,
      int(sizeof(kInfernoDecks) / sizeof(kInfernoDecks[0]))},
 };
 constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
@@ -519,9 +519,16 @@ void buildDustGrid() {
                 float cx = m.x0 + (float(i) + 0.5f) * m.cell, cy = m.y0 + (float(j) + 0.5f) * m.cell;
                 if (cx < x0 || cx >= x1 || cy < y0 || cy >= y1) continue;
                 float t = d.axis == 'x' ? (cx - x0) / (x1 - x0) : d.axis == 'y' ? (cy - y0) / (y1 - y0) : 0.0f;
+                size_t c = size_t(m.index(i, j));
+                if (d.name[0] == 'W' && std::strcmp(d.name, "WALL") == 0) {  // a carve: a pillar, an inner wall
+                    m.floor[c] = MapGrid::kNoFloor;
+                    m.ceiling[c] = MapGrid::kOpenSky;
+                    m.area[c] = -1;
+                    m.slope[c] = 0;
+                    continue;
+                }
                 // Heights scale with the map, so every slope stays exactly as walkable.
                 float z = std::round((d.z0 + (d.z1 - d.z0) * t) * s / 4.0f) * 4.0f;
-                size_t c = size_t(m.index(i, j));
                 m.floor[c] = z;
                 m.ceiling[c] = d.roof > 0 ? z + d.roof : MapGrid::kOpenSky;  // headroom never shrinks
                 m.area[c] = a;
@@ -633,14 +640,20 @@ bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat) {
     const int a = m.area[size_t(m.index(i, j))];
     if (a < 0) return false;
     color = town().areas[a].color;
-    paved = color == kDSite || color == kHSite || color == kISite || color == kIStreet;
+    paved = color == kDSite || color == kHSite || color == kISite || color == kIStreet || color == kIBrick;
     flat = town().areas[a].axis == 0;
     return true;
 }
 
 Vec3 townPoint(float x, float y) {
     float s = townScale();
-    return {x * s, y * s, townGrid().floorAt(x * s, y * s)};
+    const MapGrid& m = townGrid();
+    Vec3 p{x * s, y * s, m.floorAt(x * s, y * s)};
+    // On a smooth ramp the grid's stepped height can be a few units under the slope: lift the point above it (whatever
+    // stands there drops onto the ramp rather than starting inside it and falling through).
+    int i, j;
+    if (m.cellAt(p.x, p.y, i, j) && m.slope.size() == m.floor.size() && m.slope[size_t(m.index(i, j))]) p.z += 10.0f;
+    return p;
 }
 
 std::vector<Vec3> townTeamSpawns(int side) {
@@ -651,8 +664,8 @@ std::vector<Vec3> townTeamSpawns(int side) {
          {{-260, 2620}, {-100, 2650}, {-180, 2820}, {-320, 2960}, {-60, 2980}}},  // CT spawn (out of the doors' line)
         {{{-420, -1330}, {-250, -1500}, {-40, -1360}, {100, -1520}, {-320, -1400}},  // Harbor: T spawn
          {{-120, 1450}, {120, 1450}, {0, 1620}, {-200, 1680}, {200, 1680}}},       // CT spawn
-        {{{-1616, 656}, {-1552, 528}, {-1616, 400}, {-1584, 272}, {-1648, 144}},   // Inferno: T spawn
-         {{2384, 1840}, {2448, 2000}, {2416, 2160}, {2480, 2288}, {2352, 2416}}},  // CT spawn
+        {{{-1608, 664}, {-1544, 536}, {-1608, 408}, {-1576, 280}, {-1640, 152}},   // Inferno: T spawn
+         {{2296, 1952}, {2440, 2008}, {2360, 2104}, {2456, 2168}, {2296, 2168}}},  // CT spawn (its flat yard)
     };
     std::vector<Vec3> out;
     for (const auto& p : xy[g_town][side == 0 ? 0 : 1]) out.push_back(townPoint(p[0], p[1]));
@@ -691,33 +704,33 @@ const std::vector<RetakeSite>& townRetakeSites() {
          }},
     };
     static const std::vector<RetakeSite> inferno = {
-        {"A", 2000, 528,  // bomb: the middle of the site, by the boxes
+        {"A", 2008, 536,  // bomb: the middle of the site, by the boxes
          {
-             {2256, 784, 2000, 1150},   // the site's north-east corner, watching arch / long
-             {1840, 80, 1450, 600},    // the short corner, watching top mid
-             {2288, 432, 2400, 1150},   // graveyard, watching library
-             {2128, -336, 2000, 400},   // pit, watching the bomb
-             {2000, 592, 1600, 1150},   // the north-west corner, watching arch
-             {2288, 240, 1500, 300},    // the south side, watching short
+             {2264, 792, 2000, 1150},   // the site's north-east corner, watching arch / long
+             {1848, 88, 1450, 600},    // the short corner, watching top mid
+             {2296, 440, 2400, 1150},   // graveyard, watching library
+             {2152, -344, 2000, 400},   // pit, watching the bomb
+             {1992, 584, 1600, 1150},   // the north-west corner, watching arch
+             {2296, 248, 1500, 300},    // the south side, watching short
          },
          {
-             {1808, 1136, 2000, 500},   // arch / A long
-             {2544, 1296, 2200, 600},   // library
-             {1424, 688, 1800, 300},    // top mid, down short
+             {1816, 1144, 2000, 500},   // arch / A long
+             {2536, 1336, 2200, 600},   // library
+             {1432, 696, 1800, 300},    // top mid, down short
          }},
-        {"B", 528, 2640,  // bomb: beside the fountain
+        {"B", 520, 2664,  // bomb: beside the fountain
          {
-             {80, 3088, 900, 2850},    // dark, watching CT
-             {496, 3248, 900, 2850},    // coffins
-             {720, 2480, 850, 2750},    // first oranges
-             {176, 2512, 500, 2900},     // the banana-side corner
-             {432, 3408, 300, 2900},    // back of the site
-             {496, 2960, 1100, 2900},   // the CT edge
+             {56, 3080, 900, 2850},    // dark, watching CT
+             {504, 3256, 900, 2850},    // coffins
+             {728, 2488, 850, 2750},    // first oranges
+             {184, 2520, 500, 2900},     // the banana-side corner
+             {440, 3416, 300, 2900},    // back of the site
+             {488, 2936, 1100, 2900},   // the CT edge
          },
          {
-             {1008, 2736, 450, 2850},   // CT
-             {944, 3216, 400, 3000},    // construction
-             {560, 2064, 400, 2700},    // banana, past the car
+             {1016, 2744, 450, 2850},   // CT
+             {952, 3224, 400, 3000},    // construction
+             {568, 2072, 400, 2700},    // banana, past the car
          }},
     };
     if (g_town == 2) return inferno;
@@ -766,12 +779,12 @@ const std::vector<RetakeSpot>& townCtSpots(int role) {
     };
     if (g_town == 1) return harbor[std::clamp(role, 0, kCtRoles - 1)];
     static const std::vector<RetakeSpot> inferno[kCtRoles] = {
-        {{1424, 720, 600, 650}, {1424, 784, 600, 700}, {1584, 1072, 700, 700}},       // mid: top mid / arch, down mid
-        {{1424, 176, 1150, 250}, {1424, 368, 1000, 300}, {1840, 80, 1450, 300}},   // short: down short, boiler
-        {{2128, -336, 1700, -100}, {2288, -336, 1800, -100}, {2288, 240, 1800, -60}},  // apps: pit / site, on balcony
-        {{2224, 720, 1850, 250}, {2288, 432, 1900, 300}, {2000, 592, 1500, 700}},   // an extra on A
-        {{720, 2480, 400, 1900}, {496, 3248, 450, 2400}, {208, 2608, 450, 2300},    // B: banana and the site
-         {816, 2384, 450, 2200}, {432, 3408, 300, 2700}, {496, 2960, 400, 2300}},
+        {{1432, 728, 600, 650}, {1432, 792, 600, 700}, {1592, 1080, 700, 700}},       // mid: top mid / arch, down mid
+        {{1432, 184, 1150, 250}, {1432, 376, 1000, 300}, {1848, 88, 1450, 300}},   // short: down short, boiler
+        {{2152, -344, 1700, -100}, {2296, -328, 1800, -100}, {2296, 248, 1800, -60}},  // apps: pit / site, on balcony
+        {{2232, 728, 1850, 250}, {2296, 440, 1900, 300}, {1992, 584, 1500, 700}},   // an extra on A
+        {{728, 2488, 400, 1900}, {504, 3256, 450, 2400}, {200, 2552, 450, 2300},    // B: banana and the site
+         {824, 2392, 450, 2200}, {440, 3416, 300, 2700}, {488, 2936, 400, 2300}},
     };
     if (g_town == 2) return inferno[std::clamp(role, 0, kCtRoles - 1)];
     static const std::vector<RetakeSpot> spots[kCtRoles] = {
@@ -852,35 +865,35 @@ const std::vector<PrefireRoute>& townPrefireRoutes() {
          }},
     };
     static const std::vector<PrefireRoute> inferno = {
-        {"BANANA", {112, 1104, 250, 1700},
+        {"BANANA", {120, 1112, 250, 1700},
          {
-             {208, 1520, 150, 1150},    // halfway up banana
-             {464, 1936, 250, 1400},    // sandbags
-             {560, 2064, 300, 1700},    // the car
-             {720, 2480, 400, 2000},    // first oranges
-             {208, 2608, 400, 2200},    // the banana-side corner
-             {496, 2960, 400, 2300},    // the CT edge
-             {496, 3248, 400, 2400},    // coffins
-             {80, 3088, 400, 2400},    // dark
+             {216, 1528, 150, 1150},    // halfway up banana
+             {472, 1944, 250, 1400},    // sandbags
+             {568, 2072, 300, 1700},    // the car
+             {728, 2488, 400, 2000},    // first oranges
+             {200, 2552, 400, 2200},    // the banana-side corner
+             {488, 2936, 400, 2300},    // the CT edge
+             {504, 3256, 400, 2400},    // coffins
+             {56, 3080, 400, 2400},    // dark
          }},
-        {"APARTMENTS", {1136, -656, 1150, -300},
+        {"APARTMENTS", {920, -664, 1150, -300},
          {
-             {1232, -144, 1150, -600},  // top of the stairs
-             {1488, -336, 1200, -300},  // close apps
-             {1712, -336, 1300, -300},  // the corridor's end
-             {2128, -336, 1900, -100},  // pit
-             {2288, 240, 1900, -100},   // the south side of the site
-             {2224, 720, 1900, -50},    // the site's north-east corner
-             {2288, 432, 1950, -50},    // graveyard
+             {1240, -136, 1150, -600},  // top of the stairs
+             {1496, -328, 1200, -300},  // close apps
+             {1720, -328, 1300, -300},  // the corridor's end
+             {2152, -344, 1900, -100},  // pit
+             {2296, 248, 1900, -100},   // the south side of the site
+             {2232, 728, 1900, -50},    // the site's north-east corner
+             {2296, 440, 1950, -50},    // graveyard
          }},
-        {"MID", {208, 624, 900, 650},
+        {"MID", {152, 648, 900, 650},
          {
-             {720, 624, 300, 650},      // mid
-             {1104, 528, 400, 650},     // the underpass's mouth
-             {1424, 720, 700, 650},     // top mid
-             {1424, 176, 1450, 600},    // down short
-             {1840, 80, 1450, 450},    // the short corner
-             {2224, 720, 1500, 300},    // the site's north-east corner
+             {728, 632, 300, 650},      // mid
+             {1112, 536, 400, 650},     // the underpass's mouth
+             {1432, 728, 700, 650},     // top mid
+             {1432, 184, 1450, 600},    // down short
+             {1848, 88, 1450, 450},    // the short corner
+             {2232, 728, 1500, 300},    // the site's north-east corner
          }},
     };
     if (g_town == 2) return inferno;
@@ -934,7 +947,7 @@ const std::vector<PrefireRoute>& townPrefireRoutes() {
 }
 
 MapSpawn townSpawn() {
-    if (g_town == 2) return {townPoint(-1584, 400), 0.0f};  // Inferno: T spawn, facing east
+    if (g_town == 2) return {townPoint(-1576, 408), 0.0f};  // Inferno: T spawn, facing east
     const float sc = scaleNow(), x = (g_town == 1 ? 0.0f : -350.0f) * sc, y = (g_town == 1 ? -1350.0f : -800.0f) * sc;
     return {{x, y, townGrid().floorAt(x, y)}, 90.0f};
 }
@@ -967,12 +980,12 @@ const TownTactics& townTactics() {
         },
         {   // Inferno: A through apartments or mid and short; B up banana
             {
-                {"APPS", 0, false, {1136, -656}, {2400, 500, 0}, {2000, 450, 140}, "CLOSE APPS"},     // smoke graveyard
-                {"SHORT", 0, true, {720, 624}, {1650, 1100, 0}, {1600, 250, 140}, "A SHORT"},        // smoke arch
-                {"BANANA", 1, false, {112, 1264}, {1000, 2850, 0}, {450, 2650, 160}, "BANANA"},       // smoke CT
+                {"APPS", 0, false, {1600, -336}, {2400, 500, 0}, {2000, 450, 140}, "BALCONY"},  // (gathers in close apps) smoke graveyard
+                {"SHORT", 0, true, {728, 632}, {1650, 1100, 0}, {1600, 250, 140}, "A SHORT"},        // smoke arch
+                {"BANANA", 1, false, {120, 1272}, {1000, 2850, 0}, {450, 2650, 160}, "BANANA"},       // smoke CT
             },
-            {{656, 592}, {912, 656}},  // mid, the underpass's mouth
-            {{1488, -336, 1150, -300}, {1104, 528, 400, 650}, {304, 1776, 200, 1250}},
+            {{664, 600}, {904, 648}},  // mid, the underpass's mouth
+            {{1496, -328, 1150, -300}, {1112, 536, 400, 650}, {312, 1784, 200, 1250}},
             {"PUSHING APPS", "PUSHING MID", "PUSHING BANANA"},
         },
     };
@@ -1065,7 +1078,7 @@ World buildTown() {
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
         const uint32_t fc = uint32_t(k & 0xFFFFFF);
-        if (fc == kDSite || fc == kHSite || fc == kISite || fc == kIStreet) w.solids.back().material = kMatPaving;  // paved
+        if (fc == kDSite || fc == kHSite || fc == kISite || fc == kIStreet || fc == kIBrick) w.solids.back().material = kMatPaving;
     });
 
     // Walls: each 5x5-cell block is its own building with its own height (so the skyline isn't one flat
@@ -1512,12 +1525,12 @@ const std::vector<PeekSpot>& townPeekSpots() {
         auto at = [&](float x, float y) { return rel(x, y, 0, 0); };
         if (g_town == 2) {
             spots = {
-                {at(1424, 784), at(1424, 720)},      // arch -> top mid
-                {at(720, 2480), at(752, 2288)},      // first oranges -> banana
-                {at(2224, 720), at(2000, 592)},      // A site corner -> the site
-                {at(1840, 80), at(1712, 48)},      // the short corner -> short
-                {at(496, 2960), at(752, 2864)},      // B's CT edge -> CT
-                {at(2128, -336), at(1712, -336)},    // pit -> under the balcony
+                {at(1432, 792), at(1432, 728)},      // arch -> top mid
+                {at(728, 2488), at(760, 2296)},      // first oranges -> banana
+                {at(2232, 728), at(1992, 584)},      // A site corner -> the site
+                {at(1848, 88), at(1720, 56)},      // the short corner -> short
+                {at(488, 2936), at(760, 2872)},      // B's CT edge -> CT
+                {at(2152, -344), at(1720, -328)},    // pit -> under the balcony
             };
             return spots;
         }
