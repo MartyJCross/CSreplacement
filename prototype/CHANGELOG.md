@@ -3,6 +3,15 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.35: grenade practice
+
+- **In practice mode:** your thrown grenades leave their flight drawn for 8 s; **X** throws the last one again exactly;
+  **L** saves it as a lineup (auto-named "SMOKE: OUTSIDE LONG > CT CROSS", per map, `lineups.txt`); **[ / ]** go through
+  this map's lineups (standing there, aimed, grenade in hand, the throw to use shown). Posts mark where they're thrown
+  from. Console: `lineups`, `lineup_load`, `lineup_save`, `lineup_delete`, `sv_rethrow_last_grenade`.
+- **The grenade preview shows what it covers**: a ring for the smoke's cloud, the molotov's fire and the HE's reach.
+- Tests: lineups save and load exactly, by map, with their names.
+
 ## v0.34: Arms Race
 
 - **A new mode, Arms Race** (PLAY → ARMS RACE, console `mode armsrace`): deathmatch where every kill moves you on a gun

@@ -20,6 +20,7 @@
 #include "bots.h"
 #include "config.h"
 #include "console.h"
+#include "practice.h"
 #include "movement.h"
 #include "nav.h"
 #include "world.h"
@@ -2186,6 +2187,43 @@ void testArmsRace() {
     CHECK(bad == 0 && closest < kKnifeSlashRange + 16.0f, "%d wrong, closest %.0f", bad, double(closest));
 }
 
+// Grenade practice (v0.35): lineups save and load exactly (the throw flies the same), by map, with their names.
+void testLineups() {
+    std::printf("grenade lineups\n");
+    LineupBook book;
+    Lineup a;
+    a.map = 1;
+    a.t = {Vec3{100.5f, -200.25f, 32}, 45.5f, -12.75f, 0, 1.0f, false, Vec3{110, -190, 96}, Vec3{400.125f, 300, 250}};
+    a.name = lineupName(0, "T SPAWN", "CT CROSS");
+    Lineup b;
+    b.map = 3;
+    b.t = {Vec3{-5, 6, 7}, 1, 2, 3, kNadeLob, true, Vec3{8, 9, 10}, Vec3{11, 12, 13}};
+    b.name = "MY MOLLY";
+    book.all = {a, b, a};
+    const std::string path = "lineups_test.txt";
+    book.save(path);
+    LineupBook back;
+    back.load(path);
+    std::remove(path.c_str());
+    int bad = back.all.size() != 3;
+    if (!bad) {
+        const Lineup& x = back.all[0];
+        bad += x.name != "SMOKE: T SPAWN > CT CROSS" || x.map != 1 || x.t.vel.x != 400.125f || x.t.stand.y != -200.25f ||
+               x.t.pitch != -12.75f || x.t.air;
+        const Lineup& y = back.all[1];
+        bad += y.name != "MY MOLLY" || y.t.type != 3 || !y.t.air || y.t.strength != kNadeLob;
+    }
+    bad += back.onMap(1).size() != 2 || back.onMap(3).size() != 1 || !back.onMap(2).empty();
+    bad += throwKind(b.t) != "LOB (MOUSE 2) + JUMP" || lineupName(2, "", "") != "HE:";
+    // A saved throw flies exactly the same again.
+    const Vec3 v = grenadeThrowVelocity(-10.0f, 30.0f, 1.0f, Vec3{});
+    const Vec3 first = predictGrenade(dust(), dpt(0, 0) + Vec3{0, 0, 64}, v, 0);
+    const Vec3 again = predictGrenade(dust(), dpt(0, 0) + Vec3{0, 0, 64}, v, 0);
+    bad += length(first - again) > 0.0f;
+    std::printf("  saved, loaded, by map, names and throws: %d wrong\n", bad);
+    CHECK(bad == 0, "%d", bad);
+}
+
 void testBotFire() {
     std::printf("bots and fire\n");
     const NavGrid& nav = dustNav();
@@ -2884,6 +2922,7 @@ int main() {
     testSpawnGroups();
     testConsole();
     testArmsRace();
+    testLineups();
     testHarbor();
     testInferno();
     testReplay();

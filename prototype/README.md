@@ -53,6 +53,7 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 | G | Competitive, holding your primary: **drop it** in front of you, like CS (a teammate bot with only a pistol picks it up if it walks over it; you can pick it back up with E). Otherwise: quick-throw the current grenade without switching (deterministic bounces, so lineups repeat) |
 | Z | Competitive: call a play for your team's bots, then 1-8. Both sides: **8 NEED A DROP** (in buy time the richest teammate bot that can afford it buys your side's rifle and drops it by you, or says why not). T: GO A, GO B, RUSH A, RUSH B, **TAKE MID** (two take mid, the rest wait on the site's other way, then both hit together), PLAY SLOW, SAVE. CT: STACK A, STACK B, DEFAULT SETUP, **PUSH MID** (one goes for an early pick in mid, back after 20 s), ROTATE A, ROTATE B, SAVE |
 | V | Noclip in practice (fly where you look; Shift = slow) |
+| X / L / [ ] | Practice: throw your last grenade again / save it as a lineup / go to the previous or next lineup (see **Grenade practice**) |
 | C | Clear bullet decals |
 | ~ (the key left of 1) | **The console** (see **Console**) |
 | Alt+Enter | Toggle fullscreen |
@@ -153,6 +154,20 @@ each placed and given its height against CS2's radar and measurements. T spawn i
 ## Radar
 
 Top-left on Dust (`radar`, Settings → Crosshair + HUD): the whole map north-up, shaded by height; you as an arrow; enemies as **red dots while spotted** (you can see them, a teammate can, or they just shot); teammates in **blue**; the bomb (red when planted, orange when dropped).
+
+## Grenade practice (practice mode, any map)
+
+Grenades are free and endless in practice, and V is noclip. While you hold one, the preview shows its flight, a cross
+where it goes off and **a ring for what it covers**: the smoke's cloud, the molotov's fire, the HE's damage range.
+- Every grenade you throw leaves **its whole flight drawn** for 8 seconds (like CS's `sv_grenade_trajectory`).
+- **X** throws your last grenade again, from exactly where it left your hand (`sv_rethrow_last_grenade`): watch it from
+  anywhere.
+- **L** saves your last throw as a **lineup**: where you stood, where you looked, which grenade and how you threw it
+  (full, lob, both buttons, jumping), named after where you stood and where it went off ("SMOKE: OUTSIDE LONG > CT
+  CROSS"). Saved in `lineups.txt` next to the game, per map; each shows as a little post where you stand to throw it.
+- **[ / ]** take you to the previous / next lineup on this map, looking the right way with that grenade in your hand;
+  its name and the throw ("FULL THROW + JUMP") show at the top.
+- Console: `lineups` (this map's list), `lineup_load <n>`, `lineup_save [name]`, `lineup_delete <n>`.
 
 ## Grenades
 

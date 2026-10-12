@@ -21,6 +21,7 @@
 #include "combat.h"
 #include "config.h"
 #include "console.h"
+#include "practice.h"
 #include "fx.h"
 #include "gl.h"
 #include "items.h"
@@ -47,6 +48,7 @@ struct Options {
     std::string screenshotPath;  // --screenshot out.bmp : save a frame and quit
     int screenshotFrame = 300;   // --frames N
     std::string exec;            // --exec "commands": run in the console on frame 30 (tests); --console shows it
+    int execFrame = 30;          // --exec-frame N: on that frame instead
     bool showConsole = false;
     // --light K (automated runs on the owner's PC: easy on it): each drawn frame is K steps of 1/240 s and at most 30
     // are drawn a second (so --frames N covers N * K / 240 s of game, at K / 8 times real time).
@@ -93,6 +95,12 @@ int g_compStartMoney = 800;  // (tests: --comp-money N, everyone's money at the 
 // still and hold fire.
 Console g_console;
 bool g_god = false, g_infiniteAmmo = false, g_botStop = false;
+// Grenade practice (v0.35): saved lineups (lineups.txt next to the game; automated runs never write it), the one you
+// went to last ([ / ]) and when (its name shows for a while).
+LineupBook g_lineups;
+std::string g_lineupPath;
+int g_lineupAt = -1;
+double g_lineupShownAt = -100.0;
 
 Options parseArgs(int argc, char** argv) {
     Options o;
@@ -103,6 +111,7 @@ Options parseArgs(int argc, char** argv) {
         else if (a == "--frames") o.screenshotFrame = std::atoi(next());
         else if (a == "--light") o.lightSteps = std::clamp(std::atoi(next()), 1, 48);
         else if (a == "--exec") o.exec = next();
+        else if (a == "--exec-frame") o.execFrame = std::atoi(next());
         else if (a == "--console") o.showConsole = true;
         else if (a == "--spawn") {
             o.spawnOverride = true;
@@ -297,6 +306,12 @@ struct Game {
     enum NadeType { kSmokeNade = 0, kFlashNade, kHeNade, kMolotov, kNadeTypes };
     // ticks in flight (fuse); owner: who threw it (-1 you, else a dummy: a bot, or online a player)
     struct Nade { Vec3 pos, vel; int type = kSmokeNade; int ticks = 0; int owner = -1; };
+    // Grenade practice (v0.35): your last throw (X throws it again, L saves it as a lineup) and the paths of the ones you
+    // just threw (drawn for a few seconds, like CS's sv_grenade_trajectory).
+    GrenadeThrow lastThrow;
+    bool hasLastThrow = false;
+    struct Trail { std::vector<Vec3> path; int type = 0; double until = 0; };
+    std::vector<Trail> trails;
     struct Smoke { Vec3 pos; double start; };
     struct Fire { Vec3 pos; double start, nextTick; int owner = -1; };
     std::vector<Fire> fires;
@@ -1320,6 +1335,87 @@ Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
 }
 
 // (Re)starts a deathmatch: fresh scores, everyone respawns.
+void pushHitLog(Game& g, const std::string& text, uint32_t color);
+
+// ---- Grenade practice (v0.35, owner): practice mode, offline ----
+bool nadePractice(const Game& g) { return g.mode == 0 && !g.online; }
+int mapIndex(const Game& g) { return g.mapId == 1 ? 1 + townMap() : 0; }  // (0 the Lab, 1 Dust, 2 Harbor, 3 Inferno)
+
+// A thrown grenade's whole flight, drawn for 8 s (the newest four).
+void addTrail(Game& g, const Vec3& start, const Vec3& vel, int type) {
+    if (g.trails.size() >= 4) g.trails.erase(g.trails.begin());
+    Game::Trail t;
+    t.type = type;
+    t.until = g.simTime + 8.0;
+    predictGrenade(g.world, start, vel, type, &t.path);
+    g.trails.push_back(std::move(t));
+}
+
+// Your last grenade again, from exactly where it left your hand (CS: sv_rethrow_last_grenade).
+void rethrowLast(Game& g) {
+    if (!g.hasLastThrow) {
+        pushHitLog(g, "THROW A GRENADE FIRST: X THROWS IT AGAIN", 0xffd060);
+        return;
+    }
+    const GrenadeThrow& t = g.lastThrow;
+    g.nades.push_back({t.start, t.vel, t.type});
+    addTrail(g, t.start, t.vel, t.type);
+    if (g.audio) g.audio->play3D(Sfx::Draw, t.start, g.earPos, g.earYaw, 1500.0f, 0.6f, 1.3f);
+}
+
+// Your last throw saved as a lineup on this map, named after where you stood and where it went off (or `name`).
+void saveLineup(Game& g, const std::string& name) {
+    if (!g.hasLastThrow) {
+        pushHitLog(g, "THROW ONE FIRST, THEN L SAVES IT AS A LINEUP", 0xffd060);
+        return;
+    }
+    const GrenadeThrow& t = g.lastThrow;
+    const Vec3 end = predictGrenade(g.world, t.start, t.vel, t.type);
+    Lineup l;
+    l.map = mapIndex(g);
+    l.t = t;
+    l.name = !name.empty() ? name
+             : g.mapId == 1 ? lineupName(t.type, townCallout(t.stand), townCallout(end))
+                            : lineupName(t.type, "THE LAB", "");
+    g_lineups.all.push_back(l);
+    if (!g_lineupPath.empty()) g_lineups.save(g_lineupPath);
+    g_lineupAt = int(g_lineups.onMap(l.map).size()) - 1;
+    pushHitLog(g, "LINEUP SAVED: " + l.name, 0x80ff80);
+}
+
+// To a saved lineup on this map (`step` +1 / -1 from the last one, or `index` into this map's list): where you stood,
+// looking where you looked, that grenade in your hand.
+void goLineup(Game& g, int step, int index = -1) {
+    const std::vector<int> here = g_lineups.onMap(mapIndex(g));
+    if (here.empty()) {
+        pushHitLog(g, "NO LINEUPS ON THIS MAP YET: THROW ONE AND PRESS L", 0xffd060);
+        return;
+    }
+    const int n = int(here.size());
+    g_lineupAt = index >= 0 ? std::min(index, n - 1) : ((g_lineupAt < 0 ? (step > 0 ? -1 : 0) : g_lineupAt) + step + n) % n;
+    const Lineup& l = g_lineups.all[size_t(here[size_t(g_lineupAt)])];
+    Vec3 at = l.t.stand;
+    if (l.t.air) {  // a jump throw: stand on the floor under it
+        const TraceResult down = g.world.traceBox(at, at - Vec3{0, 0, 300}, hullMins(), hullMaxs(false));
+        if (!down.startSolid) at = down.endpos;
+    }
+    g.player = PlayerState{};
+    g.player.origin = at;
+    g.player.onGround = true;
+    g.prevPlayer = g.player;
+    g.viewYaw = l.t.yaw;
+    g.viewPitch = l.t.pitch;
+    g.jumpNeedsRelease = true;
+    if (g.weapon == &g.guns[kWGrenade]) g.nadeType = l.t.type;  // (holding one already: just the right one)
+    else {
+        g.nadeType = l.t.type;
+        g.switchTo = 4;
+    }
+    g.vm.setGrenade(l.t.type);
+    g_lineupShownAt = g.simTime;
+    g.hudDirty = true;
+}
+
 void startDeathmatch(Game& g) {
     g.replay.clear();
     g.arLevel = 0;
@@ -4836,6 +4932,10 @@ void simTick(Game& g, const Options& opt) {
         const Vec3 v = grenadeThrowVelocity(float(g.viewPitch), float(g.viewYaw), g.throwStrength, g.player.velocity);
         const Vec3 f = normalize(v - g.player.velocity * 1.25f);
         g.nades.push_back({g.lastRenderEye + f * 16.0f, v, g.nadeType});
+        g.lastThrow = {g.player.origin, float(g.viewYaw), float(g.viewPitch), g.nadeType, g.throwStrength,
+                       !g.player.onGround, g.lastRenderEye + f * 16.0f, v};
+        g.hasLastThrow = true;
+        if (nadePractice(g)) addTrail(g, g.lastRenderEye + f * 16.0f, v, g.nadeType);
         if (g.online) g.net.sendNade(g.nadeType, g.lastRenderEye + f * 16.0f, v);  // everyone flies the same throw
         g.throwStrength = 1.0f;  // G quick-throws a full one
         sound(g, Sfx::Draw, 0.6f, 0.0f, 1.3f);
@@ -6517,6 +6617,22 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         hud.text(x, y, buf, 0xFFD060FF);
     }
     y += lh * 1.5f;
+    {  // grenade practice (v0.35)
+        const int here = int(g_lineups.onMap(mapIndex(g)).size());
+        std::snprintf(buf, sizeof(buf), "GRENADES   X THROW THE LAST ONE AGAIN   L SAVE IT AS A LINEUP   [ ] LINEUPS (%d HERE)", here);
+        hud.text(x, y, buf, g.weapon == &g.guns[kWGrenade] ? 0xFFD060FF : 0x9AA4B0FF);
+        y += lh * 1.5f;
+    }
+    if (g.simTime - g_lineupShownAt < 8.0) {  // the lineup you just went to: its name and how to throw it
+        const std::vector<int> list = g_lineups.onMap(mapIndex(g));
+        if (g_lineupAt >= 0 && g_lineupAt < int(list.size())) {
+            const Lineup& l = g_lineups.all[size_t(list[size_t(g_lineupAt)])];
+            const std::string top = "LINEUP " + std::to_string(g_lineupAt + 1) + "/" + std::to_string(list.size()) + "   " + l.name;
+            hud.text(float(w) / 2 - hud.textWidth(top, s * 2) / 2, float(h) * 0.22f, top, 0xFFFFFFFF, s * 2);
+            const std::string how = throwKind(l.t);
+            hud.text(float(w) / 2 - hud.textWidth(how) / 2, float(h) * 0.22f + 24.0f * s, how, 0xFFD060FF);
+        }
+    }
     }
     if (g.botsFire) {
         if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES");
@@ -7121,7 +7237,10 @@ int main(int argc, char** argv) {
         g_career.load(opt.careerFile);
     }
     g_inv.load(g_invPath);
-    if (automated) g_invPath.clear();  // (screenshots and benches show your skins but never save over them)
+    if (automated) g_invPath.clear();
+    g_lineupPath = std::string(base ? base : "") + "lineups.txt";  // grenade lineups (practice)
+    g_lineups.load(g_lineupPath);
+    if (automated) g_lineupPath.clear();  // (screenshots and benches show your skins but never save over them)
     g_caseKills = std::clamp(cfg.case_kills, 1, 1000);
     g_allSkins = cfg.all_skins != 0;
     g_caseRng ^= uint32_t(SDL_GetPerformanceCounter()) | 1u;
@@ -7805,6 +7924,11 @@ int main(int argc, char** argv) {
         {"mp_freezetime", "mp_freezetime <seconds>: competitive freeze time (next round)"},
         {"mp_startmoney", "mp_startmoney <$>: everyone's money at the start of a half (offline)"},
         {"mp_maxrounds", "mp_maxrounds <n>: rounds in a competitive match, sides swap at half (offline)"},
+        {"lineups", "practice: the grenade lineups saved on this map"},
+        {"lineup_load", "lineup_load <n>: to lineup n on this map (practice; [ and ] cycle)"},
+        {"lineup_save", "lineup_save [name]: saves your last throw as a lineup (practice; L)"},
+        {"lineup_delete", "lineup_delete <n>: deletes lineup n on this map"},
+        {"sv_rethrow_last_grenade", "throws your last grenade again (practice; X)"},
         {"connect", "connect <address[:port]>: joins an online game"},
         {"disconnect", "leaves the online game"},
         {"quit", "quits the game"},
@@ -7986,6 +8110,33 @@ int main(int argc, char** argv) {
         } else if (cmd == "mp_freezetime") {
             if (a.size() < 2) { con("mp_freezetime " + std::to_string(cfg.freeze_time)); return; }
             setSetting("freeze_time", a[1]);
+        } else if (cmd == "lineups" || cmd == "lineup_load" || cmd == "lineup_save" || cmd == "lineup_delete" ||
+                   cmd == "sv_rethrow_last_grenade") {
+            if (!nadePractice(g)) { con("grenade practice is in practice mode (mode practice), offline"); return; }
+            const std::vector<int> here = g_lineups.onMap(mapIndex(g));
+            const int n = a.size() > 1 ? std::atoi(a[1].c_str()) - 1 : -1;
+            if (cmd == "lineups") {
+                if (here.empty()) con("no lineups on this map yet: throw one and press L (or lineup_save)");
+                for (size_t k = 0; k < here.size(); ++k) {
+                    const Lineup& l = g_lineups.all[size_t(here[k])];
+                    con(std::to_string(k + 1) + "  " + l.name + "  (" + throwKind(l.t) + ")");
+                }
+            } else if (cmd == "lineup_load") {
+                if (n < 0 || n >= int(here.size())) { con("lineup_load <1-" + std::to_string(here.size()) + ">"); return; }
+                goLineup(g, 0, n);
+            } else if (cmd == "lineup_save") {
+                std::string name;
+                for (size_t k = 1; k < a.size(); ++k) name += (k > 1 ? " " : "") + a[k];
+                saveLineup(g, name);
+            } else if (cmd == "lineup_delete") {
+                if (n < 0 || n >= int(here.size())) { con("lineup_delete <1-" + std::to_string(here.size()) + ">"); return; }
+                con("deleted " + g_lineups.all[size_t(here[size_t(n)])].name);
+                g_lineups.all.erase(g_lineups.all.begin() + here[size_t(n)]);
+                if (!g_lineupPath.empty()) g_lineups.save(g_lineupPath);
+                g_lineupAt = -1;
+            } else {
+                rethrowLast(g);
+            }
         } else if (cmd == "connect") {
             if (a.size() < 2) { con("connect <address[:port]>"); return; }
             cfg.net_address = a[1];
@@ -8319,6 +8470,10 @@ int main(int argc, char** argv) {
                             if (msg[0]) pushHitLog(g, msg, 0xffd060);
                             g.hudDirty = true;
                         }
+                        else if (sc == SDL_SCANCODE_X && nadePractice(g)) rethrowLast(g);  // grenade practice (v0.35)
+                        else if (sc == SDL_SCANCODE_L && nadePractice(g)) saveLineup(g, "");
+                        else if ((sc == SDL_SCANCODE_LEFTBRACKET || sc == SDL_SCANCODE_RIGHTBRACKET) && nadePractice(g))
+                            goLineup(g, sc == SDL_SCANCODE_RIGHTBRACKET ? 1 : -1);
                         else if (sc == SDL_SCANCODE_1) g.switchTo = 1;
                         else if (sc == SDL_SCANCODE_2) g.switchTo = 2;
                         else if (sc == SDL_SCANCODE_3) g.switchTo = 3;
@@ -8425,7 +8580,7 @@ int main(int argc, char** argv) {
             g.throwLatch = true;
         }
         if (automated && frame == opt.stabFrame) g.zoomLatch = true;
-        if (automated && frame == 30 && (!opt.exec.empty() || opt.showConsole)) {  // (tests: console commands)
+        if (automated && frame == opt.execFrame && (!opt.exec.empty() || opt.showConsole)) {  // (tests: console commands)
             g_console.open = opt.showConsole;
             if (!opt.exec.empty()) {
                 g_console.line = opt.exec;
@@ -8839,6 +8994,19 @@ int main(int argc, char** argv) {
             dynamicBoxes.push_back(
                 makeBox(n.pos - Vec3{1.5f, 1.5f, 1.5f}, n.pos + Vec3{1.5f, 1.5f, 2.5f}, nadeColor[n.type], false));
         }
+        // Where a grenade goes off, how far it reaches (v0.35): the smoke's cloud, the molotov's fire, the HE's damage.
+        auto addNadeRing = [&](const Vec3& at, int type) {
+            const float r = type == Game::kSmokeNade ? kSmokeRadius : type == Game::kMolotov ? kFireRadius
+                          : type == Game::kHeNade ? kHeRadius : 0.0f;
+            if (r <= 0) return;
+            const uint32_t col = type == Game::kSmokeNade ? 0xb8c0c8 : type == Game::kMolotov ? 0xff9a20 : 0xff6a40;
+            const int segs = r > 200.0f ? 64 : 40;
+            for (int q = 0; q < segs; ++q) {
+                const float a = float(q) * 6.2831853f / float(segs);
+                const Vec3 p = at + Vec3{std::cos(a) * r, std::sin(a) * r, 1.0f};
+                dynamicBoxes.push_back(makeEmissive(p - Vec3{1.5f, 1.5f, 0.5f}, p + Vec3{1.5f, 1.5f, 0.5f}, col));
+            }
+        };
         // Grenade trajectory preview (`nade_preview`): the exact flight a throw would take right now
         // (same code as the real grenade), as dots, with a cross where it goes off.
         const bool compMatch = g.mode == 3 && g.mapId == 1;
@@ -8856,6 +9024,26 @@ int main(int argc, char** argv) {
             const uint32_t mark[Game::kNadeTypes] = {0xd8d8d8, 0xffffff, 0xff6a40, 0xff9a20};
             dynamicBoxes.push_back(makeEmissive(end + Vec3{-12, -1, 0.5f}, end + Vec3{12, 1, 1.5f}, mark[g.nadeType]));
             dynamicBoxes.push_back(makeEmissive(end + Vec3{-1, -12, 0.5f}, end + Vec3{1, 12, 1.5f}, mark[g.nadeType]));
+            addNadeRing(end, g.nadeType);
+        }
+        if (nadePractice(g)) {  // grenade practice: the flights you just threw, and your lineups on this map
+            for (size_t k = 0; k < g.trails.size();) {
+                if (g.simTime > g.trails[k].until) { g.trails.erase(g.trails.begin() + std::ptrdiff_t(k)); continue; }
+                const Game::Trail& t = g.trails[k++];
+                for (size_t q = 14; q < t.path.size(); q += 3) {  // (from a little way out: not in your face)
+                    const Vec3& p = t.path[q];
+                    dynamicBoxes.push_back(makeEmissive(p - Vec3{0.6f, 0.6f, 0.6f}, p + Vec3{0.6f, 0.6f, 0.6f}, 0xffd060));
+                }
+                if (!t.path.empty()) addNadeRing(t.path.back(), t.type);
+            }
+            const uint32_t post[Game::kNadeTypes] = {0xc8c8c8, 0xf0f0ff, 0xff6a40, 0xff9a20};
+            for (int k : g_lineups.onMap(mapIndex(g))) {
+                const GrenadeThrow& t = g_lineups.all[size_t(k)].t;
+                Vec3 at = t.stand;
+                if (t.air && g.mapId == 1) at.z = std::max(townGrid().floorAt(at.x, at.y), at.z - 60.0f);
+                dynamicBoxes.push_back(makeEmissive(at + Vec3{-5, -5, 0.5f}, at + Vec3{5, 5, 1.5f}, post[std::clamp(t.type, 0, 3)]));
+                dynamicBoxes.push_back(makeEmissive(at + Vec3{-0.8f, -0.8f, 0}, at + Vec3{0.8f, 0.8f, 40}, post[std::clamp(t.type, 0, 3)]));
+            }
         }
         // The C4: taped bricks, a keypad with a screen, wires, and a red light that blinks with the beeps
         // once it's armed. Planted (retakes, competitive) or lying where the carrier dropped it.
