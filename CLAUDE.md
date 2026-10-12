@@ -275,6 +275,11 @@ KnifeHit, KnifeWall; `--stab N`.
 
 **Modes** (Play screen MODE, `mode`): 0 practice (peek bots), 1 deathmatch, 2 retakes, 3 competitive 5v5, 4 prefire,
 online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
+- Arms Race (v0.34): deathmatch (`g.mode` 1) with `Game::armsRace` (Play / config mode `kModeArmsRace` 6; startFromMenu,
+  startup and the console map it); the ladder is bots.cpp `armsRaceGun` / `armsRaceStep` (13 levels, knife last; tested
+  in `testArmsRace`); main.cpp `armsRaceKill` (from `recordDamage`), `armsRaceEquip`, `arLevel` / `arBotLevel` /
+  `arWinner` (ends the match through `dmEnd`); switching limited to the level's gun + knife, no buys / grenades / drops;
+  bots with `kWKnife` run straight at their target (bots.cpp fight state) and slash in the shooting loop.
 - Deathmatch: bots roam the map (`bots.cpp`), fight each other too (`dm_bot_fights`; `BotSenses::self/huntYou`), spawn
   out of sight (`pickDmSpawn`); a kill heals 40 and gives 10 rounds.
 - Competitive (`Game::Comp`, `startCompRound`/`compTick`/`endCompRound`): MR12, CS economy, buy wheel, bomb
@@ -413,7 +418,7 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10 (11 s
 
 ## 8. Roadmap
 
-**In progress (owner, 2026-10-12): six features, one version each:** console (v0.33, done), Arms Race, grenade
+**In progress (owner, 2026-10-12): six features, one version each:** console (v0.33, done), Arms Race (v0.34, done), grenade
 practice (landing preview, save/load lineups, rethrow, noclip, infinite grenades), chat + ping marker, Wingman, saved
 match replays with a round timeline.
 **Done in v0.32** (owner, 2026-10-12): bots fairer up close (human reactions, re-peeks), random spawns, plays by

@@ -476,7 +476,7 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             b.strafeTimer = 0.4f + botRand(rng) * 0.4f;
             b.coverFor = chosen->id;
             // In a hurry (bomb carrier, clock running out): no hiding, fight and keep going.
-            b.hasCover = !b.urgent && findCover(s, d.pos, chosen->eye, 200.0f, b.cover, b.peek);
+            b.hasCover = !b.urgent && d.weapon != kWKnife && findCover(s, d.pos, chosen->eye, 200.0f, b.cover, b.peek);
             b.inCover = false;
             b.firstShots = true;
             b.coverTimer = 0.5f + botRand(rng) * 0.5f;
@@ -623,6 +623,19 @@ void updateDeathmatchBot(Dummy& d, BotBrain& b, const BotSenses& s, uint32_t& rn
             if ((b.timer -= kTickDt) <= 0 && !b.holdOnly) b.state = 0;
             break;
         case 2:  // fighting: from cover if it has some, else jiggle (strafe a step, stop and shoot, like CS bots)
+            if (d.weapon == kWKnife && b.sees && chosen) {  // a knife (Arms Race's last level): straight at them
+                b.strafing = false;
+                b.hasCover = false;
+                if (length2d(chosen->origin - d.pos) > 30.0f) {
+                    const Vec3 was = d.pos;
+                    stepToward(d, s, chosen->origin, step);
+                    if (length2d(d.pos - was) < 0.01f) {  // a corner in the way: along a route
+                        static std::vector<Vec3> route;  // (sim thread only)
+                        if (s.nav->findPath(d.pos, chosen->origin, route) && route.size() >= 2) stepToward(d, s, route[1], step);
+                    }
+                }
+                break;
+            }
             if (b.hasCover) {
                 // Out with someone in its sights and not badly hurt: it stays out and shoots for a burst (up to 1.4 s)
                 // instead of ducking back on a timer and dancing out of step with them, never shooting.
@@ -862,6 +875,19 @@ int deathmatchBotGun(float r01) {
         at -= p.weight;
     }
     return kWRifle;
+}
+
+int armsRaceGun(int level) {
+    static const int kGuns[kArmsRaceLevels] = {kWM4A1S, kWRifle, kWGalil, kWUmp45, kWMac10, kWXm1014, kWNova,
+                                               kWSniper, kWSsg08, kWDeagle, kWBerettas, kWPistol, kWKnife};
+    return kGuns[std::clamp(level, 0, kArmsRaceLevels - 1)];
+}
+
+bool armsRaceStep(int& killerLevel, int& victimLevel, bool knife) {
+    if (killerLevel >= kArmsRaceLevels - 1) return knife;
+    if (knife && victimLevel > 0) --victimLevel;
+    ++killerLevel;
+    return false;
 }
 
 float botShotGap(int w) {

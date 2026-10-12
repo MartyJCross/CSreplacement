@@ -2143,6 +2143,49 @@ void testConsole() {
     CHECK(bad == 0 && unreadable == 0 && keys.size() > 60, "%d wrong, %d unreadable, %zu keys", bad, unreadable, keys.size());
 }
 
+// Arms Race (v0.34): the ladder (13 levels, every gun once, the knife last), a kill moves you on, a knife kill takes a
+// level off the victim, only a knife kill on the last level wins; and a bot with the knife runs at its target.
+void testArmsRace() {
+    std::printf("arms race\n");
+    int bad = 0;
+    std::set<int> guns;
+    for (int l = 0; l < kArmsRaceLevels; ++l) guns.insert(armsRaceGun(l));
+    bad += int(guns.size()) != kArmsRaceLevels || armsRaceGun(kArmsRaceLevels - 1) != kWKnife;
+    int a = 0, v = 3;
+    bad += armsRaceStep(a, v, false) || a != 1 || v != 3;  // a kill: up one
+    bad += armsRaceStep(a, v, true) || a != 2 || v != 2;   // a knife kill: up one, them down one
+    int z = 0;
+    armsRaceStep(a, z, true);
+    bad += z != 0;  // (never below the first level)
+    int last = kArmsRaceLevels - 1;
+    bad += armsRaceStep(last, v, false) || last != kArmsRaceLevels - 1;  // the knife level: a gun kill does nothing
+    bad += !armsRaceStep(last, v, true);                                  // a knife kill wins
+    // A knife bot 500 units from you closes in.
+    BotSenses s;
+    s.world = &dust();
+    s.nav = &dustNav();
+    s.playerUp = true;
+    Dummy d;
+    BotBrain b;
+    uint32_t rng = 4u;
+    const Vec3 from = dpt(1500, 1100);  // long
+    spawnDeathmatchBot(d, b, from, rng);
+    d.weapon = kWKnife;
+    s.playerOrigin = dpt(1500, 1100 + 500.0f / 0.9f);
+    s.playerEye = s.playerOrigin + Vec3{0, 0, kStandEye};
+    d.yaw = d.prevYaw = 90.0f;
+    float closest = 1e9f;
+    for (int t = 0; t < kTickRate * 4; ++t) {
+        s.now = double(t) * kTickDt;
+        d.prevPos = d.pos;
+        updateDeathmatchBot(d, b, s, rng);
+        closest = std::min(closest, length2d(d.pos - s.playerOrigin));
+    }
+    std::printf("  %d levels, ladder rules %s; a knife bot from %.0f units got within %.0f of you in 4 s\n", kArmsRaceLevels,
+                bad ? "WRONG" : "ok", double(length2d(from - s.playerOrigin)), double(closest));
+    CHECK(bad == 0 && closest < kKnifeSlashRange + 16.0f, "%d wrong, closest %.0f", bad, double(closest));
+}
+
 void testBotFire() {
     std::printf("bots and fire\n");
     const NavGrid& nav = dustNav();
@@ -2840,6 +2883,7 @@ int main() {
     testBotChecks();
     testSpawnGroups();
     testConsole();
+    testArmsRace();
     testHarbor();
     testInferno();
     testReplay();

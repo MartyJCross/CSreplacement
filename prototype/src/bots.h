@@ -219,6 +219,14 @@ struct BotBuy { int gun; bool armor, helmet; int spent; };
 // One bot's buy: `side` 0 T / 1 CT; `gun` what it already holds (a gun it kept from last round, else its pistol).
 BotBuy botBuy(BuyRound round, int money, int side, int role, int gun, bool armor, bool helmet);
 int deathmatchBotGun(float r01);  // weighted like CS deathmatch: rifles mostly, some AWPs, SMGs, shotguns, Deagles
+// Arms Race (v0.34, owner): every kill moves you on a gun - rifles, SMGs, shotguns, snipers, pistols - and a kill with the
+// knife on the last level wins. A knife kill also takes a level off whoever it killed, like CS.
+constexpr int kArmsRaceLevels = 13;
+int armsRaceGun(int level);  // the gun of level 0 .. kArmsRaceLevels - 1 (the last: the knife)
+// A kill in Arms Race: the killer goes up a level, a knife kill takes one off the victim (not below the first). Returns
+// true if it won the match (a knife kill on the last level; any other kill there changes nothing).
+bool armsRaceStep(int& killerLevel, int& victimLevel, bool knife);
+
 // Seconds between a bot's trigger pulls with gun `w` (before skill): taps and short bursts, never faster than the
 // gun fires.
 float botShotGap(int w);

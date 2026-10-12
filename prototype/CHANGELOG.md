@@ -3,6 +3,15 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.34: Arms Race
+
+- **A new mode, Arms Race** (PLAY → ARMS RACE, console `mode armsrace`): deathmatch where every kill moves you on a gun
+  (M4A1-S, AK-47, Galil, UMP-45, MAC-10, XM1014, Nova, AWP, SSG 08, Deagle, Berettas, USP-S) and a knife kill on the
+  thirteenth level, the knife, wins. A knife kill knocks the victim back a level. Only your level's gun and the knife: no
+  buying, grenades or floor guns. The bots climb the same ladder; with the knife they run at you and slash (90 from behind).
+- HUD: your level, the next gun and the leader; the results say who won.
+- Tests: the ladder's rules, and a knife bot closing in.
+
 ## v0.33: the console
 
 - **~ opens a CS-style console** anywhere: every setting by its config name (`fov 100`, `cvarlist`, `find`), Tab

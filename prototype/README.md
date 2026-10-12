@@ -67,7 +67,7 @@ scroll, `;` puts several commands on one line (`give ak47; god`). `help` lists t
 
 - **Every setting by its config name**: `fov` shows it, `fov 100` sets it (and saves `config.cfg`, like the menus);
   `cvarlist` lists them all.
-- **Games:** `map lab|dust|harbor|inferno` (plays it in this mode), `mode practice|deathmatch|retakes|competitive|prefire`
+- **Games:** `map lab|dust|harbor|inferno` (plays it in this mode), `mode practice|deathmatch|armsrace|retakes|competitive|prefire`
   (plays it on this map), `restart` / `mp_restartgame`, `status`.
 - **Offline cheats:** `noclip`, `god`, `kill`, `give <weapon>` (CS names: `ak47`, `m4a1_silencer`, `galilar`, `awp`,
   `ssg08`, `deagle`, `elite`, `usp_silencer`, `nova`, `xm1014`, `mac10`, `ump45`, `knife`, `hegrenade`, `flashbang`,
@@ -275,6 +275,16 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
   MAC-10s, UMP-45s, shotguns and Deagles, each with its own damage (falling off with range), armor penetration, fire
   rate, sound and model. The shotguns fire pellets. You count as wearing kevlar and a helmet, like CS deathmatch.
 - **The bots** roam the whole map along the real routes, see in a 150° cone (catch them from behind), hear your running (~1,100 units) and shots (~2,200), and stop to shoot after a reaction (0.32–0.62 s on normal) once their crosshair is on you (real aim, see competitive). Half the time they roam towards your part of the map. In a fight they use cover when there's some close by (shoot, duck behind it, peek again), else they jiggle (strafe a step, stop, shoot). They spawn out of sight of where you are and of where you'll be a moment later.
+
+## Arms Race (PLAY → ARMS RACE)
+
+Deathmatch with a gun ladder, like CS:GO's: every kill moves you on to the next gun. Thirteen levels: M4A1-S, AK-47,
+Galil AR, UMP-45, MAC-10, XM1014, Nova, AWP, SSG 08, Desert Eagle, Dual Berettas, USP-S, then the knife: **a knife kill
+on the last level wins**. Killing someone with the knife (on any level) also knocks them back a level. You only have your
+level's gun and the knife: no buying, no grenades, no guns on the floor. The bots climb the same ladder (on the knife they
+run at you). The top of the screen shows your level, the next gun and who's leading; the match ends when someone wins (or
+the clock runs out) and a new one starts. Same setup as deathmatch: map, bots, minutes, skill, bots fighting each other.
+Arms Race matches don't count towards your rating.
 
 ## Retakes (PLAY → RETAKES)
 

@@ -459,6 +459,10 @@ struct Game {
     bool bombActive = false, defuseHeld = false;
     double bombExplodeAt = 0, defuseStart = -1, nextBeep = 0;
     double dmEnd = 0, dmOverUntil = -1, spawnProtectUntil = 0;
+    // Arms Race (v0.34: deathmatch, mode 1, with armsRace on): your level, each bot's, and who won (-3 nobody yet).
+    bool armsRace = false;
+    int arLevel = 0, arWinner = -3;
+    std::vector<int> arBotLevel;
     int dmShownSecs = -1, dmShownPhase = -1;
 
     // Combat record: kill feed, damage report and scoreboard. Agent ids: -1 = you, i = bot i.
@@ -1140,6 +1144,10 @@ void resetRecord(Game& g) {
 
 // Every hit goes through here: damage (ADR), the damage report, assists (41+ damage, like CS), kills
 // (kill feed, HS%). `amount` is what the victim actually lost (capped at their remaining HP).
+// Arms Race (v0.34; the ladder: bots.h armsRaceGun / armsRaceStep).
+void armsRaceEquip(Game& g);           // (below: your level's gun in your hand)
+void armsRaceKill(Game& g, int attacker, int victim, const char* weapon);
+
 void recordDamage(Game& g, int attacker, int victim, float amount, bool head, const char* weapon, bool wallbang,
                   bool kill) {
     const size_t n = g.dummies.size() + 1;
@@ -1178,6 +1186,7 @@ void recordDamage(Game& g, int attacker, int victim, float amount, bool head, co
         g.killToastAt = g.simTime;
         g.killToastHead = head;
     }
+    if (g.armsRace) armsRaceKill(g, attacker, victim, weapon);
 }
 
 // When you die: who you damaged and who damaged you this life (CS prints this in the console).
@@ -1313,6 +1322,9 @@ Vec3 pickDmSpawn(Game& g, bool forPlayer, size_t self = SIZE_MAX) {
 // (Re)starts a deathmatch: fresh scores, everyone respawns.
 void startDeathmatch(Game& g) {
     g.replay.clear();
+    g.arLevel = 0;
+    g.arWinner = -3;
+    g.arBotLevel.assign(g.dummies.size(), 0);
     g.dmEnd = g.simTime + 60.0 * g.dmMinutes;
     g.dmOverUntil = -1;
     g.shots = g.hits = g.headshots = 0;
@@ -1329,6 +1341,7 @@ void startDeathmatch(Game& g) {
     refillAmmo(g);
     resetPosition(g);
     g.spawnProtectUntil = g.simTime + 1.0;
+    if (g.armsRace) armsRaceEquip(g);
     g.hudDirty = true;
 }
 
@@ -1510,7 +1523,7 @@ void bulletHole(Game& g, const Vec3& at, const Vec3& normal, int box) {
 }
 
 // ---- Guns on the floor ----
-bool dropsOn(const Game& g) { return g.mapId == 1 && (g.mode == 1 || g.mode == 3 || g.mode == 5); }
+bool dropsOn(const Game& g) { return g.mapId == 1 && (g.mode == 1 || g.mode == 3 || g.mode == 5) && !g.armsRace; }
 
 // Gun `weapon` (with `ammo` in it) falls where someone was standing (to the floor below, if they were in the air).
 void dropGun(Game& g, int weapon, int ammo, const Vec3& at, float yaw) {
@@ -1603,6 +1616,7 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
     }
     refillAmmo(g);  // respawn with full magazines, like CS
     resetPosition(g);
+    if (g.armsRace) armsRaceEquip(g);
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
     return true;
 }
@@ -2486,6 +2500,43 @@ void takeGun(Game& g, int id) {
         g.secondary = &w;
         g.switchTo = 2;
     }
+}
+
+void armsRaceEquip(Game& g) {
+    const int gun = armsRaceGun(g.arLevel);
+    if (gun == kWKnife) {
+        g.switchTo = 3;
+        return;
+    }
+    takeGun(g, gun);
+}
+
+void armsRaceKill(Game& g, int attacker, int victim, const char* weapon) {
+    if (g.arWinner != -3 || attacker == victim || attacker < -1) return;
+    if (g.arBotLevel.size() != g.dummies.size()) g.arBotLevel.resize(g.dummies.size(), 0);
+    int& level = attacker < 0 ? g.arLevel : g.arBotLevel[size_t(attacker)];
+    int& theirs = victim < 0 ? g.arLevel : g.arBotLevel[size_t(victim)];
+    const bool knife = netWeaponCode(weapon) == kWKnife;
+    const int before = level, theirsBefore = theirs;
+    if (armsRaceStep(level, theirs, knife)) {  // the knife level: a knife kill wins it
+        g.arWinner = attacker;
+        g.dmEnd = g.simTime;  // (the deathmatch clock ends the match: the results)
+        pushHitLog(g, attacker < 0 ? "YOU WIN ARMS RACE" : agentName(attacker) + " WINS ARMS RACE", 0xffd060);
+        std::fprintf(stderr, "arms race: %s wins at %.0f s%c", attacker < 0 ? "you" : agentName(attacker).c_str(), g.simTime, 10);
+        return;
+    }
+    if (victim < 0 && theirs < theirsBefore) pushHitLog(g, std::string("KNIFED: BACK TO ") + weaponDef(armsRaceGun(g.arLevel)).name, 0xff8060);
+    if (level == before) return;
+    if (attacker < 0) {
+        armsRaceEquip(g);
+        pushHitLog(g, "LEVEL " + std::to_string(level + 1) + ": " + weaponDef(armsRaceGun(level)).name, 0x80ff80);
+    } else if (size_t(attacker) < g.dummies.size()) {
+        Dummy& d = g.dummies[size_t(attacker)];
+        d.weapon = uint8_t(armsRaceGun(level));
+        d.mag = -1;
+        d.reloadUntil = -1;
+    }
+    g.hudDirty = true;
 }
 
 // Is entry `e` already yours (can't carry more)?
@@ -4201,6 +4252,13 @@ void simTick(Game& g, const Options& opt) {
         }
     }
 
+    if (g.armsRace && g.switchTo) {  // Arms Race: your level's gun and the knife, nothing else (no grenades)
+        const int gun = armsRaceGun(g.arLevel);
+        if (g.switchTo == 4) g.switchTo = 0;
+        else if (g.switchTo != 3) g.switchTo = gun == kWKnife ? 3 : weaponDef(gun).primary ? 1 : 2;
+    }
+    if (g.armsRace) g.throwLatch = false;
+
     // Weapon switching / reload.
     if (g.switchTo) {
         // Q: the last weapon, if you still have it (a gun swapped on the floor or dropped is gone: owner, v0.27.2)
@@ -4875,7 +4933,7 @@ void simTick(Game& g, const Options& opt) {
     if (g.mapId == 1 && g.mode == 1) {
         if (g.dmOverUntil < 0 && g.simTime >= g.dmEnd) {
             g.dmOverUntil = g.simTime + 8.0;  // results screen, then a new match
-            recordDeathmatch(g);
+            if (!g.armsRace) recordDeathmatch(g);  // (Arms Race doesn't count towards your rating)
             g.hudDirty = true;
         } else if (g.dmOverUntil >= 0 && g.simTime >= g.dmOverUntil) {
             startDeathmatch(g);
@@ -5016,7 +5074,8 @@ void simTick(Game& g, const Options& opt) {
             if (!d.alive() || !isBot(g, i)) { b.state = -1; b.sees = b.aimed = false; continue; }
             if (g.mode == 1 && needsSpawn(d, b)) {
                 spawnDeathmatchBot(d, b, pickDmSpawn(g, false, i), g.rng);
-                d.weapon = uint8_t(deathmatchBotGun(rnd(g)));  // a new gun every life, like CS deathmatch
+                d.weapon = uint8_t(g.armsRace && i < g.arBotLevel.size() ? armsRaceGun(g.arBotLevel[i])  // Arms Race: its level's
+                                              : deathmatchBotGun(rnd(g)));  // a new gun every life, like CS deathmatch
                 d.mag = -1;
                 d.reloadUntil = -1;
             }
@@ -5155,6 +5214,37 @@ void simTick(Game& g, const Options& opt) {
             if (!realAim) {
                 g.botSeen[i] += kTickDt;
                 if (g.botSeen[i] < g.botReact[i] || g.botCooldown[i] > 0) continue;  // reaction time, fire rate
+            }
+            if (d.weapon == kWKnife) {  // the knife (Arms Race's last level): a slash once it's close, 90 from behind
+                const Vec3 victimPos = tgt >= 0 ? g.dummies[size_t(tgt)].pos : g.player.origin;
+                const float victimYaw = tgt >= 0 ? g.dummies[size_t(tgt)].yaw : float(g.viewYaw);
+                const Vec3 to = victimPos - d.pos;
+                if (length2d(to) > kKnifeSlashRange + 16.0f) continue;
+                const Vec3 fwd = anglesToForward(0, victimYaw), flat = normalize(Vec3{to.x, to.y, 0});
+                const bool back = dot(flat, Vec3{fwd.x, fwd.y, 0}) > 0.475f;
+                const float dmg = (back ? 90.0f : 40.0f) * 0.85f;  // (kevlar: everyone wears it outside competitive)
+                g.botCooldown[i] = float(knifeRefire(false, true));
+                g.dummies[i].shotAt = g.simTime;
+                if (g.audio) g.audio->play3D(Sfx::KnifeHit, victimPos, g.earPos, g.earYaw, 900.0f, 0.9f);
+                if (tgt < 0) {
+                    if (hurtPlayer(g, int(i), dmg, false, knifeDef().name) && !comp) break;
+                    continue;
+                }
+                Dummy& vm = g.dummies[size_t(tgt)];
+                const float applied = std::min(dmg, vm.hp);
+                vm.hp -= dmg;
+                vm.flash[kChest] = 0.15f;
+                vm.hitDir = flat;
+                const bool kill = vm.hp <= 0;
+                recordDamage(g, int(i), tgt, applied, false, knifeDef().name, false, kill);
+                if (kill) {
+                    vm.respawnLeft = 1.0f;
+                    botDied(g, size_t(tgt));
+                } else {
+                    g.bots[size_t(tgt)].alertUntil = g.simTime + 2.0;
+                    g.bots[size_t(tgt)].lastSeen = d.pos;
+                }
+                continue;
             }
             // Its gun: damage (falling off with range), armor penetration, fire rate, pellets, sound, all as the gun.
             const int gun = weaponDef(d.weapon).canFire ? int(d.weapon) : int(kWRifle);
@@ -5405,15 +5495,18 @@ struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots 
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "INFERNO"};
 constexpr int kMenuMaps = 4;  // the maps the menus offer: the Lab, Dust, Harbor, Inferno
-const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE"};
+const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE"};
+constexpr int kModeArmsRace = 6;  // (the Play screen and config's mode; in a game it's deathmatch with armsRace on)
 // The PLAY screen: the modes in the order they're offered, and a line about each (shown under the menu).
-const int kPlayModes[] = {3, 1, 2, 4, 0};
+const int kPlayModes[] = {3, 1, kModeArmsRace, 2, 4, 0};
 const char* const kModeAbout[] = {
     "THE LAB OR A MAP: A SHOOTING RANGE, PEEK BOTS AND AN AIM DRILL",
     "EVERYONE FOR THEMSELVES: RESPAWN, 10 ROUNDS AND 40 HP A KILL",
     "THE BOMB IS DOWN: RETAKE THE SITE BEFORE IT GOES OFF",
     "5 V 5 WITH BOTS: BUY, PLANT, DEFUSE, FIRST TO 13 ROUNDS",
     "WALK A ROUTE: BOTS ON EVERY COMMON ANGLE, BEAT YOUR TIME",
+    "",
+    "EVERY KILL A NEW GUN: RIFLES, SMGS, SHOTGUNS, SNIPERS, PISTOLS - THEN A KNIFE KILL WINS",
 };
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
@@ -5459,7 +5552,7 @@ const char* menuTitle(int screen) {
         case kMenuCase: return "CASE";
         case kMenuStats: return "STATS";
         case kMenuLobby: return g_lobby.host ? "LOBBY - HOSTING" : "LOBBY";
-        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, 4)];
+        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeArmsRace)];
         case kMenuOnline: return "PLAY ONLINE";
         case kMenuSound: return "SOUND";
         default: return "";
@@ -5546,7 +5639,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({"SKILL VARIANCE", nullptr, &c.skill_variance, 1, 0, 2, kVarianceNames});
                 r.push_back({"BUY TIME, SECONDS", nullptr, &c.freeze_time, 1, 3, 30});
             }
-            if (m.mode == 1) {
+            if (m.mode == 1 || m.mode == kModeArmsRace) {
                 r.push_back({"BOTS", nullptr, &c.dm_bots, 1, 1, 16});
                 r.push_back({"MINUTES", nullptr, &c.dm_minutes, 1, 1, 30});
                 r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
@@ -6485,6 +6578,17 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
         std::snprintf(buf, sizeof(buf), "%d:%02d   KILLS %d   DEATHS %d", left / 60, left % 60, g.you.kills, g.you.deaths);
         hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
+        if (g.armsRace) {  // your level, the next gun, and who's ahead
+            int lead = -1, leadLevel = g.arLevel;
+            for (size_t i = 0; i < g.arBotLevel.size(); ++i)
+                if (g.arBotLevel[i] > leadLevel) { leadLevel = g.arBotLevel[i]; lead = int(i); }
+            const bool last = g.arLevel >= kArmsRaceLevels - 1;
+            std::string line = "LEVEL " + std::to_string(g.arLevel + 1) + "/" + std::to_string(kArmsRaceLevels) + "   " +
+                               weaponDef(armsRaceGun(g.arLevel)).name +
+                               (last ? "   A KNIFE KILL WINS" : std::string("   NEXT ") + weaponDef(armsRaceGun(g.arLevel + 1)).name);
+            line += lead < 0 ? "   YOU LEAD" : "   LEADER " + agentName(lead) + " " + std::to_string(leadLevel + 1);
+            hud.text(cx - hud.textWidth(line) / 2, 32.0f * s + 11.0f * s, line, last ? 0xFFD060FF : 0xB8E0B8FF);
+        }
     }
     if (g.mapId == 1 && g.mode == 4) {
         const Game::Prefire& pf = g.pf;
@@ -6517,7 +6621,10 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         float rowH = 11.0f * s, panelW = 76.0f * 6 * s, panelH = rowH * float(g.bots.size() + 7);
         float px = cx - panelW / 2, py = g.mode == 3 && g.comp.phase == 3 ? 150.0f * s : cy - panelH / 2 - 40.0f * s;
         hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
-        if (g.mode == 1 && g.dmOverUntil >= 0) std::snprintf(buf, sizeof(buf), "MATCH OVER");
+        if (g.mode == 1 && g.dmOverUntil >= 0 && g.armsRace)
+            std::snprintf(buf, sizeof(buf), "%s", g.arWinner == -1 ? "YOU WIN ARMS RACE"
+                                                  : g.arWinner >= 0 ? (agentName(g.arWinner) + " WINS ARMS RACE").c_str() : "TIME'S UP");
+        else if (g.mode == 1 && g.dmOverUntil >= 0) std::snprintf(buf, sizeof(buf), "MATCH OVER");
         else if (g.mode == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   %d:%02d LEFT", left / 60, left % 60);
         else if (g.mode == 3 && g.comp.phase == 3) std::snprintf(buf, sizeof(buf), "FINAL SCORE   YOU %d : %d THEM", g.comp.youScore,
                                                                  g.comp.themScore);
@@ -7029,7 +7136,8 @@ int main(int argc, char** argv) {
             if (kInvWeapons[r] == w) opt.menuRow = r + 2;
     }
     validateEquips(g);
-    g.mode = cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
+    g.armsRace = cfg.mode == kModeArmsRace;
+    g.mode = g.armsRace ? 1 : cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
     renderer.setShadowSize(shadowSize(cfg.shadows));
@@ -7064,7 +7172,7 @@ int main(int argc, char** argv) {
     auto setMenu = [&](int screen) {
         if (screen == kMenuPlay) {  // the play screen starts from what's running now
             g_gameMenu.map = g.mapId == 1 ? 1 + townMap() : 0;
-            g_gameMenu.mode = g.online ? 3 : g.mode;
+            g_gameMenu.mode = g.online ? 3 : g.armsRace ? kModeArmsRace : g.mode;
             g_gameMenu.bots = g.botsFire;
             g_gameMenu.drill = g.drill;
             g_gameMenu.route = g.pf.route;
@@ -7119,6 +7227,7 @@ int main(int argc, char** argv) {
     };
     auto goOnline = [&](int game) {  // hosting, or just connected: online deathmatch (0) or competitive (1) on the town map
         g.online = true;
+        g.armsRace = false;
         g.mode = game == 1 ? 3 : 5;
         g_netTeamsTogether = cfg.net_teams;
         loadMap(g, renderer, 1);
@@ -7173,7 +7282,8 @@ int main(int argc, char** argv) {
     auto startFromMenu = [&]() {
         const GameMenu& m = g_gameMenu;
         leaveOnline();  // (if you were in an online game)
-        g.mode = m.mode;
+        g.armsRace = m.mode == kModeArmsRace;  // (deathmatch with the gun ladder)
+        g.mode = g.armsRace ? 1 : m.mode;
         g.pf.route = m.route;
         const int map = m.mode != 0 && m.map == 0 ? 1 : m.map;
         setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor, 3 Inferno)
@@ -7184,7 +7294,7 @@ int main(int argc, char** argv) {
             if (g.mapId == 0 && m.drill) setDrill(g, true);
         }
         cfg.map = map;
-        cfg.mode = g.mode;
+        cfg.mode = m.mode;
         saveConfig(cfgPath, cfg);
         g_menu.root = kMenuPause;
         setMenu(kMenuNone);
@@ -7336,7 +7446,7 @@ int main(int argc, char** argv) {
             default:
                 if (it.action >= kActGoto) {
                     setMenu(it.action - kActGoto);
-                } else if (it.action >= kActPickMode && it.action < kActPickMode + 5) {  // PLAY: that mode, set it up
+                } else if (it.action >= kActPickMode && it.action <= kActPickMode + kModeArmsRace) {  // PLAY: that mode, set it up
                     g_gameMenu.mode = it.action - kActPickMode;
                     if (g_gameMenu.mode != 0 && g_gameMenu.map == 0) g_gameMenu.map = 1;
                     setMenu(kMenuSetup);
@@ -7674,7 +7784,7 @@ int main(int argc, char** argv) {
         {"echo", "echo <text>"},
         {"status", "the map, the mode, the bots, online"},
         {"map", "map <lab|dust|harbor|inferno>: plays it (in this mode)"},
-        {"mode", "mode <practice|deathmatch|retakes|competitive|prefire>: plays it (on this map)"},
+        {"mode", "mode <practice|deathmatch|armsrace|retakes|competitive|prefire>: plays it (on this map)"},
         {"restart", "starts this game over (mp_restartgame too)"},
         {"mp_restartgame", "starts this game over"},
         {"noclip", "fly through walls (offline)"},
@@ -7712,7 +7822,7 @@ int main(int argc, char** argv) {
     // Play screen's START.
     auto restartGame = [&](int map, int mode) {
         g_gameMenu.map = map >= 0 ? map : g.mapId == 1 ? 1 + townMap() : 0;
-        g_gameMenu.mode = mode >= 0 ? mode : g.mode;
+        g_gameMenu.mode = mode >= 0 ? mode : g.armsRace ? kModeArmsRace : g.mode;
         g_gameMenu.bots = g.botsFire;
         g_gameMenu.drill = g.drill;
         g_gameMenu.route = g.pf.route;
@@ -7770,8 +7880,9 @@ int main(int argc, char** argv) {
             if (!offline()) return;
             const int mode = arg == "practice" ? 0 : arg == "deathmatch" || arg == "dm" ? 1 : arg == "retakes" ? 2
                            : arg == "competitive" || arg == "comp" ? 3 : arg == "prefire" ? 4
+                           : arg == "armsrace" || arg == "arms_race" || arg == "gungame" ? kModeArmsRace
                            : !arg.empty() && arg.find_first_not_of("0123456789") == std::string::npos ? std::atoi(arg.c_str()) : -1;
-            if (mode < 0 || mode > 4) { con("mode <practice|deathmatch|retakes|competitive|prefire>"); return; }
+            if (mode < 0 || mode > kModeArmsRace || mode == 5) { con("mode <practice|deathmatch|armsrace|retakes|competitive|prefire>"); return; }
             restartGame(-1, mode);
         } else if (cmd == "restart" || cmd == "mp_restartgame") {
             if (offline()) restartGame(-1, -1);
@@ -8216,8 +8327,8 @@ int main(int argc, char** argv) {
                         else if (sc == SDL_SCANCODE_F) g.vm.inspect();
                         else if (sc == SDL_SCANCODE_B) {
                             const bool comp = g.mode == 3 && g.mapId == 1;
-                            const bool canBuy = !comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
-                                                          length2d(g.player.origin - g.spawn) < 700.0f);
+                            const bool canBuy = !g.armsRace && (!comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
+                                                                          length2d(g.player.origin - g.spawn) < 700.0f));
                             if (canBuy) {
                                 g.callMenu = false;
                                 g.buyMenu = !g.buyMenu;
@@ -8234,7 +8345,7 @@ int main(int argc, char** argv) {
                                 }
                             }
 
-                            else pushHitLog(g, "YOU CAN ONLY BUY IN YOUR SPAWN DURING BUY TIME", 0xffd060);
+                            else pushHitLog(g, g.armsRace ? "NO BUYING IN ARMS RACE: KILLS EARN THE NEXT GUN" : "YOU CAN ONLY BUY IN YOUR SPAWN DURING BUY TIME", 0xffd060);
                             g.hudDirty = true;
                         }
                         else if (sc == SDL_SCANCODE_G && !dropPrimary(g)) g.throwLatch = true;  // drop, else quick-throw
