@@ -39,8 +39,8 @@ prototype/
   README.md, CHANGELOG.md the game as it is now; what changed per version
   src/
     vecmath.h             Vec3/Mat4, Z-up, Source-style angles (pitch + = down, yaw + = left)
-    world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor) from named areas
-                          on a 32u grid: buildTown(), townGrid(), spawns, retake sites, CT spots, prefire routes, peek
+    world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor, Inferno) from named areas
+                          on a grid (32u; Inferno 16u): buildTown(), townGrid(), spawns, retake sites, CT spots, prefire routes, peek
                           spots, TownTactics (bot plays), doors, facades; KZ course constants; inferno_hand.h = Inferno's hand-built areas
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
     combat.*              weapons (WeaponId: rifle = AK-47, pistol, knife, grenade, sniper = AWP, Berettas, Deagle, Nova,
@@ -246,8 +246,9 @@ KnifeHit, KnifeWall; `--stab N`.
 **Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor, 3 Inferno; `Game::mapId` is 1 for every town map;
 `setTownMap(map - 1)`):
 - The Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course.
-- **Town maps** (world.cpp): named floor areas on a 32u grid (`DustArea` tables `kDustAreas`, `kHarborAreas`;
-  `TownDef kTowns`: extents, scalable, wall shades, `separate` pairs). `setTownMap(0|1)` picks one; every `town*`
+- **Town maps** (world.cpp): named floor areas on a grid (`DustArea` tables `kDustAreas`, `kHarborAreas`,
+  `kInfernoAreas`; `TownDef kTowns`: extents, scalable, wall shades, `separate` pairs, `cell` 32 or 16, decks).
+  `setTownMap(0|1|2)` picks one; every `town*`
   function answers for it (townGrid, townPoint (real map coords → world, on the floor), townCallout, townSpawn,
   townTeamSpawns, townRetakeSites, townCtSpots, townPrefireRoutes, townPeekSpots, townTactics, buildTown). Walls,
   roofs (tunnels/doorways), trims, windows, awnings and doors are generated. `separate` keeps a wall between area
@@ -276,7 +277,8 @@ KnifeHit, KnifeWall; `--stab N`.
   box shader (240 stone, 236 paving, 224 wood, 208 metal; the Lab keeps the 255 dev grid).
 
 **Modes** (Play screen MODE, `mode`): 0 practice (peek bots), 1 deathmatch, 2 retakes, 3 competitive 5v5, 4 prefire,
-online (Play → ONLINE; mode 5 DM or 3 with `Game::online`).
+6 Arms Race, 7 Wingman (both config / Play values only: in a game they are 1 / 3 with a flag), online (Play → ONLINE;
+mode 5 DM or 3 with `Game::online`).
 - Arms Race (v0.34): deathmatch (`g.mode` 1) with `Game::armsRace` (Play / config mode `kModeArmsRace` 6; startFromMenu,
   startup and the console map it); the ladder is bots.cpp `armsRaceGun` / `armsRaceStep` (13 levels, knife last; tested
   in `testArmsRace`); main.cpp `armsRaceKill` (from `recordDamage`), `armsRaceEquip`, `arLevel` / `arBotLevel` /
@@ -383,11 +385,11 @@ running. main.cpp `kConCmds` (help lines) + `runCommand` (a big if-chain; settin
 Offline cheats `g_god`, `g_infiniteAmmo`, `g_botStop`. Competitive rules are `g_rules` (`MatchRules`: maxRounds,
 roundTime, buyTime; `roundsToWin()`; start money `g_compStartMoney`). `drawConsole` after drawFadeIn. `testConsole`.
 **Menus** (`MenuScreen`, `menuRows`, `drawMenu`, `menuUse`, `menuBack`; v0.25 restructure): main menu (PLAY, PLAY
-ONLINE, INVENTORY, STATS, SETTINGS, QUIT); PLAY = the modes (`kPlayModes`, `kModeAbout` line under the menu) ->
+ONLINE, INVENTORY, STATS, REPLAYS, SETTINGS, QUIT); PLAY = the modes (`kPlayModes`, `kModeAbout` line under the menu) ->
 `kMenuSetup` (map, size, the mode's options, START; `kActPickMode`); `kMenuOnline` (name, HOST A GAME -> lobby, address,
 JOIN, port); SETTINGS pages mouse, crosshair, weapons, video, sound (`kMenuSound`), gameplay, controls; pause menu
 (RESUME, NEW GAME, replay, inventory, settings, main menu). New screens are appended to the enum (`--menu N` numbers:
-15 setup, 16 online, 17 sound). No testing rows in the menus (owner); dev readouts only in practice; `show_fps`. SETTINGS -> RESET TO DEFAULTS
+15 setup, 16 online, 17 sound, 18 replays). No testing rows in the menus (owner); dev readouts only in practice; `show_fps`. SETTINGS -> RESET TO DEFAULTS
 (`kActResetSettings`, press twice within 3 s) = a fresh `Config` keeping name, address, port, all_skins.
 Every change saves config.cfg.
 
@@ -435,13 +437,14 @@ tests), CS top bar (`kTeamColor`), kill feed icons (`FeedEntry` killer/victim/we
 in the VS by `uTime`), contact shadows (world.cpp: decor with `kMatShade`, alpha 30..37; blobs `makeBlobShadow` 46..49;
 `layOnRamp`, sheets in the VS), animation (Dummy `shotAt/reloadUntil/mag/busy/air/landedAt`; bots reload; net flags
 kNetReload/kNetDuck), lobby (`kMenuLobby`, `LobbyState g_lobby`, net kLobby/kTeamPick/kStart/kBye, `kNetLobbyOpen`
-in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol 10 (11 since v0.32: spawn spot indices).
+in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol was 10 then (11 in v0.32: spawn spot indices;
+12 in v0.36: chat, pings).
 
 ## 8. Roadmap
 
-**In progress (owner, 2026-10-12): six features, one version each:** console (v0.33, done), Arms Race (v0.34, done), grenade
-practice (v0.35, done), chat + ping marker (v0.36, done), Wingman (v0.37, done), saved replays (v0.38, done). All six done., Wingman, saved
-match replays with a round timeline.
+**Done in v0.33-v0.38** (owner, 2026-10-12: six features, one version each): the console (v0.33), Arms Race (v0.34),
+grenade practice with lineups (v0.35), chat + ping marker (v0.36), Wingman (v0.37), saved match replays with a round
+timeline (v0.38).
 **Done in v0.32** (owner, 2026-10-12): bots fairer up close (human reactions, re-peeks), random spawns, plays by
 spawn.
 **Done in v0.31** (owner, 2026-10-12: bots "actually aim + look towards hotspots of the maps as they move"; chatter
@@ -501,7 +504,7 @@ their laptop**; next session with their OK, run `--bench 10` with presets LOW/ME
 Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competitive bots (CT utility, post-plant,
 saving, fire avoidance), the performance check (A* routes, mixer lock).
 Offered, not chosen yet: defuse kits (10 s defuse without), bots dropping guns for each other, server-authoritative
-netcode with lag compensation (`docs/04`), practice tools (grenade lineups, spray-pattern overlay, CS-style console),
+netcode with lag compensation (`docs/04`), a spray-pattern overlay,
 trade-ups, stickers, ladders, net_graph; for Inferno: a crouch-only underpass, real stair steps, bots on the decks.
 
 ## 9. The owner: who they are, what they want, the history
@@ -545,8 +548,8 @@ trade-ups, stickers, ladders, net_graph; for Inferno: a crouch-only underpass, r
   (VS 2026 Build Tools, MSVC 14.51; generator "Visual Studio 18 2026" -A x64; build dir `build/`, gitignored).
   Re-run the configure step after adding source files to CMakeLists.txt.
 - **`build/Release/config.cfg` is the owner's own config** (they run `build\Release\crisp.exe`). Before screenshots or
-  automated runs that need other settings, copy it to the scratchpad, edit, run, and **restore it**. Their settings
-  include `bhop 1`, `model_scale 102`, `mode 1`, `map 1` (Dust's size is fixed at 90% now).
+  automated runs that need other settings, copy it to the scratchpad, edit, run, and **restore it**. They change it
+  often (read it, don't assume); on 2026-10-13: `bhop 0`, `model_scale 102`, `mode 1`, `map 1`.
 - **Never edit C/C++ through a Bash heredoc**: the shell layer turns `\n` inside string literals into real newlines
   (broke builds many times). Write a Python edit script with the Write tool into the scratchpad and run it (assert
   each `old` text is present before replacing), or use the Edit tool. If a split literal slips through, rejoin it.

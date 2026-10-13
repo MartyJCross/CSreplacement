@@ -580,7 +580,7 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | File | What |
 |---|---|
 | `src/movement.*` | Kinematic player movement: friction/accel, air strafing, step-up, crouch-jump, bunny hops (`MoveParams`) |
-| `src/world.*` | Maps made of boxes and ramps (the Lab; Dust and Harbor from grids of named areas, materials), swept-box / ray traces incl. sloped ramps, a broadphase grid walked along each trace, spawns, retake sites, bot spots and plays |
+| `src/world.*`, `src/inferno_hand.h` | Maps made of boxes and ramps (the Lab; Dust, Harbor and Inferno from grids of named areas, materials; Inferno's hand-placed areas, walkways and props), swept-box / ray traces incl. sloped ramps, a broadphase grid walked along each trace, spawns, retake sites, bot spots and plays |
 | `src/nav.*` | Bot navigation on the town grid: walkable / roamable cells, A* routes, following a route |
 | `src/bots.*` | Bot brains: spawning anywhere, roaming or walking to a goal, holding angles, sight cone, choosing a target among enemies, hearing, chasing (tested headless) |
 | `src/combat.*` | Weapons (`WeaponId`, `weaponDef`), recoil patterns, deterministic spread, shotgun pellets spread at random, seeded per shot (`firePellets`, `pelletOffset`), dummies and turned / crouched hitboxes, armor, material wallbangs, hit detection |
@@ -589,9 +589,10 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | `src/fx.*` | First-person weapon and knife models and animation, the inventory showcase, tracers, particles, `DrawList` (cosmetic only) |
 | `src/audio.*` | SDL3 audio mixer: recordings with synthesized fallbacks, 3D audio, ambience, room echo, menu music |
 | `src/net.*`, `src/upnp.*` | Online play (ENet: host relays, lobby, competitive) and opening the router's port |
-| `src/replay.*`, `src/stats.*`, `src/config.*` | Replays and the killcam, your career and rating, `config.cfg` (every setting by name: `setConfigValue`, `configValue`) |
+| `src/replay.*`, `src/stats.*`, `src/config.*` | Replays and the killcam, saved matches (`.crec` files), your career and rating, `config.cfg` (every setting by name: `setConfigValue`, `configValue`) |
 | `src/console.*` | The console's text side: its log, the line, history, Tab completion, splitting commands (main.cpp runs them) |
+| `src/practice.*` | Grenade practice: recorded throws, saved lineups and their file (`lineups.txt`) |
 | `src/main.cpp` | Window, input, 128 Hz fixed-step loop, the modes, grenades, bomb, economy, combat record, radar, HUD, menus, online glue |
-| `tests/sim_tests.cpp` | Headless checks: speeds, jumps and hops, counter-strafe timing, collision, stairs, ramps, crates, determinism, spread, guns, material wallbangs, the maps' routes, sightlines, spawns and holes, bots (roaming, sight, cover, fire, arsenal), replays, cases, stats |
+| `tests/sim_tests.cpp` | Headless checks: speeds, jumps and hops, counter-strafe timing, collision, stairs, ramps, crates, determinism, spread, guns, material wallbangs, the maps' routes, sightlines, spawns and holes, bots (roaming, sight, cover, fire, arsenal, aim, checking spots, peeks, spawns), Arms Race, replays and saved matches, lineups, the console, cases, stats |
 
 Shots are tested against exactly what was on your screen the frame you clicked: the interpolated dummy positions, facings and camera. That's the single-player version of "what you see is what you hit".
