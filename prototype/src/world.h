@@ -83,7 +83,7 @@ World buildLab();
 // The town maps, built from named floor areas on a 32-unit grid (flat areas, ramps, roofed tunnels; everything
 // else is solid wall): 0 Dust2 at real scale (~4200 x 4250 units, scaled by setDustScale: the game uses 90%), 1 Harbor (Crisp's own
 // map, ~3100 x 3500, its own size). +y = north. Every town function below works on the active one.
-constexpr int kTownMaps = 3;  // 0 Dust, 1 Harbor, 2 Inferno
+constexpr int kTownMaps = 2;  // 0 Dust, 1 Harbor
 // A walkway above a street (the grid holds one floor a cell): its footprint, its floor height, parapet height along its
 // long sides (0 none) and roof height above its floor (0 open). Real map coordinates; towns that use them don't scale.
 struct TownDeck { const char* name; float x0, y0, x1, y1, z, parapet, roof; };

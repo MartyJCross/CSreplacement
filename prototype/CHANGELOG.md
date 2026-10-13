@@ -3,6 +3,20 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.39: owner's list
+
+- **Guns only fall to the floor in competitive and Wingman.** In deathmatch (offline and online) and Arms Race the dead
+  don't drop their guns any more.
+- **Inferno removed** (owner): it's gone from the menus, the console (`map inferno`), the tests and the code. A config
+  still set to Inferno opens Dust; saved Inferno replays stay in the `replays` folder but aren't listed.
+- **Every knife draws like the M9 Bayonet:** flipped end over end into the hand (the butterfly, karambit and talon had
+  their own draws).
+- **The USP-S one-taps a bare head from any range:** its damage now falls off like CS's USP-S (range modifier 0.99, was
+  0.91): 120 to the head up close, 102 at the longest shot (8,192 units). A helmet still saves you (93). Its small
+  standing spread is unchanged, so far away you still have to land the shot.
+- **Kill sounds:** the "dink" plays only when you get a kill (it played on every hit), and a headshot kill has its own
+  sound (a crack and a double ring). Hits that don't kill only make the body thwack (or the helmet's tink).
+
 ## v0.38.1: a program icon
 
 - Crisp has its own icon (a gold "C" round a crosshair dot, our own design): on `crisp.exe` in Explorer, on the

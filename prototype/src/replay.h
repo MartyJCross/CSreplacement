@@ -68,7 +68,7 @@ private:
 };
 
 // ---- Saved matches (v0.38): a whole match on disk, to watch again (REPLAYS on the main menu) ----
-// What it was: the map (1 Dust, 2 Harbor, 3 Inferno), the mode (1 deathmatch, 3 competitive; wingman / armsRace), when,
+// What it was: the map (1 Dust, 2 Harbor; 3 was Inferno, removed), the mode (1 deathmatch, 3 competitive; wingman / armsRace), when,
 // everyone's names (in agent order, you last), how it ended (team A = yours: its rounds, the other team's) and how long.
 struct MatchInfo {
     int map = 1, mode = 3;

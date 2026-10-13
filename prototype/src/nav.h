@@ -40,7 +40,7 @@ private:
     bool clear(int i, int j) const;
     bool canStep(int a, int b, int c, int d) const;  // walk from cell (a, b) into neighbour (c, d)
     // Drop off a ledge from cell (a, b) two cells along (di, dj): the cell between is the low floor at the cliff's
-    // foot (too close to the cliff for a hull to stand: small grids), the far one is clear (Inferno's balcony, boxes).
+    // foot (too close to the cliff for a hull to stand: small grids), the far one is clear (a balcony, boxes).
     bool canDrop(int a, int b, int di, int dj) const;
     const MapGrid* grid_ = nullptr;
     std::vector<uint8_t> clear_, edge_;  // edge_: next to a wall or ledge (paths keep off it)

@@ -152,7 +152,7 @@ bool NavGrid::canStep(int a, int b, int c, int d) const {
     if (!clear(a, b) || !clear(c, d)) return false;
     const MapGrid& m = *grid_;
     size_t p = size_t(m.index(a, b)), q = size_t(m.index(c, d));
-    // Up a smooth ramp (Inferno's stairs: up to ~21 units a cell, a 33 degree slope) it's a walk, not a step.
+    // Up a smooth ramp (stairs: up to ~21 units a cell, a 33 degree slope) it's a walk, not a step.
     const bool ramp = m.slope.size() == m.floor.size() && m.slope[p] && m.slope[q];
     if (m.floor[q] - m.floor[p] > (ramp ? 26.0f : MoveParams{}.stepSize)) return false;
     return std::min(m.ceiling[p], m.ceiling[q]) - std::max(m.floor[p], m.floor[q]) >= kStandHeight + 2;

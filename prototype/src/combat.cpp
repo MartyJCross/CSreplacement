@@ -34,9 +34,10 @@ const RecoilStep kPistolPattern[12] = {
     {1.10f, -0.20f}, {1.00f, 0.20f}, {0.90f, -0.20f}, {0.80f, 0.15f}, {0.70f, -0.15f}, {0.60f, 0.10f},
 };
 
-// 30 damage: a headshot kills without a helmet up close (120) but not through one (93), like CS's starting pistols.
+// 30 damage: a headshot kills without a helmet at any range (120, 102 at the 8192-unit limit: CS's USP-S range
+// modifier 0.99; owner v0.39) but not through one (93), like CS's starting pistols.
 const WeaponDef kPistol = {
-    "PISTOL", true, 240.0f, 30.0f, 0.91f, 0.15f, 12, 1.76f,
+    "PISTOL", true, 240.0f, 30.0f, 0.99f, 0.15f, 12, 1.76f,
     0.34f, 3.5f, 6.0f, 0.25f, kPistolPattern, 12, false, 0.0f, kWPistol, 1, 0.0f, false, false, 200, 300,
 };
 

@@ -475,7 +475,7 @@ struct Game {
         struct Throw { int bot; int type; Vec3 target; double from, until, nextTry; bool afterPlant = false; };
         std::vector<Throw> throws;
         // A group setting off goes in file, a third of a second apart (all at once, they walked on each other at the
-        // first corner: Inferno's top of banana, v0.29): who goes, when, where.
+        // first corner, v0.29): who goes, when, where.
         struct Later { int bot; double at; Vec3 to; bool hold; RetakeSpot h; bool hasH; };
         std::vector<Later> later;
         int carrier = -3;                   // bomb: -1 you, i = bot i, -2 dropped on the floor, -3 nobody
@@ -1370,7 +1370,7 @@ void pushHitLog(Game& g, const std::string& text, uint32_t color);
 
 // ---- Grenade practice (v0.35, owner): practice mode, offline ----
 bool nadePractice(const Game& g) { return g.mode == 0 && !g.online; }
-int mapIndex(const Game& g) { return g.mapId == 1 ? 1 + townMap() : 0; }  // (0 the Lab, 1 Dust, 2 Harbor, 3 Inferno)
+int mapIndex(const Game& g) { return g.mapId == 1 ? 1 + townMap() : 0; }  // (0 the Lab, 1 Dust, 2 Harbor)
 
 // A thrown grenade's whole flight, drawn for 8 s (the newest four).
 void addTrail(Game& g, const Vec3& start, const Vec3& vel, int type) {
@@ -1501,6 +1501,7 @@ void scanTapes() {
         TapeEntry t;
         t.path = f.path().string();
         if (!readMatch(t.path, t.info) || t.info.seconds < 10.0f) continue;  // (empty or a few seconds: not worth a row)
+        if (t.info.map < 1 || t.info.map > kTownMaps) continue;  // (a map that's gone: Inferno, removed in v0.39)
         const MatchInfo& m = t.info;
         const int secs = int(m.seconds);
         char line[160];
@@ -1746,7 +1747,8 @@ void bulletHole(Game& g, const Vec3& at, const Vec3& normal, int box) {
 }
 
 // ---- Guns on the floor ----
-bool dropsOn(const Game& g) { return g.mapId == 1 && (g.mode == 1 || g.mode == 3 || g.mode == 5) && !g.armsRace; }
+// Guns fall to the floor only in competitive and Wingman (owner, v0.39: not in deathmatch or Arms Race).
+bool dropsOn(const Game& g) { return g.mapId == 1 && g.mode == 3; }
 
 // Gun `weapon` (with `ammo` in it) falls where someone was standing (to the floor below, if they were in the air).
 void dropGun(Game& g, int weapon, int ammo, const Vec3& at, float yaw) {
@@ -2344,7 +2346,7 @@ void startCompRound(Game& g) {
     const float pr = rnd(g);
     int play = pr < 0.26f ? kPlayExecute : pr < 0.38f ? kPlayRush : pr < 0.60f ? kPlaySplit
              : pr < 0.76f ? kPlayFake : pr < 0.86f ? kPlayMid : kPlayDefault;
-    // A split needs two ways onto the site, mid control one from mid and one not (Inferno's B: banana is the only way).
+    // A split needs two ways onto the site, mid control one from mid and one not.
     if (g.wingman && (play == kPlayFake || play == kPlayDefault)) play = kPlayExecute;  // (one site: no fakes, no default)
     if ((play == kPlaySplit && waysTo(c.siteTarget).size() < 2) ||
         (play == kPlayMid && (waysTo(c.siteTarget, 1).empty() || waysTo(c.siteTarget, 0).empty())))
@@ -4676,7 +4678,7 @@ void simTick(Game& g, const Options& opt) {
             g.hitMarkerUntil = g.simTime + (r.kill ? 0.22 : 0.14);
             g.hitMarkerHead = false;
             g.hitMarkerKill = r.kill;
-            if (g.hitSound) sound(g, Sfx::HitMarker, r.kill ? 0.5f : 0.35f, 0.0f, r.kill ? 0.85f : 1.0f);
+            if (g.hitSound && r.kill) sound(g, r.group == kHead ? Sfx::HeadshotKill : Sfx::HitMarker, 0.5f, 0.0f, 0.85f);
         } else if (r.hitWorld) {
             if (g.audio) g.audio->play3D(Sfx::KnifeWall, r.end, g.earPos, g.earYaw, 900.0f, 0.6f);
             g.fx.impact(r.end, r.normal, 0x8a8f96, 0.6f);
@@ -4752,7 +4754,7 @@ void simTick(Game& g, const Options& opt) {
         // Each bullet (the Nova: each pellet): tracer, impacts, hits.
         int hitCount = 0, hitHeads = 0;
         float hitDamage = 0;
-        bool anyKill = false;
+        bool anyKill = false, headKill = false;
         for (int k = 0; k < shotCount; ++k) {
             const ShotResult& r = pellets[k];
             if (k == 0 || k % 3 == 0 || r.isCollat) {  // (a collat: the tracer carries on to the next one)
@@ -4768,7 +4770,7 @@ void simTick(Game& g, const Options& opt) {
                 if (k == 0 || shotCount == 1) sound(g, Sfx::HelmetHit, 0.8f);  // a headshot the helmet stopped
                 g.fx.blood(r.end, shotDir);
             } else if (r.dummyIndex >= 0) {
-                if (hitCount == 0) sound(g, r.group == kHead ? Sfx::HitHead : Sfx::HitBody, r.group == kHead ? 0.9f : 0.75f);
+                if (hitCount == 0 && !r.kill) sound(g, Sfx::HitBody, 0.75f);  // (a kill: the dink below instead)
                 g.fx.blood(r.end, shotDir);
             } else if (r.hitWorld) {
                 if (g.audio && r.worldBox >= 0 && (k == 0 || k % 4 == 0)) {  // the impact, by what it hit
@@ -4789,6 +4791,7 @@ void simTick(Game& g, const Options& opt) {
                 hitHeads += r.group == kHead;
                 hitDamage += r.damage;
                 anyKill = anyKill || r.kill;
+                headKill = headKill || (r.kill && r.group == kHead);
                 if (wd.pellets <= 1) {
                     char buf[112];
                     std::snprintf(buf, sizeof(buf), "%s %d%s%s%s  %.0fM", hitGroupName(r.group), int(r.damage + 0.5f),
@@ -4861,7 +4864,8 @@ void simTick(Game& g, const Options& opt) {
             g.hitMarkerUntil = g.simTime + (anyKill ? 0.22 : 0.14);
             g.hitMarkerHead = hitHeads > 0;
             g.hitMarkerKill = anyKill;
-            if (g.hitSound) sound(g, Sfx::HitMarker, anyKill ? 0.5f : 0.35f, 0.0f, anyKill ? 0.85f : 1.0f);
+            // Only a kill makes a sound (owner, v0.39): the dink, or for a headshot its own.
+            if (g.hitSound && anyKill) sound(g, headKill ? Sfx::HeadshotKill : Sfx::HitMarker, 0.5f, 0.0f, 0.85f);
         }
         if (ws.ammo == 0) {
             ws.reloadEndTime = g.simTime + wd.reloadTime + (wd.shellReload ? 0.3 : 0.0);
@@ -5744,8 +5748,8 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 // The PLAY screen's choices; they only take effect on START.
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
-const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "INFERNO"};
-constexpr int kMenuMaps = 4;  // the maps the menus offer: the Lab, Dust, Harbor, Inferno
+const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR"};
+constexpr int kMenuMaps = 3;  // the maps the menus offer: the Lab, Dust, Harbor (Inferno removed, owner v0.39)
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE", "WINGMAN"};
 constexpr int kModeArmsRace = 6;  // (the Play screen and config's mode; in a game it's deathmatch with armsRace on)
 constexpr int kModeWingman = 7;   // (in a game: competitive with wingman on)
@@ -5766,7 +5770,7 @@ const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
 const char* const kNetGameNames[] = {"DEATHMATCH", "COMPETITIVE"};
-const char* const kTownMapNames[] = {"DUST", "HARBOR", "INFERNO"};
+const char* const kTownMapNames[] = {"DUST", "HARBOR"};
 
 // ---- The online lobby: hosting opens it, friends who join land in it, the host starts the game from it. ----
 struct LobbyState {
@@ -7489,6 +7493,7 @@ int main(int argc, char** argv) {
     auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
     renderer.setShadowSize(shadowSize(cfg.shadows));
     setDustScale(kDustSize);
+    if (cfg.map < 0 || cfg.map >= kMenuMaps) cfg.map = 1;  // (a map that is gone, like Inferno: Dust)
     setTownMap(cfg.map >= 2 ? cfg.map - 1 : 0);
     loadMap(g, renderer, cfg.map >= 1 || g.mode != 0 ? 1 : 0);
     // Settings changed (menu, config reload): a new Dust size rebuilds the map right away.
@@ -7638,7 +7643,7 @@ int main(int argc, char** argv) {
         g.mode = g.armsRace ? 1 : g.wingman ? 3 : m.mode;
         g.pf.route = m.route;
         const int map = m.mode != 0 && m.map == 0 ? 1 : m.map;
-        setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor, 3 Inferno)
+        setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor)
         loadMap(g, renderer, map >= 1 ? 1 : 0);
         if (g.mode == 4) g.botsFire = cfg.prefire_bots_shoot != 0;
         if (g.mode == 0) {
@@ -8117,7 +8122,7 @@ int main(int argc, char** argv) {
                             g.hp = std::min(100.0f, g.hp + 40.0f);
                             if (g.weapon->def->canFire) g.weapon->ammo = std::min(g.weapon->ammo + 10, g.weapon->def->magSize);
                         }
-                        sound(g, Sfx::HitMarker, 1.0f, 0.0f, 0.8f);
+                        if (g.hitSound) sound(g, ev.head ? Sfx::HeadshotKill : Sfx::HitMarker, 0.8f, 0.0f, 0.85f);
                         g.hitMarkerStart = g.simTime;  // the kill marker (your game didn't know it killed)
                         g.hitMarkerUntil = g.simTime + 0.22;
                         g.hitMarkerHead = ev.head;
@@ -8180,7 +8185,7 @@ int main(int argc, char** argv) {
         {"clear", "empties the console"},
         {"echo", "echo <text>"},
         {"status", "the map, the mode, the bots, online"},
-        {"map", "map <lab|dust|harbor|inferno>: plays it (in this mode)"},
+        {"map", "map <lab|dust|harbor>: plays it (in this mode)"},
         {"mode", "mode <practice|deathmatch|armsrace|retakes|competitive|wingman|prefire>: plays it (on this map)"},
         {"restart", "starts this game over (mp_restartgame too)"},
         {"mp_restartgame", "starts this game over"},
@@ -8225,7 +8230,7 @@ int main(int argc, char** argv) {
         if (g.online) con("NOT IN AN ONLINE GAME");
         return !g.online;
     };
-    // Starts a game over on `map` (0 the Lab, 1 Dust, 2 Harbor, 3 Inferno) in `mode` (-1: the current one), like the
+    // Starts a game over on `map` (0 the Lab, 1 Dust, 2 Harbor) in `mode` (-1: the current one), like the
     // Play screen's START.
     auto restartGame = [&](int map, int mode) {
         g_gameMenu.map = map >= 0 ? map : g.mapId == 1 ? 1 + townMap() : 0;
@@ -8286,8 +8291,8 @@ int main(int argc, char** argv) {
         } else if (cmd == "map") {
             if (!offline()) return;
             const std::string n = arg.rfind("de_", 0) == 0 ? arg.substr(3) : arg;
-            const int map = n == "lab" ? 0 : n == "dust" || n == "dust2" ? 1 : n == "harbor" ? 2 : n == "inferno" ? 3 : -1;
-            if (map < 0) { con("map <lab|dust|harbor|inferno>"); return; }
+            const int map = n == "lab" ? 0 : n == "dust" || n == "dust2" ? 1 : n == "harbor" ? 2 : -1;
+            if (map < 0) { con("map <lab|dust|harbor>"); return; }
             if (map == 0 && g.mode != 0) { con("the Lab is for practice: mode practice"); return; }
             restartGame(map, -1);
         } else if (cmd == "mode") {

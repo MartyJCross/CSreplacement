@@ -738,21 +738,10 @@ KnifePose knifeInspect(int knife, int v, float t, float L) {
 }
 
 // The draw (d: 0..1 over kKnifeDrawTime): every knife comes out with a flourish.
-KnifePose knifeDraw(int knife, float d) {
+KnifePose knifeDraw(float d) {  // every knife the M9's way (owner, v0.39): flipped end over end into the hand
     KnifePose p;
-    if (knife == kKnifeButterfly) {  // turned side on, flicked open (the blade out, the handle round), a fan, back
-        const float side = ramp(d, 0.0f, 0.12f) * (1.0f - ramp(d, 0.75f, 1.0f));
-        p.yaw += 60.0f * side;
-        p.roll -= 15.0f * side;
-        p.blade = 180.0f * (1.0f - ramp(d, 0.12f, 0.5f));
-        p.bite = 360.0f * ramp(d, 0.1f, 0.5f) + 360.0f * ramp(d, 0.5f, 0.8f);
-    } else if (ringKnife(knife)) {  // spun round the finger into the hand
-        p.ring = 720.0f * ramp(d, 0.1f, 0.85f);
-        p.roll -= 30.0f * bump(d, 0.1f, 0.85f);
-    } else {  // flipped end over end into the hand
-        p.spinX = -360.0f * (1.0f - ramp(d, 0.1f, 0.85f));
-        p.roll += 180.0f * (1.0f - ramp(d, 0.05f, 0.7f));
-    }
+    p.spinX = -360.0f * (1.0f - ramp(d, 0.1f, 0.85f));
+    p.roll += 180.0f * (1.0f - ramp(d, 0.05f, 0.7f));
     return p;
 }
 
@@ -1286,7 +1275,7 @@ void ViewModel::build(const Vec3& eye, float pitchDeg, float yawDeg, float offX,
     };
     if (weapon_ == ViewWeapon::Knife) {
         if (inspectT_ >= 0) apply(knifeInspect(knife_, inspectVariant_, inspectT_, inspectLength()));
-        if (drawT_ < 1.0f) apply(knifeDraw(knife_, drawT_));
+        if (drawT_ < 1.0f) apply(knifeDraw(drawT_));
         if (fidgetT_ >= 0) apply(knifeFidget(knife_, fidgetKind_, fidgetT_));
         if (attackT_ >= 0) apply(knifeSwing(attackStab_, attackSide_, attackT_));
     }

@@ -296,6 +296,17 @@ std::vector<float> knifeHit(Rng& r) {  // the blade going in: a dull thud with a
     return b;
 }
 
+std::vector<float> headshotKill(Rng& r) {  // a sharp crack, then two bright rings: "t-ding-ding"
+    auto b = buffer(0.32f);
+    addNoise(b, 0, 0.6f, 2500, 10000, 0.002f, r, 0.0001f);
+    addMetal(b, 0.004f, 0.8f, 3600 * r.jitter(0.02f), 0.08f, r);
+    addMetal(b, 0.05f, 0.6f, 4800 * r.jitter(0.02f), 0.07f, r);
+    addTone(b, 0.004f, 0.25f, 1800, 1700, 0.02f);
+    fadeTail(b);
+    normalize(b, 0.6f);
+    return b;
+}
+
 std::vector<float> knifeWall(Rng& r) {  // steel on a wall: a bright tick and a short scrape
     auto b = buffer(0.2f);
     addTone(b, 0, 0.35f, 2600 * r.jitter(0.05f), 2450, 0.04f);
@@ -658,7 +669,7 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
                                  "suppressed_rifle", "shotgun_shot", "galil_shot", "mac10_shot", "ump_shot",
                                  "ssg_shot", "xm_shot", "deagle_shot", "berettas_shot", "round_start", "bomb_planted",
                                  "round_win", "round_lose", "low_ammo", "last_round", "footstep_stone",
-                                 "knife_swing", "knife_hit", "knife_wall"};
+                                 "knife_swing", "knife_hit", "knife_wall", "headshot_kill"};
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
 std::vector<float> ambienceBed(int which);  // (below, with the mixer)
@@ -728,7 +739,7 @@ SoundBank synthesize() {
         {Sfx::RoundWin, roundWin, 1},            {Sfx::RoundLose, roundLose, 1},
         {Sfx::LowAmmo, lowAmmo, 2},              {Sfx::LastRound, lastRound, 2},
         {Sfx::KnifeSwing, knifeSwing, 3},        {Sfx::KnifeHit, knifeHit, 3},
-        {Sfx::KnifeWall, knifeWall, 2},
+        {Sfx::KnifeWall, knifeWall, 2},          {Sfx::HeadshotKill, headshotKill, 2},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -885,7 +896,7 @@ bool Audio::dumpWavs(const std::string& dir, const std::string& assetDir) {
             f.write("data", 4); u32(bytes);
             for (float x : clip) u16(uint16_t(int16_t(std::clamp(x, -1.0f, 1.0f) * 32767.0f)));
         }
-    for (int k = 1; k < 4; ++k) {  // the ambience beds, stereo
+    for (int k = 1; k < 3; ++k) {  // the ambience beds, stereo
         const std::vector<float> bed = ambienceBed(k);
         std::ofstream f(dir + "/ambience_" + std::to_string(k) + ".wav", std::ios::binary);
         if (!f) return false;
@@ -988,21 +999,7 @@ std::vector<float> ambienceBed(int which) {
             }
         }
     }
-    if (which == 3) {  // Inferno: a summer afternoon in the village, cicadas buzzing far off, swelling and fading
-        float lp = 0;
-        const float a = lpCoef(5200.0f);
-        for (size_t i = 0; i < n; ++i) {
-            const float t = float(i) / kRate;
-            const float pulse = 0.5f + 0.5f * std::sin(2.0f * kPi * 48.0f * t);  // the buzz's rattle
-            const float swell = 0.35f + 0.65f * std::pow(0.5f + 0.5f * std::sin(t * 0.37f), 2.0f);
-            const float x = rng.noise();
-            lp += a * (x - lp);
-            const float v = (x - lp) * pulse * swell * 0.010f;
-            ch[0][i] += v * (0.8f + 0.2f * std::sin(t * 0.21f));
-            ch[1][i] += v * (0.8f - 0.2f * std::sin(t * 0.21f));
-        }
-    }
-    if (which == 1 || which == 3) {  // a distant bird: little rising chirps in twos and threes
+    if (which == 1) {  // a distant bird: little rising chirps in twos and threes
         for (float t0 = 1.5f; t0 < kLen - 1.0f; t0 += 3.0f + 4.0f * (rng.noise() * 0.5f + 0.5f)) {
             const float pan = rng.noise() * 0.9f, base = 2600.0f + 900.0f * (rng.noise() * 0.5f + 0.5f);
             for (int k = 0, chirps = 2 + int((rng.noise() * 0.5f + 0.5f) * 2.0f); k < chirps; ++k) {
@@ -1093,7 +1090,7 @@ bool Audio::init(float masterVolume, const std::string& assetDir) {
     mixBuf_.resize(4096 * 2);
     wetBuf_.resize(4096 * 2);
     reverb_.init();
-    for (int k = 1; k < 4; ++k) amb_[k] = ambienceBed(k);
+    for (int k = 1; k < 3; ++k) amb_[k] = ambienceBed(k);
     SDL_AudioSpec spec{SDL_AUDIO_F32, 2, kRate};
     stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &Audio::callback, this);
     if (!stream_) return false;
@@ -1157,7 +1154,7 @@ namespace {
 // Sounds that aren't in the world (the UI, the match's cues, your ears ringing): no room echo on them.
 bool dryCue(Sfx s) {
     switch (s) {
-    case Sfx::UiClick: case Sfx::HitMarker: case Sfx::FlashRing: case Sfx::RoundStart: case Sfx::BombPlanted:
+    case Sfx::UiClick: case Sfx::HitMarker: case Sfx::HeadshotKill: case Sfx::FlashRing: case Sfx::RoundStart: case Sfx::BombPlanted:
     case Sfx::RoundWin: case Sfx::RoundLose: case Sfx::LowAmmo: case Sfx::LastRound:
         return true;
     default:

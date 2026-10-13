@@ -8,11 +8,11 @@ friends. It has:
 - raw mouse input
 - twelve guns with fixed spray patterns (AK-47, M4A1-S, Galil AR, AWP, SSG 08, Nova, XM1014, MAC-10, UMP-45, pistol, Dual Berettas, Deagle), knives and grenades
 - menu music (a CC0 track; MENU MUSIC volume in Settings → Sound)
-- four maps: the Lab (a grey-box range), Dust (a Dust2 copy) and Inferno (CS2's Inferno), both for personal testing, and Harbor (Crisp's own)
+- three maps: the Lab (a grey-box range), Dust (a Dust2 copy, for personal testing) and Harbor (Crisp's own)
 - modes: competitive 5v5, deathmatch, retakes, prefire and practice, plus online deathmatch and competitive
 - **sound:**
   - gunshots, footsteps, landing, reload, dry-fire
-  - body-hit thwack and a headshot "dink"
+  - body-hit thwack, a "dink" when you get a kill and its own sound for a headshot kill
   - strafing dummies make **positional footsteps**, so you can test hearing direction
 - **first-person weapon:**
   - every gun and knife, with skins from cases
@@ -70,7 +70,7 @@ scroll, `;` puts several commands on one line (`give ak47; god`). `help` lists t
 
 - **Every setting by its config name**: `fov` shows it, `fov 100` sets it (and saves `config.cfg`, like the menus);
   `cvarlist` lists them all.
-- **Games:** `map lab|dust|harbor|inferno` (plays it in this mode), `mode practice|deathmatch|armsrace|retakes|competitive|wingman|prefire`
+- **Games:** `map lab|dust|harbor` (plays it in this mode), `mode practice|deathmatch|armsrace|retakes|competitive|wingman|prefire`
   (plays it on this map), `restart` / `mp_restartgame`, `status`.
 - **Offline cheats:** `noclip`, `god`, `kill`, `give <weapon>` (CS names: `ak47`, `m4a1_silencer`, `galilar`, `awp`,
   `ssg08`, `deagle`, `elite`, `usp_silencer`, `nova`, `xm1014`, `mac10`, `ump45`, `knife`, `hegrenade`, `flashbang`,
@@ -125,33 +125,6 @@ In practice mode the 4 bots peek from cover: the long corner, mid doors, the B a
 - Everything works there: practice (peek bots), deathmatch, retakes, competitive with the plays (DOCKS / SHORT / UNDERPASS / ALLEY versions of the calls), prefire (DOCKS, UNDERPASS, MID, A SHORT) and online (the host's map is sent to whoever joins).
 - **At knife speed:** T spawn to A 11.8 s, to B 10.8 s, to mid doors 7.1 s; CT spawn to A 6.2 s, to B 5.1 s, to mid doors 3.3 s. It's built at its own size.
 - Tested like Dust2 (`testHarbor`): all 99 bot spots are standing room with a route, real bots walk to every competitive spot from both spawns (70 of 70), the spawns can't see each other, and 72,000 rays from everywhere you can stand find no holes.
-
-## Inferno (every mode: MAP INFERNO)
-
-**CS2's Inferno, built by hand** (a copy for personal testing, like Dust): its real size and coordinates, its rooms,
-streets, stairs and doorways laid out one by one on a fine 16-unit grid (thin walls, doorways their real width),
-each placed and given its height against CS2's radar and measurements. T spawn in the west, CT spawn north-east:
-- **B:** out of T spawn up the **T ramp** to **bottom mid** and up **banana** (the **logs** at the bottom,
-  **sandbags** half way, the **car** at the top) onto **B site**: red brick round the **fountain** and its statue, box
-  stacks you can climb, **dark** and **coffins** at the back, the curved walls of the **apse**. The CTs come from **CT**
-  and **construction**.
-- **Mid and A:** **mid** runs east from bottom mid to **top mid**, where it splits: **A short** south onto the site,
-  **arch** north onto **A long**. **Second mid** loops round the block below it; the **underpass** runs under bottom mid
-  (down its stairwell) to the alley.
-- **Apartments:** **T apps** up its stairs from the T ramp, with the **bridge** over the alley (you can cross it and
-  walk under it); **CT apps** up its stairs from second mid, **boiler** down to top mid, **close apps** along to the
-  **balcony**: drop off it into **pit** and A. **A site** is raised, with its boxes and the truck, **graveyard** beside
-  it, **library** (bookshelves) off A long towards **CT spawn**, and **speedway** from the arch back to B.
-- Plaster and stone houses with terracotta roofs, shutters and window boxes, cobbled streets, cicadas.
-- Everything works there: practice, deathmatch, retakes, competitive (the Ts go through **apps**, **short** or up
-  **banana**; B has one way in, so no split or mid control onto B), prefire (BANANA, APARTMENTS, MID) and online.
-- **At knife speed:** T spawn to B 15.5 s, to A 19.1 s, to banana 8.3 s, to top mid 13.1 s; CT spawn to B
-  8.9 s, to A 6.8 s, to top mid 6.7 s.
-- Tested (`testInferno`): no floor holes, no slivers or stray cells, every bot spot standing room with a route, real
-  bots walk to every competitive spot (60 of 60), the spawns can't see each other, 72,000 rays find no way out, and the
-  player walks every main route (into both apps, over the balcony, through the underpass) without catching on anything.
-- Simplified: stairs are smooth ramps, the underpass is walkable standing up, and where two floors stack (the bridge,
-  bottom mid over the underpass) the upper one is a solid walkway the bots don't use.
 
 ## Radar
 
@@ -254,7 +227,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
   so strafing and running still beat easy and normal bots, while expert ones track you.
 - **Checking spots:** walking (and in a short hold), a bot checks the spots someone could be in, one after another,
   like a player clearing a room: the known holds (CT spots and site holds for the Ts; the Ts' ways in for the CTs)
-  first, then corners and the spots behind crates (found from the map: ~45 on Dust, 56 on Harbor, 116 on Inferno). It
+  first, then corners and the spots behind crates (found from the map: ~45 on Dust, 56 on Harbor). It
   holds its crosshair on each at head height for a moment, then moves on; teammates walking together split them (one
   covers an angle, the next checks another). With nothing to check it looks round the next corner of its way. Someone
   appearing right where it's aiming gets shot quicker (about a fifth faster); catch it looking the wrong way and it
@@ -286,6 +259,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **The match:** 5 minutes (`dm_minutes`) against 10 bots (`dm_bots`, up to 16); results screen, then a new match.
 - **Spawns are anywhere on the map but mid**, away from the bots and out of their sight, with every gun reloaded and 1 s of protection. Bots respawn 2–4 s after you kill them, out of your sight.
 - **A kill gives you +40 HP** (up to 100) **and 10 rounds** in your magazine (up to a full mag).
+- **No guns on the floor:** the dead don't drop their guns in deathmatch or Arms Race; dropping and picking up guns is
+  competitive and Wingman only.
 - **The bots fight each other too** (setup: BOTS FIGHT EACH OTHER, on by default, `dm_bot_fights`): each fights whoever it sees nearest, bot or you, and the kill feed and scoreboard count their kills. They still come looking for you half the time, and respawn out of each other's sight.
 - **Skill variance** (competitive setup: SKILL VARIANCE, `skill_variance`; it applies to every mode with bots): OFF, every bot plays exactly the skill you picked; SLIGHT, each bot is up to half a level better or worse (a HARD lobby has some nearly-EXPERT bots and some nearly-NORMAL ones); WIDE, up to a whole level. Each bot keeps its own for the whole match.
 - **Each bot gets a new gun every life**, like CS deathmatch: mostly AK-47s and M4A1-Ss, some AWPs, Galils, scouts,
@@ -296,7 +271,7 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 ## Wingman (PLAY → WINGMAN)
 
 Competitive cut down to 2 v 2 on one bombsite, like CS:GO's Wingman: you and a teammate bot against two bots, on site A
-or B (setup: SITE; B by default) of Dust, Harbor or Inferno. Everything else is competitive (buying, the economy, the
+or B (setup: SITE; B by default) of Dust or Harbor. Everything else is competitive (buying, the economy, the
 bomb, calls, spectating), with Wingman's rules: 16 rounds, sides swap after 8, **first to 9 wins**, 1:30 rounds and 15 s
 to buy. The bomb only goes down on that site; the Ts' plays all go there (executes, rushes, splits over its ways, taking
 mid first), both CTs hold it. Setup: SITE, TEAMMATE SKILL, ENEMY SKILL, SKILL VARIANCE, FREEZE TIME. Offline only for
@@ -373,7 +348,9 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 
 ## Hit feedback
 
-- **A subtle tick** plays when your bullet connects (a little lower and louder on a kill): `hitsound`.
+- **Kill sounds:** a short "dink" when your bullet (or knife) kills, and a brighter crack with a double ring when the
+  kill is a headshot. Hits that don't kill make no confirmation sound (you still hear the body thwack, and the
+  helmet's tink when a helmet stops a headshot): `hitsound` (Settings → Sound → HIT SOUND).
 - **Small ticks around the crosshair** flash for an instant: white for a body hit, red for the head, slightly bigger on a kill: `hitmarker`.
 - **Damage direction:** when a bot hits you, a red arc round the crosshair points at where it came from (fades over a second), like CS.
 - **A helmet "tink"** when your headshot is stopped by a helmet instead of killing.
@@ -394,18 +371,18 @@ The offline competitive match (MR12, economy, buy menu, the bomb) with friends i
 | XM1014 | 1 | 6 × 20 | auto, 0.35 s | 7 | the auto shotgun: hold to fire; random spread inside 2.9°; loads shell by shell |
 | MAC-10 | 1 | 29 | 800 RPM, auto | 30 | runs at 240 |
 | UMP-45 | 1 | 35 | 666 RPM, auto | 25 | heavy hits up close, falls off fast (21 → 12 through kevlar from 200 to 2,000 units) |
-| Pistol | 2 | 30 | semi | 12 | **suppressed** (quiet, barely a flash; bots hear it from 900 units, not 2,200). A headshot kills without a helmet up close, **not through one** (93) |
+| Pistol | 2 | 30 | semi | 12 | **suppressed** (quiet, barely a flash; bots hear it from 900 units, not 2,200). The USP-S: a headshot kills without a helmet **from any range** (120 up close, 102 at the longest shot), **not through one** (93) |
 
 | Dual Berettas | 2 | 32 | semi, fast | 30 | one in each hand, firing left and right in turn; no one-tap through a helmet |
 | Deagle | 2 | 63 | semi, 0.225 s | 7 | **a headshot kills through a helmet from anywhere** (still 106 at 6,000 units), big kick |
 
-Tested in `sim_tests` (new guns): the pistol, Berettas and Galil can't one-tap a helmet, the AK-47 and M4A1-S can (at 500 units), the Deagle and the SSG 08 can from anywhere, the AWP kills through kevlar with a body shot at 500 and 4,000 units, the UMP-45 falls off, the shotguns' pellets differ every shot but repeat exactly for the same shot, stay inside their spread and kill close but not far (averaged over 40 shots).
+Tested in `sim_tests` (new guns): the pistol one-taps a bare head out to 8,192 units, the pistol, Berettas and Galil can't one-tap a helmet, the AK-47 and M4A1-S can (at 500 units), the Deagle and the SSG 08 can from anywhere, the AWP kills through kevlar with a body shot at 500 and 4,000 units, the UMP-45 falls off, the shotguns' pellets differ every shot but repeat exactly for the same shot, stay inside their spread and kill close but not far (averaged over 40 shots).
 
 ## Inspect, knives, skins and cases
 
 - **F inspects.** Guns swing up to show the left side, roll over to the right side, tip down to look at the mag, then settle back, with a little breathing sway. Firing, reloading or switching cancels it.
 - **Knives:** everyone has the plain black **knife**. Cases can give a **butterfly**, **karambit**, **M9 bayonet**, **talon** (ivory and brass, big claw), **bowie** (stag handle, brass guard, clip point) or **kukri** (forward-bent blade). Blades have an edge bevel and a fuller.
-- **Knife animations, like CS:GO's:** every knife comes out with a flourish (the butterfly fans open, the karambit and talon spin round the finger, the straight ones flip into the hand), and **each press of F plays the next of three inspects**: the butterfly does aerials, a three-whip fan and a folded toss flicked open; the karambit and talon a long spin round the finger, a reverse spin with a hand roll, and a flick off the finger; the M9, bowie, kukri and the default knife a toss end over end, a twirl into a reverse grip and back, and a double hand roll. Tossed knives leave your hand and drop back into it. With the knife out and idle it does a **trick every few seconds** (a flip, a spin, a twirl): Settings → Weapons + skins → KNIFE TRICKS WHEN IDLE (`knife_fidget`).
+- **Knife animations, like CS:GO's:** every knife comes out the M9 Bayonet's way, flipped end over end into your hand, and **each press of F plays the next of three inspects**: the butterfly does aerials, a three-whip fan and a folded toss flicked open; the karambit and talon a long spin round the finger, a reverse spin with a hand roll, and a flick off the finger; the M9, bowie, kukri and the default knife a toss end over end, a twirl into a reverse grip and back, and a double hand roll. Tossed knives leave your hand and drop back into it. With the knife out and idle it does a **trick every few seconds** (a flip, a spin, a twirl): Settings → Weapons + skins → KNIFE TRICKS WHEN IDLE (`knife_fidget`).
 - **Skins are painted part by part:** the body, slide / dust cover, barrel, muzzle or suppressor, handguard, stock, grip, mag, scope and the small parts (sights, rails, levers) each take one of up to four paints, or keep their own metal, wood or polymer; knives paint the blade and the handle. So a skin can be a printed body with a gloss-black barrel and a decal-covered mag. The paints: fades, camo, tiger stripes, marble, case hardened, web, hazard, flames, carbon, neon circuits, two-tone, a **print** (sweeping ink linework on pearl with gold edges), **lotus** flowers outlined in gold, halftone dots, crystal facets, seigaiha waves, holographic, printed decals, damascus, a starry galaxy, scales, paint splatter, racing stripes, gradients, mecha panels. Polished ones catch the light as the gun turns. **Every skin is factory new** (v0.28: no more scratches; the float only shifts the pattern, so two of a skin rarely look exactly alike). **StatTrak:** one case item in ten counts your kills with it, saved with it, on a glowing six-digit counter on the gun's side (and "ST ... (kills)" in the inventory). 64 gun skins (new ones include LOTUS GARDEN, PRESSWORK, NEBULA, KOI, KUMICHO, PRISM, MECHA, AURORA) and 15 finishes for each of the six case knives.
 - **Cases:** you get one for every **25 kills** (`case_kills`) in deathmatch, retakes, competitive and online (not the range, the aim drill or prefire). Open them in **Esc → INVENTORY → OPEN A CASE**: a reel of items spins and stops on what you got. The odds are CS's: mil-spec (blue) 79.92%, restricted (purple) 15.98%, classified (pink) 3.2%, covert (red) 0.64%, and the **rare special (gold) 0.26%: a knife**.
 - **Knife cases:** one for every **100 kills** (the same kills): **OPEN A KNIFE CASE**, a reel of nothing but knives, any of the six in any of the 15 finishes.
@@ -580,7 +557,7 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | File | What |
 |---|---|
 | `src/movement.*` | Kinematic player movement: friction/accel, air strafing, step-up, crouch-jump, bunny hops (`MoveParams`) |
-| `src/world.*`, `src/inferno_hand.h` | Maps made of boxes and ramps (the Lab; Dust, Harbor and Inferno from grids of named areas, materials; Inferno's hand-placed areas, walkways and props), swept-box / ray traces incl. sloped ramps, a broadphase grid walked along each trace, spawns, retake sites, bot spots and plays |
+| `src/world.*` | Maps made of boxes and ramps (the Lab; Dust and Harbor from grids of named areas, materials), swept-box / ray traces incl. sloped ramps, a broadphase grid walked along each trace, spawns, retake sites, bot spots and plays |
 | `src/nav.*` | Bot navigation on the town grid: walkable / roamable cells, A* routes, following a route |
 | `src/bots.*` | Bot brains: spawning anywhere, roaming or walking to a goal, holding angles, sight cone, choosing a target among enemies, hearing, chasing (tested headless) |
 | `src/combat.*` | Weapons (`WeaponId`, `weaponDef`), recoil patterns, deterministic spread, shotgun pellets spread at random, seeded per shot (`firePellets`, `pelletOffset`), dummies and turned / crouched hitboxes, armor, material wallbangs, hit detection |

@@ -15,7 +15,7 @@ struct GrenadeThrow {
     Vec3 start, vel;
 };
 
-// A saved throw on a map (0 the Lab, 1 Dust, 2 Harbor, 3 Inferno), with its name ("SMOKE: OUTSIDE LONG > CT CROSS").
+// A saved throw on a map (0 the Lab, 1 Dust, 2 Harbor), with its name ("SMOKE: OUTSIDE LONG > CT CROSS").
 struct Lineup {
     int map = 0;
     std::string name;

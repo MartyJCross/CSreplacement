@@ -12,7 +12,7 @@
 enum class Sfx {
     RifleShot, DryFire, MagOut, MagIn, Bolt, Draw, Footstep, Land, HitBody, HitHead, SniperShot,
     PistolShot, RifleShotFar,  // far = a rifle heard from a distance (muffled, more echo)
-    HitMarker,                 // crisp tick when your bullet connects
+    HitMarker,                 // the kill "dink": a crisp tick when your bullet kills (v0.39: kills only)
     FootstepWood, FootstepMetal,  // steps on crates/doors and on the container/car
     FlashBang, FlashRing, Explosion, Fire,  // grenades: flash pop, your ears ringing, HE, molotov crackle
     BombBeep, Defuse,                       // the planted bomb's beep; the defuse kit clicking on
@@ -30,6 +30,7 @@ enum class Sfx {
     LowAmmo, LastRound,                     // your magazine: nearly empty (a tick), the last round (a ping)
     FootstepStone,                          // steps on the sites' paving and the Lab's concrete (sand is Footstep)
     KnifeSwing, KnifeHit, KnifeWall,        // the knife: the swish, a blade going in, the blade on a wall
+    HeadshotKill,                           // your headshot kill: a crack and a double ring, brighter than the dink
     Count
 };
 
@@ -103,7 +104,7 @@ private:
     std::vector<float> wetBuf_, roomBuf_;
     std::atomic<float> roomWet_{0.0f}, roomSize_{0.0f};
     // Ambience loops (stereo, interleaved), made at init; which one plays, and how loud.
-    std::vector<float> amb_[4];  // 1 Dust, 2 Harbor, 3 Inferno
+    std::vector<float> amb_[3];  // 1 Dust, 2 Harbor
     std::atomic<int> ambWhich_{0};
     std::atomic<float> ambTarget_{0.0f};
     int ambPlaying_ = 0;     // audio thread: the loop playing now (switches when faded out)

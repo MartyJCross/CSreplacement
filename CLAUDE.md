@@ -39,9 +39,9 @@ prototype/
   README.md, CHANGELOG.md the game as it is now; what changed per version
   src/
     vecmath.h             Vec3/Mat4, Z-up, Source-style angles (pitch + = down, yaw + = left)
-    world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor, Inferno) from named areas
-                          on a grid (32u; Inferno 16u): buildTown(), townGrid(), spawns, retake sites, CT spots, prefire routes, peek
-                          spots, TownTactics (bot plays), doors, facades; KZ course constants; inferno_hand.h = Inferno's hand-built areas
+    world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor) from named areas
+                          on a grid (32u; 16u possible): buildTown(), townGrid(), spawns, retake sites, CT spots, prefire routes, peek
+                          spots, TownTactics (bot plays), doors, facades; KZ course constants
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
     combat.*              weapons (WeaponId: rifle = AK-47, pistol, knife, grenade, sniper = AWP, Berettas, Deagle, Nova,
                           MAC-10, M4A1-S, Galil, SSG 08, UMP-45, XM1014; weaponDef; armorRatio per gun; `scope`), recoil
@@ -97,13 +97,11 @@ prototype/
 3. **What you see is what you hit.** Shots test against the dummy positions and eye that were rendered on the frame you clicked (`lastDummyRenderPos`, `lastRenderEye`). Cosmetic parts of enemies must sit inside their hitboxes (and scale with them: `modelScale()`). Weapons held by enemies are the only exception, like CS.
 4. **Performance budget.** No per-frame heap allocations in hot paths (reuse vectors: `static`/member buffers;
    per-frame model draws go in a `DrawList`), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
-5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). **Inferno** (v0.29, owner: "build Inferno from CS2, as accurate and
-   detailed as possible") is under the same exception: its layout, heights and callouts were measured from CS2's radar
-   and the community nav mesh (awpy-data) as references, and the area table `inferno_hand.h` was placed by hand
-   against them (v0.30); no Valve file ships. Revisit both before anything is shared publicly; Harbor is
+5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). (Inferno, v0.29-v0.38, was the same kind of
+   copy; removed in v0.39.) Revisit Dust before anything is shared publicly; Harbor is
    Crisp's own map and is free to share.
 6. **Keep it portable to MSVC.** C++20, standard library and SDL3 only. No GCC/Clang-only extensions. Code must compile warning-clean with `-Wall -Wextra -pedantic` (Linux/GCC: CI runs it; check locally, §10) and `/W4` (MSVC).
-7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`, `testInferno`,
+7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`,
 `testSpawnsOffMid`, `testCompWays`). If you change an area table, keep those passing and look at the printed run times.
 8. **Settings belong in the config and the menu.** A new tunable gets a `Config` field, load + save in `config.cpp`, the default config text, and if player-facing a row in `menuRows()` (the right settings page) in `main.cpp`.
 
@@ -129,7 +127,7 @@ cmake --build build
 ```
 
 **Screenshots** (work on Windows with the real GPU; on Linux under Xvfb + Mesa):
-`crisp --windowed 1280 720 --screenshot out.bmp --frames N [options]`. The map/mode come from `config.cfg` (`map 0|1|2|3`,
+`crisp --windowed 1280 720 --screenshot out.bmp --frames N [options]`. The map/mode come from `config.cfg` (`map 0|1|2`,
 `mode`, `fullscreen 0`). Screenshot mode runs a fixed 240 FPS timestep (frame N = N/240 s of game time; the FPS
 counter is meaningless). Convert BMP to PNG (Pillow) to look at it, and **look before claiming a visual change works**.
 Options: `--spawn X Y YAW` (world coords: Dust is 90% of real Dust2 in the game!), `--weapon 1..14` (4 AWP, 5 grenade,
@@ -186,7 +184,8 @@ before it jumps again (`Game::jumpNeedsRelease`); no jumps while input is blocke
 **Weapons** (`combat.cpp`): CS slots (1 primary, 2 pistol, 3 knife, 4 grenades, 4 again cycles; Q previous, F inspect,
 G quick-throw). Guns: AK-47 (`kWRifle`), M4A1-S, Galil AR, AWP (`kWSniper`), SSG 08, Nova, XM1014, MAC-10, UMP-45,
 pistol (suppressed USP-like), Dual Berettas, Deagle; knife; grenades.
-- Rules the owner set: no "tagging" slowdown; guns only when they ask; the starting pistol must not one-tap a helmet;
+- Rules the owner set: no "tagging" slowdown; guns only when they ask; the starting pistol (USP-S) must not one-tap a
+  helmet but must one-tap a bare head from any range (v0.39: range modifier 0.99, `testNewGuns`);
   the Deagle must from any range; the AK and M4A1-S do (M4A1-S up close), the Galil doesn't; the AWP kills through
   kevlar with a body shot (`armorRatio` 0.975); all tested in `testNewGuns`.
 - `Game::guns[kWeaponCount]` (by WeaponId; `weaponState(g, id)`). A new gun = WeaponDef + enum entry, a ViewWeapon +
@@ -198,7 +197,8 @@ pistol (suppressed USP-like), Dual Berettas, Deagle; knife; grenades.
   buy while the loadout still matches its after and the gun is unfired; R with the wheel open / the REFUND button
   (`kBuyRefund`); cleared at round start; `--refund-test N` prints a full buy then N refunds. Q (`lastWeapon`) only
   goes to a weapon you still have.
-- Drops (v0.28): G in competitive drops the primary you hold (`dropPrimary`; `Game::noPickupUntil` 1 s), else
+- Guns on the floor only in competitive / Wingman (`dropsOn`: town map, `g.mode == 3`; owner v0.39: not deathmatch /
+  Arms Race). Drops (v0.28): G in competitive drops the primary you hold (`dropPrimary`; `Game::noPickupUntil` 1 s), else
   quick-throws; Z -> NEED A DROP (`kCallTDrop` / `kCallCtDrop`, 8 calls a side): the richest teammate bot with the
   money buys `fullBuyRifle` and drops it between itself and you. `--comp-money N` (tests: everyone's starting money).
 - Buy wheel (B; `drawBuyWheel`, `buySlotAt`, `buyPick`, `BuyCategory`: pistols, shotguns, SMGs, rifles, snipers, gear,
@@ -221,10 +221,13 @@ are built from the top of the AK recording + gas fizzle + (M4A1-S) supersonic cr
 <500 Hz ~1%, no tonal layers (see §9 for why). 3D audio (`spatialize`, `mixVoice`: ITD up to 0.65 ms, head shadow,
 behind/below darker, above brighter, occlusion via `setOcclusion` with two rays: muffled, -10 dB). Menu music
 (`loadMusic` on a thread, `setMusic` fades, `music_volume`; plays while `g_menu.root == kMenuMain`). Impacts by
-material, helmet tink, near-miss whiz. The owner's ear: guns "too much bass" earlier; keep sub-bass cut.
+material, helmet tink, near-miss whiz. Your hit feedback (v0.39, owner): only a kill makes a sound,
+`Sfx::HitMarker` (the "dink") or `Sfx::HeadshotKill` (crack + double ring) for a headshot kill; non-kill hits play only
+the HitBody thwack / HelmetHit tink. The owner's ear: guns "too much bass" earlier; keep sub-bass cut.
 
 **Cosmetics** (`fx.cpp`): knives (default, butterfly, karambit, M9, talon, bowie, kukri); keyframed gun inspects;
-knife animations (v0.27: `KnifePose`, `knifeInspect` three a knife cycled by F (`inspectVariant_`), `knifeDraw`,
+knife animations (v0.27: `KnifePose`, `knifeInspect` three a knife cycled by F (`inspectVariant_`), `knifeDraw` (v0.39,
+owner: every knife the M9's flip),
 `knifeFidget` idle tricks (`knife_fidget`); the knife has its own transform `Anim::knifeOff/knifeSpinX/knifeSpinZ` so
 tosses leave the hand); spray feedback; grenade models; particles; helmet debris. **Skins and cases** (`items.*`,
 main.cpp inventory block): v0.27 part by part: every gun part has a `Part::region` (items.h `SkinRegion`: body, top,
@@ -245,12 +248,11 @@ faces away (dot > 0.475); main.cpp handles the hit like a bullet's (Mouse 1 slas
 `knifeComboUntil`); fx.cpp `knifeSwing` (forehand / backhand alternate, `ViewModel::knifeAttack`); Sfx KnifeSwing,
 KnifeHit, KnifeWall; `--stab N`.
 
-**Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor, 3 Inferno; `Game::mapId` is 1 for every town map;
+**Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor; `Game::mapId` is 1 for every town map;
 `setTownMap(map - 1)`):
 - The Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course.
-- **Town maps** (world.cpp): named floor areas on a grid (`DustArea` tables `kDustAreas`, `kHarborAreas`,
-  `kInfernoAreas`; `TownDef kTowns`: extents, scalable, wall shades, `separate` pairs, `cell` 32 or 16, decks).
-  `setTownMap(0|1|2)` picks one; every `town*`
+- **Town maps** (world.cpp): named floor areas on a grid (`DustArea` tables `kDustAreas`, `kHarborAreas`;
+  `TownDef kTowns`: extents, scalable, wall shades, `separate` pairs, `cell` 32 or 16, decks). `setTownMap(0|1)` picks one; every `town*`
   function answers for it (townGrid, townPoint (real map coords → world, on the floor), townCallout, townSpawn,
   townTeamSpawns, townRetakeSites, townCtSpots, townPrefireRoutes, townPeekSpots, townTactics, buildTown). Walls,
   roofs (tunnels/doorways), trims, windows, awnings and doors are generated. `separate` keeps a wall between area
@@ -261,19 +263,11 @@ KnifeHit, KnifeWall; `--stab N`.
 - **Harbor** (Crisp's own map, its own size): docks → raised A site, market/mid/mid doors, roofed warehouse → A short,
   roofed underpass and alley → B with a back platform. `testHarbor` checks its 99 spots, 70 bot trips, spawn
   visibility, holes and lane times.
-- **Inferno** (v0.30, rebuilt by hand after the owner rejected the generated v0.29: "a mess"; `setTownMap(2)`,
-  `inferno_hand.h`: `kInfernoAreas` ~180 hand-placed areas at CS2's real size and coordinates, `TownDef::cell` 16,
-  "WALL" areas carve pillars / inner walls, `kInfernoDecks` (`TownDeck`: the T apps bridge, bottom mid's floor over the
-  underpass: solid walkways, the grid keeps the street), `kInfernoSmallProps` with heights). How it was built (redo it
-  this way): scratchpad tools render CS2's radar + the community nav mesh (awpy-data navs.zip, measured at 8 u, grown 16
-  u to the walls) under the hand table, a cell-by-cell comparison (green right height, red wrong, blue missing, magenta
-  extra; ~77% match, the rest one-cell edges), height profiles along strips; spots snapped onto the game's own nav
-  (`sim_tests` writes `inferno_nav.txt` when a file `CRISP_DUMP` exists). Nav on a 16 u grid: a ramp cell may rise 26
-  (`MapGrid::slope`, both cells ramps), ledge drops two cells on (`NavGrid::canDrop`), the clear check needs ~92 of
-  headroom (roofs at least 100 over walkways). Its look (`g_town == 2`): terracotta caps and eaves, stone footing,
-  shutters + flower boxes, cobbles (`kIStreet` paved), B's brick (`kIBrick`), `minWallTop` 520. Ways APPS (gathers in
-  close apps, through BALCONY) / SHORT / BANANA; B has one way, so no split / mid control there. `testInferno`: holes,
-  slivers / lone cells, spots, trips, spawn sight, rays, lane times and player walks that must not catch (0.75 s).
+- **Inferno** (v0.29 generated, v0.30 rebuilt by hand) was **removed in v0.39 (owner)**: its data, tests, menu entry,
+  ambience and grade are gone (git history has it: `inferno_hand.h`, `testInferno`). The engine pieces built for it stay
+  (any map can use them): `TownDef::cell` (16 u grids), "WALL" carve areas, `TownDeck` walkways, `minWallTop`, the ramp
+  cap plane (`kRampPlanes` 7), `MapGrid::slope` + nav ledge drops (`NavGrid::canDrop`), staggered T group sends. A
+  config `map 3` opens Dust; Inferno tapes are skipped by `scanTapes`.
 - Doors (end of buildTown): frames + leaves on the doorway's cells (`cellsOf`, `frame`, `openLeaf`). Facade decor
   (`World::decor`) is drawn, never collided: keep it thin/flat or above head height. Surfaces by material alpha in the
   box shader (240 stone, 236 paving, 224 wood, 208 metal; the Lab keeps the 255 dev grid).
@@ -444,6 +438,9 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol was 10 t
 
 ## 8. Roadmap
 
+**Done in v0.39** (owner, 2026-10-13): drops only in competitive / Wingman, Inferno removed, every knife draws like the
+M9, the USP-S one-taps a bare head from any range, kill-only dink + a headshot-kill sound; v0.38.1 the program icon.
+Asked about: a dedicated server on a Raspberry Pi 3 B (investigated, not built; see the report in that session).
 **Done in v0.33-v0.38** (owner, 2026-10-12: six features, one version each): the console (v0.33), Arms Race (v0.34),
 grenade practice with lineups (v0.35), chat + ping marker (v0.36), Wingman (v0.37), saved match replays with a round
 timeline (v0.38).
@@ -507,7 +504,7 @@ Done in v0.21: bots use the whole arsenal, distinct gun sounds, smarter competit
 saving, fire avoidance), the performance check (A* routes, mixer lock).
 Offered, not chosen yet: defuse kits (10 s defuse without), bots dropping guns for each other, server-authoritative
 netcode with lag compensation (`docs/04`), a spray-pattern overlay,
-trade-ups, stickers, ladders, net_graph; for Inferno: a crouch-only underpass, real stair steps, bots on the decks.
+trade-ups, stickers, ladders, net_graph, CS2-style pattern numbers (0-999, blue gems) for skins.
 
 ## 9. The owner: who they are, what they want, the history
 
@@ -549,6 +546,8 @@ trade-ups, stickers, ladders, net_graph; for Inferno: a crouch-only underpass, r
 - **cmake** isn't on PATH: `"/c/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"`
   (VS 2026 Build Tools, MSVC 14.51; generator "Visual Studio 18 2026" -A x64; build dir `build/`, gitignored).
   Re-run the configure step after adding source files to CMakeLists.txt.
+- **Write edit scripts with the Write tool, never `python - <<EOF` in Bash** (v0.39: a heredoc turned `\n` into a real
+  newline inside a C++ string again). The same goes for any C++ text passed through the shell.
 - **`build/Release/config.cfg` is the owner's own config** (they run `build\Release\crisp.exe`). Before screenshots or
   automated runs that need other settings, copy it to the scratchpad, edit, run, and **restore it**. They change it
   often (read it, don't assume); on 2026-10-13: `bhop 0`, `model_scale 102`, `mode 1`, `map 1`.
