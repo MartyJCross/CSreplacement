@@ -592,6 +592,7 @@ build/sim_tests                  # headless movement/weapon tests (any OS)
 | `src/replay.*`, `src/stats.*`, `src/config.*` | Replays and the killcam, saved matches (`.crec` files), your career and rating, `config.cfg` (every setting by name: `setConfigValue`, `configValue`) |
 | `src/console.*` | The console's text side: its log, the line, history, Tab completion, splitting commands (main.cpp runs them) |
 | `src/practice.*` | Grenade practice: recorded throws, saved lineups and their file (`lineups.txt`) |
+| `res/` | The program icon (`crisp.ico`, drawn by `tools/gen_icon.py`) and `crisp.rc`, which builds it into the exe |
 | `src/main.cpp` | Window, input, 128 Hz fixed-step loop, the modes, grenades, bomb, economy, combat record, radar, HUD, menus, online glue |
 | `tests/sim_tests.cpp` | Headless checks: speeds, jumps and hops, counter-strafe timing, collision, stairs, ramps, crates, determinism, spread, guns, material wallbangs, the maps' routes, sightlines, spawns and holes, bots (roaming, sight, cover, fire, arsenal, aim, checking spots, peeks, spawns), Arms Race, replays and saved matches, lineups, the console, cases, stats |
 

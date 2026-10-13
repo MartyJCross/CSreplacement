@@ -76,8 +76,10 @@ prototype/
   tests/sim_tests.cpp     headless tests (~all systems; see rule 7)
   assets/                 sounds/ (<sound>_<n>.wav|.ogg replace that sound's synthesized variants; m4_shot_N, the AR-15
                           base), music/menu.ogg, textures/ (512 px detail maps), CREDITS.md; copied next to the exe
+  res/                    crisp.ico (the program icon, drawn by tools/gen_icon.py: edit the script, not the .ico) +
+                          crisp.rc (Windows only; SDL takes the exe's first icon for the window and taskbar)
   third_party/            stb_vorbis.c, stb_image.h, stb_truetype.h (public domain / MIT; built as crisp_third_party)
-  tools/                  gen_font.py, make_zip.ps1, prep_assets.py (builds assets/ from ../asset-downloads),
+  tools/                  gen_font.py, gen_icon.py, make_zip.ps1, prep_assets.py (builds assets/ from ../asset-downloads),
                           sound_bands.py (measures dumped sounds: bands, length, ringing, 3D cues)
 .github/workflows/prototype.yml   CI: Windows build + tests + artifact; Linux sim tests (GCC)
 ../asset-downloads/       (outside the repo) the downloaded CC0 packs + SOURCES.md; prep_assets.py reads them

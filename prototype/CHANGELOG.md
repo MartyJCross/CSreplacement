@@ -3,6 +3,12 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.38.1: a program icon
+
+- Crisp has its own icon (a gold "C" round a crosshair dot, our own design): on `crisp.exe` in Explorer, on the
+  taskbar (pin `build\Release\crisp.exe` and the pin always opens the latest build) and on the game's window.
+  Drawn by `tools/gen_icon.py` into `res/crisp.ico`, built into the exe by `res/crisp.rc`.
+
 ## v0.38: saved match replays
 
 - **Every match is saved whole** (deathmatch, Arms Race, competitive, Wingman; online too: your copy) to `replays/`
