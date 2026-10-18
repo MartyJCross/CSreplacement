@@ -2,3 +2,5 @@
 /build/
 # Personal editor settings
 /.vscode/
+# The downloaded CC0 packs prep_assets.py builds prototype/assets/ from (big, third-party: never committed)
+/asset-downloads/
