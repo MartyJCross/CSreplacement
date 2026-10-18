@@ -79,10 +79,10 @@ prototype/
   res/                    crisp.ico (the program icon, drawn by tools/gen_icon.py: edit the script, not the .ico) +
                           crisp.rc (Windows only; SDL takes the exe's first icon for the window and taskbar)
   third_party/            stb_vorbis.c, stb_image.h, stb_truetype.h (public domain / MIT; built as crisp_third_party)
-  tools/                  gen_font.py, gen_icon.py, make_zip.ps1, prep_assets.py (builds assets/ from ../asset-downloads),
+  tools/                  gen_font.py, gen_icon.py, make_zip.ps1, prep_assets.py (builds assets/ from ../crisp-asset-downloads),
                           sound_bands.py (measures dumped sounds: bands, length, ringing, 3D cues)
 .github/workflows/prototype.yml   CI: Windows build + tests + artifact; Linux sim tests (GCC)
-../asset-downloads/       (outside the repo) the downloaded CC0 packs + SOURCES.md; prep_assets.py reads them
+../crisp-asset-downloads/ (outside the repo) the downloaded CC0 packs + SOURCES.md; prep_assets.py reads them
 ```
 
 ## 4. Golden rules (do not break these)
@@ -542,7 +542,9 @@ trade-ups, stickers, ladders, net_graph, CS2-style pattern numbers (0-999, blue 
 ## 10. Session know-how (this machine)
 
 - **Shells:** Git Bash (POSIX) and PowerShell. Paths: the repo is
-  `C:\Users\matth\Desktop\Personal\Development\cs replacement\CSreplacement` (note the space: quote it).
+  `C:\Users\matth\Desktop\Personal\Development\Games\Crisp` (since 2026-10-18; the GitHub repo is still
+  CSreplacement). `Games\` is the owner's VS Code workspace: Crisp beside their other game (a fishing game, its own
+  repo); keep Crisp's files inside `Crisp\` and its downloads in `Games\crisp-asset-downloads\`.
 - **cmake** isn't on PATH: `"/c/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"`
   (VS 2026 Build Tools, MSVC 14.51; generator "Visual Studio 18 2026" -A x64; build dir `build/`, gitignored).
   Re-run the configure step after adding source files to CMakeLists.txt.
@@ -560,8 +562,8 @@ trade-ups, stickers, ladders, net_graph, CS2-style pattern numbers (0-999, blue 
   MSYS_NO_PATHCONV Git Bash mangles `/mnt/...`; inline `bash -c` loses `$f`).
 - **PowerShell scripts** need `-ExecutionPolicy Bypass`. `gh` isn't installed (CI via curl, §6).
 - **Python** with numpy and Pillow is available (BMP → PNG, sound analysis). Downloaded files are untrusted: keep them
-  in their own folder (`../asset-downloads/...`), never run anything from there.
-- **Assets:** add a download to `../asset-downloads` + `SOURCES.md`, a step in `prep_assets.py` (+ the CREDITS text),
+  in their own folder (`../crisp-asset-downloads/...`), never run anything from there.
+- **Assets:** add a download to `../crisp-asset-downloads` + `SOURCES.md`, a step in `prep_assets.py` (+ the CREDITS text),
   run `python prototype/tools/prep_assets.py`; existing files come out byte-identical, so `git status` shows only the
   new ones. The firearm library (`sounds/opengameart/firearm-library/Prepared SFX Library/<gun>/`) has many unused guns
   (SKS, PPSh, Carl Gustav, Marlin, Model 1894, Mosin, Bersa, Ruger, S&W, Savage...) for distinct gun sounds.

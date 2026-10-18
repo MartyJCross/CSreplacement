@@ -1,6 +1,6 @@
 """Builds prototype/assets/ from the downloaded CC0 packs (see asset-downloads/SOURCES.md).
 
-    python prototype/tools/prep_assets.py [path/to/asset-downloads]
+    python prototype/tools/prep_assets.py [path/to/crisp-asset-downloads]
 
 Sounds: the firearm recordings (96 kHz, several shots per file) are cut into single shots with their echo,
 resampled to 48 kHz mono 16-bit WAV and normalised; short single sounds (footsteps, impacts, clicks) are
@@ -20,7 +20,11 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-SRC = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, '..', 'asset-downloads'))
+# The downloads sit beside the repo: ../crisp-asset-downloads (since 2026-10-18; ../asset-downloads before).
+_default = os.path.join(REPO, '..', 'crisp-asset-downloads')
+if not os.path.isdir(_default):
+    _default = os.path.join(REPO, '..', 'asset-downloads')
+SRC = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else _default)
 OUT = os.path.join(REPO, 'prototype', 'assets')
 RATE = 48000
 
