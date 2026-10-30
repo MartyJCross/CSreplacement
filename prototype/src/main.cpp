@@ -6058,11 +6058,25 @@ bool adjustMenu(Config& c, const MenuItem& it, int dir, bool big) {
 }
 
 int hudScale(const Config& cfg, int h) { return cfg.hud_scale > 0 ? cfg.hud_scale : std::max(1, h / 540); }
+// The title screen's text size (v0.41): 3 at 1080p, 2 at 720p-900p, 4 at 1440p.
+int titleScale(int h) { return std::max(2, h / 360); }
+bool onTitle(int screen) { return screen == kMenuMain && g_menu.root == kMenuMain; }
 
 // Where a menu screen's panel and rows go (rows start at `rowsY`, one every `rowH`).
 struct MenuLayout { float x, top, w, rowH, rowsY, bottom; };
 MenuLayout menuLayout(int screen, size_t rows, int w, int h, int s) {
     MenuLayout L;
+    if (onTitle(screen)) {  // the title screen: big rows down the left (menuRowAt finds them like any other)
+        const float k = float(titleScale(h));
+        L.rowH = 14.0f * k;
+        L.w = 170.0f * k;
+        L.x = std::max(float(h) * 0.09f, 24.0f * float(s));
+        L.top = float(h) * 0.14f;
+        L.rowsY = float(h) * 0.42f + 3.0f * float(s);  // (a row is drawn from rowsY - 3s)
+        L.bottom = L.rowsY + float(rows) * L.rowH;
+        (void)w;
+        return L;
+    }
     L.rowH = 13.0f * float(s);
     L.w = 300.0f * float(s);
     const float extra = screen == kMenuControls ? float(kControlLines) * 10.0f * float(s) + L.rowH * 0.5f : 0.0f;
@@ -6085,11 +6099,85 @@ int menuRowAt(const MenuLayout& L, size_t rows, int s, float mx, float my) {
     return k >= 0 && k < float(rows) ? int(k) : -1;
 }
 
+// The title screen (v0.41): the logo top left, big entries down the left over a soft shadow, the camera's flyover
+// on the right; a line about the highlighted entry; your rank, cases to open and the version along the bottom.
+void drawTitle(HudBatch& hud, const std::vector<MenuItem>& rows, const MenuLayout& L, int w, int h, int s) {
+    const int ki = titleScale(h);
+    const float k = float(ki), fw = float(w), fh = float(h), fs = float(s);
+    hud.rect(0, 0, fw, fh, uint32_t(g_menuFade * 230.0f));  // (the flyover's cuts go through black)
+    // A shadow from the left edge (so the text reads over any view) and from the bottom (under the status line):
+    // strips on whole pixels that only touch (an overlap would show as a line).
+    constexpr int kStrips = 48;
+    for (int i = 0; i < kStrips; ++i) {
+        const float x0 = std::floor(fw * 0.7f * float(i) / float(kStrips)), x1 = std::floor(fw * 0.7f * float(i + 1) / float(kStrips));
+        const float a = 225.0f * std::pow(1.0f - (float(i) + 0.5f) / float(kStrips), 1.4f);
+        hud.rect(x0, 0, x1 - x0, fh, 0x05070A00u | uint32_t(a));
+    }
+    for (int i = 0; i < 16; ++i) {
+        const float y0 = std::floor(fh * (0.84f + 0.16f * float(i) / 16.0f)), y1 = std::floor(fh * (0.84f + 0.16f * float(i + 1) / 16.0f));
+        hud.rect(0, y0, fw, y1 - y0, 0x05070A00u | uint32_t(150.0f * (float(i) + 0.5f) / 16.0f));
+    }
+    auto shadowed = [&](float x, float y, const std::string& t, uint32_t col, int sc) {
+        const float o = std::max(1.0f, float(sc) * 0.5f);
+        hud.text(x + o, y + o, t, 0x00000090, sc);
+        hud.text(x, y, t, col, sc);
+    };
+    // The logo: CRISP in gold, a short rule, the line under it.
+    const int logo = ki * 4;
+    shadowed(L.x, L.top, "CRISP", 0xFFD060FF, logo);
+    const float under = L.top + 7.0f * float(logo) + 5.0f * k;
+    hud.rect(L.x, under, 34.0f * k, 2.0f * k, 0xFFD060FF);
+    shadowed(L.x, under + 6.0f * k, "TACTICAL SHOOTER", 0xD8D8D8FF, ki);
+    // The entries.
+    static const char* const kAbout[] = {
+        "COMPETITIVE, WINGMAN, DEATHMATCH, ARMS RACE, RETAKES, PREFIRE AND PRACTICE",
+        "HOST A GAME OR JOIN YOUR FRIENDS",
+        "YOUR SKINS AND CASES",
+        "YOUR CAREER: RATING, RANK AND EVERY MATCH",
+        "WATCH YOUR SAVED MATCHES",
+        "MOUSE, CROSSHAIR, VIDEO, SOUND AND CONTROLS",
+        "",
+    };
+    for (size_t r = 0; r < rows.size(); ++r) {
+        const bool sel = int(r) == g_menu.sel;
+        const float y0 = L.rowsY - 3.0f * fs + float(r) * L.rowH;
+        const float ty = y0 + (L.rowH - 7.0f * k) * 0.5f;
+        if (sel) {
+            hud.rect(L.x - 10.0f * k, y0 + 1.0f * k, L.w + 20.0f * k, L.rowH - 2.0f * k, 0xFFFFFF16);
+            hud.rect(L.x - 10.0f * k, y0 + 1.0f * k, 2.0f * k, L.rowH - 2.0f * k, 0xFFD060FF);
+        }
+        const bool quit = rows[r].action == kActQuit;
+        shadowed(L.x + (sel ? 4.0f * k : 0.0f), ty, rows[r].name, sel ? 0xFFFFFFFF : quit ? 0xA8A8A8FF : 0xD0D0D0FF, ki);
+        // A case waiting to be opened: a gold count by INVENTORY.
+        if (rows[r].action == goTo(kMenuInventory) && g_inv.cases + g_inv.knifeCases > 0) {
+            const std::string n = std::to_string(g_inv.cases + g_inv.knifeCases);
+            const float bx = L.x + (sel ? 4.0f * k : 0.0f) + hud.textWidth(rows[r].name, ki) + 6.0f * k;
+            const float bw = hud.textWidth(n, ki - 1 > 0 ? ki - 1 : 1) + 6.0f * k;
+            hud.rect(bx, ty - 1.0f * k, bw, 9.0f * k, 0xFFD060E0);
+            hud.text(bx + 3.0f * k, ty + 1.0f * k, n, 0x15181CFF, ki - 1 > 0 ? ki - 1 : 1);
+        }
+    }
+    if (g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && g_menu.sel < int(sizeof(kAbout) / sizeof(kAbout[0])))
+        shadowed(L.x, L.bottom + 6.0f * k, kAbout[g_menu.sel], 0xA8A8A8FF, std::max(1, ki - 1));
+    // Bottom line: rank, cases, version.
+    const int sm = std::max(1, ki - 1);
+    const float by = fh - 16.0f * k;
+    std::string rank = g_career.matches.empty() ? std::string("FINISH A MATCH AGAINST BOTS FOR A RANK")
+                                                : std::string("RANK  ") + rankName(g_career.rating) + "     RATING  " + std::to_string(g_career.rating);
+    shadowed(L.x, by, rank, 0xC8C8C8FF, sm);
+    const std::string ver = "V" CRISP_VERSION;
+    shadowed(fw - L.x - hud.textWidth(ver, sm), by, ver, 0x909090FF, sm);
+}
+
 void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
     Config view = cfg;  // menuRows needs non-const pointers; we only read here
     const int screen = g_menu.screen;
     const std::vector<MenuItem> rows = menuRows(screen, view, mode);
     const MenuLayout L = menuLayout(screen, rows.size(), w, h, s);
+    if (onTitle(screen)) {
+        drawTitle(hud, rows, L, w, h, s);
+        return;
+    }
     const float fs = float(s);
     if (g_menu.root == kMenuMain) {  // the camera's view shows through: a light veil, cinematic bars
         hud.rect(0, 0, float(w), float(h), 0x06080B50 + uint32_t(g_menuFade * 175.0f));
