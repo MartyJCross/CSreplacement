@@ -3,6 +3,13 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.41.1: a memory leak fixed
+
+- Each map load kept the previous map's light volume (v0.40) in memory: about 6.5 MB more every time you changed map
+  or restarted (40 loads: 273 MB -> 532 MB). The renderer now waits for the GPU to finish with the old one before
+  freeing it; 40 loads stay at 274 MB. A 4-minute deathmatch with bots holds steady at ~276 MB with a steady handle
+  count (no growth during play).
+
 ## v0.41: a title screen and your own keys
 
 - **A real title screen:** the CRISP logo top left, big menu entries down the left over the camera's flyover, a line

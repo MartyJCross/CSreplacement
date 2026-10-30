@@ -601,6 +601,12 @@ trade-ups, stickers, ladders, net_graph, CS2-style pattern numbers (0-999, blue 
   run `python prototype/tools/prep_assets.py`; existing files come out byte-identical, so `git status` shows only the
   new ones. The firearm library (`sounds/opengameart/firearm-library/Prepared SFX Library/<gun>/`) has many unused guns
   (SKS, PPSh, Carl Gustav, Marlin, Model 1894, Mosin, Bersa, Ruger, S&W, Savage...) for distinct gun sounds.
+- **Memory leaks** (owner 2026-10-30: "make sure there is no memory leaking happening"): run the game off-screen
+  from a scratch folder and sample `PrivateMemorySize64` + `HandleCount` every few seconds from PowerShell
+  (`Start-Process -PassThru`, `$p.Refresh()`); play: `--bots --frames 7200` (should go flat after ~1 min); map loads:
+  `--exec-frame 300 --exec "map harbor; map dust; ..."` (40 loads must end where one load does, ~273 MB on Dust).
+  v0.41.1 found the light volume leaking 6.5 MB a load on the AMD driver until a `glFinish` before deleting the old
+  texture: **free GPU objects the GPU may still be using only after a finish** (map-load time only).
 - **Verifying by kind of change:** gameplay numbers → sim_tests; visuals → screenshots (look at them); sounds →
   `--dump-played-sounds` + `tools/sound_bands.py` (compare against the real recordings); 3D audio →
   `--dump-spatial` + `sound_bands.py --spatial`; maps → the town tests + screenshots at the owner's size; bots →

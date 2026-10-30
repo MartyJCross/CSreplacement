@@ -1243,7 +1243,14 @@ void Renderer::buildVolume(const std::vector<BoxInstance>& boxes) {
         volOrigin_[a] = lo[a];
     }
     volCell_ = cell;
-    if (!volTex_) glGenTextures(1, &volTex_);
+    // A fresh texture each map, and the GPU finished with the old one first: without the wait the driver kept every
+    // old volume's storage (+6.5 MB of private memory a map load on the owner's AMD driver, measured v0.41: 40 map
+    // loads 273 -> 532 MB; with it 275). A map load already takes a moment, so the wait costs nothing you'd notice.
+    if (volTex_) {
+        glFinish();
+        glDeleteTextures(1, &volTex_);
+    }
+    glGenTextures(1, &volTex_);
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_3D, volTex_);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -1269,7 +1276,9 @@ void Renderer::setAmbientOcclusion(bool on) {
     volWanted_ = on;
     if (!on) {
         volOk_ = false;
-        vol_.clear();
+        std::vector<uint8_t>().swap(vol_);  // (its memory back, and the texture's)
+        if (volTex_) glDeleteTextures(1, &volTex_);
+        volTex_ = 0;
     } else if (!staticCpu_.empty()) {
         buildVolume(staticCpu_);
     }
