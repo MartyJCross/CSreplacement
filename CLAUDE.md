@@ -386,6 +386,17 @@ running. main.cpp `kConCmds` (help lines) + `runCommand` (a big if-chain; settin
 `configValue`/`setSetting`), `restartGame(map, mode)` (= the Play screen's START), `joinGame` (the menu's JOIN).
 Offline cheats `g_god`, `g_infiniteAmmo`, `g_botStop`. Competitive rules are `g_rules` (`MatchRules`: maxRounds,
 roundTime, buyTime; `roundsToWin()`; start money `g_compStartMoney`). `drawConsole` after drawFadeIn. `testConsole`.
+**Title screen** (v0.41, `drawTitle`, `onTitle`, `titleScale` = h/360 (3 at 1080p)): kMenuMain while root is main;
+`menuLayout` gives it big rows down the left (mouse hit-testing unchanged), shadows from the left / bottom as strips on
+whole pixels (overlapping strips showed lines), a line per entry (`kAbout`), cases badge, rank from `g_career`.
+**Key bindings** (v0.41, sim lib `binds.*`, tested in `testBinds`): codes = SDL scancodes (USB HID: layout-proof),
+`kMouseCode` + SDL button (CS names: MOUSE1 left, MOUSE2 right, MOUSE3 middle), `kWheelUp/Down`; `Binds` = 3 codes a
+`BindAction` (CS's defaults), `set` (main key or added; one key one action), text/parse; `Config::binds`, saved as
+`bind_<key>` lines (NONE = unbound; console + Tab completion for free). main.cpp: `g_binds` (-> cfg.binds), `bound`,
+`bindHeld` (keyboard + mouse state: movement in simTick, the replay free camera, Tab), `bindKey` (HUD hints);
+`pressGame` / `releaseGame` (lambdas before the event loop: the old key chain; keys, mouse buttons and wheel all go
+through them; buy-wheel / call digits and practice X L [ ] stay raw); CONTROLS rows are `kActBind` + action,
+`kActResetBinds`; `g_bindCapture` / `g_bindAdd` + `captureBind` (Esc cancels; ~ and Enter can't be bound).
 **Menus** (`MenuScreen`, `menuRows`, `drawMenu`, `menuUse`, `menuBack`; v0.25 restructure): main menu (PLAY, PLAY
 ONLINE, INVENTORY, STATS, REPLAYS, SETTINGS, QUIT); PLAY = the modes (`kPlayModes`, `kModeAbout` line under the menu) ->
 `kMenuSetup` (map, size, the mode's options, START; `kActPickMode`); `kMenuOnline` (name, HOST A GAME -> lobby, address,
@@ -456,8 +467,8 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol was 10 t
 **v0.40+ "toward a Steam release"** (owner, 2026-10-30: "progress the game to the next level... make it MUCH better...
 closer to that sweet steam release", my own judgement, as many credits as needed). Pieces, each committed and pushed:
 - [x] 1. v0.40 light and shade: light volume (AO + darker interiors), clouds, `--offscreen`
-- [ ] 2. A real title screen / menu redesign (big logo, large buttons, the flyover behind)
-- [ ] 3. Key rebinding (Controls page)
+- [x] 2. v0.41 title screen (big logo, large entries, the flyover behind)
+- [x] 3. v0.41 key rebinding (Controls page, `bind_*` config lines)
 - [ ] 4. A second original map (Dust is a Dust2 copy: can't ship)
 
 

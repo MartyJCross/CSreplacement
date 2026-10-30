@@ -4464,22 +4464,49 @@ void caseTick(Game& g) {
     g.hudDirty = true;
 }
 
-void simTick(Game& g, const Options& opt) {
+// Key bindings (v0.41, binds.h): main() points g_binds at cfg.binds.
+const Binds* g_binds = nullptr;
+int g_bindCapture = -1;  // the Controls page: the action waiting for its new key (-1: none)
+bool g_bindAdd = false;  // ... the key goes beside its others (right click) instead of replacing the main one
+bool bound(int action, int code) { return g_binds && g_binds->has(action, code); }
+// One of `action`'s keys or mouse buttons is held down now.
+bool bindHeld(int action) {
+    if (!g_binds) return false;
     const bool* keys = SDL_GetKeyboardState(nullptr);
+    const SDL_MouseButtonFlags mouse = SDL_GetMouseState(nullptr, nullptr);
+    for (int k : g_binds->keys[action]) {
+        if (k >= 0 && k < kMouseCode) {
+            if (keys[k]) return true;
+        } else if (k > kMouseCode && k <= kMouseCode + 5 && (mouse & SDL_BUTTON_MASK(k - kMouseCode))) {
+            return true;
+        }
+    }
+    return false;
+}
+// An action's main key by name, for the HUD's hints ("E", "MOUSE2"; "-" when it has none).
+std::string bindKey(int action) {
+    if (g_binds)
+        for (int k : g_binds->keys[action])
+            if (k != kNoKey) return keyName(k);
+    return "-";
+}
+
+void simTick(Game& g, const Options& opt) {
     MoveInput in;
-    in.forward = float(keys[SDL_SCANCODE_W]) - float(keys[SDL_SCANCODE_S]);
-    in.side = float(keys[SDL_SCANCODE_D]) - float(keys[SDL_SCANCODE_A]);
-    in.walk = keys[SDL_SCANCODE_LSHIFT];
-    in.duck = keys[SDL_SCANCODE_LCTRL];
+    in.forward = float(bindHeld(kBindForward)) - float(bindHeld(kBindBack));
+    in.side = float(bindHeld(kBindRight)) - float(bindHeld(kBindLeft));
+    in.walk = bindHeld(kBindWalk);
+    in.duck = bindHeld(kBindCrouch);
     if (g.inputBlocked) in = MoveInput{};  // online with the menu open: you stand still, the game goes on
-    if (g.jumpNeedsRelease && !keys[SDL_SCANCODE_SPACE]) g.jumpNeedsRelease = false;
+    const bool jumpHeld = bindHeld(kBindJump);
+    if (g.jumpNeedsRelease && !jumpHeld) g.jumpNeedsRelease = false;
     constexpr double kWheelJumpBuffer = 0.15;
     if (g.wheelJumpAt >= 0 && g.simTime - g.wheelJumpAt > kWheelJumpBuffer) g.wheelJumpAt = -1;
     in.jumpPressed = !g.inputBlocked && !g.jumpNeedsRelease &&
-                     (g.jumpLatch || g.wheelJumpAt >= 0 || (g.autoHop && keys[SDL_SCANCODE_SPACE]));
+                     (g.jumpLatch || g.wheelJumpAt >= 0 || (g.autoHop && jumpHeld));
     if (g.player.onGround) g.wheelJumpAt = -1;  // (on the ground it jumps now: nothing left waiting)
     g.jumpLatch = false;
-    g.defuseHeld = keys[SDL_SCANCODE_E];
+    g.defuseHeld = bindHeld(kBindUse);
     if (g.defuseStart >= 0) in = MoveInput{};  // like CS: you can't move while defusing
     const bool compLive = g.mode == 3 && g.mapId == 1;
     if (compLive && !g.comp.youDead && (g.comp.phase == 0 || g.comp.planter == -1)) in = MoveInput{};  // freeze time, planting
@@ -4887,7 +4914,7 @@ void simTick(Game& g, const Options& opt) {
     } else if (g.noclip) {
         // Fly where you look; Space up, Ctrl down; Shift = slow. No collision.
         Vec3 f = anglesToForward(float(g.viewPitch), float(g.viewYaw)), r = yawToRight(float(g.viewYaw));
-        const float rise = float(!g.inputBlocked && keys[SDL_SCANCODE_SPACE]) - float(in.duck);
+        const float rise = float(!g.inputBlocked && jumpHeld) - float(in.duck);
         Vec3 wish = f * in.forward + r * in.side + Vec3{0, 0, rise};
         float len = length(wish);
         g.player.velocity = len > 0 ? wish * ((in.walk ? 150.0f : 600.0f) / len) : Vec3{};
@@ -5709,6 +5736,8 @@ enum MenuScreen {
 enum MenuAction { kActNone, kActResume, kActStart, kActReset, kActReload, kActQuit, kActBack, kActMainMenu, kActHost, kActJoin,
                   kActReplay, kActLobbyTeam, kActLobbyStart, kActInfo,  // kActInfo: a line of text (does nothing)
                   kActOpenCase, kActSkipCase, kActEquipNew, kActResetSettings, kActOpenKnifeCase,
+                  kActResetBinds,     // CONTROLS: every key back to CS's
+                  kActBind = 200,     // + a BindAction (CONTROLS): press a key for it
                   kActPickMode = 50,  // + a mode: the PLAY screen's choice, on to its setup
                   kActWatch = 70,     // + a saved match (the REPLAYS screen): watch it (up to 29)
                   kActGoto = 100 };
@@ -5790,15 +5819,6 @@ struct LobbyState {
 LobbyState g_lobby;
 int g_lobbyMapSel = 0;       // the host's MAP row
 const char* const kNetTeamNames[] = {"SPLIT BETWEEN THE SIDES", "ALL ON ONE SIDE VS BOTS"};
-const char* const kControls[][2] = {
-    {"W A S D", "MOVE"}, {"SPACE", "JUMP"}, {"MOUSE WHEEL", "JUMP (SCROLL AS YOU LAND TO BUNNY HOP)"}, {"CTRL", "CROUCH"}, {"SHIFT", "WALK"},
-    {"MOUSE 1", "FIRE / THROW"}, {"MOUSE 2", "SCOPE / LOB A GRENADE"}, {"R", "RELOAD"},
-    {"1  2  3", "PRIMARY, PISTOL, KNIFE"}, {"4", "GRENADES (AGAIN: NEXT ONE)"}, {"G", "QUICK THROW"},
-    {"Q", "LAST WEAPON"}, {"F", "INSPECT"}, {"B", "BUY MENU"}, {"Z", "CALL (TELL YOUR BOTS)"}, {"E", "PLANT / DEFUSE / PICK UP"}, {"TAB", "SCORES"},
-    {"ALT + ENTER", "FULLSCREEN"}, {"ESC", "MENU"},
-};
-constexpr size_t kControlLines = sizeof(kControls) / sizeof(kControls[0]);
-
 const char* menuTitle(int screen) {
     switch (screen) {
         case kMenuMain: return "CRISP";
@@ -5954,7 +5974,14 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                            kActResetSettings),
                     back};
         }
-        case kMenuControls: return {back};
+        case kMenuControls: {  // every bindable action (click: its key; right click: one more), then the fixed keys
+            std::vector<MenuItem> r;
+            for (int a = 0; a < kBindCount; ++a) r.push_back(button(bindInfo(a).label, kActBind + a));
+            r.push_back(button("RESET KEYS TO DEFAULTS", kActResetBinds));
+            r.push_back(button("ESC MENU   ENTER CHAT   ALT+ENTER FULLSCREEN", kActInfo));
+            r.push_back(back);
+            return r;
+        }
         case kMenuStats: return {back};
         case kMenuReplays: {  // the saved matches, newest first (scanTapes when the screen opens)
             std::vector<MenuItem> r;
@@ -6079,7 +6106,7 @@ MenuLayout menuLayout(int screen, size_t rows, int w, int h, int s) {
     }
     L.rowH = 13.0f * float(s);
     L.w = 300.0f * float(s);
-    const float extra = screen == kMenuControls ? float(kControlLines) * 10.0f * float(s) + L.rowH * 0.5f : 0.0f;
+    const float extra = 0.0f;
     const float panelH = L.rowH * (3.0f + float(rows) + 1.5f) + extra;
     L.x = float(w / 2) - L.w / 2;
     L.top = std::max(float(h) / 2 - panelH / 2, 16.0f * float(s));
@@ -6192,14 +6219,6 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
         const std::string ver = "V" CRISP_VERSION;
         hud.text(L.x + L.w - hud.textWidth(ver), L.top + 8 * fs, ver, 0x808080FF);
     }
-    if (screen == kMenuControls) {
-        float y = L.top + L.rowH * 3.0f;
-        for (const auto& c : kControls) {
-            hud.text(L.x, y, c[0], 0xFFFFFFFF);
-            hud.text(L.x + 100 * fs, y, c[1], 0xB0B0B0FF);
-            y += 10 * fs;
-        }
-    }
     for (size_t k = 0; k < rows.size(); ++k) {
         const MenuItem& it = rows[k];
         const float y = L.rowsY + float(k) * L.rowH;
@@ -6209,7 +6228,11 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
         const uint32_t col = sel ? 0xFFFFFFFF : go ? 0x80FF80FF : it.action == kActResetSettings ? 0xFF9070FF : 0xC8C8C8FF;
         hud.text(L.x, y, it.name, col);
         std::string v;
-        if (it.action >= kActGoto) {
+        if (it.action >= kActBind && it.action < int(kActBind) + int(kBindCount)) {  // a key binding: its keys
+            const int a = it.action - kActBind;
+            v = g_bindCapture == a ? std::string(g_bindAdd ? "PRESS ONE MORE KEY..." : "PRESS A KEY...") : cfg.binds.text(a);
+            if (v.empty()) v = "-";
+        } else if (it.action >= kActGoto) {
             v = ">";
         } else if (it.text) {  // shown in capitals (the font's), typed in any case
             std::string t = *it.text;
@@ -6226,7 +6249,9 @@ void drawMenu(HudBatch& hud, const Config& cfg, int mode, int w, int h, int s) {
     }
     const bool typing = g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && rows[size_t(g_menu.sel)].text;
     const bool setting = g_menu.sel >= 0 && g_menu.sel < int(rows.size()) && !rows[size_t(g_menu.sel)].action && !typing;
-    const char* hint = typing ? "TYPE IT   BACKSPACE DELETES"
+    const char* hint = g_bindCapture >= 0 ? "PRESS A KEY, MOUSE BUTTON OR WHEEL   ESC CANCELS   BACKSPACE UNBINDS"
+                       : screen == kMenuControls ? "CLICK: CHANGE THE KEY   RIGHT CLICK: ADD ANOTHER   ESC BACK"
+                       : typing ? "TYPE IT   BACKSPACE DELETES"
                        : setting ? "LEFT/RIGHT, CLICK OR WHEEL CHANGES   (SAVED)"
                                : screen == kMenuMain ? "ENTER OR CLICK TO SELECT" : "ENTER OR CLICK TO SELECT   ESC BACK";
     hud.text(L.x, L.rowsY + (float(rows.size()) + 0.5f) * L.rowH, hint, 0x909090FF);
@@ -6954,22 +6979,24 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     }
     }
     if (g.botsFire) {
-        if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   TAB SCORES");
-        else if (g.mode == 2 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "RETAKES   TAB SCORES");
+        const std::string scores = bindKey(kBindScores), buy = bindKey(kBindBuy), use = bindKey(kBindUse);
+        if (g.mode == 1 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "DEATHMATCH   %s SCORES", scores.c_str());
+        else if (g.mode == 2 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "RETAKES   %s SCORES", scores.c_str());
         else if (g.mode == 3 && g.mapId == 1 && g.online) {
             int n = 0;
             for (int id = 0; id < kNetMaxPlayers; ++id) n += g.netTeam[id] >= 0 || id == g.net.myId() || g.remotes[id].present;
-            if (g.net.isHost()) std::snprintf(buf, sizeof(buf), "ONLINE COMPETITIVE   HOSTING   %d PLAYER%s   TAB SCORES   B BUY", n, n == 1 ? "" : "S");
-            else std::snprintf(buf, sizeof(buf), "ONLINE COMPETITIVE   PING %d MS   TAB SCORES   B BUY", g.net.pingMs());
+            if (g.net.isHost()) std::snprintf(buf, sizeof(buf), "ONLINE COMPETITIVE   HOSTING   %d PLAYER%s   %s SCORES   %s BUY", n, n == 1 ? "" : "S", scores.c_str(), buy.c_str());
+            else std::snprintf(buf, sizeof(buf), "ONLINE COMPETITIVE   PING %d MS   %s SCORES   %s BUY", g.net.pingMs(), scores.c_str(), buy.c_str());
         }
-        else if (g.mode == 3 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "%s   TAB SCORES   B BUY   E PLANT / DEFUSE",
-                                                            g.wingman ? (g.wingSite == 0 ? "WINGMAN: SITE A" : "WINGMAN: SITE B") : "COMPETITIVE");
+        else if (g.mode == 3 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "%s   %s SCORES   %s BUY   %s PLANT / DEFUSE",
+                                                            g.wingman ? (g.wingSite == 0 ? "WINGMAN: SITE A" : "WINGMAN: SITE B") : "COMPETITIVE",
+                                                            scores.c_str(), buy.c_str(), use.c_str());
         else if (g.mode == 4 && g.mapId == 1) std::snprintf(buf, sizeof(buf), "PREFIRE   BOTS SHOOT BACK");
         else if (g.mode == 5 && g.mapId == 1) {
             int n = 1;
             for (int id = 0; id < kNetMaxPlayers; ++id) n += g.remotes[id].present && id != g.net.myId();
-            if (g.net.isHost()) std::snprintf(buf, sizeof(buf), "ONLINE   HOSTING   %d PLAYER%s   TAB SCORES", n, n == 1 ? "" : "S");
-            else std::snprintf(buf, sizeof(buf), "ONLINE   %d PLAYERS   PING %d MS   TAB SCORES", n, g.net.pingMs());
+            if (g.net.isHost()) std::snprintf(buf, sizeof(buf), "ONLINE   HOSTING   %d PLAYER%s   %s SCORES", n, n == 1 ? "" : "S", scores.c_str());
+            else std::snprintf(buf, sizeof(buf), "ONLINE   %d PLAYERS   PING %d MS   %s SCORES", n, g.net.pingMs(), scores.c_str());
         }
         else std::snprintf(buf, sizeof(buf), "BOTS SHOOT BACK   DEATHS %d", g.deaths);
         if (practice || g.online) {  // (the other modes say it all in the top bar)
@@ -7137,7 +7164,10 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
                 hud.rect(cx - bw / 2, cy + 40.0f * s, bw * k, 8.0f * s, 0x60C0FFFF);
                 hud.text(cx - hud.textWidth("DEFUSING") / 2, cy + 52.0f * s, "DEFUSING", 0xFFFFFFFF);
             } else if (length2d(g.player.origin - g.bombPos) < 72.0f) {
-                hud.text(cx - hud.textWidth("HOLD E TO DEFUSE") / 2, cy + 40.0f * s, "HOLD E TO DEFUSE", 0xFFFFFFFF);
+            {
+                const std::string t = "HOLD " + bindKey(kBindUse) + " TO DEFUSE";
+                hud.text(cx - hud.textWidth(t) / 2, cy + 40.0f * s, t, 0xFFFFFFFF);
+            }
             } else if (alive == 0) {
                 hud.text(cx - hud.textWidth("SITE CLEAR - DEFUSE THE BOMB") / 2, cy + 40.0f * s,
                          "SITE CLEAR - DEFUSE THE BOMB", 0x60FF60FF);
@@ -7256,9 +7286,10 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         };
         if (c.planter == -1) bar("PLANTING", float((g.simTime - c.plantStart) / kCompPlantTime));
         if (g.defuseStart >= 0 && c.planted) bar("DEFUSING", float((g.simTime - g.defuseStart) / (c.kit ? 5.0 : 10.0)));
-        if (c.carrier == -1 && c.planter != -1 && c.phase == 1)
-            hud.text(cx - hud.textWidth("YOU HAVE THE BOMB - HOLD E ON A SITE TO PLANT") / 2, cy + 64.0f * s,
-                     "YOU HAVE THE BOMB - HOLD E ON A SITE TO PLANT", 0xFFD060C0);
+        if (c.carrier == -1 && c.planter != -1 && c.phase == 1) {
+            const std::string t = "YOU HAVE THE BOMB - HOLD " + bindKey(kBindUse) + " ON A SITE TO PLANT";
+            hud.text(cx - hud.textWidth(t) / 2, cy + 64.0f * s, t, 0xFFD060C0);
+        }
         if (c.youDead && c.phase == 1) {
             char spec[96];
             if (g.spec >= 0 && size_t(g.spec) < g.dummies.size() && g.dummies[size_t(g.spec)].hp > 1000.0f)  // (online: not known here)
@@ -7456,6 +7487,7 @@ int main(int argc, char** argv) {
     const char* base = SDL_GetBasePath();
     std::string cfgPath = std::string(base ? base : "") + "config.cfg";
     Config cfg = loadConfig(cfgPath);
+    g_binds = &cfg.binds;
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
@@ -7856,6 +7888,7 @@ int main(int argc, char** argv) {
                     fresh.net_address = cfg.net_address;
                     fresh.net_port = cfg.net_port;
                     fresh.all_skins = cfg.all_skins;
+                    fresh.binds = cfg.binds;  // (keys have their own reset, on CONTROLS)
                     cfg = fresh;
                 }
                 settingsChanged();
@@ -7929,8 +7962,15 @@ int main(int argc, char** argv) {
                 else g.net.sendTeamPick(uint8_t(1 - (g_lobby.team[std::max(0, g.net.myId())] & 1)));
                 break;
             case kActLobbyStart: startLobbyGame(); break;
+            case kActResetBinds:
+                cfg.binds = Binds{};
+                saveConfig(cfgPath, cfg);
+                break;
             default:
-                if (it.action >= kActGoto) {
+                if (it.action >= kActBind && it.action < int(kActBind) + int(kBindCount)) {  // CONTROLS: wait for its new key
+                    g_bindCapture = it.action - kActBind;
+                    g_bindAdd = false;
+                } else if (it.action >= kActGoto) {
                     setMenu(it.action - kActGoto);
                 } else if (it.action >= kActWatch) {
                     watchTape(it.action - kActWatch);
@@ -8637,6 +8677,128 @@ int main(int argc, char** argv) {
         }
         dt = std::min(dt, 0.25);
 
+        // CONTROLS: the key (or button, or wheel notch) for the action waiting for one. Esc cancels, Backspace or
+        // Delete unbinds it; the console and chat keys (~, Enter) can't be taken.
+        auto captureBind = [&](int code) {
+            const int a = g_bindCapture;
+            g_bindCapture = -1;
+            g.hudDirty = true;
+            if (a < 0 || code == SDL_SCANCODE_ESCAPE || code == SDL_SCANCODE_GRAVE || code == SDL_SCANCODE_RETURN ||
+                code == SDL_SCANCODE_KP_ENTER)
+                return;
+            if (code == SDL_SCANCODE_BACKSPACE || code == SDL_SCANCODE_DELETE) cfg.binds.clear(a);
+            else cfg.binds.set(a, code, !g_bindAdd);
+            saveConfig(cfgPath, cfg);
+            sound(g, Sfx::UiClick, 0.5f);
+        };
+        // A game key, mouse button or wheel notch pressed while playing (binds.h codes; v0.41: through the binds).
+        // The buy wheel's and the calls' choices stay on the number keys, and practice's X, L, [ ] are fixed, like CS.
+        auto pressGame = [&](int code) {
+            const bool deadComp = g.mode == 3 && g.mapId == 1 && g.comp.youDead;
+            const int digit = code >= SDL_SCANCODE_1 && code <= SDL_SCANCODE_9 ? code - SDL_SCANCODE_1 + 1 : 0;
+            const bool jump = bound(kBindJump, code);
+            if (jump && deadComp && g.spec < 0) {
+                // flying free: jump is up (held, in the tick); Mouse 1/2 watches a teammate again
+            } else if (jump && deadComp) {
+                if (size_t(g.spec) < g.dummies.size()) {  // fly free from their eyes
+                    const Dummy& d = g.dummies[size_t(g.spec)];
+                    g.player.origin = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch) - eyeHeight(g.player)};
+                    g.prevPlayer = g.player;
+                    g.viewYaw = d.yaw;
+                    g.viewPitch = d.pitch;
+                }
+                g.spec = -1;  // flying free
+                g.hudDirty = true;
+            } else if (jump) {
+                if (code == kWheelUp || code == kWheelDown) g.wheelJumpAt = g.simTime;  // (waits a moment for the ground: scroll bhops)
+                else g.jumpLatch = true;
+            } else if (g.callMenu && digit >= 1 && digit <= 8) {  // your call
+                playerCall(g, firstCall(g) + digit - 1);
+                g.callMenu = false;
+                g.hudDirty = true;
+            } else if (g.buyMenu && digit >= 1) {  // the buy wheel
+                const int slot = g.buyCategory == 0 && digit == 8 ? kBuyFullRifle
+                                 : g.buyCategory == 0 && digit == 9 ? kBuyFullSniper : digit - 1;
+                const char* msg = buyPick(g, slot);
+                if (msg[0]) pushHitLog(g, msg, 0xffd060);
+                g.hudDirty = true;
+            } else if (bound(kBindReload, code) && g.buyMenu && g.mode == 3 && g.mapId == 1) {  // refund
+                pushHitLog(g, compRefund(g), 0xffd060);
+                sound(g, Sfx::UiClick, 0.4f);
+                g.hudDirty = true;
+            } else if (bound(kBindFire, code)) {
+                g.fireHeld = true;
+                g.fireLatch = true;
+            } else if (bound(kBindAltFire, code)) {
+                g.zoomLatch = true;
+                g.zoomHeld = true;
+            } else if (bound(kBindReload, code)) {
+                g.reloadLatch = true;
+            } else if (bound(kBindUse, code)) {
+                g.useLatch = true;
+            } else if (bound(kBindCall, code) && canCall(g)) {
+                g.callMenu = !g.callMenu;
+                g.buyMenu = false;
+                g.hudDirty = true;
+            } else if (bound(kBindPing, code)) {
+                pingHere(g);  // a ping (v0.36)
+            } else if (bound(kBindPrimary, code)) {
+                g.switchTo = 1;
+            } else if (bound(kBindSecondary, code)) {
+                g.switchTo = 2;
+            } else if (bound(kBindKnife, code)) {
+                g.switchTo = 3;
+            } else if (bound(kBindGrenade, code)) {
+                g.switchTo = 4;
+            } else if (bound(kBindLastWeapon, code)) {
+                g.switchTo = 5;
+            } else if (bound(kBindInspect, code)) {
+                g.vm.inspect();
+            } else if (bound(kBindBuy, code)) {
+                const bool comp = g.mode == 3 && g.mapId == 1;
+                const bool canBuy = !g.armsRace && (!comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
+                                                              length2d(g.player.origin - g.spawn) < 700.0f));
+                if (canBuy) {
+                    g.callMenu = false;
+                    g.buyMenu = !g.buyMenu;
+                    g.buyCategory = 0;
+                    if (g.buyMenu) {  // the cursor starts in the middle of the wheel
+                        const BuyWheel wh = buyWheel(pixW, pixH, hudScale(cfg, pixH));
+                        g.buyMouseX = wh.cx;
+                        g.buyMouseY = wh.cy;
+                        const float density = SDL_GetWindowPixelDensity(window);
+                        if (!automated) {
+                            SDL_SetWindowRelativeMouseMode(window, false);
+                            SDL_WarpMouseInWindow(window, wh.cx / density, wh.cy / density);
+                        }
+                    }
+                }
+
+                else pushHitLog(g, g.armsRace ? "NO BUYING IN ARMS RACE: KILLS EARN THE NEXT GUN" : "YOU CAN ONLY BUY IN YOUR SPAWN DURING BUY TIME", 0xffd060);
+                g.hudDirty = true;
+            } else if (bound(kBindDrop, code)) {
+                if (!dropPrimary(g)) g.throwLatch = true;  // drop, else quick-throw
+            } else if (bound(kBindNoclip, code)) {
+                if (!g.online && g.mode == 0) {
+                    g.noclip = !g.noclip;
+                    g.hudDirty = true;
+                }
+            } else if (bound(kBindClearDecals, code)) {
+                renderer.clearDecals();
+            } else if (code == SDL_SCANCODE_X && nadePractice(g)) {  // grenade practice (v0.35)
+                rethrowLast(g);
+            } else if (code == SDL_SCANCODE_L && nadePractice(g)) {
+                saveLineup(g, "");
+            } else if ((code == SDL_SCANCODE_LEFTBRACKET || code == SDL_SCANCODE_RIGHTBRACKET) && nadePractice(g)) {
+                goLineup(g, code == SDL_SCANCODE_RIGHTBRACKET ? 1 : -1);
+            }
+            // Map, mode, bots, drill, help, reset and config reload live in the Esc menu.
+        };
+        // ... and let go: fire and scope stop.
+        auto releaseGame = [&](int code) {
+            if (bound(kBindFire, code)) g.fireHeld = false;
+            if (bound(kBindAltFire, code)) g.zoomHeld = false;
+        };
         float frameYawDelta = 0, framePitchDelta = 0;  // for weapon sway
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -8681,9 +8843,24 @@ int main(int argc, char** argv) {
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
                     if (g_console.open || g_chatOpen) break;
+                    if (g_bindCapture >= 0) {  // CONTROLS waiting for a key: this button is it
+                        captureBind(kMouseCode + int(e.button.button));
+                        break;
+                    }
                     if (paused) {  // left click presses a row, right click steps a setting back
                         const int r = menuRowUnder(e.button.x, e.button.y);
                         const bool left = e.button.button == SDL_BUTTON_LEFT;
+                        if (r >= 0 && e.button.button == SDL_BUTTON_RIGHT && g_menu.screen == kMenuControls) {
+                            const std::vector<MenuItem> rows = menuRows(g_menu.screen, cfg, g.mode);
+                            const int act = rows[size_t(r)].action;
+                            if (act >= kActBind && act < int(kActBind) + int(kBindCount)) {  // right click: one more key for it
+                                g_menu.sel = r;
+                                g_bindCapture = act - kActBind;
+                                g_bindAdd = true;
+                                g.hudDirty = true;
+                                break;
+                            }
+                        }
                         if (r >= 0 && (left || e.button.button == SDL_BUTTON_RIGHT)) {
                             g_menu.sel = r;
                             menuUse(r, left ? 1 : -1, false, left);
@@ -8711,7 +8888,7 @@ int main(int argc, char** argv) {
                         g.hudDirty = true;
                         break;
                     }
-                    if (e.button.button == SDL_BUTTON_MIDDLE) {  // a ping (v0.36)
+                    if (bound(kBindPing, kMouseCode + int(e.button.button))) {  // a ping (v0.36)
                         pingHere(g);
                         break;
                     }
@@ -8722,19 +8899,22 @@ int main(int argc, char** argv) {
                         g.hudDirty = true;
                         break;
                     }
-                    if (e.button.button == SDL_BUTTON_LEFT) { g.fireHeld = true; g.fireLatch = true; }
-                    if (e.button.button == SDL_BUTTON_RIGHT) { g.zoomLatch = true; g.zoomHeld = true; }
+                    if (!paused) pressGame(kMouseCode + int(e.button.button));
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_UP:
-                    if (e.button.button == SDL_BUTTON_LEFT) g.fireHeld = false;
-                    if (e.button.button == SDL_BUTTON_RIGHT) g.zoomHeld = false;
+                    releaseGame(kMouseCode + int(e.button.button));
+                    break;
+                case SDL_EVENT_KEY_UP:
+                    releaseGame(int(e.key.scancode));
                     break;
                 case SDL_EVENT_MOUSE_WHEEL:
                     if (g_console.open) {  // scrolls the console
                         g_console.scroll = std::clamp(g_console.scroll + (e.wheel.y > 0 ? 3 : -3), 0, std::max(0, int(g_console.log.size()) - 1));
                         g.hudDirty = true;
+                    } else if (g_bindCapture >= 0 && e.wheel.y != 0) {
+                        captureBind(e.wheel.y > 0 ? kWheelUp : kWheelDown);
                     } else if (!paused) {
-                        g.wheelJumpAt = g.simTime;  // (waits a moment for the ground: scroll bhops)
+                        if (e.wheel.y != 0) pressGame(e.wheel.y > 0 ? kWheelUp : kWheelDown);
                     } else if (e.wheel.y != 0) {
                         menuUse(g_menu.sel, e.wheel.y > 0 ? 1 : -1, false, false);
                     }
@@ -8783,6 +8963,10 @@ int main(int argc, char** argv) {
                             g_console.scroll = std::max(0, g_console.scroll - 8);
                         }
                         g.hudDirty = true;
+                        break;
+                    }
+                    if (g_bindCapture >= 0) {  // CONTROLS waiting for a key: this is it
+                        if (!e.key.repeat) captureBind(int(e.key.scancode));
                         break;
                     }
                     if (g_chatOpen) {  // typing a chat line: Enter sends it, Esc drops it
@@ -8901,83 +9085,7 @@ int main(int argc, char** argv) {
                         if (!automated) SDL_StartTextInput(window);
                         g.hudDirty = true;
                     } else if (!paused) {
-                        const bool deadComp = g.mode == 3 && g.mapId == 1 && g.comp.youDead;
-                        if (sc == SDL_SCANCODE_SPACE && deadComp && g.spec < 0) {
-                            // flying free: Space is up (held, in the tick); Mouse 1/2 watches a teammate again
-                        } else if (sc == SDL_SCANCODE_SPACE && deadComp) {
-                            if (size_t(g.spec) < g.dummies.size()) {  // fly free from their eyes
-                                const Dummy& d = g.dummies[size_t(g.spec)];
-                                g.player.origin = d.pos + Vec3{0, 0, dummyEyeZ(d.crouch) - eyeHeight(g.player)};
-                                g.prevPlayer = g.player;
-                                g.viewYaw = d.yaw;
-                                g.viewPitch = d.pitch;
-                            }
-                            g.spec = -1;  // flying free
-                            g.hudDirty = true;
-                        } else if (sc == SDL_SCANCODE_SPACE) g.jumpLatch = true;
-                        else if (sc == SDL_SCANCODE_R && g.buyMenu && g.mode == 3 && g.mapId == 1) {  // refund
-                            pushHitLog(g, compRefund(g), 0xffd060);
-                            sound(g, Sfx::UiClick, 0.4f);
-                            g.hudDirty = true;
-                        }
-                        else if (sc == SDL_SCANCODE_R) g.reloadLatch = true;
-                        else if (sc == SDL_SCANCODE_E) g.useLatch = true;
-                        else if (g.callMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_8) {  // your call
-                            playerCall(g, firstCall(g) + int(sc - SDL_SCANCODE_1));
-                            g.callMenu = false;
-                            g.hudDirty = true;
-                        }
-                        else if (sc == SDL_SCANCODE_Z && canCall(g)) {
-                            g.callMenu = !g.callMenu;
-                            g.buyMenu = false;
-                            g.hudDirty = true;
-                        }
-                        else if (g.buyMenu && sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) {  // the buy wheel
-                            const int k = int(sc - SDL_SCANCODE_1) + 1;
-                            const int slot = g.buyCategory == 0 && k == 8 ? kBuyFullRifle
-                                             : g.buyCategory == 0 && k == 9 ? kBuyFullSniper : k - 1;
-                            const char* msg = buyPick(g, slot);
-                            if (msg[0]) pushHitLog(g, msg, 0xffd060);
-                            g.hudDirty = true;
-                        }
-                        else if (sc == SDL_SCANCODE_P) pingHere(g);  // a ping (v0.36; middle mouse too)
-                        else if (sc == SDL_SCANCODE_X && nadePractice(g)) rethrowLast(g);  // grenade practice (v0.35)
-                        else if (sc == SDL_SCANCODE_L && nadePractice(g)) saveLineup(g, "");
-                        else if ((sc == SDL_SCANCODE_LEFTBRACKET || sc == SDL_SCANCODE_RIGHTBRACKET) && nadePractice(g))
-                            goLineup(g, sc == SDL_SCANCODE_RIGHTBRACKET ? 1 : -1);
-                        else if (sc == SDL_SCANCODE_1) g.switchTo = 1;
-                        else if (sc == SDL_SCANCODE_2) g.switchTo = 2;
-                        else if (sc == SDL_SCANCODE_3) g.switchTo = 3;
-                        else if (sc == SDL_SCANCODE_4) g.switchTo = 4;
-                        else if (sc == SDL_SCANCODE_Q) g.switchTo = 5;
-                        else if (sc == SDL_SCANCODE_F) g.vm.inspect();
-                        else if (sc == SDL_SCANCODE_B) {
-                            const bool comp = g.mode == 3 && g.mapId == 1;
-                            const bool canBuy = !g.armsRace && (!comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
-                                                                          length2d(g.player.origin - g.spawn) < 700.0f));
-                            if (canBuy) {
-                                g.callMenu = false;
-                                g.buyMenu = !g.buyMenu;
-                                g.buyCategory = 0;
-                                if (g.buyMenu) {  // the cursor starts in the middle of the wheel
-                                    const BuyWheel wh = buyWheel(pixW, pixH, hudScale(cfg, pixH));
-                                    g.buyMouseX = wh.cx;
-                                    g.buyMouseY = wh.cy;
-                                    const float density = SDL_GetWindowPixelDensity(window);
-                                    if (!automated) {
-                                        SDL_SetWindowRelativeMouseMode(window, false);
-                                        SDL_WarpMouseInWindow(window, wh.cx / density, wh.cy / density);
-                                    }
-                                }
-                            }
-
-                            else pushHitLog(g, g.armsRace ? "NO BUYING IN ARMS RACE: KILLS EARN THE NEXT GUN" : "YOU CAN ONLY BUY IN YOUR SPAWN DURING BUY TIME", 0xffd060);
-                            g.hudDirty = true;
-                        }
-                        else if (sc == SDL_SCANCODE_G && !dropPrimary(g)) g.throwLatch = true;  // drop, else quick-throw
-                        else if (sc == SDL_SCANCODE_V && !g.online && g.mode == 0) { g.noclip = !g.noclip; g.hudDirty = true; }
-                        else if (sc == SDL_SCANCODE_C) renderer.clearDecals();
-                        // Map, mode, bots, drill, help, reset and config reload live in the Esc menu.
+                        pressGame(int(sc));
                     }
                     break;
                 }
@@ -8986,7 +9094,7 @@ int main(int argc, char** argv) {
         }
 
         {
-            bool tab = !paused && !g_console.open && !g_chatOpen && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_TAB];
+            bool tab = !paused && !g_console.open && !g_chatOpen && bindHeld(kBindScores);
             if (tab != g.showScores) { g.showScores = tab; g.hudDirty = true; }
         }
         if (!automated) {  // the mouse aims while you play; it's a cursor in the menus and the buy wheel
@@ -9037,11 +9145,11 @@ int main(int argc, char** argv) {
         if (!paused) stepReplay(g, dt);
         g_replayAvailable = !g.online && g.mapId == 1 && g.replay.frames() > 64;
         if (g.rv.on && !g.rv.killcam && g.rv.pov < 0 && !paused) {  // the free camera flies (Shift slow)
-            const bool* keys = SDL_GetKeyboardState(nullptr);
             const Vec3 f = anglesToForward(g.rv.camPitch, g.rv.camYaw), r = yawToRight(g.rv.camYaw);
-            Vec3 move = f * float(keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S]) + r * float(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]) +
-                        Vec3{0, 0, float(keys[SDL_SCANCODE_SPACE] - keys[SDL_SCANCODE_LCTRL])};
-            g.rv.camPos += move * float(dt * (keys[SDL_SCANCODE_LSHIFT] ? 150.0 : 600.0));
+            Vec3 move = f * float(int(bindHeld(kBindForward)) - int(bindHeld(kBindBack))) +
+                        r * float(int(bindHeld(kBindRight)) - int(bindHeld(kBindLeft))) +
+                        Vec3{0, 0, float(int(bindHeld(kBindJump)) - int(bindHeld(kBindCrouch)))};
+            g.rv.camPos += move * float(dt * (bindHeld(kBindWalk) ? 150.0 : 600.0));
         }
         const uint64_t tSim = SDL_GetPerformanceCounter();
         float alpha = float(tickAcc / kTickDt);

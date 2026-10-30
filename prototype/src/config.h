@@ -2,6 +2,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include "binds.h"
 
 struct Config {
     float sensitivity = 1.2f;
@@ -71,6 +72,7 @@ struct Config {
     int net_teams = 0;         // online competitive: 0 players split between the teams, 1 all on one team vs bots
     int prefire_bots_shoot = 1;  // prefire: the bots shoot back
     int wing_site = 1;         // Wingman: the bombsite it's played on (0 A, 1 B)
+    Binds binds;               // key bindings (v0.41): saved as bind_<action> lines ("bind_jump SPACE MWHEELDOWN")
 };
 
 // Loads `path`; writes a commented default file there if it doesn't exist.

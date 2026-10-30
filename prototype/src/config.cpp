@@ -145,6 +145,10 @@ std::string configText(const Config& c) {
         << "\nenemy_skill " << c.enemy_skill << "\nskill_variance " << c.skill_variance
         << "\ndm_bot_fights " << c.dm_bot_fights << "\nkillcam " << c.killcam << "\nmodel_scale " << c.model_scale << "\nnet_address " << c.net_address << "\nnet_port " << c.net_port
         << "\nplayer_name " << c.player_name << "\nnet_game " << c.net_game << "\nnet_teams " << c.net_teams << "\nwing_site " << c.wing_site << "\n";
+    for (int a = 0; a < kBindCount; ++a) {
+        const std::string keys = c.binds.text(a);
+        out << "bind_" << bindInfo(a).key << " " << (keys.empty() ? std::string("NONE") : keys) << "\n";
+    }
     return out.str();
 }
 
@@ -162,6 +166,11 @@ bool setConfigValue(Config& c, const std::string& key, const std::string& value)
         if (!(ts >> word)) return false;
         (key == "net_address" ? c.net_address : c.player_name) = word;
         return true;
+    }
+    if (key.compare(0, 5, "bind_") == 0) {  // key bindings: key names, space-separated (NONE: unbound)
+        for (int a = 0; a < kBindCount; ++a)
+            if (key.compare(5, std::string::npos, bindInfo(a).key) == 0) return c.binds.parse(a, value);
+        return false;
     }
     float v;
     std::istringstream ss(value);

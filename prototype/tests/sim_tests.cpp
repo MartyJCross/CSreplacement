@@ -2162,6 +2162,43 @@ void testConsole() {
     CHECK(bad == 0 && unreadable == 0 && keys.size() > 60, "%d wrong, %d unreadable, %zu keys", bad, unreadable, keys.size());
 }
 
+// Key bindings (v0.41): names round-trip, CS's defaults, one key one action, the config lines.
+void testBinds() {
+    std::printf("binds\n");
+    int bad = 0, named = 0;
+    for (int code = 0; code < 600; ++code) {
+        const std::string n = keyName(code);
+        if (n.empty()) continue;
+        ++named;
+        bad += keyCode(n) != code;
+    }
+    bad += keyCode("w") != keyCode("W") || keyCode("NOPE") != kNoKey || keyCode("MOUSE1") != kMouseCode + 1 ||
+           keyCode("MOUSE2") != kMouseCode + 3;  // (SDL: 1 left, 2 middle, 3 right; CS: MOUSE2 is the right)
+    Binds b;
+    bad += !b.has(kBindForward, keyCode("W")) || !b.has(kBindJump, keyCode("SPACE")) || !b.has(kBindJump, kWheelDown) ||
+           !b.has(kBindFire, keyCode("MOUSE1")) || !b.has(kBindPing, keyCode("MOUSE3")) || b.has(kBindFire, keyCode("W"));
+    int clashes = 0;  // no key does two things by default
+    for (int a = 0; a < kBindCount; ++a)
+        for (int x = a + 1; x < kBindCount; ++x)
+            for (int k : b.keys[a]) clashes += k != kNoKey && b.has(x, k);
+    b.set(kBindCrouch, keyCode("C"), true);  // C was clear decals: it moves to crouch, alone
+    bad += !b.has(kBindCrouch, keyCode("C")) || b.has(kBindCrouch, keyCode("LCTRL")) || b.has(kBindClearDecals, keyCode("C"));
+    b.set(kBindCrouch, keyCode("LCTRL"), false);  // added beside it
+    bad += b.text(kBindCrouch) != "C LCTRL";
+    Binds j;
+    j.set(kBindJump, keyCode("F"), true);  // a new main key for jump: the wheel stays, F leaves inspect
+    bad += j.text(kBindJump) != "F MWHEELDOWN MWHEELUP" || j.has(kBindInspect, keyCode("F"));
+    bad += !b.parse(kBindJump, "SPACE MWHEELUP") || b.text(kBindJump) != "SPACE MWHEELUP" || b.parse(kBindJump, "SPACE BANANA");
+    Config c;
+    c.binds = b;
+    bad += !setConfigValue(c, "bind_walk", "CAPSLOCK") || !c.binds.has(kBindWalk, keyCode("CAPSLOCK"));
+    bad += !setConfigValue(c, "bind_noclip", "NONE") || !c.binds.text(kBindNoclip).empty();
+    std::string v;
+    bad += !configValue(c, "bind_crouch", v) || v != "C LCTRL";
+    std::printf("  %d key names, %d actions, %d default clashes: %d wrong\n", named, int(kBindCount), clashes, bad);
+    CHECK(bad == 0 && clashes == 0 && named > 90, "%d wrong, %d clashes, %d names", bad, clashes, named);
+}
+
 // Arms Race (v0.34): the ladder (13 levels, every gun once, the knife last), a kill moves you on, a knife kill takes a
 // level off the victim, only a knife kill on the last level wins; and a bot with the knife runs at its target.
 void testArmsRace() {
@@ -2789,6 +2826,7 @@ int main() {
     testBotChecks();
     testSpawnGroups();
     testConsole();
+    testBinds();
     testArmsRace();
     testLineups();
     testMatchTape();

@@ -3,6 +3,18 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.41: a title screen and your own keys
+
+- **A real title screen:** the CRISP logo top left, big menu entries down the left over the camera's flyover, a line
+  about the highlighted entry, a gold count of cases waiting by INVENTORY, and your rank and rating along the bottom.
+- **Key bindings:** SETTINGS → CONTROLS lists every action with its keys. Click one and press a key, mouse button
+  (side buttons too) or wheel notch to make it the main key; right click adds another; Backspace unbinds; Esc cancels.
+  A key moves off whatever it did before. RESET KEYS TO DEFAULTS brings CS's keys back. Esc, Enter (chat), ~ (console)
+  and the number keys inside the buy wheel and the call menu stay fixed.
+- Saved in `config.cfg` as `bind_<action>` lines (`bind_jump SPACE MWHEELDOWN MWHEELUP`); the console sets them too
+  (`bind_crouch C`). The HUD's hints (scores, buy, plant / defuse) name your keys. RESET TO DEFAULTS on the settings
+  page keeps your keys.
+
 ## v0.40: light and shade
 
 - **Ambient occlusion:** soft shade where things meet: in corners, at the foot of walls, round crates and under

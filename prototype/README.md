@@ -35,6 +35,11 @@ If Windows SmartScreen warns about an unknown app, click **More info → Run any
 
 ## Controls
 
+These are the default keys: **SETTINGS → CONTROLS** changes them (click an action, press a key, mouse button or wheel
+notch; right click adds a second key; Backspace unbinds). They're saved as `bind_<action>` lines in `config.cfg`
+(`bind_jump SPACE MWHEELDOWN MWHEELUP`, key names like CS's: `MOUSE1`, `MOUSE4`, `LCTRL`, `CAPSLOCK`, `KP_0`, `F5`),
+and the console sets them too. Esc, Enter, ~ and the number keys in the buy wheel and call menu are fixed.
+
 | Key | Action |
 |---|---|
 | WASD | Move |
