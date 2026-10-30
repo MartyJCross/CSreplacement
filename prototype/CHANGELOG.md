@@ -3,6 +3,20 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.40: light and shade
+
+- **Ambient occlusion:** soft shade where things meet: in corners, at the foot of walls, round crates and under
+  ledges. Players pick it up too, so they look grounded instead of pasted on.
+- **Interiors are darker than the street:** tunnels, doorways, covered walkways and rooms are dim and a little warm,
+  and the light fades in at their mouths. Your gun darkens with them. They stay bright enough to spot someone in.
+- **Clouds:** soft fair-weather clouds in the sky (no extra cost to speak of).
+- **VIDEO → AMBIENT OCCLUSION** (`ambient_occlusion`, on): part of the presets (LOW off, MEDIUM and HIGH on). A config
+  from before this version takes it from its preset.
+- How it works: when a map loads, the world is turned into a coarse 3D grid (16-unit cells: how full each cell is, how
+  much open sky it sees). The shader reads it with a few texture taps. One 9 MB texture, about 0.15 s more per map
+  load, no extra passes.
+- For testing: `--offscreen` opens the game's window far off the screen without focus (automated runs).
+
 ## v0.39: owner's list
 
 - **Guns only fall to the floor in competitive and Wingman.** In deathmatch (offline and online) and Arms Race the dead

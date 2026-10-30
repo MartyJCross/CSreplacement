@@ -163,9 +163,12 @@ Settings → Video:
 - **VISUAL STYLE** (`art_style`): STYLIZED (default) is flat colour with a hint of the surface textures, rich warm
   shade, walls that lighten as they rise, and a thin dark line round silhouettes (needs post-processing); CLASSIC is
   fully textured. Both cost the same.
-- **GRAPHICS PRESET** sets the next three together: LOW (no shadows, FXAA), MEDIUM (shadows, FXAA), HIGH (sharp
-  shadows, MSAA 4); changing one by hand makes it CUSTOM.
+- **GRAPHICS PRESET** sets shadows, ambient occlusion, post-processing and anti-aliasing together: LOW (no shadows, no
+  ambient occlusion, FXAA), MEDIUM (shadows, ambient occlusion, FXAA), HIGH (sharp shadows, ambient occlusion,
+  MSAA 4); changing one by hand makes it CUSTOM.
 - **SUN SHADOWS** (`shadows`): off, on, sharp.
+- **AMBIENT OCCLUSION** (`ambient_occlusion`): soft shade in corners and at the foot of walls, darker tunnels and rooms
+  (light fades in at their mouths). On in MEDIUM and HIGH.
 - **ANTI-ALIASING** (`msaa`, 0-8 samples): applies on restart, because the samples are part of the window itself
   (Windows fixes a window's pixel format when it's created; changing it means making a new window and reloading
   everything on the GPU). With `msaa 0` the post pass smooths edges with FXAA instead (cheaper).

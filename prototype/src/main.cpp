@@ -52,6 +52,7 @@ struct Options {
     int execFrame = 30;          // --exec-frame N: on that frame instead
     bool record = false;         // --record: an automated run saves its match to replays/ (tests)
     bool showConsole = false;
+    bool offscreen = false;      // --offscreen: the window opens far off the screen, never focused (automated runs)
     // --light K (automated runs on the owner's PC: easy on it): each drawn frame is K steps of 1/240 s and at most 30
     // are drawn a second (so --frames N covers N * K / 240 s of game, at K / 8 times real time).
     int lightSteps = 0;
@@ -211,6 +212,8 @@ Options parseArgs(int argc, char** argv) {
         } else if (a == "--windowed") {
             o.windowW = std::atoi(next());
             o.windowH = std::atoi(next());
+        } else if (a == "--offscreen") {
+            o.offscreen = true;
         }
     }
     return o;
@@ -5725,9 +5728,10 @@ const char* const kOnOff[] = {"OFF", "ON"};
 const char* const kShadowNames[] = {"OFF", "ON", "SHARP"};
 const char* const kPresetNames[] = {"LOW", "MEDIUM", "HIGH", "CUSTOM"};
 const char* const kStyleNames[] = {"CLASSIC", "STYLIZED"};
-// Graphics presets: shadows, post_fx, msaa. LOW and MEDIUM smooth edges with FXAA (cheap on integrated graphics).
-struct GraphicsPreset { int shadows, post, msaa; };
-constexpr GraphicsPreset kPresets[3] = {{0, 1, 0}, {1, 1, 0}, {2, 1, 4}};
+// Graphics presets: shadows, post_fx, msaa, ambient occlusion. LOW and MEDIUM smooth edges with FXAA (cheap on
+// integrated graphics).
+struct GraphicsPreset { int shadows, post, msaa, ao; };
+constexpr GraphicsPreset kPresets[3] = {{0, 1, 0, 0}, {1, 1, 0, 1}, {2, 1, 4, 1}};
 // A preset picked in the menu sets its three settings; changing one of them by hand makes it CUSTOM.
 void applyGraphicsPreset(Config& c, int& lastPreset) {
     if (c.graphics_preset != lastPreset && c.graphics_preset >= 0 && c.graphics_preset < 3) {
@@ -5735,9 +5739,10 @@ void applyGraphicsPreset(Config& c, int& lastPreset) {
         c.shadows = p.shadows;
         c.post_fx = p.post;
         c.msaa = p.msaa;
+        c.ambient_occlusion = p.ao;
     } else if (c.graphics_preset >= 0 && c.graphics_preset < 3) {
         const GraphicsPreset& p = kPresets[c.graphics_preset];
-        if (c.shadows != p.shadows || c.post_fx != p.post || c.msaa != p.msaa) c.graphics_preset = 3;
+        if (c.shadows != p.shadows || c.post_fx != p.post || c.msaa != p.msaa || c.ambient_occlusion != p.ao) c.graphics_preset = 3;
     }
     lastPreset = c.graphics_preset;
 }
@@ -5985,6 +5990,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
             return {{"VISUAL STYLE", nullptr, &c.art_style, 1, 0, 1, kStyleNames},
                     {"GRAPHICS PRESET", nullptr, &c.graphics_preset, 1, 0, 3, kPresetNames},
                     {"SUN SHADOWS", nullptr, &c.shadows, 1, 0, 2, kShadowNames},
+                    {"AMBIENT OCCLUSION", nullptr, &c.ambient_occlusion, 1, 0, 1, kOnOff},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
                     {"POST-PROCESSING", nullptr, &c.post_fx, 1, 0, 1, kOnOff},
                     {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
@@ -7375,6 +7381,9 @@ int main(int argc, char** argv) {
     // High pixel density: render at native resolution even with Windows display scaling (125%/150%).
     SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
+    // --offscreen (automated runs while the owner uses the PC): made hidden, moved far off the screen, then shown
+    // without taking focus, so it never covers anything or steals the keyboard.
+    if (opt.offscreen) flags = (flags & ~SDL_WindowFlags(SDL_WINDOW_FULLSCREEN | SDL_WINDOW_RESIZABLE)) | SDL_WINDOW_HIDDEN | SDL_WINDOW_NOT_FOCUSABLE;
     // MSAA lives on the window (fixed when it's made: a change needs a restart). Its alpha carries the outline code
     // for the post pass (Renderer::endScene).
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
@@ -7390,6 +7399,11 @@ int main(int argc, char** argv) {
         window = SDL_CreateWindow("Crisp v" CRISP_VERSION, winW, winH, flags);
     }
     if (!window) return fatal(SDL_GetError(), nullptr, showErrors);
+    if (opt.offscreen) {
+        SDL_SetWindowPosition(window, -6000, -6000);
+        SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+        SDL_ShowWindow(window);
+    }
     if (fullscreen && cfg.width && cfg.height) {
         // Exclusive mode at the requested resolution (e.g. 4:3 stretched).
         SDL_DisplayMode mode;
@@ -7492,6 +7506,7 @@ int main(int argc, char** argv) {
     renderer.setDepthPrepass(cfg.depth_prepass != 0);
     auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
     renderer.setShadowSize(shadowSize(cfg.shadows));
+    renderer.setAmbientOcclusion(cfg.ambient_occlusion != 0);
     setDustScale(kDustSize);
     if (cfg.map < 0 || cfg.map >= kMenuMaps) cfg.map = 1;  // (a map that is gone, like Inferno: Dust)
     setTownMap(cfg.map >= 2 ? cfg.map - 1 : 0);
@@ -7506,6 +7521,7 @@ int main(int argc, char** argv) {
         g_allSkins = cfg.all_skins != 0;
         if (setDustScale(kDustSize) && g.mapId == 1) loadMap(g, renderer, 1);  // (back from an online game's size)
         renderer.setShadowSize(shadowSize(cfg.shadows));
+        renderer.setAmbientOcclusion(cfg.ambient_occlusion != 0);
         renderer.setStyle(cfg.art_style);
         renderer.setPost(cfg.post_fx != 0);  // (right away; only MSAA waits for a restart)
     };

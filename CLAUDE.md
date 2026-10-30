@@ -19,7 +19,11 @@ There are two parts:
 
 ## 2. The owner and how they test
 
-- The owner plays on a **Windows laptop (Ryzen 7 4800H, integrated Radeon only: GPU/fill-rate bound)**.
+- The owner plays on a **desktop since 2026-10-29: Ryzen 5 3600, Radeon RX 6600 XT, 16 GB, 1080p 75 Hz** (was a
+  Ryzen 7 4800H laptop with integrated Radeon: the perf notes below that mention "their laptop" are from then). Friends
+  may still have weak GPUs: keep the LOW preset cheap.
+- They work on the PC while sessions run (other chats on other games too): **every automated run uses `--offscreen`**
+  (owner 2026-10-30: "dont open the window so it covers my screen") and `--light 16`.
 - They get builds from **GitHub Actions** (every push touching `prototype/**` builds the artifact `Crisp-windows-x64`),
   from `Desktop\Crisp-v<version>.zip`, or by running **`build\Release\crisp.exe` directly** (they do this: see §10,
   that folder's `config.cfg` is theirs).
@@ -138,7 +142,9 @@ Options: `--spawn X Y YAW` (world coords: Dust is 90% of real Dust2 in the game!
 `--menu 11` on the stage), `--inspect N --inspect-variant V` (a knife's inspect V), `--die N [--killer I]` (killcam when I is a bot),
 `--replay-frame N`, `--ct`, `--host`, `--join ADDR`, `--exec "cmds"` (console commands on frame 30, the log on
 stderr; `--console` shows it), `--light K` (K steps of 1/240 s a frame, capped at 30 FPS: easy on
-the owner's PC; **use it for every automated run on their machine**, owner v0.31: "limit FPS as much as you can").
+the owner's PC; **use it for every automated run on their machine**, owner v0.31: "limit FPS as much as you can"),
+`--offscreen` (v0.40: the window made hidden at -6000,-6000, shown without focus, not focusable; screenshots still
+work; **use it for every automated run too**, owner 2026-10-30).
 
 **Measuring:** `--bench 10` (bench.txt: avg/1% low, time per part, GPU via glFinish), `--bench-raw 10` (no glFinish:
 frames queue like play; use it for latency-mode comparisons), `--dump-sounds DIR` (synthesized), `--dump-played-sounds
@@ -389,6 +395,15 @@ JOIN, port); SETTINGS pages mouse, crosshair, weapons, video, sound (`kMenuSound
 (`kActResetSettings`, press twice within 3 s) = a fresh `Config` keeping name, address, port, all_skins.
 Every change saves config.cfg.
 
+**Light volume** (v0.40, render.cpp `buildVolume`, built in `setStaticBoxes` after `buildShadows`): the static boxes
+(not shadow sheets 30..49, bullet holes 16, emissive 128; ramps by their slope) rasterised into 16-unit cells (coarser
+past 384 x 384 x 64: the Lab), RG8 3D texture on unit 4: r = fill, g = sky (each column lit from above, then blurred
+sideways twice over 5 cells through open cells only). Box FS `ambient(N)`: `uVolOn` 1 world (6 occlusion taps 24-60
+units off the face + sky), 2 models (sky only), 3 the first-person gun (`uModelAmb` = `skyAt(eye)` on the CPU; set by
+`clearDepth`'s `firstPerson_`), 0 off / the inventory stage (`setSunShadows(false)` sets `stage_`). `ambientTint`: indoor
+shade x0.68/0.64/0.60; the sun term takes 45% of the occlusion. Config `ambient_occlusion` (in the presets: LOW 0;
+loadConfig fills a missing key from the preset; tested in `testConsole`). Map load +130-180 ms (logged "light volume").
+Sky FS: fbm clouds.
 **v0.23 premium pass** (details in §8's checklist): sun shadows (render.cpp `buildShadows`, `kSunDir`), post pass
 (`setPost`/`endScene`/`setGrade`; v0.25.4: the scene is drawn on the window, then copied for the post pass), TrueType HUD font
 (`loadFont`, assets/fonts, OFL), main-menu camera (`menuCamera`), fades (`drawFadeIn`), ambience + room echo (audio.cpp
@@ -437,6 +452,14 @@ in the welcome; reconnect; `netNotice`; `--host-lobby F`). kNetProtocol was 10 t
 12 in v0.36: chat, pings).
 
 ## 8. Roadmap
+
+**v0.40+ "toward a Steam release"** (owner, 2026-10-30: "progress the game to the next level... make it MUCH better...
+closer to that sweet steam release", my own judgement, as many credits as needed). Pieces, each committed and pushed:
+- [x] 1. v0.40 light and shade: light volume (AO + darker interiors), clouds, `--offscreen`
+- [ ] 2. A real title screen / menu redesign (big logo, large buttons, the flyover behind)
+- [ ] 3. Key rebinding (Controls page)
+- [ ] 4. A second original map (Dust is a Dust2 copy: can't ship)
+
 
 **Done in v0.39** (owner, 2026-10-13): drops only in competitive / Wingman, Inferno removed, every knife draws like the
 M9, the USP-S one-taps a bare head from any range, kill-only dink + a headshot-kill sound; v0.38.1 the program icon.

@@ -108,6 +108,33 @@ uniform mat4 uShadowVP;
 uniform int uHasShadow;     // 0: no shadows (off, or not built)
 uniform vec3 uSun;          // towards the sun
 uniform float uShadowTexel; // one texel of the map, in its 0..1 coordinates
+// The light volume (Renderer::buildVolume): the map in 16-unit cells, made once per map. r = how full a cell is,
+// g = how much open sky it sees (straight up, softened sideways so tunnel mouths fade). uVolOn: 0 off, 1 the world
+// (ambient occlusion + sky), 2 models (sky only: a gun held against a wall stays lit), with uModelAmb when 3 (the
+// first-person gun: the sky where you stand).
+uniform sampler3D uVol;
+uniform int uVolOn;
+uniform vec3 uVolOrigin, uVolInv;
+uniform float uModelAmb;
+float occAt(vec3 p) { return texture(uVol, (p - uVolOrigin) * uVolInv).r; }
+// x = ambient occlusion (corners, wall feet, under props: 1 open), y = sky (1 outdoors .. 0 deep inside).
+vec2 ambient(vec3 N) {
+    if (uVolOn == 0) return vec2(1.0);
+    if (uVolOn == 3) return vec2(1.0, uModelAmb);
+    float sky = texture(uVol, (vWorld + N * 14.0 - uVolOrigin) * uVolInv).g;
+    if (uVolOn == 2) return vec2(1.0, sky);
+    // Samples 1.5 cells and more off the face (an open floor reads 0 whatever height it is), straight out and
+    // fanned four ways: what's beside and over this point.
+    vec3 T = abs(N.z) > 0.5 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0);
+    vec3 B = normalize(cross(N, T));
+    T = cross(B, N);
+    vec3 p = vWorld + N * 24.0;
+    float o = occAt(p) * 0.28 + occAt(vWorld + N * 60.0) * 0.16 +
+              (occAt(p + T * 34.0) + occAt(p - T * 34.0) + occAt(p + B * 34.0) + occAt(p - B * 34.0)) * 0.14;
+    return vec2(clamp(1.0 - o * 1.05, 0.3, 1.0), sky);
+}
+// What the sky-lit (shade) part of the light is worth here: dimmer and a little warmer indoors (bounce light).
+vec3 ambientTint(vec2 A) { return A.x * mix(vec3(0.68, 0.64, 0.60), vec3(1.0), A.y); }
 // How much sun reaches this point (0 shade .. 1 full sun): faces turned away get none; the rest look the sun's way
 // in the shadow map (5 hardware-filtered taps: soft edges).
 float sunVis(vec3 N) {
@@ -123,11 +150,16 @@ float sunVis(vec3 N) {
 }
 // Sun and shade: warm in the sun, cool and darker in the shade. Stylized, the shade keeps its colour rich (deeper,
 // more saturated, a touch of blue) instead of going grey.
+// The light volume darkens the shade (ambient) part: corners and indoors. The sun part takes only some of the
+// occlusion (direct light isn't blocked by a corner it reaches).
 vec3 sunLit(vec3 c, vec3 N) {
-    if (uHasShadow == 0) return c;
+    vec2 A = ambient(N);
+    vec3 amb = ambientTint(A);
+    float sunAo = mix(1.0, A.x, 0.45);
+    if (uHasShadow == 0) return c * mix(amb, vec3(sunAo), 0.35 * A.y);
     float v = sunVis(N);
-    if (uStyle == 1) return mix(pow(max(c, vec3(0.0)), vec3(1.45)) * vec3(0.80, 0.80, 0.94), c * vec3(1.05, 1.03, 0.98), v);
-    return c * mix(vec3(0.66, 0.71, 0.82), vec3(1.06, 1.03, 0.97), v);
+    if (uStyle == 1) return mix(pow(max(c, vec3(0.0)), vec3(1.45)) * vec3(0.80, 0.80, 0.94) * amb, c * vec3(1.05, 1.03, 0.98) * sunAo, v);
+    return c * mix(vec3(0.66, 0.71, 0.82) * amb, vec3(1.06, 1.03, 0.97) * sunAo, v);
 }
 // A gunshot lights the walls near it (owner: not the floor): warm, fading to nothing at 420 units, brightest on
 // faces turned to it. Floors and ceilings (faces pointing up or down) get none.
@@ -491,12 +523,34 @@ const char* kSkyFS = R"(#version 330 core
 in vec2 vNdc;
 uniform vec3 uFwd, uRight, uUp;  // camera basis; right/up scaled by tan(half fov)
 out vec4 oColor;
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash12(i), hash12(i + vec2(1, 0)), f.x), mix(hash12(i + vec2(0, 1)), hash12(i + vec2(1, 1)), f.x), f.y);
+}
+float fbm(vec2 p) { return noise(p) * 0.5 + noise(p * 2.03 + 7.1) * 0.25 + noise(p * 4.01 + 3.3) * 0.125 + noise(p * 8.05 + 1.7) * 0.0625; }
 void main() {
     vec3 d = normalize(uFwd + uRight * vNdc.x + uUp * vNdc.y);
     const vec3 zenith = vec3(0.30, 0.52, 0.86), horizon = vec3(0.80, 0.84, 0.87), ground = vec3(0.74, 0.70, 0.62);
     vec3 c = d.z >= 0.0 ? mix(horizon, zenith, pow(clamp(d.z, 0.0, 1.0), 0.5))
                         : mix(horizon, ground, clamp(-d.z * 4.0, 0.0, 1.0));
-    float s = max(dot(d, normalize(vec3(0.55, 0.32, 0.75))), 0.0);  // the sun: where the shadows come from (kSunDir)
+    const vec3 sunDir = normalize(vec3(0.55, 0.32, 0.75));  // where the shadows come from (kSunDir)
+    float s = max(dot(d, sunDir), 0.0);
+    // Clouds: a layer of soft fair-weather puffs on a plane overhead, thinning towards the horizon; lit edges
+    // towards the sun, a greyer belly.
+    if (d.z > 0.0) {
+        vec2 uv = d.xy / (d.z + 0.08) * 1.6;
+        float n = fbm(uv + vec2(3.7, 1.3)) * 0.75 + fbm(uv * 3.1 + 11.0) * 0.25;
+        float cover = smoothstep(0.50, 0.78, n) * smoothstep(0.02, 0.22, d.z);
+        float belly = smoothstep(0.55, 0.95, n);
+        vec3 cloud = mix(vec3(0.97, 0.96, 0.94), vec3(0.78, 0.80, 0.84), belly * 0.6) + vec3(0.10, 0.08, 0.05) * pow(s, 6.0);
+        c = mix(c, cloud, cover * 0.85);
+    }
     c += vec3(1.0, 0.86, 0.62) * (pow(s, 600.0) * 1.6 + pow(s, 24.0) * 0.16);
     oColor = vec4(c, 1.0);
 }
@@ -887,9 +941,17 @@ bool Renderer::init(std::string& err) {
     uHasShadow_ = glGetUniformLocation(boxProgram_, "uHasShadow");
     uSun_ = glGetUniformLocation(boxProgram_, "uSun");
     uShadowTexel_ = glGetUniformLocation(boxProgram_, "uShadowTexel");
+    uVol_ = glGetUniformLocation(boxProgram_, "uVol");
+    uVolOn_ = glGetUniformLocation(boxProgram_, "uVolOn");
+    uVolOrigin_ = glGetUniformLocation(boxProgram_, "uVolOrigin");
+    uVolInv_ = glGetUniformLocation(boxProgram_, "uVolInv");
+    uModelAmb_ = glGetUniformLocation(boxProgram_, "uModelAmb");
     glUseProgram(boxProgram_);
     glUniform1i(uHasShadow_, 0);
     glUniform1i(uShadowTex_, 2);
+    glUniform1i(uVol_, 4);
+    glUniform1i(uVolOn_, 0);
+    glUniform1f(uModelAmb_, 1.0f);
     uScreen_ = glGetUniformLocation(hudProgram_, "uScreen");
     uFont_ = glGetUniformLocation(hudProgram_, "uFont");
 
@@ -1067,10 +1129,180 @@ void Renderer::buildShadows(const std::vector<BoxInstance>& boxes) {
 void Renderer::setSunShadows(bool on) {
     glUseProgram(boxProgram_);
     glUniform1i(uHasShadow_, on && hasShadow_ ? 1 : 0);
+    stage_ = !on;
+}
+
+// The light volume: every static box (not the shadow sheets on the floor, bullet holes or lamps) rasterised into
+// cells of how full they are, then each column's sky: light comes straight down and each cell lets through what it
+// doesn't fill. The sky is then softened sideways, only through open cells, so light spills a little way into
+// tunnels and doorways and a street beside a building isn't darkened by the building's inside.
+void Renderer::buildVolume(const std::vector<BoxInstance>& boxes) {
+    volOk_ = false;
+    glUseProgram(boxProgram_);
+    glUniform1i(uVolOn_, 0);
+    if (!volWanted_) return;
+    const uint64_t t0 = SDL_GetPerformanceCounter();
+    auto solid =[](const BoxInstance& b) {
+        const int a = b.rgba[3];
+        return !(a >= 30 && a <= 49) && a != 16 && a != 128 && std::fabs(b.mins[2]) < 1e6f && std::fabs(b.maxs[2]) < 1e6f;
+    };
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    for (const BoxInstance& b : boxes) {
+        if (!solid(b) || b.maxs[0] - b.mins[0] > 20000.0f || b.maxs[1] - b.mins[1] > 20000.0f) continue;
+        for (int a = 0; a < 3; ++a) {
+            lo[a] = std::min(lo[a], b.mins[a]);
+            hi[a] = std::max(hi[a], b.maxs[a]);
+        }
+    }
+    if (lo[0] > hi[0]) return;
+    for (int a = 0; a < 3; ++a) {
+        lo[a] -= 64.0f;
+        hi[a] += 64.0f;
+    }
+    // 16-unit cells, coarser on very big maps (the Lab): at most 384 x 384 x 64 cells.
+    const float cell = std::max({16.0f, (hi[0] - lo[0]) / 384.0f, (hi[1] - lo[1]) / 384.0f, (hi[2] - lo[2]) / 64.0f});
+    int n[3];
+    for (int a = 0; a < 3; ++a) n[a] = int(std::ceil((hi[a] - lo[a]) / cell)) + 1;
+    const size_t total = size_t(n[0]) * size_t(n[1]) * size_t(n[2]);
+    auto at = [&](int x, int y, int z) { return (size_t(z) * size_t(n[1]) + size_t(y)) * size_t(n[0]) + size_t(x); };
+    std::vector<float> occ(total, 0.0f);
+    for (const BoxInstance& b : boxes) {
+        if (!solid(b)) continue;
+        int c0[3], c1[3];
+        for (int a = 0; a < 3; ++a) {
+            c0[a] = std::max(0, int(std::floor((b.mins[a] - lo[a]) / cell)));
+            c1[a] = std::min(n[a] - 1, int(std::floor((b.maxs[a] - lo[a]) / cell)));
+        }
+        const int dir = int(b.slope[0] + 0.5f);  // a ramp: its top rises across the box
+        for (int y = c0[1]; y <= c1[1]; ++y) {
+            const float y0 = lo[1] + float(y) * cell;
+            const float fy = std::max(0.0f, std::min(b.maxs[1], y0 + cell) - std::max(b.mins[1], y0)) / cell;
+            if (fy <= 0.0f) continue;
+            for (int x = c0[0]; x <= c1[0]; ++x) {
+                const float x0 = lo[0] + float(x) * cell;
+                const float fx = std::max(0.0f, std::min(b.maxs[0], x0 + cell) - std::max(b.mins[0], x0)) / cell;
+                if (fx <= 0.0f) continue;
+                float top = b.maxs[2];
+                if (dir >= 1 && dir <= 4) {
+                    const float cx = std::clamp(x0 + cell * 0.5f, b.mins[0], b.maxs[0]), cy = std::clamp(y0 + cell * 0.5f, b.mins[1], b.maxs[1]);
+                    const float t = dir == 1 ? (cx - b.mins[0]) / std::max(1.0f, b.maxs[0] - b.mins[0])
+                                  : dir == 2 ? (b.maxs[0] - cx) / std::max(1.0f, b.maxs[0] - b.mins[0])
+                                  : dir == 3 ? (cy - b.mins[1]) / std::max(1.0f, b.maxs[1] - b.mins[1])
+                                             : (b.maxs[1] - cy) / std::max(1.0f, b.maxs[1] - b.mins[1]);
+                    top = b.slope[1] + (b.maxs[2] - b.slope[1]) * t;
+                }
+                for (int z = c0[2]; z <= c1[2]; ++z) {
+                    const float z0 = lo[2] + float(z) * cell;
+                    const float fz = std::max(0.0f, std::min(top, z0 + cell) - std::max(b.mins[2], z0)) / cell;
+                    if (fz > 0.0f) occ[at(x, y, z)] += fx * fy * fz;
+                }
+            }
+        }
+    }
+    for (float& o : occ) o = std::min(o, 1.0f);
+    std::vector<float> sky(total, 1.0f), tmp(total);
+    for (int y = 0; y < n[1]; ++y)
+        for (int x = 0; x < n[0]; ++x) {
+            float t = 1.0f;
+            for (int z = n[2] - 1; z >= 0; --z) {
+                const float o = occ[at(x, y, z)];
+                sky[at(x, y, z)] = t * (1.0f - o * 0.5f);
+                t *= 1.0f - o;
+            }
+        }
+    // Soften sideways: two passes of a 5-cell box blur along x then y, weighted by how open each cell is.
+    for (int pass = 0; pass < 2; ++pass)
+        for (int axis = 0; axis < 2; ++axis) {
+            for (int z = 0; z < n[2]; ++z)
+                for (int y = 0; y < n[1]; ++y)
+                    for (int x = 0; x < n[0]; ++x) {
+                        float sum = 0.0f, w = 0.0f;
+                        for (int k = -2; k <= 2; ++k) {
+                            const int xx = axis == 0 ? x + k : x, yy = axis == 1 ? y + k : y;
+                            if (xx < 0 || yy < 0 || xx >= n[0] || yy >= n[1]) {  // outside the map: open sky
+                                sum += 1.0f;
+                                w += 1.0f;
+                                continue;
+                            }
+                            const float open = 1.0f - occ[at(xx, yy, z)];
+                            sum += sky[at(xx, yy, z)] * open;
+                            w += open;
+                        }
+                        const size_t i = at(x, y, z);
+                        tmp[i] = w > 1e-3f ? sum / w : sky[i];
+                    }
+            sky.swap(tmp);
+        }
+    vol_.resize(total * 2);
+    for (size_t i = 0; i < total; ++i) {
+        vol_[i * 2] = uint8_t(std::lround(std::clamp(occ[i], 0.0f, 1.0f) * 255.0f));
+        vol_[i * 2 + 1] = uint8_t(std::lround(std::clamp(sky[i], 0.0f, 1.0f) * 255.0f));
+    }
+    for (int a = 0; a < 3; ++a) {
+        volDim_[a] = n[a];
+        volOrigin_[a] = lo[a];
+    }
+    volCell_ = cell;
+    if (!volTex_) glGenTextures(1, &volTex_);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_3D, volTex_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RG8, n[0], n[1], n[2], 0, GL_RG, GL_UNSIGNED_BYTE, vol_.data());
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    const GLfloat border[4] = {0.0f, 1.0f, 0.0f, 0.0f};  // outside the volume: empty, open sky
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, border);
+    glActiveTexture(GL_TEXTURE0);
+    glUseProgram(boxProgram_);
+    glUniform3f(uVolOrigin_, lo[0], lo[1], lo[2]);
+    glUniform3f(uVolInv_, 1.0f / (float(n[0]) * cell), 1.0f / (float(n[1]) * cell), 1.0f / (float(n[2]) * cell));
+    volOk_ = true;
+    SDL_Log("light volume: %d x %d x %d cells of %.0f units, %.0f ms", n[0], n[1], n[2], double(cell),
+            double(SDL_GetPerformanceCounter() - t0) * 1000.0 / double(SDL_GetPerformanceFrequency()));
+}
+
+void Renderer::setAmbientOcclusion(bool on) {
+    if (on == volWanted_) return;
+    volWanted_ = on;
+    if (!on) {
+        volOk_ = false;
+        vol_.clear();
+    } else if (!staticCpu_.empty()) {
+        buildVolume(staticCpu_);
+    }
+}
+
+float Renderer::skyAt(const Vec3& p) const {
+    if (!volOk_ || vol_.empty()) return 1.0f;
+    // Trilinear, like the texture (cell centres at half a cell).
+    const float q[3] = {(p.x - volOrigin_[0]) / volCell_ - 0.5f, (p.y - volOrigin_[1]) / volCell_ - 0.5f,
+                        (p.z - volOrigin_[2]) / volCell_ - 0.5f};
+    int i0[3];
+    float f[3];
+    for (int a = 0; a < 3; ++a) {
+        const float fl = std::floor(q[a]);
+        i0[a] = int(fl);
+        f[a] = q[a] - fl;
+    }
+    float sum = 0.0f;
+    for (int k = 0; k < 8; ++k) {
+        const int c[3] = {i0[0] + (k & 1), i0[1] + ((k >> 1) & 1), i0[2] + ((k >> 2) & 1)};
+        float w = 1.0f;
+        for (int a = 0; a < 3; ++a) w *= (k >> a) & 1 ? f[a] : 1.0f - f[a];
+        float v = 1.0f;  // outside: open sky
+        if (c[0] >= 0 && c[1] >= 0 && c[2] >= 0 && c[0] < volDim_[0] && c[1] < volDim_[1] && c[2] < volDim_[2])
+            v = float(vol_[((size_t(c[2]) * size_t(volDim_[1]) + size_t(c[1])) * size_t(volDim_[0]) + size_t(c[0])) * 2 + 1]) / 255.0f;
+        sum += v * w;
+    }
+    return sum;
 }
 
 void Renderer::setStaticBoxes(const std::vector<BoxInstance>& boxes) {
     buildShadows(boxes);
+    buildVolume(boxes);
     staticCpu_ = boxes;
     visible_.reserve(boxes.size());
     order_.reserve(boxes.size());
@@ -1184,6 +1416,7 @@ void Renderer::beginFrame(int width, int height) {
     }
     glUseProgram(boxProgram_);
     glUniform1i(uNoEdge_, postOn_ && postOk_ ? 0 : 2);
+    firstPerson_ = false;
     glViewport(0, 0, width, height);
     glClearColor(0.80f, 0.84f, 0.87f, 1.0f);
     glDepthMask(GL_TRUE);
@@ -1225,6 +1458,8 @@ void Renderer::drawBoxes(const Mat4& viewProj, const Vec3& eye, const std::vecto
     glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
     glUniform3f(uEye_, eye.x, eye.y, eye.z);
     glUniform1f(uTime_, time_);
+    glUniform1i(uVolOn_, volOk_ && !stage_ ? 1 : 0);
+    eyeSky_ = skyAt(eye);
     setPaint(nullptr);
     drawAll();
     glDepthMask(GL_TRUE);
@@ -1319,6 +1554,10 @@ void Renderer::drawModel(const Mat4& viewProj, const Mat4& model, const std::vec
     glUseProgram(boxProgram_);
     glUniformMatrix4fv(uViewProj_, 1, GL_FALSE, viewProj.m);
     glUniformMatrix4fv(uModel_, 1, GL_FALSE, model.m);
+    // The light volume: models see the sky where they are (no occlusion: their own boxes aren't in it); the
+    // first-person gun the sky where you stand.
+    glUniform1i(uVolOn_, !volOk_ || stage_ ? 0 : firstPerson_ ? 3 : 2);
+    if (firstPerson_) glUniform1f(uModelAmb_, eyeSky_);
     setPaint(paint);
 
     uploadDynamic(boxes, n);
@@ -1334,6 +1573,7 @@ void Renderer::setFlash(const Vec3& pos, float strength) {
 void Renderer::clearDepth() {
     glUseProgram(boxProgram_);
     glUniform1i(uNoEdge_, postOn_ && postOk_ ? 1 : 2);  // what's drawn from here on (the first-person gun): no outline
+    firstPerson_ = true;
     glDepthMask(GL_TRUE);
     glClear(GL_DEPTH_BUFFER_BIT);
 }

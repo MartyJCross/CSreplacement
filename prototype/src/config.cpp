@@ -79,6 +79,8 @@ art_style 1
 graphics_preset 2
 // Sun shadows: 0 off, 1 on, 2 sharp (a bigger shadow map).
 shadows 2
+// Ambient occlusion: soft shade in corners and at the foot of walls, darker tunnels and rooms (1 = on).
+ambient_occlusion 1
 // The map's ambience: wind and distant birds on Dust, waves and gulls on Harbor (0 = off .. 1).
 ambience_volume 0.3
 // Post-processing: each map's colour grade and a soft vignette; with msaa 0 it smooths edges with FXAA instead
@@ -135,7 +137,7 @@ std::string configText(const Config& c) {
         << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\ncase_kills " << c.case_kills << "\nall_skins " << c.all_skins << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
-        << "\nmap " << c.map  << "\nmsaa " << c.msaa << "\nshow_fps " << c.show_fps << "\nart_style " << c.art_style << "\ngraphics_preset " << c.graphics_preset << "\nshadows " << c.shadows << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\ndepth_prepass " << c.depth_prepass << "\nmode " << c.mode
+        << "\nmap " << c.map  << "\nmsaa " << c.msaa << "\nshow_fps " << c.show_fps << "\nart_style " << c.art_style << "\ngraphics_preset " << c.graphics_preset << "\nshadows " << c.shadows << "\nambient_occlusion " << c.ambient_occlusion << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\ndepth_prepass " << c.depth_prepass << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nfreeze_time " << c.freeze_time
@@ -219,6 +221,7 @@ bool setConfigValue(Config& c, const std::string& key, const std::string& value)
     else if (key == "ambience_volume") c.ambience_volume = v;
     else if (key == "post_fx") i(c.post_fx);
     else if (key == "depth_prepass") i(c.depth_prepass);
+    else if (key == "ambient_occlusion") i(c.ambient_occlusion);
     else if (key == "mode") i(c.mode);
     else if (key == "dm_bots") i(c.dm_bots);
     else if (key == "dm_minutes") i(c.dm_minutes);
@@ -272,6 +275,7 @@ Config loadConfig(const std::string& path) {
         return c;
     }
     std::string line;
+    bool hasAo = false;
     while (std::getline(in, line)) {
         size_t cut = line.find("//");
         if (cut != std::string::npos) line.resize(cut);
@@ -283,6 +287,8 @@ Config loadConfig(const std::string& path) {
         std::string value;
         std::getline(ss >> std::ws, value);
         setConfigValue(c, key, value);
+        hasAo = hasAo || key == "ambient_occlusion";
     }
+    if (!hasAo) c.ambient_occlusion = c.graphics_preset == 0 ? 0 : 1;  // (a config from before v0.40: as its preset)
     return c;
 }

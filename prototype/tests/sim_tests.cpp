@@ -2147,6 +2147,17 @@ void testConsole() {
         setConfigValue(back, k, v);
     }
     bad += configText(back) != configText(c);
+    // v0.40: a config from before ambient_occlusion follows its graphics preset (LOW: off, others on).
+    {
+        const std::string path = "sim_tests_old.cfg";
+        for (int preset = 0; preset < 3; ++preset) {
+            { std::ofstream f(path); f << "graphics_preset " << preset << "\nshadows 0\n"; }
+            bad += loadConfig(path).ambient_occlusion != (preset == 0 ? 0 : 1);
+        }
+        { std::ofstream f(path); f << "graphics_preset 0\nambient_occlusion 1\n"; }
+        bad += loadConfig(path).ambient_occlusion != 1;  // (set by hand: kept)
+        std::remove(path.c_str());
+    }
     std::printf("  %zu settings by name (%d unreadable), commands, completion, history: %d wrong\n", keys.size(), unreadable, bad);
     CHECK(bad == 0 && unreadable == 0 && keys.size() > 60, "%d wrong, %d unreadable, %zu keys", bad, unreadable, keys.size());
 }

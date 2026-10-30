@@ -81,8 +81,14 @@ public:
         shadowSize_ = size;
         if (!staticCpu_.empty()) buildShadows(staticCpu_);
     }
-    // Shadows on the next draws (off for the inventory stage, which floats wherever the camera is).
+    // Shadows on the next draws (off for the inventory stage, which floats wherever the camera is; the light volume
+    // too).
     void setSunShadows(bool on);
+    // Ambient occlusion and darker interiors from the light volume (buildVolume): built for the current map when
+    // turned on.
+    void setAmbientOcclusion(bool on);
+    // How much open sky the light volume sees at `p` (1 outdoors .. 0 deep inside; 1 without a volume).
+    float skyAt(const Vec3& p) const;
     // Surface textures (assets/textures/*.jpg, 512 px detail maps) for the stone, wood and metal surfaces.
     // Returns how many loaded; 0 = none (missing files): the shader falls back to its procedural patterns.
     int loadTextures(const std::string& dir);
@@ -154,6 +160,15 @@ private:
     unsigned shadowTex_ = 0, shadowFbo_ = 0;
     int uShadowTex_ = -1, uShadowVP_ = -1, uHasShadow_ = -1, uSun_ = -1, uShadowTexel_ = -1;
     void buildShadows(const std::vector<BoxInstance>& boxes);
+    // The light volume: the static world in cells (r how full, g how much sky), on texture unit 4. vol_ keeps the
+    // CPU copy (RG pairs) for skyAt.
+    bool volWanted_ = true, volOk_ = false, stage_ = false, firstPerson_ = false;
+    unsigned volTex_ = 0;
+    int volDim_[3] = {0, 0, 0};
+    float volOrigin_[3] = {0, 0, 0}, volCell_ = 16, eyeSky_ = 1;
+    std::vector<uint8_t> vol_;
+    int uVol_ = -1, uVolOn_ = -1, uVolOrigin_ = -1, uVolInv_ = -1, uModelAmb_ = -1;
+    void buildVolume(const std::vector<BoxInstance>& boxes);
     int uPaint_ = -1, uPaintMisc_ = -1, uPaintZ_ = -1;
     int uLayerPat_ = -1, uLayerA_ = -1, uLayerB_ = -1, uLayerC_ = -1, uLayerMisc_ = -1, uRegionLayer_ = -1;
     void setPaint(const PaintParams* p);
