@@ -29,8 +29,12 @@ There are two parts:
   that folder's `config.cfg` is theirs).
 - **After every change you push, give them the run's link** (`https://github.com/MartyJCross/CSreplacement/actions/runs/<id>`; the artifact is at the bottom), and say clearly what changed and what they should test.
 - **Versions:** `project(Crisp VERSION x.y.z)` in `prototype/CMakeLists.txt` is shown on the main menu and in the
-  window title. Bump it for every build you hand over (patch for fixes, minor for features). For a local zip, build
-  Release, then `powershell -ExecutionPolicy Bypass -File prototype/tools/make_zip.ps1` (writes `Desktop\Crisp-v<version>.zip`).
+  window title. Bump it for every build you hand over (patch for fixes, minor for features). Then build Release and
+  run `powershell -ExecutionPolicy Bypass -File prototype/tools/make_zip.ps1`: it calls
+  `Desktop\Game Builds\publish-crisp.ps1` (owner 2026-10-31: one folder for all their games), which writes
+  `Desktop\Game Builds\Crisp\Versions\Crisp-v<version>\` (unzipped), `...\Zips\Crisp-v<version>.zip` and updates
+  **`...\Crisp\Latest\crisp.exe`, the exe the owner pins** (in place: their config, stats, inventory and replays
+  there stay; skipped with a warning while the game runs from there). Give that path in the report.
 - Be honest about what you verified (tests, screenshots, measurements) versus what only they can judge: feel, sound, FPS on their hardware.
 - More about them, their preferences and their history in §9.
 
@@ -172,7 +176,7 @@ plays, group go times, retakes, throws, and three must-stay-0 counts: STUCK (a b
    with curl until the head commit's run is `completed` (a background `until` loop).
 6. **If CI fails, fix it and push again.** Never hand over a red build.
 7. **Report to the owner:** the run link, what changed (in their terms), what you verified, what they should try.
-   Then make the zip (§2).
+   Then publish the build (§2: make_zip.ps1 -> DesktopGame BuildsCrisp).
 
 ## 7. Current feature set
 

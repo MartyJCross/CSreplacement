@@ -1,13 +1,8 @@
-# Packages build\Release\crisp.exe + README.md + assets\ as Crisp-v<version>.zip on the Desktop, taking the
-# version from project(... VERSION x.y.z) in prototype/CMakeLists.txt. Build Release first.
-# Usage (from the repo root): powershell -File prototype\tools\make_zip.ps1
+# Publishes the Release build to Desktop\Game Builds\Crisp (owner, 2026-10-31): Versions\Crisp-v<version>\
+# (unzipped), Zips\Crisp-v<version>.zip, and Latest\crisp.exe (the one to pin: updated in place, your config, stats,
+# inventory and replays there stay). The work is done by Desktop\Game Builds\publish-crisp.ps1. Build Release first.
+# Usage (from the repo root): powershell -ExecutionPolicy Bypass -File prototype\tools\make_zip.ps1
 $ErrorActionPreference = "Stop"
-$repo = Resolve-Path "$PSScriptRoot\..\.."
-$cmake = Get-Content "$repo\prototype\CMakeLists.txt" -Raw
-if ($cmake -notmatch 'project\(Crisp VERSION ([0-9.]+)') { throw "no VERSION in prototype/CMakeLists.txt" }
-$version = $Matches[1]
-$exe = "$repo\build\Release\crisp.exe"
-if (-not (Test-Path $exe)) { throw "build Release first: $exe is missing" }
-$zip = Join-Path ([Environment]::GetFolderPath("Desktop")) "Crisp-v$version.zip"
-Compress-Archive -Path $exe, "$repo\prototype\README.md", "$repo\prototype\assets" -DestinationPath $zip -Force
-Write-Output $zip
+$publish = Join-Path ([Environment]::GetFolderPath("Desktop")) "Game Builds\publish-crisp.ps1"
+if (-not (Test-Path $publish)) { throw "missing $publish (the Game Builds folder on the Desktop)" }
+& $publish
