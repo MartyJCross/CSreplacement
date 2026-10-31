@@ -176,7 +176,7 @@ plays, group go times, retakes, throws, and three must-stay-0 counts: STUCK (a b
    with curl until the head commit's run is `completed` (a background `until` loop).
 6. **If CI fails, fix it and push again.** Never hand over a red build.
 7. **Report to the owner:** the run link, what changed (in their terms), what you verified, what they should try.
-   Then publish the build (§2: make_zip.ps1 -> DesktopGame BuildsCrisp).
+   Then publish the build (§2: make_zip.ps1 -> Desktop\Game Builds\Crisp).
 
 ## 7. Current feature set
 
