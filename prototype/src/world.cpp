@@ -392,6 +392,57 @@ const DustArea kHarborAreas[] = {
     {"B CT PATH", -650, 1300, -450, 1500, 0, 0, 0, kHSand, 0},
 };
 
+// Summit: Crisp's second own map (v0.42). A mountain village in the snow: T spawn at the foot (south), the village
+// climbing to CT spawn at the top (north). A up the rail yard and the ramp east (the heights over the site), or from
+// mid through the station and up short; B through the chapel lane and the bending tunnel west, or from mid down the
+// cellar and up onto the balcony over the site. Real size (it doesn't scale). +y = north.
+constexpr uint32_t kSSnow = 0xe0e5ea, kSSnowLight = 0xe9edf1, kSTrodden = 0xccd1d6, kSGravel = 0x98938b,
+                   kSTunnel = 0x7c7770, kSSite = 0xa2a5a9, kSTimber = 0x8a6a4c, kSFreight = 0x6e3b30, kSLog = 0x6b4a32,
+                   kSPine = 0x2f5a3c, kSSnowCap = 0xf1f4f7, kSGranite = 0x9a9ea4, kSIce = 0xc6dbe6;
+const DustArea kSummitAreas[] = {
+    // T side: the foot of the village. Mid is a dog-leg off the spawn's north-west corner.
+    {"T SPAWN", -600, -1700, 600, -1340, 0, 0, 0, kSTrodden, 0},
+    {"T EAST", 600, -1640, 800, -1400, 0, 0, 0, kSTrodden, 0},
+    {"T WEST", -800, -1640, -600, -1400, 0, 0, 0, kSTrodden, 0},
+    {"MID PATH", -560, -1340, -420, -1210, 0, 0, 0, kSTrodden, 0},
+    {"MID PATH", -560, -1210, -400, -900, 0, 0, 0, kSTrodden, 0},
+    // A: the rail yard (long, a slow climb), the ramp up to the site, the heights in its corner, down to CT.
+    {"RAIL YARD", 800, -1640, 1150, -300, 0, 0, 0, kSGravel, 0},
+    {"RAIL YARD", 800, -300, 1150, 300, 0, 64, 'y', kSGravel, 0},
+    {"A RAMP", 850, 300, 1150, 680, 64, 128, 'y', kSSnowLight, 0},
+    {"A SITE", 450, 680, 1350, 1250, 128, 128, 0, kSSite, 0},
+    {"A HEIGHTS", 1150, 1050, 1350, 1250, 176, 176, 0, kSSnowLight, 0},
+    {"A HEIGHTS", 1250, 960, 1350, 1050, 128, 176, 'y', kSSnowLight, 0},  // (the steps up, along the east wall)
+    {"A CT RAMP", 450, 1250, 650, 1500, 128, 96, 'y', kSSnowLight, 0},
+    // Mid: the plaza, mid (up a step), the roofed station to A short, the gate to CT mid, the cellar to B.
+    {"PLAZA", -400, -990, 400, -500, 0, 0, 0, kSSnow, 0},
+    {"MID", -300, -500, 300, -100, 0, 0, 0, kSTrodden, 0},
+    {"MID", -300, -100, 300, 100, 0, 32, 'y', kSTrodden, 0},
+    {"MID", -300, 100, 300, 400, 32, 32, 0, kSTrodden, 0},
+    {"STATION", 300, 120, 620, 380, 32, 32, 0, kSTunnel, 150},
+    {"A SHORT", 460, 380, 620, 680, 32, 128, 'y', kSSnowLight, 0},
+    {"MID GATE", -64, 400, 96, 464, 32, 32, 0, kSTimber, 128},
+    {"CT MID", -350, 464, 400, 900, 32, 32, 0, kSSnow, 0},
+    {"CT STREET", -420, 900, -200, 1450, 32, 96, 'y', kSTrodden, 0},
+    {"CELLAR", -640, -400, -460, 300, -48, -48, 0, kSTunnel, 128},
+    {"CELLAR", -460, -400, -300, -200, -48, 0, 'x', kSTunnel, 128},
+    {"B STAIRS", -640, 300, -460, 600, -48, 64, 'y', kSSnowLight, 0},
+    {"B BALCONY", -640, 600, -460, 800, 64, 64, 0, kSTimber, 0},
+    // CT: the top of the village.
+    {"CT SPAWN", -450, 1450, 450, 1850, 96, 96, 0, kSTrodden, 0},
+    {"CT EAST", 450, 1500, 700, 1850, 96, 96, 0, kSTrodden, 0},
+    // B: the chapel lane, the tunnel (down, west, then east and north again), up into the site; the way to CT.
+    {"CHAPEL LANE", -1150, -1640, -800, -700, 0, 0, 0, kSSnow, 0},
+    {"B TUNNEL", -1150, -700, -900, -400, 0, -32, 'y', kSTunnel, 140},
+    {"B TUNNEL", -1150, -400, -900, 250, -32, -32, 0, kSTunnel, 140},
+    {"B TUNNEL", -900, 0, -730, 250, -32, -32, 0, kSTunnel, 140},
+    {"B TUNNEL", -950, 250, -730, 550, -32, -32, 0, kSTunnel, 140},
+    {"B ENTRANCE", -1030, 550, -730, 800, -32, 32, 'y', kSSnowLight, 0},
+    {"B SITE", -1500, 800, -500, 1400, 32, 32, 0, kSSite, 0},
+    {"B CT PATH", -850, 1400, -650, 1650, 32, 32, 0, kSTrodden, 0},
+    {"CT WEST", -650, 1480, -450, 1650, 32, 96, 'x', kSTrodden, 0},
+};
+
 
 // Walls that must hold at every map size: areas whose gap is thinner than a grid cell at some sizes would touch
 // there (and you'd see through). The first area of each pair gives up its edge cells to a wall.
@@ -422,6 +473,8 @@ const TownDef kTowns[kTownMaps] = {
      int(sizeof(kDustSeparate) / sizeof(kDustSeparate[0])), 0, 32, nullptr, 0},
     {"HARBOR", kHarborAreas, int(sizeof(kHarborAreas) / sizeof(kHarborAreas[0])), -1650, -1650, 1500, 1950, false,
      {0xdcd6c8, 0xcfc8b6, 0xc2bba8}, nullptr, 0, 0, 32, nullptr, 0},
+    {"SUMMIT", kSummitAreas, int(sizeof(kSummitAreas) / sizeof(kSummitAreas[0])), -1650, -1750, 1500, 1950, false,
+     {0xdcd6cc, 0xbab3a8, 0xa3845f}, nullptr, 0, 0, 32, nullptr, 0},  // (plaster, stone, timber)
 };
 constexpr float kDustBottom = -320.0f;  // underside of every floor and wall column
 
@@ -471,11 +524,13 @@ float MapGrid::floorAt(float x, float y) const {
 namespace {
 
 float g_dustScale = 0.6f;   // setDustScale (Dust2 only: Harbor is built at its own size; the game sets 0.9)
-int g_town = 0;             // the active town map: 0 Dust2, 1 Harbor
+int g_town = 0;             // the active town map: 0 Dust2, 1 Harbor, 2 Summit
 bool g_dustBuilt = false;
 MapGrid g_dustGrid;
 const TownDef& town() { return kTowns[g_town]; }
 float scaleNow() { return town().scalable ? g_dustScale : 1.0f; }
+// The sites' paving (stone footsteps, the paved floor surface).
+bool pavedColor(uint32_t c) { return c == kDSite || c == kHSite || c == kSSite; }
 
 // An area's extent along one axis at the current scale. It never shrinks below min(original, 96)
 // units, so doorways stay a doorway (and thin areas don't fall between grid cells).
@@ -618,7 +673,7 @@ void layOnRamp(Box& b, const Box& ramp, float lift) {
 }
 
 bool townMidArea(const Vec3& p) {
-    static const char* const kMid[] = {"MID", "TOP MID", "MID DOORS", "CATWALK", "MARKET", "BOTTOM MID"};
+    static const char* const kMid[] = {"MID", "TOP MID", "MID DOORS", "CATWALK", "MARKET", "BOTTOM MID", "PLAZA", "MID GATE"};
     const char* name = townCallout(p);
     for (const char* m : kMid)
         if (std::strcmp(name, m) == 0) return true;
@@ -632,7 +687,7 @@ bool townFloorAt(const Vec3& p, uint32_t& color, bool& paved, bool& flat) {
     const int a = m.area[size_t(m.index(i, j))];
     if (a < 0) return false;
     color = town().areas[a].color;
-    paved = color == kDSite || color == kHSite;
+    paved = pavedColor(color);
     flat = town().areas[a].axis == 0;
     return true;
 }
@@ -656,6 +711,8 @@ std::vector<Vec3> townTeamSpawns(int side) {
          {{-260, 2620}, {-100, 2650}, {-180, 2820}, {-320, 2960}, {-60, 2980}}},  // CT spawn (out of the doors' line)
         {{{-420, -1330}, {-250, -1500}, {-40, -1360}, {100, -1520}, {-320, -1400}},  // Harbor: T spawn
          {{-120, 1450}, {120, 1450}, {0, 1620}, {-200, 1680}, {200, 1680}}},       // CT spawn
+        {{{150, -1450}, {350, -1560}, {-50, -1600}, {480, -1440}, {200, -1650}},    // Summit: T spawn (east of the mid path)
+         {{0, 1600}, {-200, 1660}, {200, 1660}, {-80, 1780}, {160, 1780}}},        // CT spawn
     };
     std::vector<Vec3> out;
     for (const auto& p : xy[g_town][side == 0 ? 0 : 1]) out.push_back(townPoint(p[0], p[1]));
@@ -693,6 +750,37 @@ const std::vector<RetakeSite>& townRetakeSites() {
              {-300, 1400, -1000, 1100},  // CT spawn, through the CT path
          }},
     };
+    static const std::vector<RetakeSite> summit = {
+        {"A", 880, 960,  // bomb: beside the default box
+         {
+             {805, 1135, 1000, 500},    // behind the default box, on the ramp
+             {1250, 1130, 1000, 500},   // the heights, over the ramp
+             {520, 1200, 540, 500},     // CT side, down short
+             {1300, 730, 1000, 400},    // the corner past the ramp
+             {720, 850, 540, 450},      // by the short crate
+             {1000, 1110, 900, 680},    // in front of the container
+         },
+         {
+             {0, 1650, 550, 1650},      // CT spawn, round to the CT ramp
+             {1000, -200, 1000, 700},   // the rail yard
+             {450, 250, 540, 700},      // the station, up short
+         }},
+        {"B", -1000, 1060,  // bomb: in front of the default box
+         {
+             {-1105, 1290, -880, 650},   // behind the default box, on the entrance
+             {-640, 1000, -550, 700},    // under the balcony
+             {-1400, 1110, -880, 650},   // by the car
+             {-760, 1340, -880, 650},    // by the CT path
+             {-1460, 1260, -880, 700},   // the back corner
+             {-1280, 840, -880, 650},    // tucked in by the entrance
+         },
+         {
+             {-840, 300, -880, 900},     // the tunnel
+             {-550, 400, -550, 900},     // the cellar, up the stairs
+             {-200, 1650, -750, 1500},   // CT spawn, through the CT path
+         }},
+    };
+    if (g_town == 2) return summit;
     if (g_town == 1) return harbor;
     static const std::vector<RetakeSite> sites = {
         {"A", 1380, 2560,  // bomb: beside the default box
@@ -736,6 +824,15 @@ const std::vector<RetakeSpot>& townCtSpots(int role) {
         {{-1500, 1550, -1050, 600}, {-1155, 1130, -1050, 500}, {-850, 1350, -700, 500},  // B site
          {-1420, 900, -1050, 500}, {-760, 850, -700, 300}, {-1550, 1200, -1050, 500}},
     };
+    static const std::vector<RetakeSpot> summit[kCtRoles] = {
+        {{-250, 600, 16, 430}, {300, 620, 16, 430}, {-150, 800, 16, 430}, {16, 520, 0, -300}},  // mid: CT mid, or the gate
+        {{650, 950, 540, 450}, {520, 1100, 540, 450}, {720, 850, 540, 450}},       // short: down A short
+        {{1000, 1000, 1000, 400}, {1300, 730, 1000, 400}, {1250, 1130, 1000, 400}},  // long: down the ramp
+        {{805, 1135, 1000, 500}, {1000, 1110, 900, 680}, {600, 1200, 540, 600}},   // an extra on A
+        {{-1105, 1290, -880, 650}, {-640, 1000, -550, 700}, {-1400, 1110, -880, 650},  // B site
+         {-760, 1340, -880, 650}, {-1460, 1260, -880, 700}, {-1280, 840, -880, 650}},
+    };
+    if (g_town == 2) return summit[std::clamp(role, 0, kCtRoles - 1)];
     if (g_town == 1) return harbor[std::clamp(role, 0, kCtRoles - 1)];
     static const std::vector<RetakeSpot> spots[kCtRoles] = {
         {   // mid: beside mid doors on the CT side, or back towards B, watching the way out of the doors; or in the
@@ -814,6 +911,49 @@ const std::vector<PrefireRoute>& townPrefireRoutes() {
              {720, 1350, 650, 1000},   // CT side
          }},
     };
+    static const std::vector<PrefireRoute> summit = {
+        {"RAIL YARD", {700, -1520, 1000, -1520},
+         {
+             {1090, -1000, 1000, -1500},  // past the first freight car
+             {860, -450, 1000, -1200},    // past the second
+             {1110, -350, 1000, -1000},   // behind the crate
+             {1300, 730, 1000, 400},      // the corner past the ramp
+             {805, 1135, 1000, 500},      // behind the default box
+             {1250, 1130, 1000, 500},     // the heights
+             {1000, 1110, 1000, 600},     // in front of the container
+             {520, 1200, 1000, 800},      // the CT side
+         }},
+        {"B TUNNEL", {-700, -1520, -1000, -1520},
+         {
+             {-1110, -980, -1000, -1500},  // the chapel lane, past the crate
+             {-1000, 100, -1025, -600},    // the tunnel's turn
+             {-800, 450, -1000, 150},      // round the turn
+             {-1280, 840, -880, 650},      // tucked in by the entrance
+             {-1105, 1290, -880, 650},     // behind the default box
+             {-1400, 1110, -880, 650},     // by the car
+             {-760, 1340, -880, 650},      // by the CT path
+             {-1460, 1260, -880, 700},     // the back corner
+         }},
+        {"MID", {-490, -1250, -490, -1050},
+         {
+             {300, -700, -300, -950},   // the plaza, behind the crate
+             {250, -350, 0, -800},      // mid, the crate
+             {-400, -300, 0, -300},     // the cellar's mouth
+             {450, 250, 0, 250},        // the station
+             {16, 560, 16, 0},          // the gate
+             {300, 700, 16, 430},       // CT mid
+         }},
+        {"A SHORT", {0, 100, 400, 250},
+         {
+             {550, 330, 300, 250},     // the station
+             {540, 620, 540, 300},     // up short
+             {720, 850, 540, 450},     // by the short crate
+             {805, 1135, 540, 700},    // behind the default box
+             {520, 1200, 540, 700},    // CT side
+             {1250, 1130, 540, 700},   // the heights
+         }},
+    };
+    if (g_town == 2) return summit;
     if (g_town == 1) return harbor;
     static const std::vector<PrefireRoute> routes = {
         {"A LONG", {540, -400, 540, 300},
@@ -864,7 +1004,8 @@ const std::vector<PrefireRoute>& townPrefireRoutes() {
 }
 
 MapSpawn townSpawn() {
-    const float sc = scaleNow(), x = (g_town == 1 ? 0.0f : -350.0f) * sc, y = (g_town == 1 ? -1350.0f : -800.0f) * sc;
+    static const float kXY[kTownMaps][2] = {{-350, -800}, {0, -1350}, {100, -1500}};
+    const float sc = scaleNow(), x = kXY[g_town][0] * sc, y = kXY[g_town][1] * sc;
     return {{x, y, townGrid().floorAt(x, y)}, 90.0f};
 }
 
@@ -893,6 +1034,17 @@ const TownTactics& townTactics() {
             {{0, 0}, {150, -250}},  // mid, the market's end
             {{1050, 500, 1050, -600}, {0, 300, 0, -600}, {-1050, 300, -1050, -600}},
             {"PUSHING DOCKS", "PUSHING MID", "PUSHING UNDERPASS"},
+        },
+        {   // Summit
+            {
+                {"YARD", 0, false, {1000, -150}, {850, 1050, 0}, {950, 900, 140}, "A RAMP"},          // smoke the default box
+                {"SHORT", 0, true, {450, 250}, {550, 1300, 0}, {640, 900, 140}, "A SHORT"},          // smoke the CT ramp
+                {"TUNNEL", 1, false, {-1025, 100}, {-750, 1480, 0}, {-950, 1000, 140}, "B ENTRANCE"},  // smoke the CT path
+                {"CELLAR", 1, true, {-550, 0}, {-750, 1480, 0}, {-650, 950, 140}, "B BALCONY"},
+            },
+            {{0, -150}, {250, -700}},  // mid, the plaza
+            {{1000, -100, 1000, -900}, {16, 250, 0, -600}, {-1025, 200, -1025, -600}},
+            {"PUSHING YARD", "PUSHING MID", "PUSHING TUNNEL"},
         },
     };
     return kTactics[g_town];
@@ -984,7 +1136,7 @@ World buildTown() {
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float((k >> 24) - 65536), uint32_t(k & 0xFFFFFF));
         const uint32_t fc = uint32_t(k & 0xFFFFFF);
-        if (fc == kDSite || fc == kHSite) w.solids.back().material = kMatPaving;
+        if (pavedColor(fc)) w.solids.back().material = kMatPaving;
     });
 
     // Walls: each 5x5-cell block is its own building with its own height (so the skyline isn't one flat
@@ -1004,8 +1156,15 @@ World buildTown() {
         }
     const uint32_t* shades = td.shades;
     for (size_t c = 0; c < n; ++c) key[c] = m.area[c] < 0 ? zKey(top[c]) : -1;
+    const bool snow = g_town == 2;  // Summit: snow lying on every roof
+    auto snowCap = [&](const Box& b) {
+        // (a lip over the edge; neighbouring caps at one height differ by a hair, so their tops don't flicker)
+        const float top = b.maxs.z + 9.0f + 0.3f * float(w.decor.size() % 4);
+        if (snow) w.decor.push_back({{b.mins.x - 5, b.mins.y - 5, b.maxs.z}, {b.maxs.x + 5, b.maxs.y + 5, top}, kSSnowCap, kMatPlain});
+    };
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, kDustBottom, float(k - 65536), shades[uint32_t(i0 * 7 + j0 * 13) % 3]);
+        snowCap(w.solids.back());
     });
 
     // Roofs over tunnels and doorways: from the ceiling up to the surrounding wall height.
@@ -1015,6 +1174,7 @@ World buildTown() {
                      : -1;
     mergeRects(m.w, m.h, key, [&](int i0, int j0, int i1, int j1, int64_t k) {
         rect(i0, j0, i1, j1, float((k >> 24) - 65536), float((k & 0xFFFFFF) - 65536), kDRoof);
+        snowCap(w.solids.back());
     });
 
     // Facades (decor only, nothing here collides): trim along the foot and the top of every wall that
@@ -1037,6 +1197,8 @@ World buildTown() {
         return h ^ (h >> 16);
     };
     const uint32_t shutterCols[3] = {0x3f6f9a, 0x4f7d5a, 0x8a5a3a}, awningCols[3] = {0xa8443a, 0x3f6f9a, 0xc9a35a};
+    // Trim: sandstone in the warm towns, grey granite in the snow.
+    const uint32_t trimLight = g_town == 2 ? 0xd3d6d9 : kDTrimLight, trimDark = g_town == 2 ? 0x7c7f85 : kDTrimDark;
     // The smooth ramp whose footprint holds point (x, y), if any.
     auto rampAt = [&](float x, float y) -> const Box* {
         for (size_t q : ramps) {
@@ -1081,11 +1243,11 @@ World buildTown() {
                        open[size_t(b)] == open[size_t(a)] && floorArea[size_t(b)] == floorArea[size_t(a)])
                     ++b;
                 if (open[size_t(a)])
-                    faceBox(k, line, along(a), along(b), 0, 5, tp[size_t(a)] - 12, tp[size_t(a)], kDTrimLight, kMatStone);
+                    faceBox(k, line, along(a), along(b), 0, 5, tp[size_t(a)] - 12, tp[size_t(a)], trimLight, kMatStone);
                 if (skirt[size_t(a)] > MapGrid::kNoFloor) {
-                    faceBox(k, line, along(a), along(b), 0, 3, skirt[size_t(a)] - 4, skirt[size_t(a)] + 12, kDTrimDark, kMatStone);
+                    faceBox(k, line, along(a), along(b), 0, 3, skirt[size_t(a)] - 4, skirt[size_t(a)] + 12, trimDark, kMatStone);
                     // The corner where the wall meets the floor: a contact shadow on the floor along its foot.
-                    const bool paved = floorCol[size_t(a)] == kDSite || floorCol[size_t(a)] == kHSite;
+                    const bool paved = pavedColor(floorCol[size_t(a)]);
                     faceBox(k, line, along(a), along(b), 0, 24, skirt[size_t(a)] - 1, skirt[size_t(a)] + 0.15f, floorCol[size_t(a)],
                             uint8_t(kMatShade + 2 * k + (paved ? 1 : 0)));
                 } else if (const Box* r = rampUnder(along(a), along(b), k, line)) {  // on a ramp: the strip follows it
@@ -1106,9 +1268,9 @@ World buildTown() {
                 const uint32_t h = cellHash(k < 2 ? line : a, k < 2 ? a : line, k), r = h % 100;
                 if (r < 24 && height >= 200) {  // window(s): frame, dark pane, sill, maybe shutters
                     for (float wz = z + 110; wz + 60 <= tp[size_t(a)] - 30; wz += 110) {
-                        faceBox(k, line, mid - 26, mid + 26, 0, 1.5f, wz - 6, wz + 62, kDTrimLight, kMatStone);
+                        faceBox(k, line, mid - 26, mid + 26, 0, 1.5f, wz - 6, wz + 62, trimLight, kMatStone);
                         faceBox(k, line, mid - 20, mid + 20, 0, 2.5f, wz, wz + 56, kDPane, kMatPlain);
-                        faceBox(k, line, mid - 28, mid + 28, 0, 5, wz - 10, wz - 5, kDTrimLight, kMatStone);
+                        faceBox(k, line, mid - 28, mid + 28, 0, 5, wz - 10, wz - 5, trimLight, kMatStone);
                         if ((h >> 8) % 2) {
                             const uint32_t sc = shutterCols[(h >> 9) % 3];
                             faceBox(k, line, mid - 42, mid - 28, 0, 3, wz - 2, wz + 58, sc, kMatWood);
@@ -1118,7 +1280,7 @@ World buildTown() {
                     }
                     a += 2 * half;
                 } else if (r < 32 && height >= 150) {  // a shut door, often under a cloth awning
-                    faceBox(k, line, mid - 32, mid + 32, 0, 1.5f, z, z + 112, kDTrimLight, kMatStone);
+                    faceBox(k, line, mid - 32, mid + 32, 0, 1.5f, z, z + 112, trimLight, kMatStone);
                     faceBox(k, line, mid - 26, mid + 26, 0, 2.5f, z, z + 104, kDDoor, kMatWood);
                     if ((h >> 8) % 3 != 0)
                         faceBox(k, line, mid - 40, mid + 40, 0, 34, z + 122, z + 126, awningCols[(h >> 10) % 3], kMatPlain);
@@ -1158,9 +1320,9 @@ World buildTown() {
     const size_t propsFrom = w.solids.size();
     // Crates and doors are wood (hollow footsteps, easy to shoot through); the container and car metal.
     auto materialOf = [](uint32_t color) -> uint8_t {
-        return color == kDCrate || color == kDWood ? kMatWood
-               : color == kDBlue || color == kDCar || color == kDCarTop || color == kDBarrel ? kMatMetal
-                                                                                              : kMatStone;
+        return color == kDCrate || color == kDWood || color == kSLog || color == kSPine ? kMatWood
+               : color == kDBlue || color == kDCar || color == kDCarTop || color == kDBarrel || color == kSFreight ? kMatMetal
+                                                                                                                   : kMatStone;
     };
     auto prop = [&](float x0, float y0, float x1, float y1, float h, uint32_t color, float lift = 0) {
         float cx = (x0 + x1) * 0.5f * sc, cy = (y0 + y1) * 0.5f * sc, hx = (x1 - x0) * 0.5f, hy = (y1 - y0) * 0.5f;
@@ -1188,7 +1350,79 @@ World buildTown() {
         float z = m.floorAt((ax0 + ax1) * 0.5f, (ay0 + ay1) * 0.5f) + clearance;
         w.solids.push_back({{ax0, ay0, z}, {ax1, ay1, z + 28}, 0xb9a37c, kMatStone});
     };
-    if (g_town == 1) {  // Harbor: containers on the docks, market stalls, crates and a car on the sites
+    // A pine (Summit): a trunk and three tiers of branches, a little snow on top. Solid: cover you can shoot through.
+    auto pine = [&](float x, float y) {
+        prop(x - 8, y - 8, x + 8, y + 8, 40, kSLog);
+        prop(x - 48, y - 48, x + 48, y + 48, 50, kSPine, 40);
+        prop(x - 36, y - 36, x + 36, y + 36, 46, kSPine, 90);
+        prop(x - 22, y - 22, x + 22, y + 22, 40, kSPine, 136);
+        prop(x - 10, y - 10, x + 10, y + 10, 8, kSSnowCap, 176);
+    };
+    if (g_town == 2) {  // Summit: freight cars in the yard, crates and log piles, pines, the plaza's fountain
+        car(600, -1700, -140, 30, -40, 230);                  // T spawn: a car in the south-east corner
+        prop(-560, -1690, -400, -1630, 40, kSLog);            // a log pile by the west wall
+        prop(-330, -1520, -270, -1460, 56, kDCrate);
+        pine(-520, -1450);
+        prop(-790, -1630, -730, -1570, 56, kDCrate);          // T west
+        barrel(800, -1640, -34, 6);                           // T east
+        prop(1040, -1350, 1140, -1050, 110, kSFreight);       // the rail yard: freight cars either side
+        prop(810, -800, 910, -500, 110, kSFreight);
+        prop(810, -1240, 870, -1180, 48, kDCrate);
+        prop(1080, -460, 1140, -400, 64, kDCrate);
+        prop(760, 1000, 850, 1090, 64, kDCrate);              // A default box (double stack)
+        prop(775, 1015, 835, 1075, 48, kDCrate, 64);
+        prop(1180, 760, 1240, 820, 56, kDCrate);              // A site: by the top of the ramp
+        prop(640, 720, 700, 780, 48, kDCrate);                // by short
+        prop(660, 1180, 760, 1240, 40, kSLog);                // by the CT ramp
+        prop(980, 1150, 1080, 1240, 96, kSFreight);           // a container at the back
+        prop(1290, 1190, 1340, 1240, 48, kDCrate);            // the heights
+        prop(330, 320, 390, 370, 40, kDCrate);                // the station
+        prop(340, 135, 470, 165, 22, kSLog);                  // (a bench)
+        prop(-70, -810, 70, -790, 30, kSGranite);             // the plaza: a fountain, frozen (a granite rim round
+        prop(-70, -690, 70, -670, 30, kSGranite);             // the ice, a column in the middle)
+        prop(-70, -790, -50, -690, 30, kSGranite);
+        prop(50, -790, 70, -690, 30, kSGranite);
+        prop(-50, -790, 50, -690, 20, kSIce);
+        prop(-14, -754, 14, -726, 84, kSGranite);
+        prop(-22, -762, 22, -718, 8, kSGranite, 84);
+        prop(-380, -970, -320, -910, 64, kDCrate);
+        prop(300, -620, 360, -560, 48, kDCrate);
+        pine(330, -920);
+        pine(-330, -560);
+        prop(220, -300, 280, -240, 56, kDCrate);              // mid
+        prop(-280, 250, -220, 310, 64, kDCrate);
+        prop(-330, 800, -270, 860, 64, kDCrate);              // CT mid
+        prop(320, 500, 380, 560, 56, kDCrate);
+        barrel(-420, 1100, 2, 0);                             // CT street
+        prop(-430, 1780, -370, 1840, 64, kDCrate);            // CT spawn
+        prop(380, 1500, 440, 1560, 48, kDCrate);
+        pine(380, 1790);
+        pine(-380, 1520);
+        barrel(-640, 0, 2, 0);                                // the cellar
+        prop(-520, 200, -470, 250, 48, kDCrate);
+        prop(-630, 740, -580, 790, 40, kDCrate);              // the balcony
+        prop(-1140, -1100, -1080, -1040, 64, kDCrate);        // the chapel lane
+        barrel(-800, -900, -32, 0);
+        pine(-1080, -1560);
+        barrel(-1150, -200, 2, 0);                            // the tunnel
+        prop(-790, 60, -740, 110, 48, kDCrate);
+        prop(-1150, 1150, -1060, 1240, 64, kDCrate);          // B default box (double stack)
+        prop(-1135, 1165, -1075, 1225, 44, kDCrate, 64);
+        prop(-1460, 860, -1360, 1060, 40, kDCar);             // B: a car
+        prop(-1440, 890, -1380, 1030, 24, kDCarTop, 40);
+        prop(-600, 880, -540, 940, 56, kDCrate);              // below the balcony
+        prop(-1460, 1300, -1400, 1360, 64, kDCrate);          // the back corner
+        prop(-980, 1290, -880, 1390, 96, kSFreight);          // by the CT path
+        pine(-560, 1340);
+        barrel(-850, 1650, 2, -34);                           // the CT path
+        // Rails along the yard (decor): two tracks of steel on wooden sleepers, under the freight cars.
+        for (float cx : {865.0f, 1090.0f}) {
+            for (float y = -1630; y < -320; y += 48)
+                w.decor.push_back({{cx - 40, y, 0}, {cx + 40, y + 14, 1.5f}, kSLog, kMatWood});
+            for (float off : {-28.0f, 28.0f})
+                w.decor.push_back({{cx + off - 3, -1640, 0}, {cx + off + 3, -310, 3.5f}, 0x5a5d62, kMatMetal});
+        }
+    } else if (g_town == 1) {  // Harbor: containers on the docks, market stalls, crates and a car on the sites
         car(-600, -1600, 20, 20, 120, 220);                   // T spawn: a car in the south-west corner
         prop(-450, -1450, -390, -1390, 64, kDCrate);
         prop(380, -1560, 460, -1480, 64, kDCrate);
@@ -1289,7 +1523,7 @@ World buildTown() {
         if (!ramp && std::fabs(b.mins.z - m.floorAt(cx, cy)) > 1.0f) continue;  // a crate on a crate
         if (ramp && b.mins.z > rampTopAt(*ramp, cx, cy) + 8.0f) continue;
         const uint32_t col = td.areas[area].color;
-        const uint8_t paved = col == kDSite || col == kHSite ? 1 : 0;
+        const uint8_t paved = pavedColor(col) ? 1 : 0;
         const float z0 = b.mins.z - 1, z1 = b.mins.z + 0.15f, wd = 16;
         const Box strips[4] = {{{b.maxs.x, b.mins.y, z0}, {b.maxs.x + wd, b.maxs.y, z1}, col, uint8_t(kMatShade + 0 + paved)},
                                {{b.mins.x - wd, b.mins.y, z0}, {b.mins.x, b.maxs.y, z1}, col, uint8_t(kMatShade + 2 + paved)},
@@ -1380,7 +1614,11 @@ World buildTown() {
             if (mid + gap < o.a1 - jamb) w.solids.push_back(wood(false, o.p1 - 8, o.p1, mid + gap, o.a1 - jamb, o.z, o.top));
         }
     }
-    if (g_town == 1) {
+    if (g_town == 2) {
+        arch(-300, -515, 300, -485, 176);   // the plaza into mid
+        arch(-420, 1435, -200, 1465, 190);  // the CT street into CT spawn
+        arch(-1150, -715, -800, -685, 170); // the chapel lane into the tunnel
+    } else if (g_town == 1) {
         arch(-250, -365, 250, -335, 176);  // the market into mid
         arch(-450, 1235, 450, 1265, 190);  // the CT ramp into CT spawn
     } else if (g_town == 0) {
@@ -1409,6 +1647,17 @@ const std::vector<PeekSpot>& townPeekSpots() {
             return p;
         };
         auto at = [&](float x, float y) { return rel(x, y, 0, 0); };
+        if (g_town == 2) {
+            spots = {
+                {at(860, -450), at(960, -450)},      // behind the freight car -> down the yard
+                {at(-250, 600), at(-60, 560)},       // CT mid -> through the gate
+                {at(-1105, 1290), at(-1000, 1290)},  // B default box -> the entrance
+                {at(805, 1135), at(900, 1135)},      // A default box -> the ramp
+                {at(-640, 1000), at(-640, 870)},     // B, under the balcony
+                {at(720, 850), at(600, 850)},        // A, the top of short
+            };
+            return spots;
+        }
         if (g_town == 1) {
             spots = {
                 {at(960, -380), at(1100, -380)},     // behind the blue container -> down the docks

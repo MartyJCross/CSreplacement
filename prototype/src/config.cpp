@@ -81,7 +81,7 @@ graphics_preset 2
 shadows 2
 // Ambient occlusion: soft shade in corners and at the foot of walls, darker tunnels and rooms (1 = on).
 ambient_occlusion 1
-// The map's ambience: wind and distant birds on Dust, waves and gulls on Harbor (0 = off .. 1).
+// The map's ambience: wind and distant birds on Dust, waves and gulls on Harbor, mountain wind on Summit (0 = off .. 1).
 ambience_volume 0.3
 // Post-processing: each map's colour grade and a soft vignette; with msaa 0 it smooths edges with FXAA instead
 // (much cheaper than MSAA on integrated graphics). Restart to apply.

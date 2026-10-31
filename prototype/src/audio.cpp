@@ -948,7 +948,7 @@ bool Audio::dumpSpatial(const std::string& dir, const std::string& assetDir) {
 namespace {
 
 // Ambience beds (stereo, interleaved, seamless loops). Dust: wind in gusts and a distant bird now and then.
-// Harbor: slow waves on the quay, gulls, a sea wind.
+// Harbor: slow waves on the quay, gulls, a sea wind. Summit: a colder, stronger wind with a low howl in the gusts.
 std::vector<float> ambienceBed(int which) {
     constexpr float kLen = 24.0f, kXfade = 2.0f;
     const size_t n = size_t((kLen + kXfade) * kRate);
@@ -996,6 +996,22 @@ std::vector<float> ambienceBed(int which) {
                     ch[0][i] += v * (1.0f - pan) * 0.7f;
                     ch[1][i] += v * (1.0f + pan) * 0.7f;
                 }
+            }
+        }
+    }
+    if (which == 3) {  // the howl: noise through a narrow resonance that drifts 260-420 Hz, swelling with slow gusts
+        for (int c = 0; c < 2; ++c) {
+            float y1 = 0, y2 = 0;
+            const float ph = float(c) * 2.3f;
+            for (size_t i = 0; i < n; ++i) {
+                const float t = float(i) / kRate;
+                const float f = 340.0f + 80.0f * std::sin(t * 0.21f + ph) + 25.0f * std::sin(t * 0.67f);
+                const float r = 0.9985f, w = 2.0f * kPi * f / kRate;  // (a two-pole resonator)
+                const float y = rng.noise() * (1.0f - r) + 2.0f * r * std::cos(w) * y1 - r * r * y2;
+                y2 = y1;
+                y1 = y;
+                const float gust = std::max(0.0f, std::sin(t * 0.26f + ph) * 0.6f + std::sin(t * 0.71f + ph * 1.7f) * 0.4f);
+                ch[c][i] += y * 0.55f * gust * gust;
             }
         }
     }
@@ -1090,7 +1106,7 @@ bool Audio::init(float masterVolume, const std::string& assetDir) {
     mixBuf_.resize(4096 * 2);
     wetBuf_.resize(4096 * 2);
     reverb_.init();
-    for (int k = 1; k < 3; ++k) amb_[k] = ambienceBed(k);
+    for (int k = 1; k < 4; ++k) amb_[k] = ambienceBed(k);
     SDL_AudioSpec spec{SDL_AUDIO_F32, 2, kRate};
     stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &Audio::callback, this);
     if (!stream_) return false;

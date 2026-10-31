@@ -2439,15 +2439,16 @@ void testDustRoutes() {
     }
 }
 
-// Harbor, Crisp's own map: every bot spot is standing room the bots can walk to from both spawns, the spawns
-// can't see each other, it has no holes, and the lanes take sensible times.
-void testHarbor() {
-    std::printf("harbor\n");
-    setTownMap(1);
+// Crisp's own maps (Harbor, Summit): every bot spot is standing room the bots can walk to from both spawns, the
+// spawns can't see each other, it has no holes, and the lanes take sensible times.
+struct Leg { const char* a; Vec3 from; const char* b; Vec3 to; float minS, maxS; };
+void testOwnMap(int town) {
+    setTownMap(town);
+    std::printf("%s\n", townMapName(town));
     const World w = buildTown();
     NavGrid nav;
     nav.build(townGrid(), w, townSpawn().pos);
-    std::printf("  %zu boxes, %s\n", w.solids.size(), townMapName(1));
+    std::printf("  %zu boxes, %zu decor\n", w.solids.size(), w.decor.size());
     {  // the spots bots check as they walk (v0.31)
         const size_t hiding = nav.hidingSpots(w, 160.0f, {}).size();
         std::printf("  %zu corners and spots behind props for bots to check\n", hiding);
@@ -2491,7 +2492,7 @@ void testHarbor() {
         unreachable += !route;
     }
     std::printf("  %zu bot spots: %d not standing room, %d unreachable\n", spots.size(), bad, unreachable);
-    CHECK(bad == 0 && unreachable == 0, "harbor spots: %d bad, %d unreachable", bad, unreachable);
+    CHECK(bad == 0 && unreachable == 0, "%s spots: %d bad, %d unreachable", townMapName(town), bad, unreachable);
 
     // Real bots walk to the competitive spots from both spawns.
     BotSenses sense;
@@ -2521,14 +2522,14 @@ void testHarbor() {
             }
         }
     std::printf("  %d of %d bot trips reached their spot\n", reached, reached + failed);
-    CHECK(failed == 0, "%d harbor trips failed", failed);
+    CHECK(failed == 0, "%d %s trips failed", failed, townMapName(town));
 
     // Nobody sees the other team's spawn when the round starts.
     int seen = 0;
     for (const Vec3& a : townTeamSpawns(0))
         for (const Vec3& b : townTeamSpawns(1))
             seen += w.traceRay(a + Vec3{0, 0, kStandEye}, b + Vec3{0, 0, kStandEye}).fraction >= 1.0f;
-    CHECK(seen == 0, "harbor: %d spawn pairs see each other", seen);
+    CHECK(seen == 0, "%s: %d spawn pairs see each other", townMapName(town), seen);
 
     // No holes.
     int escapes = 0, total = 0;
@@ -2541,21 +2542,31 @@ void testHarbor() {
             }
     }
     std::printf("  %d rays, %d got out of the map; spawns that see each other: %d\n", total, escapes, seen);
-    CHECK(escapes == 0, "harbor: %d rays escaped", escapes);
+    CHECK(escapes == 0, "%s: %d rays escaped", townMapName(town), escapes);
 
     // The lanes at knife speed.
-    struct Leg { const char* a; Vec3 from; const char* b; Vec3 to; float minS, maxS; };
-    const Vec3 tSp = townSpawn().pos, ctSp = townPoint(0, 1500), aSite = townPoint(1000, 1150), bSite = townPoint(-1000, 880),
-               doors = townPoint(0, 440), docks = townPoint(1050, 450), under = townPoint(-1050, 250);
-    const Leg legs[] = {{"T spawn", tSp, "A site", aSite, 8, 22},   {"T spawn", tSp, "B site", bSite, 8, 22},
-                        {"T spawn", tSp, "mid doors", doors, 5, 15}, {"T spawn", tSp, "top of docks", docks, 5, 16},
-                        {"T spawn", tSp, "underpass", under, 5, 16}, {"CT spawn", ctSp, "A site", aSite, 2, 9},
-                        {"CT spawn", ctSp, "B site", bSite, 2, 9},   {"CT spawn", ctSp, "mid doors", townPoint(0, 640), 2, 8}};
+    const Vec3 tSp = townSpawn().pos;
+    std::vector<Leg> legs;
+    if (town == 1) {
+        const Vec3 ctSp = townPoint(0, 1500), aSite = townPoint(1000, 1150), bSite = townPoint(-1000, 880),
+                   doors = townPoint(0, 440), docks = townPoint(1050, 450), under = townPoint(-1050, 250);
+        legs = {{"T spawn", tSp, "A site", aSite, 8, 22},   {"T spawn", tSp, "B site", bSite, 8, 22},
+                {"T spawn", tSp, "mid doors", doors, 5, 15}, {"T spawn", tSp, "top of docks", docks, 5, 16},
+                {"T spawn", tSp, "underpass", under, 5, 16}, {"CT spawn", ctSp, "A site", aSite, 2, 9},
+                {"CT spawn", ctSp, "B site", bSite, 2, 9},   {"CT spawn", ctSp, "mid doors", townPoint(0, 640), 2, 8}};
+    } else {
+        const Vec3 ctSp = townPoint(0, 1600), aSite = townPoint(880, 960), bSite = townPoint(-1000, 1060),
+                   gate = townPoint(16, 380), yard = townPoint(1000, 200), tunnel = townPoint(-1025, 100);
+        legs = {{"T spawn", tSp, "A site", aSite, 9, 22},   {"T spawn", tSp, "B site", bSite, 9, 22},
+                {"T spawn", tSp, "mid gate", gate, 6, 15},   {"T spawn", tSp, "top of yard", yard, 5, 16},
+                {"T spawn", tSp, "tunnel", tunnel, 5, 16},   {"CT spawn", ctSp, "A site", aSite, 2, 9},
+                {"CT spawn", ctSp, "B site", bSite, 2, 9},   {"CT spawn", ctSp, "mid gate", townPoint(16, 520), 2, 8}};
+    }
     for (const Leg& l : legs) {
         const bool found = nav.findPath(l.from, l.to, path);
         float dist = 0, secs = found ? runRoute(path, 250.0f, &dist, &w) : -1.0f;
         std::printf("  %-8s -> %-12s %5.1f s  (%4.0f units)\n", l.a, l.b, double(secs), double(dist));
-        CHECK(found && secs >= l.minS && secs <= l.maxS, "harbor %s -> %s: %.1f s", l.a, l.b, double(secs));
+        CHECK(found && secs >= l.minS && secs <= l.maxS, "%s %s -> %s: %.1f s", townMapName(town), l.a, l.b, double(secs));
     }
     setTownMap(0);
 }
@@ -2830,7 +2841,8 @@ int main() {
     testArmsRace();
     testLineups();
     testMatchTape();
-    testHarbor();
+    testOwnMap(1);
+    testOwnMap(2);
     testReplay();
     testBotCover();
     testBotsFightEachOther();

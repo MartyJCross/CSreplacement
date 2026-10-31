@@ -74,7 +74,8 @@ public:
     void setMusic(float gain) { musicTarget_ = gain; }
 
     // Ambience: a looping bed of the map's world (synthesized at init): 0 none, 1 Dust (wind, distant birds),
-    // 2 Harbor (waves, gulls, sea wind). Fades over about two seconds to `gain`; switching map crossfades.
+    // 2 Harbor (waves, gulls, sea wind), 3 Summit (a cold mountain wind that howls in the gusts). Fades over about
+    // two seconds to `gain`; switching map crossfades.
     void setAmbience(int which, float gain) { ambWhich_ = which; ambTarget_ = gain; }
     // Room echo on game sounds (not the UI cues): `wet` how much (0 none .. ~0.5 a tunnel), `size` how long it
     // rings (0 a street's slap .. 1 a big roofed hall). Eases there over a fraction of a second.
@@ -104,7 +105,7 @@ private:
     std::vector<float> wetBuf_, roomBuf_;
     std::atomic<float> roomWet_{0.0f}, roomSize_{0.0f};
     // Ambience loops (stereo, interleaved), made at init; which one plays, and how loud.
-    std::vector<float> amb_[3];  // 1 Dust, 2 Harbor
+    std::vector<float> amb_[4];  // 1 Dust, 2 Harbor, 3 Summit
     std::atomic<int> ambWhich_{0};
     std::atomic<float> ambTarget_{0.0f};
     int ambPlaying_ = 0;     // audio thread: the loop playing now (switches when faded out)

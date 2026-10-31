@@ -8,7 +8,7 @@ friends. It has:
 - raw mouse input
 - twelve guns with fixed spray patterns (AK-47, M4A1-S, Galil AR, AWP, SSG 08, Nova, XM1014, MAC-10, UMP-45, pistol, Dual Berettas, Deagle), knives and grenades
 - menu music (a CC0 track; MENU MUSIC volume in Settings → Sound)
-- three maps: the Lab (a grey-box range), Dust (a Dust2 copy, for personal testing) and Harbor (Crisp's own)
+- four maps: the Lab (a grey-box range), Dust (a Dust2 copy, for personal testing), and Harbor and Summit (Crisp's own)
 - modes: competitive 5v5, deathmatch, retakes, prefire and practice, plus online deathmatch and competitive
 - **sound:**
   - gunshots, footsteps, landing, reload, dry-fire
@@ -75,7 +75,7 @@ scroll, `;` puts several commands on one line (`give ak47; god`). `help` lists t
 
 - **Every setting by its config name**: `fov` shows it, `fov 100` sets it (and saves `config.cfg`, like the menus);
   `cvarlist` lists them all.
-- **Games:** `map lab|dust|harbor` (plays it in this mode), `mode practice|deathmatch|armsrace|retakes|competitive|wingman|prefire`
+- **Games:** `map lab|dust|harbor|summit` (plays it in this mode), `mode practice|deathmatch|armsrace|retakes|competitive|wingman|prefire`
   (plays it on this map), `restart` / `mp_restartgame`, `status`.
 - **Offline cheats:** `noclip`, `god`, `kill`, `give <weapon>` (CS names: `ak47`, `m4a1_silencer`, `galilar`, `awp`,
   `ssg08`, `deagle`, `elite`, `usp_silencer`, `nova`, `xm1014`, `mac10`, `ump45`, `knife`, `hegrenade`, `flashbang`,
@@ -129,7 +129,18 @@ In practice mode the 4 bots peek from cover: the long corner, mid doors, the B a
 - **B (west):** the **B lane** into the roofed **underpass**, then up the **B entrance** into **B site** (a default box, a car, a raised **platform** at the back reached by a ramp). The **B alley** from mid's west side comes in from the side, and the CTs come through the **B CT path**.
 - Everything works there: practice (peek bots), deathmatch, retakes, competitive with the plays (DOCKS / SHORT / UNDERPASS / ALLEY versions of the calls), prefire (DOCKS, UNDERPASS, MID, A SHORT) and online (the host's map is sent to whoever joins).
 - **At knife speed:** T spawn to A 11.8 s, to B 10.8 s, to mid doors 7.1 s; CT spawn to A 6.2 s, to B 5.1 s, to mid doors 3.3 s. It's built at its own size.
-- Tested like Dust2 (`testHarbor`): all 99 bot spots are standing room with a route, real bots walk to every competitive spot from both spawns (70 of 70), the spawns can't see each other, and 72,000 rays from everywhere you can stand find no holes.
+- Tested like Dust2 (`testOwnMap`): all 101 bot spots are standing room with a route, real bots walk to every competitive spot from both spawns (62 of 62), the spawns can't see each other, and 72,000 rays from everywhere you can stand find no holes.
+
+## Summit (every mode: MAP SUMMIT)
+
+**Crisp's second own map** (v0.42): a mountain village in the snow, white peaks all round the sky. T spawn at the foot of the village (south), CT spawn at the top (north):
+- **A (east):** out of T spawn to the **rail yard**, a long lane past two freight cars on the tracks, then the **A ramp** up to **A site** (the default box, a crate by the ramp, one by short, a container at the back, logs by the CT ramp). The **A heights** are a raised corner over the site, up steps along the east wall. From mid, the roofed **station** leads to **A short**. The CTs come down the **A CT ramp**.
+- **Mid:** a dog-leg **mid path** out of T spawn into the **plaza** (a frozen fountain, pines), then **mid**, up a step to the **mid gate** (roofed) and **CT mid**; the **CT street** climbs from CT mid to CT spawn.
+- **B (west):** the **chapel lane** into the roofed **B tunnel**: down, north, a jog east and north again, then up the **B entrance** into **B site** (a default box, a car, a container by the CT path). From mid's west side the **cellar** runs under the village to the **B stairs** and the **B balcony**, a ledge over the site's south-east corner. The CTs come through the **B CT path**.
+- Everything works there, as on Harbor; the T plays are YARD, SHORT, TUNNEL and CELLAR (CT pushes: PUSHING YARD / MID / TUNNEL), and prefire has RAIL YARD, B TUNNEL, MID and A SHORT.
+- **At knife speed:** T spawn to A 12.8 s, to B 14.0 s, to the mid gate 10.1 s; CT spawn to A 5.1 s, to B 5.0 s, to the mid gate 5.2 s. It's built at its own size.
+- Its own look and sound: a cold, clear colour grade, snow on every roof, granite trim, and a mountain wind that howls in the gusts.
+- Tested like Harbor (`testOwnMap`): all 102 bot spots are standing room with a route, 62 of 62 bot trips arrive, the spawns can't see each other, and no ray gets out of the map.
 
 ## Radar
 
@@ -215,7 +226,8 @@ You and 4 bots against 5 bots on Dust2, **MR12**: first to 13 wins, sides swap a
 - **Names:** the bots have ordinary first names (a different set every match), in the kill feed, scoreboard, radio and when you spectate them.
 - **Plays:** each round the Ts pick one and a teammate calls it on the radio. They go through any way onto the
   site: on Dust **long, short (over catwalk), tunnels, lowers (through mid) or mid to B (through mid doors)**; on Harbor
-  the docks, short (through the warehouse), the underpass or the alley. **EXECUTE** (gather, then go together),
+  the docks, short (through the warehouse), the underpass or the alley; on Summit the yard, short (through the
+  station), the tunnel or the cellar. **EXECUTE** (gather, then go together),
   **RUSH** (no waiting), **SPLIT** (two ways onto the same site at once, e.g. long and short: the group with the longer
   way goes first so both hit together, each throwing its own smoke and flash), **TAKE MID** (two take mid, then hit the
   site from there while the rest come the other way), a **FAKE** (two throw utility at one site, the team hits the
@@ -417,7 +429,7 @@ Tested in `sim_tests` (new guns): the pistol one-taps a bare head out to 8,192 u
 - **Footsteps** are boot-on-grit (heel, toe scuff, crunch), and landing has a bit of gear rattle.
 - **You are silent below 135 u/s.** Shift-walk (~112) and crouching make no footsteps; running does, like CS. Deathmatch bots hear your footsteps.
 - **Positional footsteps:** moving dummies and bots make footsteps that are panned and attenuated by distance. Close your eyes and point at them.
-- **Volume** (Settings → Sound): VOLUME (`volume`, 0.8 by default), AMBIENCE (`ambience_volume`, 0.3: Dust's wind and birds, Harbor's waves and gulls), MENU MUSIC, HIT SOUND.
+- **Volume** (Settings → Sound): VOLUME (`volume`, 0.8 by default), AMBIENCE (`ambience_volume`, 0.3: Dust's wind and birds, Harbor's waves and gulls, Summit's mountain wind), MENU MUSIC, HIT SOUND.
 - **Rooms echo:** under a roof (tunnels, the warehouse, the underpass) shots and steps ring like a tunnel; out in the street there's a short slap off the walls.
 - **Every gun has its own recording**, from the nearest real gun in the CC0 library: the AK-47 an AK-47, the
   **Galil AR** an SKS (the same 7.62 round, a carbine), the **MAC-10** a PPSh (a fast, sharp SMG), the **UMP-45** a

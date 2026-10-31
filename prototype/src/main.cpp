@@ -1373,7 +1373,10 @@ void pushHitLog(Game& g, const std::string& text, uint32_t color);
 
 // ---- Grenade practice (v0.35, owner): practice mode, offline ----
 bool nadePractice(const Game& g) { return g.mode == 0 && !g.online; }
-int mapIndex(const Game& g) { return g.mapId == 1 ? 1 + townMap() : 0; }  // (0 the Lab, 1 Dust, 2 Harbor)
+int mapIndex(const Game& g) { return g.mapId == 1 ? 1 + townMap() : 0; }  // (0 the Lab, 1 Dust, 2 Harbor, 3 Summit)
+// A saved match's map byte: 1 Dust, 2 Harbor, 4 Summit (3 was Inferno, removed in v0.39: its old tapes stay hidden).
+int tapeMapId(int town) { return town == 2 ? 4 : 1 + town; }
+int tapeTown(int id) { return id == 1 || id == 2 ? id - 1 : id == 4 ? 2 : -1; }  // (-1: a map that's gone)
 
 // A thrown grenade's whole flight, drawn for 8 s (the newest four).
 void addTrail(Game& g, const Vec3& start, const Vec3& vel, int type) {
@@ -1484,7 +1487,7 @@ void startTape(Game& g) {
     std::snprintf(date, sizeof(date), "%04d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute);
     std::snprintf(file, sizeof(file), "%04d-%02d-%02d_%02d-%02d-%02d.crec", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
     MatchInfo info;
-    info.map = 1 + townMap();
+    info.map = tapeMapId(townMap());
     info.mode = g.mode == 5 ? 1 : g.mode;
     info.wingman = g.wingman;
     info.armsRace = g.armsRace;
@@ -1504,11 +1507,11 @@ void scanTapes() {
         TapeEntry t;
         t.path = f.path().string();
         if (!readMatch(t.path, t.info) || t.info.seconds < 10.0f) continue;  // (empty or a few seconds: not worth a row)
-        if (t.info.map < 1 || t.info.map > kTownMaps) continue;  // (a map that's gone: Inferno, removed in v0.39)
+        if (tapeTown(t.info.map) < 0) continue;  // (a map that's gone: Inferno, removed in v0.39)
         const MatchInfo& m = t.info;
         const int secs = int(m.seconds);
         char line[160];
-        std::snprintf(line, sizeof(line), "%s  %s  %s  %d-%d  %d:%02d", m.date.c_str(), townMapName(std::clamp(m.map - 1, 0, kTownMaps - 1)),
+        std::snprintf(line, sizeof(line), "%s  %s  %s  %d-%d  %d:%02d", m.date.c_str(), townMapName(tapeTown(m.map)),
                       m.wingman ? "WINGMAN" : m.armsRace ? "ARMS RACE" : m.mode == 3 ? "COMPETITIVE" : "DEATHMATCH (K-D)",
                       m.scoreA, m.scoreB, secs / 60, secs % 60);
         t.label = line;
@@ -5782,8 +5785,8 @@ int g_crosshairPreset = 0;  // menu-side index into kCrosshairColors
 // The PLAY screen's choices; they only take effect on START.
 struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots = 1; };
 GameMenu g_gameMenu;
-const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR"};
-constexpr int kMenuMaps = 3;  // the maps the menus offer: the Lab, Dust, Harbor (Inferno removed, owner v0.39)
+const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "SUMMIT"};
+constexpr int kMenuMaps = 4;  // the maps the menus offer: the Lab, Dust, Harbor, Summit (Inferno removed, owner v0.39)
 const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE", "WINGMAN"};
 constexpr int kModeArmsRace = 6;  // (the Play screen and config's mode; in a game it's deathmatch with armsRace on)
 constexpr int kModeWingman = 7;   // (in a game: competitive with wingman on)
@@ -5804,13 +5807,13 @@ const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
 const char* const kPreviewNames[] = {"OFF", "NOT IN COMPETITIVE", "ALWAYS"};
 const char* const kNetGameNames[] = {"DEATHMATCH", "COMPETITIVE"};
-const char* const kTownMapNames[] = {"DUST", "HARBOR"};
+const char* const kTownMapNames[] = {"DUST", "HARBOR", "SUMMIT"};
 
 // ---- The online lobby: hosting opens it, friends who join land in it, the host starts the game from it. ----
 struct LobbyState {
     bool on = false, host = false;
     int game = 0;            // what the host picked: 0 deathmatch, 1 competitive
-    int map = 0;             // the town map: 0 Dust, 1 Harbor
+    int map = 0;             // the town map: 0 Dust, 1 Harbor, 2 Summit
     float scale = 0.6f;      // Dust's size
     int team[kNetMaxPlayers] = {};  // per player: 0 team A (the host's), 1 team B
     int me = 0;              // your player id
@@ -7779,7 +7782,7 @@ int main(int argc, char** argv) {
         g.mode = g.armsRace ? 1 : g.wingman ? 3 : m.mode;
         g.pf.route = m.route;
         const int map = m.mode != 0 && m.map == 0 ? 1 : m.map;
-        setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor)
+        setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor, 3 Summit)
         loadMap(g, renderer, map >= 1 ? 1 : 0);
         if (g.mode == 4) g.botsFire = cfg.prefire_bots_shoot != 0;
         if (g.mode == 0) {
@@ -7820,7 +7823,7 @@ int main(int argc, char** argv) {
         g.armsRace = info.armsRace;
         g.wingman = g_wingmanOn = info.wingman;
         g.mode = info.mode == 1 ? 1 : 3;
-        setTownMap(std::clamp(info.map - 1, 0, kTownMaps - 1));
+        setTownMap(std::max(0, tapeTown(info.map)));
         loadMap(g, renderer, 1);
         if (!readMatch(g_tapes[size_t(k)].path, g_watchInfo, &g.replay, &g_watchEvents) || g.replay.empty()) {
             g_watchingTape = false;
@@ -8329,7 +8332,7 @@ int main(int argc, char** argv) {
         {"clear", "empties the console"},
         {"echo", "echo <text>"},
         {"status", "the map, the mode, the bots, online"},
-        {"map", "map <lab|dust|harbor>: plays it (in this mode)"},
+        {"map", "map <lab|dust|harbor|summit>: plays it (in this mode)"},
         {"mode", "mode <practice|deathmatch|armsrace|retakes|competitive|wingman|prefire>: plays it (on this map)"},
         {"restart", "starts this game over (mp_restartgame too)"},
         {"mp_restartgame", "starts this game over"},
@@ -8374,7 +8377,7 @@ int main(int argc, char** argv) {
         if (g.online) con("NOT IN AN ONLINE GAME");
         return !g.online;
     };
-    // Starts a game over on `map` (0 the Lab, 1 Dust, 2 Harbor) in `mode` (-1: the current one), like the
+    // Starts a game over on `map` (0 the Lab, 1 Dust, 2 Harbor, 3 Summit) in `mode` (-1: the current one), like the
     // Play screen's START.
     auto restartGame = [&](int map, int mode) {
         g_gameMenu.map = map >= 0 ? map : g.mapId == 1 ? 1 + townMap() : 0;
@@ -8435,8 +8438,8 @@ int main(int argc, char** argv) {
         } else if (cmd == "map") {
             if (!offline()) return;
             const std::string n = arg.rfind("de_", 0) == 0 ? arg.substr(3) : arg;
-            const int map = n == "lab" ? 0 : n == "dust" || n == "dust2" ? 1 : n == "harbor" ? 2 : -1;
-            if (map < 0) { con("map <lab|dust|harbor>"); return; }
+            const int map = n == "lab" ? 0 : n == "dust" || n == "dust2" ? 1 : n == "harbor" ? 2 : n == "summit" ? 3 : -1;
+            if (map < 0) { con("map <lab|dust|harbor|summit>"); return; }
             if (map == 0 && g.mode != 0) { con("the Lab is for practice: mode practice"); return; }
             restartGame(map, -1);
         } else if (cmd == "mode") {

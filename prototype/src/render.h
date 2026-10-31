@@ -118,7 +118,7 @@ public:
     // FXAA (when the window has no MSAA), the colour grade, a vignette and the stylized outlines. Takes effect at
     // once. (Drawing the scene into an offscreen picture instead cost the owner's AMD laptop half its FPS.)
     void setPost(bool on);
-    // The colour grade: 0 the Lab, 1 Dust, 2 Harbor.
+    // The colour grade: 0 the Lab, 1 Dust, 2 Harbor, 3 Summit (which also puts snowy mountains round the sky).
     void setGrade(int look);
     // The look: 0 classic (textured), 1 the clean stylized look (flat colour, soft gradients, outlines from the post
     // pass, a bolder grade).
@@ -139,7 +139,7 @@ private:
     int uPostPx_ = -1, uPostFxaa_ = -1, uPostTint_ = -1, uPostGrade_ = -1, uPostOutline_ = -1, uStyle_ = -1, uNoEdge_ = -1;
     int style_ = 0, look_ = 0;
     bool makePostTargets(int w, int h);
-    int uSkyFwd_ = -1, uSkyRight_ = -1, uSkyUp_ = -1;
+    int uSkyFwd_ = -1, uSkyRight_ = -1, uSkyUp_ = -1, uSkyPeaks_ = -1;
     unsigned texArray_ = 0;
     int uTex_ = -1, uHasTex_ = -1;
     int uDepthViewProj_ = -1, uDepthModel_ = -1;

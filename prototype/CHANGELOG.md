@@ -3,6 +3,27 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.42: Summit, a new map
+
+- **SUMMIT**, Crisp's second map of its own (MAP SUMMIT in every mode; `map summit` in the console): a mountain
+  village in the snow. T spawn at the foot of the village, CT spawn at the top, snow on every roof and white peaks all
+  round the sky.
+  - **A (east):** the long **rail yard** past two freight cars, then the **A ramp** up to the site, with the **A
+    heights** (a raised corner, steps along the east wall) over it. Or from mid through the roofed **station** and up
+    **A short**. The CTs come down the **A CT ramp**.
+  - **Mid:** a dog-leg path from T spawn into the **plaza** (a frozen fountain, pines), **mid** up a step to the
+    **mid gate** and **CT mid**, which climbs the **CT street** to CT spawn.
+  - **B (west):** the **chapel lane** into the **B tunnel**, which drops, runs north, jogs east and comes up the **B
+    entrance**. Or from mid down the **cellar** and up the **B stairs** onto the **B balcony**, a ledge over the site.
+    The CTs come through the **B CT path**.
+  - Everything works there: practice, deathmatch, Arms Race, retakes, competitive with its own plays (YARD / SHORT /
+    TUNNEL / CELLAR), Wingman, prefire (RAIL YARD, B TUNNEL, MID, A SHORT), replays and online.
+  - Its own colour grade (cold, clear light) and ambience (a mountain wind that howls in the gusts).
+  - At knife speed: T spawn to A 12.8 s, to B 14.0 s, to the mid gate 10.1 s; CT spawn to A 5.1 s, to B 5.0 s, to
+    the mid gate 5.2 s.
+- Replays from Summit are saved under their own map number, so the two old Inferno tapes stay hidden (not shown as
+  Summit).
+
 ## v0.41.1: a memory leak fixed
 
 - Each map load kept the previous map's light volume (v0.40) in memory: about 6.5 MB more every time you changed map

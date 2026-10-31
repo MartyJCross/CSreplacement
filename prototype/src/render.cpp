@@ -522,6 +522,7 @@ void main() {
 const char* kSkyFS = R"(#version 330 core
 in vec2 vNdc;
 uniform vec3 uFwd, uRight, uUp;  // camera basis; right/up scaled by tan(half fov)
+uniform float uPeaks;            // Summit: snowy mountains all round the horizon
 out vec4 oColor;
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -534,6 +535,13 @@ float noise(vec2 p) {
     return mix(mix(hash12(i), hash12(i + vec2(1, 0)), f.x), mix(hash12(i + vec2(0, 1)), hash12(i + vec2(1, 1)), f.x), f.y);
 }
 float fbm(vec2 p) { return noise(p) * 0.5 + noise(p * 2.03 + 7.1) * 0.25 + noise(p * 4.01 + 3.3) * 0.125 + noise(p * 8.05 + 1.7) * 0.0625; }
+// A mountain range's skyline at an azimuth: ridged noise round a circle (no seam), 0 .. ~0.9.
+float skyline(float az, float scale, float seed) {
+    vec2 p = vec2(cos(az), sin(az)) * scale + seed;
+    float r = 0.0, a = 0.5;
+    for (int k = 0; k < 4; ++k) { r += a * (1.0 - abs(noise(p) * 2.0 - 1.0)); p = p * 2.07 + 5.3; a *= 0.5; }
+    return r;
+}
 void main() {
     vec3 d = normalize(uFwd + uRight * vNdc.x + uUp * vNdc.y);
     const vec3 zenith = vec3(0.30, 0.52, 0.86), horizon = vec3(0.80, 0.84, 0.87), ground = vec3(0.74, 0.70, 0.62);
@@ -552,6 +560,22 @@ void main() {
         c = mix(c, cloud, cover * 0.85);
     }
     c += vec3(1.0, 0.86, 0.62) * (pow(s, 600.0) * 1.6 + pow(s, 24.0) * 0.16);
+    // Mountains: a far range, hazy and tall, and a nearer one in front; snow above a ragged line, rock below, the faces
+    // towards the sun lighter.
+    if (uPeaks > 0.5 && d.z < 0.4) {
+        float az = atan(d.y, d.x), side = sign(sin(atan(sunDir.y, sunDir.x) - az));
+        for (int k = 0; k < 2; ++k) {
+            float sc = k == 0 ? 2.2 : 3.6, sd = k == 0 ? 1.7 : 9.1, base = k == 0 ? 0.02 : -0.01, tall = k == 0 ? 0.36 : 0.2;
+            float r = skyline(az, sc, sd), h = base + tall * r * r;
+            if (d.z >= h) continue;
+            float dh = skyline(az + 0.003, sc, sd) - skyline(az - 0.003, sc, sd);
+            float lit = clamp(0.5 - side * dh * 30.0, 0.0, 1.0);
+            float line = base + (h - base) * 0.4 + 0.025 * (noise(vec2(az * 60.0, float(k) * 7.0)) - 0.5);
+            vec3 m = d.z > line ? vec3(0.95, 0.97, 1.0) : vec3(0.48, 0.53, 0.61);
+            m *= mix(0.80, 1.05, lit);
+            c = mix(m, horizon, k == 0 ? 0.5 : 0.28);
+        }
+    }
     oColor = vec4(c, 1.0);
 }
 )";
@@ -921,6 +945,7 @@ bool Renderer::init(std::string& err) {
     glUniform1i(uHasTex_, 0);  // procedural surfaces until loadTextures()
     uSkyRight_ = glGetUniformLocation(skyProgram_, "uRight");
     uSkyUp_ = glGetUniformLocation(skyProgram_, "uUp");
+    uSkyPeaks_ = glGetUniformLocation(skyProgram_, "uPeaks");
     glGenVertexArrays(1, &skyVao_);  // no vertex data: the triangle comes from gl_VertexID
     uPaint_ = glGetUniformLocation(boxProgram_, "uPaint");
     uLayerPat_ = glGetUniformLocation(boxProgram_, "uLayerPat");
@@ -1372,11 +1397,13 @@ void Renderer::setPost(bool on) {
 }
 
 void Renderer::setGrade(int look) {
-    // Per map: 0 the Lab (neutral), 1 Dust (warm, sun-baked), 2 Harbor (cooler, sea air). The stylized look is a bolder
-    // grade: more saturated, a little more contrast.
-    static const float kTint[3][3] = {{1.0f, 1.0f, 1.0f}, {1.04f, 1.0f, 0.93f}, {0.97f, 1.0f, 1.04f}};
-    static const float kGrade[3][3] = {{0.10f, 1.02f, 0.10f}, {0.22f, 1.10f, 0.20f}, {0.18f, 1.06f, 0.18f}};
-    look_ = std::clamp(look, 0, 2);
+    // Per map: 0 the Lab (neutral), 1 Dust (warm, sun-baked), 2 Harbor (cooler, sea air), 3 Summit (crisp, cold light).
+    // The stylized look is a bolder grade: more saturated, a little more contrast.
+    static const float kTint[4][3] = {{1.0f, 1.0f, 1.0f}, {1.04f, 1.0f, 0.93f}, {0.97f, 1.0f, 1.04f}, {0.96f, 0.99f, 1.06f}};
+    static const float kGrade[4][3] = {{0.10f, 1.02f, 0.10f}, {0.22f, 1.10f, 0.20f}, {0.18f, 1.06f, 0.18f}, {0.20f, 1.02f, 0.18f}};
+    look_ = std::clamp(look, 0, 3);
+    glUseProgram(skyProgram_);
+    glUniform1f(uSkyPeaks_, look_ == 3 ? 1.0f : 0.0f);
     const float sat = style_ == 1 ? 1.18f : 1.0f, con = style_ == 1 ? 1.25f : 1.0f;
     glUseProgram(postProgram_);
     glUniform3f(uPostTint_, kTint[look_][0], kTint[look_][1], kTint[look_][2]);

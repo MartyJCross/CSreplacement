@@ -47,7 +47,7 @@ prototype/
   README.md, CHANGELOG.md the game as it is now; what changed per version
   src/
     vecmath.h             Vec3/Mat4, Z-up, Source-style angles (pitch + = down, yaw + = left)
-    world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor) from named areas
+    world.*               AABB world, traces (+ broadphase grid, walked row by row along a trace: forSweep); buildLab(); the town maps (Dust2, Harbor, Summit) from named areas
                           on a grid (32u; 16u possible): buildTown(), townGrid(), spawns, retake sites, CT spots, prefire routes, peek
                           spots, TownTactics (bot plays), doors, facades; KZ course constants
     movement.*            128-tick kinematic player movement (MoveParams = all movement tuning)
@@ -106,10 +106,10 @@ asset-downloads/          (gitignored, never committed) the downloaded CC0 packs
 4. **Performance budget.** No per-frame heap allocations in hot paths (reuse vectors: `static`/member buffers;
    per-frame model draws go in a `DrawList`), no runtime shader compilation, minimal draw calls (the world is about 4 instanced draws). New visuals should reuse the box renderer.
 5. **Only CC0 / royalty-free assets, credited, with a fallback; never copyrighted content.** Recordings, music and textures live in `prototype/assets/` (built by `tools/prep_assets.py` from `../asset-downloads`, described in its `SOURCES.md`) and each is listed in `assets/CREDITS.md`. The game must still run without them: missing sounds fall back to the synthesized ones in `audio.cpp`, missing textures to the procedural surfaces in the box shader, missing music to silence. Never use Valve/CS assets. **Owner exception (personal testing only):** the Dust map deliberately copies Dust2's layout, scale and callouts (shown as "DUST"). It is built from code (no extracted map files). (Inferno, v0.29-v0.38, was the same kind of
-   copy; removed in v0.39.) Revisit Dust before anything is shared publicly; Harbor is
-   Crisp's own map and is free to share.
+   copy; removed in v0.39.) Revisit Dust before anything is shared publicly; Harbor and
+   Summit are Crisp's own maps and are free to share.
 6. **Keep it portable to MSVC.** C++20, standard library and SDL3 only. No GCC/Clang-only extensions. Code must compile warning-clean with `-Wall -Wextra -pedantic` (Linux/GCC: CI runs it; check locally, §10) and `/W4` (MSVC).
-7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testHarbor`,
+7. **Every gameplay change needs a test.** If you change movement or weapon numbers, update or add checks in `tests/sim_tests.cpp`, and keep the printed measurements meaningful. Most tests use `buildLab()`. Don't move the Lab's geometry that the tests rely on (spawn lane y≈0, back wall x=-512, stairs, crates, peek wall, spray wall). The town tests check bot spots, routes with time windows, sightlines, holes and bot trips (`testBotGoals`, `testDustRoutes`, `testDustScales`, `testDustSightlines`, `testMapGaps`, `testOwnMap` (Harbor, Summit),
 `testSpawnsOffMid`, `testCompWays`). If you change an area table, keep those passing and look at the printed run times.
 8. **Settings belong in the config and the menu.** A new tunable gets a `Config` field, load + save in `config.cpp`, the default config text, and if player-facing a row in `menuRows()` (the right settings page) in `main.cpp`.
 
@@ -258,11 +258,12 @@ faces away (dot > 0.475); main.cpp handles the hit like a bullet's (Mouse 1 slas
 `knifeComboUntil`); fx.cpp `knifeSwing` (forehand / backhand alternate, `ViewModel::knifeAttack`); Sfx KnifeSwing,
 KnifeHit, KnifeWall; `--stab N`.
 
-**Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor; `Game::mapId` is 1 for every town map;
+**Maps** (Play screen MAP; config `map` 0 Lab, 1 Dust, 2 Harbor, 3 Summit; `Game::mapId` is 1 for every town map;
 `setTownMap(map - 1)`):
 - The Lab: range, spray wall, crates, stairs, peek wall, KZ bhop course.
-- **Town maps** (world.cpp): named floor areas on a grid (`DustArea` tables `kDustAreas`, `kHarborAreas`;
-  `TownDef kTowns`: extents, scalable, wall shades, `separate` pairs, `cell` 32 or 16, decks). `setTownMap(0|1)` picks one; every `town*`
+- **Town maps** (world.cpp): named floor areas on a grid (`DustArea` tables `kDustAreas`, `kHarborAreas`,
+  `kSummitAreas`; `TownDef kTowns`: extents, scalable, wall shades, `separate` pairs, `cell` 32 or 16, decks).
+  `setTownMap(0|1|2)` picks one; every `town*`
   function answers for it (townGrid, townPoint (real map coords → world, on the floor), townCallout, townSpawn,
   townTeamSpawns, townRetakeSites, townCtSpots, townPrefireRoutes, townPeekSpots, townTactics, buildTown). Walls,
   roofs (tunnels/doorways), trims, windows, awnings and doors are generated. `separate` keeps a wall between area
@@ -271,8 +272,18 @@ KnifeHit, KnifeWall; `--stab N`.
   setting; `setDustScale` still serves the tests' sizes and an online host's); props `anchored()` to area
   edges so they stay against walls at every size. Tests use `dpt(x, y)` (real-Dust2 coords, scaled).
 - **Harbor** (Crisp's own map, its own size): docks → raised A site, market/mid/mid doors, roofed warehouse → A short,
-  roofed underpass and alley → B with a back platform. `testHarbor` checks its 99 spots, 70 bot trips, spawn
+  roofed underpass and alley → B with a back platform. `testOwnMap(1)` checks its 101 spots, 62 bot trips, spawn
   visibility, holes and lane times.
+- **Summit** (v0.42, Crisp's second own map, its own size, `g_town == 2`): a snowy mountain village, T at the foot
+  (z 0), CT at the top (z 96). Rail yard (freight cars, decor rails) → A ramp → A site (z 128) with the A heights
+  (z 176, steps on the east wall); mid: dog-leg mid path → plaza → mid → roofed mid gate → CT mid → CT street; the
+  roofed station → A short; B: chapel lane → roofed B tunnel (a jog) → B entrance; the roofed cellar (from mid) → B
+  stairs → B balcony (a ledge over the site); B CT path / CT west. Snow caps on every wall and roof top (decor with a
+  5-unit lip), granite trims (`trimLight/trimDark`), `pine()` props, the kSSite paving (`pavedColor`). Look 3:
+  `setGrade(3)` also sets the sky shader's `uPeaks` (two ridged-noise mountain ranges round the horizon, no
+  geometry); ambience bed 3 (wind + a drifting two-pole resonator howl). Replays save it as map byte **4**
+  (`tapeMapId` / `tapeTown`: 3 was Inferno, whose old tapes stay hidden). Lineups use `mapIndex` 3 (no Inferno
+  lineups existed). `testOwnMap(2)`: 102 spots, 62 trips, lanes T→A 12.8 s, T→B 14.0 s, CT→A 5.1 s, CT→B 5.0 s.
 - **Inferno** (v0.29 generated, v0.30 rebuilt by hand) was **removed in v0.39 (owner)**: its data, tests, menu entry,
   ambience and grade are gone (git history has it: `inferno_hand.h`, `testInferno`). The engine pieces built for it stay
   (any map can use them): `TownDef::cell` (16 u grids), "WALL" carve areas, `TownDeck` walkways, `minWallTop`, the ramp
@@ -473,7 +484,7 @@ closer to that sweet steam release", my own judgement, as many credits as needed
 - [x] 1. v0.40 light and shade: light volume (AO + darker interiors), clouds, `--offscreen`
 - [x] 2. v0.41 title screen (big logo, large entries, the flyover behind)
 - [x] 3. v0.41 key rebinding (Controls page, `bind_*` config lines)
-- [ ] 4. A second original map (Dust is a Dust2 copy: can't ship)
+- [x] 4. v0.42 Summit, a second original map (Dust is a Dust2 copy: can't ship)
 
 
 **Done in v0.39** (owner, 2026-10-13): drops only in competitive / Wingman, Inferno removed, every knife draws like the
