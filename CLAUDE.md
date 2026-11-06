@@ -229,7 +229,12 @@ DeagleShot (S&W 642, 1911), BerettasShot (PPQ, Bersa); without files `kGunFallba
 shared sound). The **suppressed guns** (`suppressedFrom`, `kUspS`, `kM4A1S`)
 are built from the top of the AK recording + gas fizzle + (M4A1-S) supersonic crack + noise clacks for the action:
 <500 Hz ~1%, no tonal layers (see §9 for why). 3D audio (`spatialize`, `mixVoice`: ITD up to 0.65 ms, head shadow,
-behind/below darker, above brighter, occlusion via `setOcclusion` with two rays: muffled, -10 dB). Menu music
+behind/below darker, above brighter; `setRoute`: main.cpp's route fn (Lab: two rays, muffled, -10 dB; towns:
+`g_soundField`, world.cpp `SoundField::route`, v0.43: a Dijkstra field from your cell over the open grid cells, rebuilt
+when you change cell; a blocked sound is heard from the first cell on its way down the field you can see
+(`heardFrom`, cached per cell), at the path's length, unless through the wall is louder (`reach` at 4000); roofed source
+cells send 1.8x to the echo); play3D adds air absorption and more echo send with distance (`Voice::send`, `roomBuf_`
+into the reverb) and a `delay` (gunshot3D's far-shot slapback in the open). `testSoundRoutes`). Menu music
 (`loadMusic` on a thread, `setMusic` fades, `music_volume`; plays while `g_menu.root == kMenuMain`). Impacts by
 material, helmet tink, near-miss whiz. Your hit feedback (v0.39, owner): only a kill makes a sound,
 `Sfx::HitMarker` (the "dink") or `Sfx::HeadshotKill` (crack + double ring) for a headshot kill; non-kill hits play only

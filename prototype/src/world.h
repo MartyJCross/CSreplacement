@@ -171,6 +171,32 @@ struct PrefireRoute {
 };
 const std::vector<PrefireRoute>& townPrefireRoutes();
 
+// How a sound reaches your ears on a town map (v0.43): straight if nothing's in the way; otherwise the way you could
+// walk (round corners, through doorways: heard from the last open spot on that way you can see, as far off as the way
+// is long), or straight through the walls (muffled) if that's louder. A distance field from your cell over the map's
+// open cells, rebuilt when you move to another cell or the map changes.
+struct SoundHeard {
+    Vec3 from;          // where it seems to come from
+    float distance = 0;  // how far the sound travelled
+    float occ = 0;       // 0 clear .. 1 behind walls (muffled)
+    float send = 1;      // echo send: more from a roofed place (a tunnel, a room)
+};
+class SoundField {
+public:
+    SoundHeard route(const World& w, const MapGrid& m, const Vec3& ear, const Vec3& source);
+    float pathTo(int cell) const { return cell >= 0 && size_t(cell) < dist_.size() ? dist_[size_t(cell)] : 1e9f; }
+
+private:
+    void build(const MapGrid& m, int from);
+    int heardFrom(const World& w, const MapGrid& m, int cell, const Vec3& ear);
+    std::vector<float> dist_;  // walking distance from your cell (1e9 = can't get there)
+    std::vector<int> via_;     // per cell: the open cell it's heard from (-1 not worked out yet, -2 none)
+    std::vector<std::pair<float, int>> heap_;
+    int cell_ = -1, w_ = 0, h_ = 0;
+    float x0_ = 0, y0_ = 0, size_ = 0;
+    size_t solids_ = 0;
+};
+
 // KZ / bhop course (behind the spray wall): start pad, lava floor, pads, end pad.
 constexpr float kKzMinY = -880.0f, kKzMaxY = -580.0f;
 constexpr float kKzStartMinX = 720.0f, kKzStartMaxX = 848.0f;  // start pad

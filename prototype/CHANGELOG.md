@@ -3,6 +3,20 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.43: hearing where things are
+
+- **Sound goes round corners.** On the town maps a shot or a footstep behind a wall now reaches you the way you could
+  walk: through the doorway, round the corner, along the tunnel. It's heard from the opening it comes through and as
+  far off as that way is long, clear instead of muffled, so you can tell which door someone is behind. Only when the
+  way round is much longer than straight through (the other side of the map) does it come through the walls, muffled,
+  as before.
+- **Distance you can hear:** far away the air takes the highs, and more of what reaches you is the echo, so a fight
+  across the map sounds far off even in the open.
+- **The room a sound is in:** shots and steps in tunnels, the cellar, the station and doorways ring with more echo,
+  wherever you hear them from.
+- **Far shots in the open come back:** a quieter, duller copy a moment later off the buildings, from another direction.
+- Your own shots and the UI are unchanged. The Lab keeps straight-line sound.
+
 ## v0.42: Summit, a new map
 
 - **SUMMIT**, Crisp's second map of its own (MAP SUMMIT in every mode; `map summit` in the console): a mountain

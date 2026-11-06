@@ -931,7 +931,7 @@ bool Audio::dumpSpatial(const std::string& dir, const std::string& assetDir) {
         v.hiL = sp.hiL;
         v.hiR = sp.hiR;
         std::vector<float> out((snd.size() + 64) * 2, 0.0f);
-        mixVoice(v, snd, out.data(), int(out.size() / 2));
+        mixVoice(v, snd, out.data(), nullptr, 0.0f, int(out.size() / 2));
         std::ofstream f(dir + "/spatial_" + c.name + ".wav", std::ios::binary);
         if (!f) return false;
         auto u32 = [&](uint32_t x) { f.write(reinterpret_cast<const char*>(&x), 4); };
@@ -1105,6 +1105,7 @@ bool Audio::init(float masterVolume, const std::string& assetDir) {
     pending_.reserve(kMaxVoices);
     mixBuf_.resize(4096 * 2);
     wetBuf_.resize(4096 * 2);
+    roomBuf_.resize(4096 * 2);
     reverb_.init();
     for (int k = 1; k < 4; ++k) amb_[k] = ambienceBed(k);
     SDL_AudioSpec spec{SDL_AUDIO_F32, 2, kRate};
@@ -1179,7 +1180,8 @@ bool dryCue(Sfx s) {
 }
 }  // namespace
 
-void Audio::start(Sfx s, float gain, float pan, float pitch, float delayL, float delayR, float splitHz, float hiL, float hiR) {
+void Audio::start(Sfx s, float gain, float pan, float pitch, float delayL, float delayR, float splitHz, float hiL, float hiR,
+                  float send, float delay) {
     if (!stream_ || gain <= 0.001f) return;
     // Pick a variant (not the one we just played) and nudge pitch +-2.5% and volume +-1 dB.
     size_t id = size_t(s);
@@ -1197,19 +1199,27 @@ void Audio::start(Sfx s, float gain, float pan, float pitch, float delayL, float
     voice.hiL = hiL;
     voice.hiR = hiR;
     voice.wet = !dryCue(s);
+    voice.send = std::max(1.0f, send);
+    voice.pos = -double(delay) * kRate * double(pitch);  // (silent until then)
     std::lock_guard<std::mutex> lock(mutex_);
     if (pending_.size() < kMaxVoices) pending_.push_back(voice);
 }
 
 void Audio::play3D(Sfx s, const Vec3& pos, const Vec3& listener, float listenerYawDeg, float maxDist, float gain,
-                   float pitch) {
-    const float dist = length(pos - listener);
-    if (dist >= maxDist) return;
-    float falloff = 1.0f - dist / maxDist;
+                   float pitch, float delay) {
+    Route r{pos, length(pos - listener)};
+    if (route_) route_(routeCtx_, listener, pos, r);
+    if (r.distance >= maxDist) return;
+    float falloff = 1.0f - r.distance / maxDist;
     falloff *= falloff;
-    const float occ = occlusion_ ? occlusion_(occlusionCtx_, listener, pos) : 0.0f;
-    const Spatial sp = spatialize(pos - listener, listenerYawDeg, occ);
-    start(s, gain * falloff * sp.gain, sp.pan, pitch, sp.delayL, sp.delayR, sp.splitHz, sp.hiL, sp.hiR);
+    Spatial sp = spatialize(r.from - listener, listenerYawDeg, r.occ);
+    // The air: far off the highs fade, so a fight across the map sounds far away even in the open; and more of what
+    // reaches you is the echo.
+    const float air = 1.0f - 0.45f * std::clamp((r.distance - 600.0f) / 3000.0f, 0.0f, 1.0f);
+    sp.hiL *= air;
+    sp.hiR *= air;
+    const float send = r.send * (1.0f + 0.9f * std::clamp(r.distance / 3000.0f, 0.0f, 1.0f));
+    start(s, gain * falloff * sp.gain, sp.pan, pitch, sp.delayL, sp.delayR, sp.splitHz, sp.hiL, sp.hiR, send, delay);
 }
 
 void SDLCALL Audio::callback(void* user, SDL_AudioStream* stream, int additional, int) {
@@ -1226,7 +1236,7 @@ void SDLCALL Audio::callback(void* user, SDL_AudioStream* stream, int additional
     }
 }
 
-void Audio::mixVoice(Voice& v, const std::vector<float>& snd, float* out, int frames) {
+void Audio::mixVoice(Voice& v, const std::vector<float>& snd, float* out, float* extra, float extraGain, int frames) {
     const double last = double(snd.size() - 1);
     auto at = [&](double p) {
         if (p < 0 || p >= last) return 0.0f;
@@ -1236,16 +1246,23 @@ void Audio::mixVoice(Voice& v, const std::vector<float>& snd, float* out, int fr
     };
     const bool plain = v.delayL == 0 && v.delayR == 0 && v.hiL == 1 && v.hiR == 1;
     for (int i = 0; i < frames && v.pos < last + double(std::max(v.delayL, v.delayR)); ++i) {
+        float sl, sr;
         if (plain) {
             const float smp = at(v.pos);
-            out[i * 2] += smp * v.gl;
-            out[i * 2 + 1] += smp * v.gr;
+            sl = smp * v.gl;
+            sr = smp * v.gr;
         } else {  // each ear: its own delay, and its highs kept by `hi` above the split
             const float l = at(v.pos - double(v.delayL)), r = at(v.pos - double(v.delayR));
             v.lpL += v.split * (l - v.lpL);
             v.lpR += v.split * (r - v.lpR);
-            out[i * 2] += (v.lpL + (l - v.lpL) * v.hiL) * v.gl;
-            out[i * 2 + 1] += (v.lpR + (r - v.lpR) * v.hiR) * v.gr;
+            sl = (v.lpL + (l - v.lpL) * v.hiL) * v.gl;
+            sr = (v.lpR + (r - v.lpR) * v.hiR) * v.gr;
+        }
+        out[i * 2] += sl;
+        out[i * 2 + 1] += sr;
+        if (extra) {
+            extra[i * 2] += sl * extraGain;
+            extra[i * 2 + 1] += sr * extraGain;
         }
         v.pos += v.rate;
     }
@@ -1291,10 +1308,18 @@ void Audio::mix(float* out, int frames) {
     }
     if (int(voices_.size()) > peakVoices_) peakVoices_ = int(voices_.size());
     // Game sounds go through the room echo too; the UI's cues don't.
+    // (Far sounds and those from roofed places send extra into the echo: roomBuf_.)
     std::fill(wetBuf_.begin(), wetBuf_.begin() + frames * 2, 0.0f);
-    for (Voice& v : voices_) mixVoice(v, sounds_[size_t(v.sound)], v.wet ? wetBuf_.data() : out, frames);
-    for (int i = 0; i < frames * 2; ++i) out[i] += wetBuf_[size_t(i)];
-    reverb_.process(wetBuf_.data(), out, frames, roomWet_, 0.62f + 0.22f * std::clamp(float(roomSize_), 0.0f, 1.0f));
+    std::fill(roomBuf_.begin(), roomBuf_.begin() + frames * 2, 0.0f);
+    for (Voice& v : voices_) {
+        const bool extra = v.wet && v.send > 1.0f;
+        mixVoice(v, sounds_[size_t(v.sound)], v.wet ? wetBuf_.data() : out, extra ? roomBuf_.data() : nullptr, v.send - 1.0f, frames);
+    }
+    for (int i = 0; i < frames * 2; ++i) {
+        out[i] += wetBuf_[size_t(i)];
+        roomBuf_[size_t(i)] += wetBuf_[size_t(i)];
+    }
+    reverb_.process(roomBuf_.data(), out, frames, roomWet_, 0.62f + 0.22f * std::clamp(float(roomSize_), 0.0f, 1.0f));
     voices_.erase(std::remove_if(voices_.begin(), voices_.end(),
                                  [&](const Voice& v) {
                                      return v.pos >= double(sounds_[size_t(v.sound)].size() - 1) + double(std::max(v.delayL, v.delayR));

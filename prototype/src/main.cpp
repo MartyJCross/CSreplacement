@@ -121,6 +121,7 @@ bool g_watchingTape = false;
 MatchInfo g_watchInfo;
 std::vector<MatchEvent> g_watchEvents;
 LineupBook g_lineups;
+SoundField g_soundField;  // how sounds reach you round corners (v0.43; main thread, from Audio's route)
 std::string g_lineupPath;
 int g_lineupAt = -1;
 double g_lineupShownAt = -100.0;
@@ -664,6 +665,21 @@ void gunshot3D(Game& g, int w, const Vec3& at, const Vec3& ear, float earYaw, fl
     const bool far = !suppressedGun(w) && length(at - ear) > 1400.0f;
     g.audio->play3D(far ? Sfx::RifleShotFar : gs.sfx, at, ear, earYaw, suppressedGun(w) ? 2200.0f : far ? 6500.0f : 4000.0f,
                     far ? gain * 1.2f : gain, gs.pitch);
+    // Far off in the open the shot comes back a moment later off the buildings, from somewhere else round you (not from
+    // a tunnel or room: their own echo carries it).
+    bool open = false;
+    if (far && g.mapId == 1) {
+        const MapGrid& m = townGrid();
+        int ci, cj;
+        open = m.cellAt(at.x, at.y, ci, cj) && m.ceiling[size_t(m.index(ci, cj))] >= MapGrid::kOpenSky;
+    }
+    if (open) {
+        const Vec3 d = at - ear;
+        const float turn = (int(std::floor(at.x * 0.01f + at.y * 0.013f)) & 1) ? 0.7f : -0.7f;
+        const float c = std::cos(turn), s = std::sin(turn);
+        const Vec3 echo = ear + Vec3{d.x * c - d.y * s, d.x * s + d.y * c, d.z};
+        g.audio->play3D(Sfx::RifleShotFar, echo, ear, earYaw, 6500.0f, gain * 0.4f, gs.pitch * 0.97f, 0.14f + length(d) / 40000.0f);
+    }
 }
 
 // A gun as players hold it (and as it lies on the floor when dropped): boxes in the holder's space (x forward is
@@ -7576,15 +7592,20 @@ int main(int argc, char** argv) {
     if ((!automated || bench) && SDL_InitSubSystem(SDL_INIT_AUDIO) && audio.init(std::clamp(cfg.volume, 0.0f, 1.0f), std::string(base ? base : "") + "assets/sounds")) {
         g.audio = &audio;
         std::fprintf(stderr, "sounds: %d replaced by recordings from assets, the rest synthesized\n", audio.loadedFromAssets());
-        // Sounds through walls are muffled: two rays from your head to the sound (low and high on it); each one a
-        // wall stops counts half.
-        audio.setOcclusion(
-            [](const void* ctx, const Vec3& from, const Vec3& to) {
-                const World& w = static_cast<const Game*>(ctx)->world;
-                float occ = 0;
+        // How a sound reaches you: on the town maps round corners and through doorways (g_soundField, v0.43); in the
+        // Lab straight, muffled through walls (two rays from your head to the sound, low and high on it; each one a
+        // wall stops counts half).
+        audio.setRoute(
+            [](const void* ctx, const Vec3& ear, const Vec3& src, Audio::Route& r) {
+                const Game& gm = *static_cast<const Game*>(ctx);
+                if (gm.mapId == 1) {
+                    const SoundHeard h = g_soundField.route(gm.world, townGrid(), ear, src);
+                    r = {h.from, h.distance, h.occ, h.send};
+                    return;
+                }
+                r = {src, length(src - ear), 0.0f, 1.0f};
                 for (float up : {12.0f, 50.0f})
-                    if (w.traceRay(from, to + Vec3{0, 0, up}).fraction < 0.98f) occ += 0.5f;
-                return occ;
+                    if (gm.world.traceRay(ear, src + Vec3{0, 0, up}).fraction < 0.98f) r.occ += 0.5f;
             },
             &g);
     }

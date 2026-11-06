@@ -2439,6 +2439,42 @@ void testDustRoutes() {
     }
 }
 
+// Sound round corners (v0.43), on Summit: a shot in mid heard from CT mid comes through the mid gate (not muffled
+// through the wall), one from T spawn heard at CT spawn still comes through the walls (the way round is far too long),
+// one in the open in plain sight is straight, and one in the cellar sends more to the echo.
+void testSoundRoutes() {
+    std::printf("sound routes\n");
+    setTownMap(2);
+    const World w = buildTown();
+    SoundField f;
+    const Vec3 eye{0, 0, kStandEye};
+    auto heard = [&](float lx, float ly, float sx, float sy) {
+        return f.route(w, townGrid(), townPoint(lx, ly) + eye, townPoint(sx, sy) + Vec3{0, 0, 40});
+    };
+    {
+        const Vec3 ear = townPoint(300, 700) + eye, gate = townPoint(16, 430) + eye;
+        const SoundHeard h = heard(300, 700, 0, -50);
+        const Vec3 a = normalize(Vec3{h.from.x - ear.x, h.from.y - ear.y, 0}), b = normalize(Vec3{gate.x - ear.x, gate.y - ear.y, 0});
+        const float off = std::acos(std::clamp(dot(a, b), -1.0f, 1.0f)) / kDegToRad;
+        std::printf("  mid -> CT mid: %.0f units (straight %.0f), muffled %.2f, %.0f deg off the gate\n", double(h.distance),
+                    double(length(townPoint(0, -50) - townPoint(300, 700))), double(h.occ), double(off));
+        CHECK(h.occ < 0.5f && off < 20.0f, "mid -> CT mid: occ %.2f, %.0f deg off the gate", double(h.occ), double(off));
+    }
+    {
+        const SoundHeard h = heard(0, 1650, 100, -1500);
+        std::printf("  T spawn -> CT spawn: muffled %.2f (through the walls)\n", double(h.occ));
+        CHECK(h.occ >= 1.0f, "T spawn -> CT spawn: occ %.2f", double(h.occ));
+    }
+    {
+        const SoundHeard h = heard(0, -900, 0, -600);
+        CHECK(h.occ == 0.0f && length(h.from - (townPoint(0, -600) + Vec3{0, 0, 40})) < 1.0f, "plaza: occ %.2f", double(h.occ));
+        const SoundHeard cellar = heard(0, -300, -550, 0);
+        std::printf("  in sight: clear; from the cellar: echo send %.1f\n", double(cellar.send));
+        CHECK(cellar.send > 1.5f, "cellar send %.1f", double(cellar.send));
+    }
+    setTownMap(0);
+}
+
 // Crisp's own maps (Harbor, Summit): every bot spot is standing room the bots can walk to from both spawns, the
 // spawns can't see each other, it has no holes, and the lanes take sensible times.
 struct Leg { const char* a; Vec3 from; const char* b; Vec3 to; float minS, maxS; };
@@ -2843,6 +2879,7 @@ int main() {
     testMatchTape();
     testOwnMap(1);
     testOwnMap(2);
+    testSoundRoutes();
     testReplay();
     testBotCover();
     testBotsFightEachOther();

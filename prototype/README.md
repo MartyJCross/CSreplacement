@@ -451,7 +451,10 @@ Sounds come from where they are, the way two ears hear them (not a measured HRTF
 - **Left and right:** the far ear hears it a fraction of a millisecond later (up to 0.65 ms) and duller, with the head in the way, as well as quieter.
 - **Behind you:** duller and a little quieter than in front.
 - **Above and below:** below is darker and a touch quieter, above brighter, when it's really on another level (catwalk over mid, the pit, the tunnels' stairs).
-- **Through walls:** muffled (most of the top end gone) and about 10 dB quieter, like CS. Two rays from your head to the sound decide how blocked it is.
+- **Round corners** (v0.43, the town maps): a sound with a wall in the way reaches you the way you could walk, through doorways and round corners, and is heard from the last opening on that way you can see, as far off as the way is long. You hear which door someone is behind.
+- **Through walls:** when the way round is much longer (or there is none), muffled (most of the top end gone) and about 10 dB quieter, like CS. Two rays from your head to the sound decide how blocked it is.
+- **Distance:** far off the air takes the highs and more of it is echo; far shots in the open come back off the buildings a moment later.
+- **The room it's in:** sounds from tunnels, rooms and doorways ring with more echo wherever you hear them.
 
 `crisp.exe --dump-spatial <folder>` renders a footstep from each direction to stereo WAVs. Measured: a step on your left reaches the right ear 0.67 ms later with 62% of its highs against 75%; behind 68%; above 79%; below 66%; through a wall 49% and 10 dB down.
 

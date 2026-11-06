@@ -47,12 +47,15 @@ public:
     // Positional, relative to the listener (eye position + yaw): distance falloff, and where it is, the way ears
     // hear it: the far ear a fraction of a millisecond later and duller (head shadow), from behind duller still,
     // from below darker and from above brighter, and muffled through walls (the occlusion test, if set).
+    // Far away the air takes the highs and more of it is echo. `delay`: starts that many seconds late (an echo).
     void play3D(Sfx s, const Vec3& pos, const Vec3& listener, float listenerYawDeg, float maxDist, float gain = 1.0f,
-                float pitch = 1.0f);
-    // How blocked the way from the listener to a sound is, 0 (clear) .. 1 (behind walls). Called on the main
-    // thread from play3D.
-    using OcclusionFn = float (*)(const void* ctx, const Vec3& listener, const Vec3& source);
-    void setOcclusion(OcclusionFn fn, const void* ctx) { occlusion_ = fn; occlusionCtx_ = ctx; }
+                float pitch = 1.0f, float delay = 0.0f);
+    // How a sound gets from `source` to the listener (called on the main thread from play3D): where it seems to come
+    // from, how far it travelled, how muffled it is (0 clear .. 1 behind walls) and how much of it goes to the echo
+    // (1 normal, more from a roofed place). Without one: straight, clear.
+    struct Route { Vec3 from; float distance = 0, occ = 0, send = 1; };
+    using RouteFn = void (*)(const void* ctx, const Vec3& listener, const Vec3& source, Route& out);
+    void setRoute(RouteFn fn, const void* ctx) { route_ = fn; routeCtx_ = ctx; }
 
     // Dev aid: writes every synthesized sound (each variant) as a 16-bit WAV into `dir`; with `assetDir`,
     // what the game really plays (recordings swapped in).
@@ -91,6 +94,7 @@ private:
         float delayL = 0, delayR = 0, split = 0, hiL = 1, hiR = 1;
         float lpL = 0, lpR = 0;
         bool wet = true;  // goes through the room echo (UI cues and your own ears' ringing don't)
+        float send = 1;   // how much: more from far away and from roofed places
     };
     // The room echo (audio thread): Freeverb's shape, small: 4 damped combs and 2 allpasses per ear.
     struct Reverb {
@@ -113,7 +117,8 @@ private:
     size_t ambPos_ = 0;
     static void SDLCALL callback(void* user, SDL_AudioStream* stream, int additional, int total);
     void mix(float* out, int frames);
-    static void mixVoice(Voice& v, const std::vector<float>& snd, float* out, int frames);
+    // Into `out`; with `extra`, also `extraGain` of it there (the echo's extra send).
+    static void mixVoice(Voice& v, const std::vector<float>& snd, float* out, float* extra, float extraGain, int frames);
     float rand01();  // main-thread only (cosmetic variation)
 
     SDL_AudioStream* stream_ = nullptr;
@@ -133,8 +138,9 @@ private:
     float musicGain_ = 0;                // audio thread only
     size_t musicPos_ = 0;                // frames, audio thread only
     std::thread musicLoader_;
-    OcclusionFn occlusion_ = nullptr;
-    const void* occlusionCtx_ = nullptr;
-    void start(Sfx s, float gain, float pan, float pitch, float delayL, float delayR, float splitHz, float hiL, float hiR);
+    RouteFn route_ = nullptr;
+    const void* routeCtx_ = nullptr;
+    void start(Sfx s, float gain, float pan, float pitch, float delayL, float delayR, float splitHz, float hiL, float hiR,
+               float send = 1.0f, float delay = 0.0f);
     uint32_t rng_ = 0x51ED270Bu;
 };

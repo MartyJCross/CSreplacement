@@ -1681,6 +1681,105 @@ const std::vector<PeekSpot>& townPeekSpots() {
     return spots;
 }
 
+void SoundField::build(const MapGrid& m, int from) {
+    dist_.assign(m.floor.size(), 1e9f);
+    via_.assign(m.floor.size(), -1);
+    heap_.clear();
+    auto later = [](const std::pair<float, int>& a, const std::pair<float, int>& b) { return a.first > b.first; };
+    dist_[size_t(from)] = 0;
+    heap_.push_back({0.0f, from});
+    static const int di[8] = {1, -1, 0, 0, 1, 1, -1, -1}, dj[8] = {0, 0, 1, -1, 1, -1, 1, -1};
+    while (!heap_.empty()) {
+        std::pop_heap(heap_.begin(), heap_.end(), later);
+        const auto [d, c] = heap_.back();
+        heap_.pop_back();
+        if (d > dist_[size_t(c)]) continue;
+        const int i = c % m.w, j = c / m.w;
+        for (int k = 0; k < 8; ++k) {
+            const int ni = i + di[k], nj = j + dj[k];
+            if (!m.walkable(ni, nj)) continue;
+            if (k >= 4 && (!m.walkable(ni, j) || !m.walkable(i, nj))) continue;  // (no cutting a wall's corner)
+            const float nd = d + (k < 4 ? 1.0f : 1.4142f) * m.cell;
+            const size_t nc = size_t(m.index(ni, nj));
+            if (nd >= dist_[nc]) continue;
+            dist_[nc] = nd;
+            heap_.push_back({nd, int(nc)});
+            std::push_heap(heap_.begin(), heap_.end(), later);
+        }
+    }
+}
+
+int SoundField::heardFrom(const World& w, const MapGrid& m, int cell, const Vec3& ear) {
+    if (via_[size_t(cell)] != -1) return via_[size_t(cell)];
+    static const int di[8] = {1, -1, 0, 0, 1, 1, -1, -1}, dj[8] = {0, 0, 1, -1, 1, -1, 1, -1};
+    int c = cell, found = -2;
+    // Down the field towards you, cell by cell, until one is in sight of your head.
+    for (int step = 0; step < 96 && c != cell_; ++step) {
+        int best = c;
+        const int i = c % m.w, j = c / m.w;
+        for (int k = 0; k < 8; ++k) {
+            const int ni = i + di[k], nj = j + dj[k];
+            if (m.walkable(ni, nj) && dist_[size_t(m.index(ni, nj))] < dist_[size_t(best)]) best = m.index(ni, nj);
+        }
+        if (best == c) break;
+        c = best;
+        if (via_[size_t(c)] != -1) {  // (worked out already for a sound further back)
+            found = via_[size_t(c)];
+            break;
+        }
+        if (c == cell_) break;
+        if (step % 2 == 1 || dist_[size_t(c)] < 6.0f * m.cell) {
+            const Vec3 q = m.center(c % m.w, c / m.w) + Vec3{0, 0, 48};
+            if (w.traceRay(ear, q).fraction >= 0.98f) {
+                found = c;
+                break;
+            }
+        }
+    }
+    via_[size_t(cell)] = found;
+    return found;
+}
+
+SoundHeard SoundField::route(const World& w, const MapGrid& m, const Vec3& ear, const Vec3& source) {
+    SoundHeard r{source, length(source - ear), 0.0f, 1.0f};
+    for (float up : {12.0f, 50.0f})  // two rays, low and high on it: each one a wall stops counts half
+        if (w.traceRay(ear, source + Vec3{0, 0, up}).fraction < 0.98f) r.occ += 0.5f;
+    int si, sj, li, lj;
+    if (!m.cellAt(source.x, source.y, si, sj) || !m.cellAt(ear.x, ear.y, li, lj)) return r;
+    const int sc = m.index(si, sj), lc = m.index(li, lj);
+    if (m.ceiling.size() == m.floor.size() && m.ceiling[size_t(sc)] < MapGrid::kOpenSky) r.send = 1.8f;
+    if (r.occ < 1.0f || !m.walkable(li, lj) || !m.walkable(si, sj)) return r;
+    if (lc != cell_ || m.w != w_ || m.h != h_ || m.x0 != x0_ || m.y0 != y0_ || m.cell != size_ || w.solids.size() != solids_) {
+        cell_ = lc;
+        w_ = m.w;
+        h_ = m.h;
+        x0_ = m.x0;
+        y0_ = m.y0;
+        size_ = m.cell;
+        solids_ = w.solids.size();
+        build(m, lc);
+    }
+    const float path = std::max(dist_[size_t(sc)], r.distance);
+    if (path >= 1e8f) return r;
+    const int via = heardFrom(w, m, sc, ear);
+    if (via < 0) return r;
+    // Round the corner or through the wall, whichever is louder (at a gunshot's reach: through a wall is about 0.7 as
+    // loud and muffled, worth less again).
+    auto reach = [](float d) {
+        const float f = std::max(0.0f, 1.0f - d / 4000.0f);
+        return f * f;
+    };
+    if (reach(path) * 0.9f < reach(r.distance) * 0.45f) return r;
+    const Vec3 at = m.center(via % m.w, via / m.w) + Vec3{0, 0, 40};
+    const Vec3 d = at - ear;
+    const float len = length(d);
+    if (len < 1.0f) return r;
+    r.from = ear + d * (path / len);
+    r.distance = path;
+    r.occ = std::clamp((path - length(source - ear)) / 1500.0f, 0.0f, 0.35f);  // a little duller for the bends
+    return r;
+}
+
 World buildLab() {
     World w;
     auto add = [&](Vec3 mn, Vec3 mx, uint32_t color) { w.solids.push_back({mn, mx, color}); };
