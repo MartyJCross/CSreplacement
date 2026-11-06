@@ -2466,8 +2466,8 @@ void testSoundRoutes() {
         CHECK(h.occ >= 1.0f, "T spawn -> CT spawn: occ %.2f", double(h.occ));
     }
     {
-        const SoundHeard h = heard(0, -900, 0, -600);
-        CHECK(h.occ == 0.0f && length(h.from - (townPoint(0, -600) + Vec3{0, 0, 40})) < 1.0f, "plaza: occ %.2f", double(h.occ));
+        const SoundHeard h = heard(200, -900, 200, -600);  // (beside the fountain, not through its column)
+        CHECK(h.occ == 0.0f && length(h.from - (townPoint(200, -600) + Vec3{0, 0, 40})) < 1.0f, "plaza: occ %.2f", double(h.occ));
         const SoundHeard cellar = heard(0, -300, -550, 0);
         std::printf("  in sight: clear; from the cellar: echo send %.1f\n", double(cellar.send));
         CHECK(cellar.send > 1.5f, "cellar send %.1f", double(cellar.send));

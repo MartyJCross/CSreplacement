@@ -482,7 +482,7 @@ replay viewer, from the start, through your eyes:
 ## Stats and rating
 
 Every finished deathmatch or competitive match against bots goes into your **career** (`stats.txt` next to the game):
-- **Rating:** like Elo against the bots. A bot level counts as a rating (easy 700, normal 950, hard 1200, expert 1450), so beating better bots earns more and losing to worse ones costs more. Competitive: a win is 1, a draw a half, a loss 0; deathmatch: your place by kills (1st of 9 is a win, last a loss). Ranks every 125: RECRUIT, PRIVATE, CORPORAL, SERGEANT, LIEUTENANT, CAPTAIN, MAJOR, COLONEL, GENERAL.
+- **Rating:** like Elo against the bots. A bot level counts as a rating (easy 700, normal 950, hard 1200, expert 1450), so beating better bots earns more and losing to worse ones costs more. Competitive: a win is 1, a draw a half, a loss 0; deathmatch: your place by kills (1st of 9 is a win, last a loss). Ranks every 125: RECRUIT, PRIVATE, CORPORAL, SERGEANT, LIEUTENANT, CAPTAIN, MAJOR, COLONEL, GENERAL. At the end of a match a bar shows your rank filling (or draining) from your old rating to the new one, the next rank, and RANK UP / DOWN when you cross one (v0.46).
 - **The results screen** shows the change, e.g. +16 RATING 1046 CORPORAL.
 - **STATS** (main menu and pause menu): your rating and rank, a graph of it over your last 40 matches, totals (matches, wins, K/D, HS%, ADR) and your last matches with their result and rating change.
 

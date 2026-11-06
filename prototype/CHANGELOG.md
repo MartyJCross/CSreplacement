@@ -3,6 +3,13 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.46: your rank on the result screen
+
+- **A rank bar at the end of a match** (competitive and deathmatch vs bots): your rank and rating over a bar from
+  that rank to the next, which fills (gold) or drains (red) from your old rating to the new one, the change, the next
+  rank and its rating, and RANK UP / RANK DOWN when you cross a line. It replaces the plain rating line; the
+  scoreboard and your own stats line stay as they were.
+
 ## v0.45: snow on Summit
 
 - **It snows on Summit:** light flakes drifting down and with the wind all round you, never under a roof (the tunnel,

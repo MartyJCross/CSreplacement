@@ -402,7 +402,9 @@ the sim. `loadMap` clears it all.
 
 **Stats** (`stats.*`; `g_career`, `recordMatch`, `recordDeathmatch`; `kMenuStats`, `drawStatsPanel`): finished offline
 DM/competitive matches vs bots → stats.txt; rating = Elo vs the bot level (easy 700 .. expert 1450), ranks RECRUIT ..
-GENERAL; career ADR counts competitive only.
+GENERAL; career ADR counts competitive only. The result screens' rank bar (v0.46): `drawRankBar` (main.cpp, after
+`recordMatch`, which sets `g_ratingFrom/To/At`), animated on `g_uiTime`; the competitive final panel starts at 196*s
+to leave it room, the deathmatch one is 3 rows taller.
 
 **Console** (v0.33, owner): `~` (SDL_SCANCODE_GRAVE) toggles `g_console` over anything; typed text comes from
 SDL_EVENT_TEXT_INPUT (SDL_StartTextInput while open); the game's keys/mouse are off (`inputBlocked`) but it keeps

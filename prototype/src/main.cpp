@@ -4258,6 +4258,9 @@ double g_uiTime = 0;      // real seconds (menus animate while the game is pause
 Career g_career;
 std::string g_careerPath;    // empty in automated runs: tests never touch your stats
 std::string g_ratingNote;    // shown on the result screen: "+16 RATING   1046   CORPORAL"
+// The result screen's rank bar (v0.46): the rating it fills from and to, and when the match was recorded (-1 none).
+int g_ratingFrom = 0, g_ratingTo = 0;
+double g_ratingAt = -1;
 
 std::string nowText() {
     const std::time_t t = std::time(nullptr);
@@ -4276,6 +4279,7 @@ std::string nowText() {
 // and the rating change, saved straight away.
 void recordMatch(Game& g, float score, const std::string& result) {
     g_ratingNote.clear();
+    g_ratingAt = -1;
     if (g.online || g.mapId != 1 || (g.mode != 1 && g.mode != 3)) return;
     MatchRecord m;
     m.mode = g.mode;
@@ -4295,6 +4299,41 @@ void recordMatch(Game& g, float score, const std::string& result) {
     const int d = r.ratingAfter - r.ratingBefore;
     std::snprintf(buf, sizeof(buf), "%s%d RATING   %d   %s", d >= 0 ? "+" : "", d, r.ratingAfter, rankName(r.ratingAfter));
     g_ratingNote = buf;
+    g_ratingFrom = r.ratingBefore;
+    g_ratingTo = r.ratingAfter;
+    g_ratingAt = g_uiTime;
+}
+
+// The result screen's rank bar (v0.46), centred on cx from y down: your rank, a bar from its floor to the next rank
+// that fills (or drains) from your old rating to the new one over a second and a half, the change, and RANK UP / DOWN
+// when it crosses a line. Ranks every 125 from 700 (stats.cpp rankName).
+void drawRankBar(HudBatch& hud, float cx, float y, int s) {
+    if (g_ratingAt < 0) return;
+    const float t = std::clamp(float(g_uiTime - g_ratingAt - 0.5) / 1.5f, 0.0f, 1.0f), e = 1.0f - (1.0f - t) * (1.0f - t);
+    const float shown = float(g_ratingFrom) + float(g_ratingTo - g_ratingFrom) * e;
+    const int step = std::clamp((int(shown) - 700) / 125, 0, 8);
+    const float lo = 700.0f + 125.0f * float(step), k = step == 8 ? 1.0f : std::clamp((shown - lo) / 125.0f, 0.0f, 1.0f);
+    const float bw = 260.0f * float(s), bh = 7.0f * float(s), x = cx - bw / 2;
+    const bool up = g_ratingTo >= g_ratingFrom;
+    const char* now = rankName(int(shown));
+    hud.text(x, y, now, 0xFFFFFFFF, s * 2);
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%d", int(std::lround(shown)));
+    hud.text(x + bw - hud.textWidth(buf, s * 2), y, buf, 0xFFFFFFFF, s * 2);
+    const float by = y + 20.0f * float(s);
+    hud.rect(x, by, bw, bh, 0x000000B0);
+    hud.rect(x, by, bw * k, bh, up ? 0xFFD060FF : 0xFF6A5AFF);
+    const int d = g_ratingTo - g_ratingFrom;
+    std::snprintf(buf, sizeof(buf), "%s%d", d >= 0 ? "+" : "", d);
+    hud.text(cx - hud.textWidth(buf) / 2, by + bh + 4.0f * float(s), buf, up ? 0xFFD060FF : 0xFF6A5AFF);
+    if (step < 8) {
+        std::snprintf(buf, sizeof(buf), "NEXT  %s  %d", rankName(int(lo) + 125), int(lo) + 125);
+        hud.text(x + bw - hud.textWidth(buf), by + bh + 4.0f * float(s), buf, 0xA0A0A0FF);
+    }
+    if (t >= 1.0f && std::strcmp(rankName(g_ratingFrom), rankName(g_ratingTo)) != 0) {
+        const char* what = up ? "RANK UP" : "RANK DOWN";
+        hud.text(x, by + bh + 4.0f * float(s), what, up ? 0x70E070FF : 0xFF6A5AFF);
+    }
 }
 
 // Deathmatch over: your place among everyone by kills (1st of 9 = 1.0, last = 0).
@@ -7138,8 +7177,8 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         // Scoreboard (Tab), and the results screen at the end of a deathmatch. Sorted by kills.
         // ADR = damage per round (retakes) or per life (deathmatch).
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
-        float rowH = 11.0f * s, panelW = 76.0f * 6 * s, panelH = rowH * float(g.bots.size() + 7);
-        float px = cx - panelW / 2, py = g.mode == 3 && g.comp.phase == 3 ? 150.0f * s : cy - panelH / 2 - 40.0f * s;
+        float rowH = 11.0f * s, panelW = 76.0f * 6 * s, panelH = rowH * float(g.bots.size() + (g.dmOverUntil >= 0 ? 10 : 7));
+        float px = cx - panelW / 2, py = g.mode == 3 && g.comp.phase == 3 ? 196.0f * s : cy - panelH / 2 - 40.0f * s;
         hud.rect(px - 10 * s, py - 10 * s, panelW + 20 * s, panelH + 20 * s, 0x15181CE0);
         if (g.mode == 1 && g.dmOverUntil >= 0 && g.armsRace)
             std::snprintf(buf, sizeof(buf), "%s", g.arWinner == -1 ? "YOU WIN ARMS RACE"
@@ -7197,7 +7236,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         }
         if (g.mode == 1 && g.dmOverUntil >= 0) {
             hud.text(px, ry + rowH, "NEXT MATCH STARTS IN A FEW SECONDS", 0xA0A0A0FF);
-            if (!g_ratingNote.empty()) hud.text(px, ry + rowH * 2.5f, g_ratingNote, 0xFFD060FF, s * 2);
+            drawRankBar(hud, cx, ry + rowH * 2.5f, s);
         }
     }
     // Damage report after you die (bottom-left, like the console in CS).
@@ -7333,7 +7372,7 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             std::snprintf(buf, sizeof(buf), "YOU   %d KILLS   %d DEATHS   %d ASSISTS   ADR %.0f   HS %d%%   %d MVP", me.kills, me.deaths,
                           me.assists, double(me.damage) / std::max(1, c.round), me.kills ? me.hsKills * 100 / me.kills : 0, me.mvps);
             hud.text(cx - hud.textWidth(buf) / 2, by + 60 * fs, buf, 0xE0E0E0FF);
-            if (!g_ratingNote.empty()) hud.text(cx - hud.textWidth(g_ratingNote) / 2, by + bh + 6 * fs, g_ratingNote, 0xFFD060FF);
+            drawRankBar(hud, cx, by + bh + 6 * fs, s);
         }
         auto bar = [&](const char* label, float k) {
             float bw = 160.0f * s;
