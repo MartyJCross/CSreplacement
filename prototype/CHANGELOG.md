@@ -3,6 +3,14 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.45: snow on Summit
+
+- **It snows on Summit:** light flakes drifting down and with the wind all round you, never under a roof (the tunnel,
+  the cellar, the station and the gate stay dry). Purely cosmetic, and it only uses room left over in the frame, so
+  it never hides a player, a smoke or a fire.
+- **Footsteps in the snow:** a soft heel and a crunch on Summit's open ground (synthesized, `footstep_snow`), stone
+  under its roofs, wood and metal as before. Same loudness as the other footsteps, so you hear people as well as ever.
+
 ## v0.44: impacts you can read
 
 - **Bullets hitting the world look like what they hit:** splinters and sawdust off crates and doors, glowing sparks off

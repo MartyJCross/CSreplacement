@@ -31,6 +31,7 @@ enum class Sfx {
     FootstepStone,                          // steps on the sites' paving and the Lab's concrete (sand is Footstep)
     KnifeSwing, KnifeHit, KnifeWall,        // the knife: the swish, a blade going in, the blade on a wall
     HeadshotKill,                           // your headshot kill: a crack and a double ring, brighter than the dink
+    FootstepSnow,                           // steps in Summit's snow: a muffled heel and a crunch (v0.45)
     Count
 };
 

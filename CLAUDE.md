@@ -286,7 +286,9 @@ KnifeHit, KnifeWall; `--stab N`.
   (z 176, steps on the east wall); mid: dog-leg mid path → plaza → mid → roofed mid gate → CT mid → CT street; the
   roofed station → A short; B: chapel lane → roofed B tunnel (a jog) → B entrance; the roofed cellar (from mid) → B
   stairs → B balcony (a ledge over the site); B CT path / CT west. Snow caps on every wall and roof top (decor with a
-  5-unit lip), granite trims (`trimLight/trimDark`), `pine()` props, the kSSite paving (`pavedColor`). Look 3:
+  5-unit lip), falling snow (v0.45: main.cpp before `beginFrame`, 700 world-fixed flakes wrapped round the camera,
+  skipped under roofs, only into the room left under kMaxDynamicBoxes), snow steps (`Sfx::FootstepSnow`, synthesized;
+  `stepSoundAt`: open cells snow, roofed stone), granite trims (`trimLight/trimDark`), `pine()` props, the kSSite paving (`pavedColor`). Look 3:
   `setGrade(3)` also sets the sky shader's `uPeaks` (two ridged-noise mountain ranges round the horizon, no
   geometry); ambience bed 3 (wind + a drifting two-pole resonator howl). Replays save it as map byte **4**
   (`tapeMapId` / `tapeTown`: 3 was Inferno, whose old tapes stay hidden). Lineups use `mapIndex` 3 (no Inferno

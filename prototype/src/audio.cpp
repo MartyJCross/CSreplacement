@@ -359,6 +359,22 @@ std::vector<float> footstepStone(Rng& r) {  // boot on paving / concrete: a hard
     return b;
 }
 
+std::vector<float> footstepSnow(Rng& r) {  // boot in snow: a soft, dull heel, then the crunch of packed crystals
+    auto b = buffer(0.22f);
+    addNoise(b, 0, 0.7f, 90 * r.jitter(0.15f), 900 * r.jitter(0.15f), 0.018f * r.jitter(0.2f), r, 0.002f);
+    addTone(b, 0, 0.22f, 70 * r.jitter(0.1f), 45, 0.014f);
+    const float start = 0.012f * r.jitter(0.3f), len = 0.11f * r.jitter(0.2f);
+    for (int k = 0; k < 16; ++k) {  // the crunch: little grains, denser and louder early, fading out
+        const float u = float(k) / 16.0f + 0.03f * r.noise();
+        addNoise(b, start + std::max(0.0f, u) * len, (0.55f - 0.3f * u) * (0.6f + 0.4f * std::fabs(r.noise())),
+                 800 * r.jitter(0.2f), 4200 * r.jitter(0.2f), 0.0035f, r, 0.0003f);
+    }
+    lowpass(b, 5200);  // (snow swallows the top end)
+    fadeTail(b);
+    normalize(b, 0.7f);
+    return b;
+}
+
 std::vector<float> landing(Rng& r) {  // thud, grit and a little gear rattle
     auto b = buffer(0.3f);
     addTone(b, 0, 0.3f, 80 * r.jitter(0.08f), 48, 0.04f);
@@ -669,7 +685,7 @@ const char* const kSfxNames[] = {"rifle_shot", "dry_fire", "mag_out", "mag_in", 
                                  "suppressed_rifle", "shotgun_shot", "galil_shot", "mac10_shot", "ump_shot",
                                  "ssg_shot", "xm_shot", "deagle_shot", "berettas_shot", "round_start", "bomb_planted",
                                  "round_win", "round_lose", "low_ammo", "last_round", "footstep_stone",
-                                 "knife_swing", "knife_hit", "knife_wall", "headshot_kill"};
+                                 "knife_swing", "knife_hit", "knife_wall", "headshot_kill", "footstep_snow"};
 static_assert(sizeof(kSfxNames) / sizeof(kSfxNames[0]) == size_t(Sfx::Count), "name every sound");
 
 std::vector<float> ambienceBed(int which);  // (below, with the mixer)
@@ -740,6 +756,7 @@ SoundBank synthesize() {
         {Sfx::LowAmmo, lowAmmo, 2},              {Sfx::LastRound, lastRound, 2},
         {Sfx::KnifeSwing, knifeSwing, 3},        {Sfx::KnifeHit, knifeHit, 3},
         {Sfx::KnifeWall, knifeWall, 2},          {Sfx::HeadshotKill, headshotKill, 2},
+        {Sfx::FootstepSnow, footstepSnow, 5},
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;

@@ -139,7 +139,7 @@ In practice mode the 4 bots peek from cover: the long corner, mid doors, the B a
 - **B (west):** the **chapel lane** into the roofed **B tunnel**: down, north, a jog east and north again, then up the **B entrance** into **B site** (a default box, a car, a container by the CT path). From mid's west side the **cellar** runs under the village to the **B stairs** and the **B balcony**, a ledge over the site's south-east corner. The CTs come through the **B CT path**.
 - Everything works there, as on Harbor; the T plays are YARD, SHORT, TUNNEL and CELLAR (CT pushes: PUSHING YARD / MID / TUNNEL), and prefire has RAIL YARD, B TUNNEL, MID and A SHORT.
 - **At knife speed:** T spawn to A 12.8 s, to B 14.0 s, to the mid gate 10.1 s; CT spawn to A 5.1 s, to B 5.0 s, to the mid gate 5.2 s. It's built at its own size.
-- Its own look and sound: a cold, clear colour grade, snow on every roof, granite trim, and a mountain wind that howls in the gusts.
+- Its own look and sound: a cold, clear colour grade, snow on every roof and falling all round you (v0.45; never under a roof), granite trim, footsteps that crunch in the snow, and a mountain wind that howls in the gusts.
 - Tested like Harbor (`testOwnMap`): all 102 bot spots are standing room with a route, 62 of 62 bot trips arrive, the spawns can't see each other, and no ray gets out of the map.
 
 ## Radar

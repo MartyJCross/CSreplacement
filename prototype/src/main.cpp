@@ -1119,7 +1119,14 @@ Sfx stepSoundAt(const Game& g, const Vec3& feet) {
     uint8_t m = g.world.solids[size_t(tr.box)].material;
     if (m == kMatWood) return Sfx::FootstepWood;
     if (m == kMatMetal) return Sfx::FootstepMetal;
-    return m == kMatPaving || g.mapId != 1 ? Sfx::FootstepStone : Sfx::Footstep;
+    if (m == kMatPaving || g.mapId != 1) return Sfx::FootstepStone;
+    if (townMap() == 2) {  // Summit (v0.45): snow underfoot in the open, stone under roofs (tunnels, the cellar, the station)
+        int i, j;
+        const MapGrid& sm = townGrid();
+        const bool roofed = sm.cellAt(feet.x, feet.y, i, j) && sm.ceiling[size_t(sm.index(i, j))] < MapGrid::kOpenSky;
+        return roofed ? Sfx::FootstepStone : Sfx::FootstepSnow;
+    }
+    return Sfx::Footstep;
 }
 
 // `side`: who made it (competitive: only the other side reacts); -1 = you.
@@ -9771,6 +9778,43 @@ int main(int argc, char** argv) {
             g.vm.update({paused ? 0.0f : fdt, frameYawDelta, framePitchDelta, length2d(g.player.velocity),
                          g.player.onGround, float(reloadProgress), ws.def->reloadTime,
                          dot(g.player.velocity, yawToRight(float(g.viewYaw)))});
+        }
+
+        // Snow falling on Summit (v0.45, cosmetic): flakes fixed in the world in a box round the camera (each wraps round
+        // it as you move), drifting down and with the wind; none under roofs. Added last, only into the room left in the
+        // frame's boxes, so it never pushes out a player, a smoke or a fire.
+        if (g.mapId == 1 && townMap() == 2) {
+            const MapGrid& sm = townGrid();
+            const float t = float(g_uiTime);
+            constexpr float kW = 1400.0f, kH = 700.0f;
+            auto wrap = [](float v, float w) {
+                v = std::fmod(v, w);
+                return v < 0 ? v + w : v;
+            };
+            const int room = kMaxDynamicBoxes - 64 - int(dynamicBoxes.size());
+            const Vec3 lo{eye.x - kW * 0.5f, eye.y - kW * 0.5f, eye.z - 250.0f};
+            for (uint32_t k = 0; int(k) < std::min(700, room); ++k) {
+                uint32_t h = k * 2654435761u + 0x9e3779b9u;
+                auto next = [&h]() {
+                    h ^= h >> 15;
+                    h *= 0x2c1b3c6du;
+                    h ^= h >> 12;
+                    return float(h & 0xFFFFu) / 65536.0f;
+                };
+                const float bx = next(), by = next(), bz = next(), ph = next() * 6.2831853f, sp = 0.7f + 0.6f * next();
+                const float fx = bx * kW + 18.0f * t + 22.0f * std::sin(t * 0.7f * sp + ph);
+                const float fy = by * kW + 9.0f * t + 22.0f * std::cos(t * 0.5f * sp + ph);
+                const float fz = bz * kH - 55.0f * sp * t;
+                const Vec3 p{lo.x + wrap(fx - lo.x, kW), lo.y + wrap(fy - lo.y, kW), lo.z + wrap(fz - lo.z, kH)};
+                int ci, cj;
+                if (sm.cellAt(p.x, p.y, ci, cj)) {
+                    const size_t c = size_t(sm.index(ci, cj));
+                    if (sm.ceiling[c] < MapGrid::kOpenSky && p.z < sm.ceiling[c]) continue;  // under a roof
+                    if (sm.floor[c] > MapGrid::kNoFloor && p.z < sm.floor[c]) continue;
+                }
+                const float r = 0.8f + 0.6f * sp;
+                dynamicBoxes.push_back(makeBox(p - Vec3{r, r, r}, p + Vec3{r, r, r}, 0xf4f7fb, false));
+            }
         }
 
         const uint64_t tScene = SDL_GetPerformanceCounter();
