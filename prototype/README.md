@@ -416,6 +416,7 @@ Tested in `sim_tests` (new guns): the pistol one-taps a bare head out to 8,192 u
 - **A slight camera roll on each shot** that grows through the spray. It turns around the crosshair, so where you aim doesn't move. Turn the roll and the thump off with `view_shake 0` (Settings → Mouse + view).
 - **Shell casings** fly out to the right.
 - **Far impacts are drawn bigger** (dust puffs up to 4x, bullet marks up to 3x), so you can read where a spray lands at range.
+- **Impacts by material** (v0.44): splinters off wood, sparks off metal, chips and dust in the wall's colour off stone (white off snow). A bot's bullets that miss you throw chips where they land near you, and close by you hear them hit.
 
 ## Sound
 

@@ -142,6 +142,9 @@ class Effects {
 public:
     // `scale` > 1 makes far impacts bigger so you can still read where a spray lands.
     void impact(const Vec3& pos, const Vec3& normal, uint32_t color, float scale = 1.0f);
+    // A bullet hitting the world, by what it hit (v0.44): `kind` 0 stone / plaster / the floor (chips and a puff of
+    // dust in the surface's own colour: white on snow), 1 wood (splinters and sawdust), 2 metal (glowing sparks).
+    void hit(const Vec3& pos, const Vec3& normal, uint32_t surface, int kind, float scale = 1.0f);
     void shell(const Vec3& pos, const Vec3& vel);  // ejected brass
     void burst(const Vec3& pos, uint32_t color, float scale);  // grenade going off
     // Floor height under (x, y) for particles to land on (nullptr = flat floor at 0).

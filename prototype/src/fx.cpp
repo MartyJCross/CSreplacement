@@ -1346,6 +1346,51 @@ void Effects::impact(const Vec3& pos, const Vec3& normal, uint32_t color, float 
     if (particles_.size() > 600) particles_.erase(particles_.begin(), particles_.begin() + 100);
 }
 
+namespace {
+uint32_t shade(uint32_t c, float k) {  // each channel times k (over 1: towards white)
+    auto ch = [&](int s) {
+        const float v = float((c >> s) & 0xFF);
+        return uint32_t(std::clamp(k <= 1.0f ? v * k : v + (255.0f - v) * (k - 1.0f), 0.0f, 255.0f)) << s;
+    };
+    return ch(16) | ch(8) | ch(0);
+}
+}  // namespace
+
+void Effects::hit(const Vec3& pos, const Vec3& normal, uint32_t surface, int kind, float scale) {
+    const float r = std::sqrt(scale);
+    auto rnd01 = [&]() { return rnd() * 0.5f + 0.5f; };
+    if (kind == 2) {  // metal: sparks that fly fast and die quickly, a little grey smoke
+        for (int i = 0; i < 9; ++i) {
+            const Vec3 v = normal * (160.0f + 220.0f * rnd01()) + Vec3{rnd(), rnd(), rnd() + 0.3f} * 260.0f;
+            particles_.push_back({pos + normal * 0.5f, v * r, 0, 0.12f + 0.16f * rnd01(), (0.3f + 0.25f * rnd01()) * scale,
+                                  i % 3 ? 0xffd27au : 0xfff4d0u, true});
+        }
+        for (int i = 0; i < 2; ++i)
+            particles_.push_back({pos + normal, normal * 30.0f + Vec3{0, 0, 230.0f}, 0, 0.3f, 1.6f * scale, 0x8e9196});
+    } else if (kind == 1) {  // wood: splinters that tumble out and drop, and pale sawdust
+        for (int i = 0; i < 7; ++i) {
+            const Vec3 v = normal * (70.0f + 110.0f * rnd01()) + Vec3{rnd(), rnd(), rnd() + 0.9f} * 80.0f;
+            particles_.push_back({pos + normal * 0.5f, v * r, 0, 0.5f + 0.35f * rnd01(), (0.6f + 0.5f * rnd01()) * scale,
+                                  i % 2 ? shade(surface, 0.7f) : shade(surface, 0.5f)});
+        }
+        for (int i = 0; i < 3; ++i) {
+            const Vec3 v = normal * 30.0f + Vec3{rnd(), rnd(), rnd()} * 15.0f + Vec3{0, 0, 250.0f};
+            particles_.push_back({pos + normal, v, 0, 0.3f, (1.5f + rnd() * 0.5f) * scale, shade(surface, 1.35f)});
+        }
+    } else {  // stone, plaster, the floor: chips darker than the surface, dust lighter (snow puffs white)
+        for (int i = 0; i < 6; ++i) {
+            const Vec3 v = normal * (90.0f + 120.0f * rnd01()) + Vec3{rnd(), rnd(), rnd() + 0.6f} * 90.0f;
+            particles_.push_back({pos + normal * 0.5f, v * r, 0, 0.35f + 0.25f * rnd01(), (0.5f + 0.4f * rnd01()) * scale,
+                                  shade(surface, 0.6f)});
+        }
+        for (int i = 0; i < 4; ++i) {
+            const Vec3 v = normal * 35.0f + Vec3{rnd(), rnd(), rnd()} * 15.0f + Vec3{0, 0, 260.0f};
+            particles_.push_back({pos + normal, v, 0, 0.28f, (1.8f + rnd() * 0.6f) * scale, shade(surface, 1.2f)});
+        }
+    }
+    if (particles_.size() > 600) particles_.erase(particles_.begin(), particles_.begin() + 100);
+}
+
 void Effects::burst(const Vec3& pos, uint32_t color, float scale) {
     for (int i = 0; i < 10; ++i) {  // fireball: big glowing blobs that shrink fast
         Vec3 v = Vec3{rnd(), rnd(), rnd() * 0.5f + 0.6f} * (90.0f * scale);

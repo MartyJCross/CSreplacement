@@ -1753,6 +1753,19 @@ void matchCues(Game& g) {
 
 // A bullet hole where a shot hit the map (Dust, Harbor): a pale chip round a dark hole, coloured by what it hit,
 // flat against the surface. They fade away after ~28 s (the shader shrinks them; makeBulletHole).
+// Chips off whatever a bullet hit (v0.44): splinters off wood, sparks off metal, chips and dust the colour of stone,
+// plaster or the floor. `box` the World::solids box it hit (-1: unknown, plain stone).
+void worldImpact(Game& g, const Vec3& at, const Vec3& normal, int box, float scale = 1.0f) {
+    uint32_t col = 0x9a958c;
+    int kind = 0;
+    if (box >= 0 && size_t(box) < g.world.solids.size()) {
+        const Box& b = g.world.solids[size_t(box)];
+        col = b.color;
+        kind = b.material == kMatWood ? 1 : b.material == kMatMetal ? 2 : 0;
+    }
+    g.fx.hit(at, normal, col, kind, scale);
+}
+
 void bulletHole(Game& g, const Vec3& at, const Vec3& normal, int box) {
     const uint8_t mat = box >= 0 && size_t(box) < g.world.solids.size() ? g.world.solids[size_t(box)].material : kMatStone;
     const uint32_t chip = mat == kMatWood ? 0x9a7a52 : mat == kMatMetal ? 0xb4b8bd : 0xcdbb95;
@@ -4828,11 +4841,12 @@ void simTick(Game& g, const Options& opt) {
                                     g.earPos, g.earYaw, 1800.0f, 0.55f);
                 }
                 // Far impacts are drawn bigger so you can see where a spray lands at range.
-                g.fx.impact(r.end, r.normal, 0x5c6168, std::clamp(r.distance / 450.0f, 1.0f, 4.0f));
+                worldImpact(g, r.end, r.normal, r.worldBox, std::clamp(r.distance / 450.0f, 1.0f, 4.0f));
             }
-            for (int p = 0; p < r.penCount; ++p) {  // wallbang: debris on both sides of each wall
-                g.fx.impact(r.penEntry[p], r.penNormal[p], 0x5c6168);
-                g.fx.impact(r.penExit[p], -r.penNormal[p], 0x5c6168);
+            for (int p = 0; p < r.penCount; ++p) {  // wallbang: debris on both sides of each wall, of what the wall is
+                const int wall = g.world.traceRay(r.penEntry[p] + r.penNormal[p] * 2.0f, r.penEntry[p] - r.penNormal[p] * 2.0f).box;
+                worldImpact(g, r.penEntry[p], r.penNormal[p], wall);
+                worldImpact(g, r.penExit[p], -r.penNormal[p], wall);
             }
 
             if (r.dummyIndex >= 0) {
@@ -5449,6 +5463,18 @@ void simTick(Game& g, const Options& opt) {
         const Vec3 p = from + dir * t;
         if (length(p - simEye) < 56.0f) g.audio->play3D(Sfx::Whiz, p, simEye, float(g.viewYaw), 300.0f, 0.8f);
     };
+    // A bot's bullet hitting the world near you (v0.44): you see the chips fly (and hear it hit, close up), so being
+    // shot at reads even when you can't see the shooter.
+    auto enemyImpact = [&](const Vec3& at, const Vec3& n, int box, int pellet) {
+        const float d = length(at - g.earPos);
+        if (d > 1600.0f) return;
+        worldImpact(g, at, n, box);
+        if (g.audio && pellet == 0 && d < 900.0f && box >= 0 && size_t(box) < g.world.solids.size()) {
+            const uint8_t m = g.world.solids[size_t(box)].material;
+            g.audio->play3D(m == kMatWood ? Sfx::ImpactWood : m == kMatMetal ? Sfx::ImpactMetal : Sfx::ImpactStone, at, g.earPos,
+                            g.earYaw, 1000.0f, 0.5f);
+        }
+    };
     const bool dmFights = g.mode == 1 && g.mapId == 1 && g.dmBotFights;  // deathmatch bots shoot each other too
     if (g.botsFire && (comp || dmFights || (g.deadUntil < 0 && !g.noclip)) && !netClient(g)) {
         for (size_t i = 0; i < g.dummies.size(); ++i) {
@@ -5593,8 +5619,10 @@ void simTick(Game& g, const Options& opt) {
                         if (g.online) g.net.sendFire(head + dir * 20.0f, end, uint8_t(gun), int(i));
                     }
                     nearMiss(head, dir, hitIt ? t : maxT);
-                    if (!hitIt && wt.fraction < 1.0f && g.mapId == 1 && length(head + dir * maxT - simEye) < 2500.0f)
+                    if (!hitIt && wt.fraction < 1.0f && g.mapId == 1 && length(head + dir * maxT - simEye) < 2500.0f) {
                         bulletHole(g, head + dir * maxT, wt.normal, wt.box);
+                        enemyImpact(head + dir * maxT, wt.normal, wt.box, k);
+                    }
                     if (!hitIt) continue;
                     const float dmg = damageAt(gd, t) * hitGroupDamageScale(grp);
                     total += dmg;
@@ -5659,7 +5687,10 @@ void simTick(Game& g, const Options& opt) {
                 }
                 if (!hit) {
                     nearMiss(head, dir, bestT);
-                    if (wt.fraction < 1.0f && g.mapId == 1 && bestT >= maxT - 0.01f) bulletHole(g, head + dir * maxT, wt.normal, wt.box);
+                    if (wt.fraction < 1.0f && g.mapId == 1 && bestT >= maxT - 0.01f) {
+                        bulletHole(g, head + dir * maxT, wt.normal, wt.box);
+                        enemyImpact(head + dir * maxT, wt.normal, wt.box, k);
+                    }
                     continue;
                 }
                 const HitGroup grp = hit == 2 ? kHead : kChest;

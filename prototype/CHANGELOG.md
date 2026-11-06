@@ -3,6 +3,15 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.44: impacts you can read
+
+- **Bullets hitting the world look like what they hit:** splinters and sawdust off crates and doors, glowing sparks off
+  containers, cars and barrels, chips and dust in the wall's own colour off stone and plaster (white puffs off Summit's
+  snow, sandy ones on Dust). Wallbangs throw the wall's own debris on both sides.
+- **Enemy fire landing near you shows:** a bot's bullets that miss you now kick up chips where they hit (within about
+  1,600 units of you), and close by you hear them smack into the wall, so being shot at reads even when you can't see
+  the shooter.
+
 ## v0.43: hearing where things are
 
 - **Sound goes round corners.** On the town maps a shot or a footstep behind a wall now reaches you the way you could

@@ -236,7 +236,9 @@ when you change cell; a blocked sound is heard from the first cell on its way do
 cells send 1.8x to the echo); play3D adds air absorption and more echo send with distance (`Voice::send`, `roomBuf_`
 into the reverb) and a `delay` (gunshot3D's far-shot slapback in the open). `testSoundRoutes`). Menu music
 (`loadMusic` on a thread, `setMusic` fades, `music_volume`; plays while `g_menu.root == kMenuMain`). Impacts by
-material, helmet tink, near-miss whiz. Your hit feedback (v0.39, owner): only a kill makes a sound,
+material (sound; v0.44 also the debris: fx `Effects::hit` kind 0 stone/floor chips + dust in the surface colour, 1 wood
+splinters, 2 metal sparks; main.cpp `worldImpact(g, at, n, box)`; bots' misses within 1600 of you via `enemyImpact` in
+the bot-shooting block, with the impact sound within 900), helmet tink, near-miss whiz. Your hit feedback (v0.39, owner): only a kill makes a sound,
 `Sfx::HitMarker` (the "dink") or `Sfx::HeadshotKill` (crack + double ring) for a headshot kill; non-kill hits play only
 the HitBody thwack / HelmetHit tink. The owner's ear: guns "too much bass" earlier; keep sub-bass cut.
 
