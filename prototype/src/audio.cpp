@@ -359,22 +359,6 @@ std::vector<float> footstepStone(Rng& r) {  // boot on paving / concrete: a hard
     return b;
 }
 
-std::vector<float> footstepSnow(Rng& r) {  // boot in snow: a soft, dull heel, then the crunch of packed crystals
-    auto b = buffer(0.22f);
-    addNoise(b, 0, 0.7f, 90 * r.jitter(0.15f), 900 * r.jitter(0.15f), 0.018f * r.jitter(0.2f), r, 0.002f);
-    addTone(b, 0, 0.22f, 70 * r.jitter(0.1f), 45, 0.014f);
-    const float start = 0.012f * r.jitter(0.3f), len = 0.11f * r.jitter(0.2f);
-    for (int k = 0; k < 16; ++k) {  // the crunch: little grains, denser and louder early, fading out
-        const float u = float(k) / 16.0f + 0.03f * r.noise();
-        addNoise(b, start + std::max(0.0f, u) * len, (0.55f - 0.3f * u) * (0.6f + 0.4f * std::fabs(r.noise())),
-                 800 * r.jitter(0.2f), 4200 * r.jitter(0.2f), 0.0035f, r, 0.0003f);
-    }
-    lowpass(b, 5200);  // (snow swallows the top end)
-    fadeTail(b);
-    normalize(b, 0.7f);
-    return b;
-}
-
 std::vector<float> landing(Rng& r) {  // thud, grit and a little gear rattle
     auto b = buffer(0.3f);
     addTone(b, 0, 0.3f, 80 * r.jitter(0.08f), 48, 0.04f);
@@ -756,7 +740,7 @@ SoundBank synthesize() {
         {Sfx::LowAmmo, lowAmmo, 2},              {Sfx::LastRound, lastRound, 2},
         {Sfx::KnifeSwing, knifeSwing, 3},        {Sfx::KnifeHit, knifeHit, 3},
         {Sfx::KnifeWall, knifeWall, 2},          {Sfx::HeadshotKill, headshotKill, 2},
-        {Sfx::FootstepSnow, footstepSnow, 5},
+        {Sfx::FootstepSnow, footstep, 5},  // (the recordings: Kenney's snow steps; without them a plain step)
     };
     static_assert(sizeof(entries) / sizeof(entries[0]) == size_t(Sfx::Count), "every sound needs an entry");
     SoundBank bank;
@@ -867,8 +851,21 @@ SoundBank loadBank(const std::string& assetDir, int& loaded) {
         if (s == size_t(Sfx::RifleShot)) rifleClips = clips;
         if (s == size_t(Sfx::SuppressedShot)) ownSuppressed = true;
         if (s == size_t(Sfx::SuppressedRifle)) ownSuppressedRifle = true;
+        if (s == size_t(Sfx::FootstepSnow))  // (Kenney's snow steps are mostly a thud under 250 Hz: keep the crunch)
+            for (std::vector<float>& c : clips)
+                for (int pass = 0; pass < 2; ++pass) {
+                    float lp = 0;
+                    const float a = lpCoef(260.0f);
+                    for (float& x : c) {
+                        lp += a * (x - lp);
+                        x -= lp;
+                    }
+                }
         own[s] = 1;
         replace(s, clips);
+        if (s == size_t(Sfx::FootstepSnow))  // (denser than the sand steps at the same peak: level them to the sand's RMS)
+            for (int v = 0; v < bank.count[s]; ++v)
+                for (float& x : bank.clips[size_t(bank.first[s] + v)]) x *= 0.58f;
     }
     for (const GunFallback& f : kGunFallbacks) {
         if (own[size_t(f.sfx)]) continue;

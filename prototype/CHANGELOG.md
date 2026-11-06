@@ -3,6 +3,12 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.46.1: real snow footsteps
+
+- The snow footstep on Summit (v0.45) was synthesized and sounded like a grinding gearbox. It's now five real
+  recordings of steps in snow (Kenney's Impact Sounds, CC0), with their low boom cut (under ~260 Hz) and levelled to
+  the sand steps' loudness, so you hear people in the snow as well as anywhere else.
+
 ## v0.46: your rank on the result screen
 
 - **A rank bar at the end of a match** (competitive and deathmatch vs bots): your rank and rating over a bar from
