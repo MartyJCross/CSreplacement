@@ -465,7 +465,8 @@ the opposite of the note below now holds.** With their settings (post on, styliz
 the post texture (`sceneFbo_` + a DEPTH24_STENCIL8 renderbuffer, `direct_`, when the window has no MSAA) took the
 GPU from 7.6 to 4.5 ms: 113 -> ~180 FPS. `render_scale` (`Renderer::setRenderScale`, `scale_`; the post pass runs for
 it even with post off, neutral grade, no FXAA/outlines): 85% ~196, 65% ~235, 50% ~284. Bench numbers on the laptop
-wander ±10% with heat: run twice. The old note: **The owner's AMD iGPU (driver 27.20.14028) is slow at offscreen rendering**
+wander ±10% with heat: run twice. v0.47.1: the depth pre-pass runs only with shadows or AO on (`prepass` lambda in
+main.cpp; without them it cost ~4% there). The old note: **The owner's AMD iGPU (driver 27.20.14028) is slow at offscreen rendering**
 (v0.25.4, measured at 1080p, DM on Dust): drawing the scene into an FBO cost 2.6 -> 4.7 ms of GPU (MSAA 4: 3.0 ->
 8.9 ms), whatever the colour/depth format, and depth blits cost 2-4.5 ms. So the scene stays on the window and the
 post pass copies the colour (alpha carries the outline code): their settings (stylized, post, MSAA 4, sharp shadows)

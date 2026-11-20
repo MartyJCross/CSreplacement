@@ -3,6 +3,12 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.47.1: no depth pre-pass when shading is cheap
+
+- The depth pre-pass (an extra pass so each pixel is shaded once) now only runs with sun shadows or ambient occlusion
+  on. Without them shading is cheap and the extra pass was pure cost: ~4% FPS on the owner's laptop (1440p:
+  ~181 -> ~186).
+
 ## v0.47: faster on weak GPUs, quicker recoil reset
 
 - **Much faster post-processing:** without MSAA the 3D scene is now drawn straight into the picture the post pass

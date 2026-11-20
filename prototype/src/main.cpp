@@ -7725,7 +7725,10 @@ int main(int argc, char** argv) {
     g.wingSite = std::clamp(cfg.wing_site, 0, 1);
     g_wingmanOn = g.wingman;
     g.mode = g.armsRace ? 1 : g.wingman ? 3 : cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
-    renderer.setDepthPrepass(cfg.depth_prepass != 0);
+    // The depth pre-pass pays for itself only when shading is dear (shadows or AO): without them it cost ~4% on an
+    // integrated Radeon at 1440p (v0.47).
+    auto prepass = [&]() { renderer.setDepthPrepass(cfg.depth_prepass != 0 && (cfg.shadows > 0 || cfg.ambient_occlusion != 0)); };
+    prepass();
     auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
     renderer.setShadowSize(shadowSize(cfg.shadows));
     renderer.setAmbientOcclusion(cfg.ambient_occlusion != 0);
@@ -7746,6 +7749,7 @@ int main(int argc, char** argv) {
         renderer.setShadowSize(shadowSize(cfg.shadows));
         renderer.setAmbientOcclusion(cfg.ambient_occlusion != 0);
         renderer.setRenderScale(float(cfg.render_scale) / 100.0f);
+        prepass();
         renderer.setStyle(cfg.art_style);
         renderer.setPost(cfg.post_fx != 0);  // (right away; only MSAA waits for a restart)
     };
