@@ -24,6 +24,22 @@ int botRating(float botLevel);
 // The rank for a rating: RECRUIT, PRIVATE, CORPORAL, SERGEANT, LIEUTENANT, CAPTAIN, MAJOR, COLONEL, GENERAL.
 const char* rankName(int rating);
 
+// Your last few matches of one mode, summed (the profile's cards, v0.48): totals, win rate, each match's K/D and
+// result (oldest first: the form bars) and the best match among them.
+struct RecentStats {
+    int games = 0, wins = 0, kills = 0, deaths = 0, assists = 0, hsKills = 0, rounds = 0;
+    float damage = 0;
+    int bestKills = 0;
+    float bestKd = 0, bestAdr = 0;  // (ADR: competitive only)
+    std::vector<float> form;        // each match's K/D, oldest first
+    std::vector<char> won;          // and whether you won it (deathmatch: topped it)
+    float kd() const { return float(kills) / float(deaths > 0 ? deaths : 1); }
+    int hsPercent() const { return kills > 0 ? hsKills * 100 / kills : 0; }
+    float adr() const { return rounds > 0 ? damage / float(rounds) : 0.0f; }
+    float killsPerGame() const { return games > 0 ? float(kills) / float(games) : 0.0f; }
+    int winPercent() const { return games > 0 ? wins * 100 / games : 0; }
+};
+
 struct Career {
     int rating = 1000;
     int best = 1000;
@@ -35,6 +51,8 @@ struct Career {
     // Totals over all matches.
     int kills() const, deaths() const, hsKills() const;
     float adr() const;  // damage per round over the competitive matches
+    // The last `count` matches of `mode` (1 deathmatch, 3 competitive); all of them with a big count.
+    RecentStats recent(int mode, size_t count) const;
     bool save(const std::string& path) const;
     bool load(const std::string& path);  // false if there's no file (a fresh career)
 };

@@ -407,7 +407,9 @@ the sim. `loadMap` clears it all.
 
 **Stats** (`stats.*`; `g_career`, `recordMatch`, `recordDeathmatch`; `kMenuStats`, `drawStatsPanel`): finished offline
 DM/competitive matches vs bots → stats.txt; rating = Elo vs the bot level (easy 700 .. expert 1450), ranks RECRUIT ..
-GENERAL; career ADR counts competitive only. The result screens' rank bar (v0.46): `drawRankBar` (main.cpp, after
+GENERAL; career ADR counts competitive only. v0.48 PROFILE (the menu entry; `kMenuStats` still): `Career::recent(mode,
+count)` -> `RecentStats` (totals, wins, per-game K/D `form` + `won`, bests; tested in `testCareer`), two cards in
+`drawStatsPanel` (competitive / deathmatch, last 15). The result screens' rank bar (v0.46): `drawRankBar` (main.cpp, after
 `recordMatch`, which sets `g_ratingFrom/To/At`), animated on `g_uiTime`; the competitive final panel starts at 196*s
 to leave it room, the deathmatch one is 3 rows taller.
 

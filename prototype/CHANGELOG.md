@@ -3,6 +3,14 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.48: your profile
+
+- **STATS is now PROFILE** (main menu), with two cards, competitive and deathmatch kept apart, each over your **last
+  15 games** of that mode: K/D, headshot %, ADR (competitive) or kills a game (deathmatch), win rate (deathmatch: games
+  you topped), a bar a game showing its K/D (green a win, red a loss; the line is 1.0), and your best ever in that
+  mode (most kills, best K/D, best ADR). Your rating, rank, the rating graph, all-time totals and every match are still
+  there below.
+
 ## v0.47.1: no depth pre-pass when shading is cheap
 
 - The depth pre-pass (an extra pass so each pixel is shaded once) now only runs with sun shadows or ambient occlusion

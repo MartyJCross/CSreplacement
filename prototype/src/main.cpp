@@ -5929,7 +5929,7 @@ const char* menuTitle(int screen) {
         case kMenuGameplay: return "GAMEPLAY";
         case kMenuInventory: return "INVENTORY";
         case kMenuCase: return "CASE";
-        case kMenuStats: return "STATS";
+        case kMenuStats: return "PROFILE";
         case kMenuReplays: return "REPLAYS";
         case kMenuLobby: return g_lobby.host ? "LOBBY - HOSTING" : "LOBBY";
         case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeWingman)];
@@ -5949,7 +5949,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
     switch (screen) {
         case kMenuMain:
             return {button("PLAY", goTo(kMenuPlay)), button("PLAY ONLINE", goTo(kMenuOnline)),
-                    button("INVENTORY", goTo(kMenuInventory)), button("STATS", goTo(kMenuStats)),
+                    button("INVENTORY", goTo(kMenuInventory)), button("PROFILE", goTo(kMenuStats)),
                     button("REPLAYS", goTo(kMenuReplays)), button("SETTINGS", goTo(kMenuSettings)), button("QUIT", kActQuit)};
         case kMenuPause: {
             std::vector<MenuItem> r = {button("RESUME", kActResume), button("NEW GAME", goTo(kMenuPlay))};
@@ -6257,7 +6257,7 @@ void drawTitle(HudBatch& hud, const std::vector<MenuItem>& rows, const MenuLayou
         "COMPETITIVE, WINGMAN, DEATHMATCH, ARMS RACE, RETAKES, PREFIRE AND PRACTICE",
         "HOST A GAME OR JOIN YOUR FRIENDS",
         "YOUR SKINS AND CASES",
-        "YOUR CAREER: RATING, RANK AND EVERY MATCH",
+        "YOUR PROFILE: RANK, YOUR LAST 15 GAMES, YOUR BESTS",
         "WATCH YOUR SAVED MATCHES",
         "MOUSE, CROSSHAIR, VIDEO, SOUND AND CONTROLS",
         "",
@@ -6666,13 +6666,59 @@ void drawStatsPanel(HudBatch& hud, int w, int h, int s) {
         return;
     }
     const int k = c.kills(), d = c.deaths();
-    std::snprintf(line, sizeof(line), "MATCHES %zu   WINS %d   K/D %.2f   HS %d%%   ADR %.0f", c.matches.size(), c.wins(),
+    std::snprintf(line, sizeof(line), "ALL TIME   MATCHES %zu   WINS %d   K/D %.2f   HS %d%%   ADR %.0f", c.matches.size(), c.wins(),
                   double(k) / double(std::max(1, d)), k ? c.hsKills() * 100 / k : 0, double(c.adr()));
-    hud.text(x + 16.0f * fs, ty, line, 0xFFFFFFFF);
-    ty += 20.0f * fs;
+    hud.text(x + 16.0f * fs, ty, line, 0x909090FF);
+    ty += 16.0f * fs;
+    // The profile's cards (v0.48): competitive and deathmatch apart, your last 15 of each: K/D, HS%, ADR (competitive) or
+    // kills a game (deathmatch), win rate, a bar per game (its K/D; green a win), and your best ever.
+    {
+        constexpr size_t kLast = 15;
+        const float gap = 12.0f * fs, cw = (pw - 32.0f * fs - gap) * 0.5f, ch = 104.0f * fs;
+        for (int card = 0; card < 2; ++card) {
+            const int mode = card == 0 ? 3 : 1;
+            const RecentStats r = c.recent(mode, kLast), best = c.recent(mode, c.matches.size());
+            const float cx0 = x + 16.0f * fs + float(card) * (cw + gap), cy0 = ty;
+            hud.rect(cx0, cy0, cw, ch, 0x00000070);
+            hud.rect(cx0, cy0, cw, 2.0f * fs, card == 0 ? 0xFFD060FF : 0x60C0FFFF);
+            std::snprintf(line, sizeof(line), "%s   LAST %d", card == 0 ? "COMPETITIVE" : "DEATHMATCH", r.games);
+            hud.text(cx0 + 8.0f * fs, cy0 + 7.0f * fs, line, 0xFFFFFFFF);
+            if (r.games == 0) {
+                hud.text(cx0 + 8.0f * fs, cy0 + 30.0f * fs, card == 0 ? "NO COMPETITIVE MATCHES YET" : "NO DEATHMATCHES YET", 0x808080FF);
+                continue;
+            }
+            // Four big numbers with their labels under them.
+            char v[4][16];
+            const char* lab[4] = {"K/D", "HEADSHOT %", card == 0 ? "ADR" : "KILLS / GAME", "WIN %"};
+            std::snprintf(v[0], sizeof(v[0]), "%.2f", double(r.kd()));
+            std::snprintf(v[1], sizeof(v[1]), "%d", r.hsPercent());
+            std::snprintf(v[2], sizeof(v[2]), "%.0f", double(card == 0 ? r.adr() : r.killsPerGame()));
+            std::snprintf(v[3], sizeof(v[3]), "%d", r.winPercent());
+            const uint32_t kdCol = r.kd() >= 1.0f ? 0x70E070FF : 0xFF8070FF;
+            for (int q = 0; q < 4; ++q) {
+                const float qx = cx0 + 8.0f * fs + float(q) * (cw - 16.0f * fs) / 4.0f;
+                hud.text(qx, cy0 + 22.0f * fs, v[q], q == 0 ? kdCol : 0xFFFFFFFF, s * 3);
+                hud.text(qx, cy0 + 46.0f * fs, lab[q], 0x909090FF);
+            }
+            // The form: a bar a game, its K/D (2.5 fills it), green a win.
+            const float bx = cx0 + 8.0f * fs, bw = cw - 16.0f * fs, by = cy0 + 60.0f * fs, bh = 22.0f * fs;
+            hud.rect(bx, by + bh, bw, 1.0f * fs, 0x50505080);
+            const float slot = bw / float(kLast);
+            for (size_t g = 0; g < r.form.size(); ++g) {
+                const float hgt = std::max(1.5f * fs, bh * std::min(r.form[g], 2.5f) / 2.5f);
+                const float gx = bx + slot * float(kLast - r.form.size() + g);
+                hud.rect(gx + slot * 0.15f, by + bh - hgt, slot * 0.7f, hgt, r.won[g] ? 0x60D080E0 : 0xD06060E0);
+            }
+            hud.rect(bx, by + bh - bh / 2.5f, bw, 1.0f * fs, 0xFFFFFF30);  // (the 1.0 K/D line)
+            std::snprintf(line, sizeof(line), card == 0 ? "BEST  %d KILLS   %.2f K/D   %.0f ADR" : "BEST  %d KILLS   %.2f K/D",
+                          best.bestKills, double(best.bestKd), double(best.bestAdr));
+            hud.text(cx0 + 8.0f * fs, cy0 + ch - 13.0f * fs, line, 0xB09050FF);
+        }
+        ty += ch + 12.0f * fs;
+    }
     // The rating over the last 40 matches.
     const size_t n = std::min<size_t>(c.matches.size(), 40), first = c.matches.size() - n;
-    const float gx = x + 16.0f * fs, gw = pw - 32.0f * fs, gh = 70.0f * fs;
+    const float gx = x + 16.0f * fs, gw = pw - 32.0f * fs, gh = 50.0f * fs;
     hud.rect(gx, ty, gw, gh, 0x00000060);
     int lo = c.matches[first].ratingBefore, hi = lo;
     for (size_t i = first; i < c.matches.size(); ++i) { lo = std::min(lo, c.matches[i].ratingAfter); hi = std::max(hi, c.matches[i].ratingAfter); }

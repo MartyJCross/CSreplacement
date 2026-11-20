@@ -27,6 +27,32 @@ const MatchRecord& Career::add(MatchRecord m) {
     return matches.back();
 }
 
+RecentStats Career::recent(int mode, size_t count) const {
+    RecentStats r;
+    std::vector<const MatchRecord*> picked;
+    for (size_t i = matches.size(); i-- > 0 && picked.size() < count;)
+        if (matches[i].mode == mode) picked.push_back(&matches[i]);
+    for (size_t i = picked.size(); i-- > 0;) {  // (oldest first)
+        const MatchRecord& m = *picked[i];
+        ++r.games;
+        const bool won = m.score >= 0.999f;
+        r.wins += won;
+        r.kills += m.kills;
+        r.deaths += m.deaths;
+        r.assists += m.assists;
+        r.hsKills += m.hsKills;
+        r.damage += m.damage;
+        r.rounds += m.rounds;
+        const float kd = float(m.kills) / float(m.deaths > 0 ? m.deaths : 1);
+        r.form.push_back(kd);
+        r.won.push_back(won ? 1 : 0);
+        r.bestKills = std::max(r.bestKills, m.kills);
+        r.bestKd = std::max(r.bestKd, kd);
+        if (m.rounds > 0) r.bestAdr = std::max(r.bestAdr, m.damage / float(m.rounds));
+    }
+    return r;
+}
+
 int Career::wins() const {
     int n = 0;
     for (const MatchRecord& m : matches) n += m.score >= 0.999f;

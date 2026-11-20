@@ -1249,6 +1249,27 @@ void testCareer() {
               io && back.rating == c.rating && back.matches.size() == 2 && back.matches[0].result == "WON 13-9" &&
               back.matches[1].when == m.when && std::string(rankName(1800)) == "GENERAL" && c.wins() == 1,
           "career");
+    // The profile's cards (v0.48): the last 15 of each mode on their own, newest kept, oldest first in the form bars.
+    Career p;
+    for (int k = 0; k < 20; ++k) {
+        MatchRecord q;
+        q.mode = k % 2 ? 1 : 3;
+        q.score = k % 4 == 0 ? 1.0f : 0.0f;
+        q.kills = 10 + k;
+        q.deaths = 10;
+        q.hsKills = 5;
+        q.damage = 1500;
+        q.rounds = q.mode == 3 ? 20 : 0;
+        p.add(q);
+    }
+    const RecentStats comp = p.recent(3, 15), dm = p.recent(1, 15), last3 = p.recent(3, 3);
+    std::printf("  profile: comp %d games K/D %.2f HS %d%% ADR %.0f win %d%%; DM %d games %.1f kills a game; last 3 comp form %.1f %.1f %.1f\n",
+                comp.games, double(comp.kd()), comp.hsPercent(), double(comp.adr()), comp.winPercent(), dm.games,
+                double(dm.killsPerGame()), double(last3.form[0]), double(last3.form[1]), double(last3.form[2]));
+    CHECK(comp.games == 10 && dm.games == 10 && comp.wins == 5 && dm.wins == 0 && comp.kills == 190 && dm.kills == 200 &&
+              comp.adr() == 75.0f && last3.games == 3 && last3.form[0] < last3.form[2] && last3.bestKills == 28 &&
+              std::fabs(last3.form[2] - 2.8f) < 1e-4f,
+          "profile recent stats");
 }
 
 // Replays: frames in, the moment between two frames comes out interpolated, old frames and shots fall out of the
