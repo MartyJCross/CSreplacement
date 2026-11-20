@@ -227,6 +227,17 @@ int armsRaceGun(int level);  // the gun of level 0 .. kArmsRaceLevels - 1 (the l
 // true if it won the match (a knife kill on the last level; any other kill there changes nothing).
 bool armsRaceStep(int& killerLevel, int& victimLevel, bool knife);
 
+// Arena (v0.49, owner): a 1v1 ladder against one bot on a town map, a round at a time. Win a round and you go up a
+// level (a better bot), lose and you go down; a draw (the clock) keeps it. The gun changes every round.
+constexpr int kArenaLevels = 8;
+constexpr double kArenaRoundTime = 40.0;
+int arenaGun(int round);               // the round's gun (yours and the bot's), round 0, 1, 2...
+int arenaStep(int level, int result);  // after a round (1 won, -1 lost, 0 draw): the next level, 1 .. kArenaLevels
+float arenaSkill(int level);           // the bot's skill at a level: 0 easy (level 1) .. 3 expert (the top)
+// Two spots for a duel: walkable, out of each other's sight (head to head), 800 to 2400 units apart by the way you'd
+// walk. False if it found none (then `a` / `b` are two spots anyway).
+bool arenaSpawnPair(const NavGrid& nav, const World& world, uint32_t& rng, Vec3& a, Vec3& b);
+
 // Seconds between a bot's trigger pulls with gun `w` (before skill): taps and short bursts, never faster than the
 // gun fires.
 float botShotGap(int w);

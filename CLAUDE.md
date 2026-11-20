@@ -315,6 +315,13 @@ mode 5 DM or 3 with `Game::online`).
   in `testArmsRace`); main.cpp `armsRaceKill` (from `recordDamage`), `armsRaceEquip`, `arLevel` / `arBotLevel` /
   `arWinner` (ends the match through `dmEnd`); switching limited to the level's gun + knife, no buys / grenades / drops;
   bots with `kWKnife` run straight at their target (bots.cpp fight state) and slash in the shooting loop.
+- Arena (v0.49, owner): deathmatch (`g.mode` 1) with `Game::arena` (Play / config mode `kModeArena` 8; one dummy). Sim
+  lib bots.cpp `arenaGun(round)`, `arenaStep(level, result)`, `arenaSkill(level)` (botSkillOf returns it), `kArenaLevels`
+  8, `kArenaRoundTime` 40, `arenaSpawnPair` (two roam points out of sight, an 800-2400 walk); `testArena`. main.cpp
+  `startArena` (from loadMap), `arenaStartRound` (spawns, the gun for both, the bot), `arenaEnd` (from recordDamage /
+  the clock: level step, `g_career.arenaBest` / `arenaTitles` saved in stats.txt's `arena` line), the DM tick's arena
+  branch, the switch filter shared with Arms Race, HUD. Your death keeps you down (`deadUntil` 1e18) until the next
+  round (4.3 s after a loss: the killcam; 2.5 s otherwise); stderr logs "arena: round N won/lost/drawn".
 - Wingman (v0.37): competitive (`g.mode` 3) with `Game::wingman` / `wingSite` (config `wing_site`; Play / config mode
   `kModeWingman` 7); its rules are `g_wingRules` (16 rounds, 90 s, 15 s buy) through `rules()` (`g_wingmanOn`; the
   console's mp_ commands change whichever is live); 3 bots (team: 1 mate); siteTarget fixed, no fakes / defaults /

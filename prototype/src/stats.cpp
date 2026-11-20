@@ -93,7 +93,7 @@ bool Career::save(const std::string& path) const {
         return s.empty() ? std::string("-") : s;
     };
     out << "// Crisp career: your matches against bots and your rating (written by the game)\n";
-    out << "rating " << rating << "\nbest " << best << "\n";
+    out << "rating " << rating << "\nbest " << best << "\narena " << arenaBest << " " << arenaTitles << "\n";
     for (const MatchRecord& m : matches)
         out << "match " << m.mode << " " << m.score << " " << m.kills << " " << m.deaths << " " << m.assists << " "
             << m.hsKills << " " << m.damage << " " << m.rounds << " " << m.botLevel << " " << m.ratingBefore << " "
@@ -117,6 +117,7 @@ bool Career::load(const std::string& path) {
         ss >> key;
         if (key == "rating") ss >> rating;
         else if (key == "best") ss >> best;
+        else if (key == "arena") ss >> arenaBest >> arenaTitles;
         else if (key == "match") {
             MatchRecord m;
             std::string when, result;

@@ -2222,6 +2222,46 @@ void testBinds() {
 
 // Arms Race (v0.34): the ladder (13 levels, every gun once, the knife last), a kill moves you on, a knife kill takes a
 // level off the victim, only a knife kill on the last level wins; and a bot with the knife runs at its target.
+// Arena (v0.49): the ladder's steps and gun rotation, and on every town map duel spawns that can't see each other and
+// are a fair walk apart.
+void testArena() {
+    std::printf("arena\n");
+    int bad = 0;
+    bad += arenaStep(1, -1) != 1 || arenaStep(1, 1) != 2 || arenaStep(kArenaLevels, 1) != kArenaLevels || arenaStep(4, 0) != 4 ||
+           arenaStep(4, -1) != 3;
+    bad += arenaSkill(1) != 0.0f || arenaSkill(kArenaLevels) != 3.0f || !(arenaSkill(4) > arenaSkill(3));
+    std::set<int> guns;
+    for (int r = 0; r < 10; ++r) guns.insert(arenaGun(r));
+    bad += guns.size() < 8 || arenaGun(0) != arenaGun(10) || arenaGun(-1) != arenaGun(9);
+    for (int town = 0; town < kTownMaps; ++town) {
+        setTownMap(town);
+        const World w = buildTown();
+        NavGrid nav;
+        nav.build(townGrid(), w, townSpawn().pos);
+        uint32_t rng = 99u;
+        int found = 0, seen = 0;
+        std::vector<Vec3> path;
+        float shortest = 1e9f, longest = 0;
+        for (int k = 0; k < 20; ++k) {
+            Vec3 a, b;
+            if (!arenaSpawnPair(nav, w, rng, a, b)) continue;
+            ++found;
+            const Vec3 up{0, 0, dummyEyeZ()};
+            seen += w.traceRay(a + up, b + up).fraction >= 1.0f;
+            float walk = 0;
+            if (nav.findPath(a, b, path))
+                for (size_t q = 1; q < path.size(); ++q) walk += length(path[q] - path[q - 1]);
+            shortest = std::min(shortest, walk);
+            longest = std::max(longest, walk);
+        }
+        std::printf("  %s: %d of 20 duel spawns found, walks %.0f-%.0f units, %d in sight\n", townMapName(town), found,
+                    double(shortest), double(longest), seen);
+        bad += found < 18 || seen > 0;
+    }
+    setTownMap(0);
+    CHECK(bad == 0, "arena: %d bad", bad);
+}
+
 void testArmsRace() {
     std::printf("arms race\n");
     int bad = 0;
@@ -2896,6 +2936,7 @@ int main() {
     testConsole();
     testBinds();
     testArmsRace();
+    testArena();
     testLineups();
     testMatchTape();
     testOwnMap(1);

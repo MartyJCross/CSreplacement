@@ -508,6 +508,12 @@ struct Game {
     bool armsRace = false;
     int arLevel = 0, arWinner = -3;
     std::vector<int> arBotLevel;
+    // Arena (v0.49: deathmatch, mode 1, with arena on): a 1v1 ladder against one bot, a round at a time. The level
+    // (1 .. kArenaLevels), the round (its gun), this run's record, how the last round went (1 won, -1 lost, 0 draw),
+    // when the round runs out and when the next starts (-1: one is on).
+    bool arena = false;
+    int arenaLevel = 1, arenaRound = 0, arenaWins = 0, arenaLosses = 0, arenaTop = 1, arenaResult = 0, arenaFrom = 1;
+    double arenaRoundEnd = 0, arenaNextAt = -1;
     int dmShownSecs = -1, dmShownPhase = -1;
 
     // Combat record: kill feed, damage report and scoreboard. Agent ids: -1 = you, i = bot i.
@@ -1158,6 +1164,7 @@ int g_botNameOffset = 0;
 // its own fixed bit for the match: a little better or a little worse (slight: up to half a level either way,
 // wide: up to a whole level). Seeded by the bot and the match, so it doesn't change mid-match.
 BotSkill botSkillOf(const Game& g, size_t i) {
+    if (g.arena) return skillAt(arenaSkill(g.arenaLevel));  // (Arena: the level's bot)
     const bool comp = g.mode == 3 && g.mapId == 1;
     const int level = comp && i < g.team.size() && g.team[i] == g.comp.youTeam ? g.mateSkill : g.enemySkill;
     float off = 0;
@@ -1214,6 +1221,7 @@ void resetRecord(Game& g) {
 // Arms Race (v0.34; the ladder: bots.h armsRaceGun / armsRaceStep).
 void armsRaceEquip(Game& g);           // (below: your level's gun in your hand)
 void armsRaceKill(Game& g, int attacker, int victim, const char* weapon);
+void arenaEnd(Game& g, int result);  // (Arena, v0.49: below)
 
 void recordDamage(Game& g, int attacker, int victim, float amount, bool head, const char* weapon, bool wallbang,
                   bool kill) {
@@ -1254,6 +1262,7 @@ void recordDamage(Game& g, int attacker, int victim, float amount, bool head, co
         g.killToastHead = head;
     }
     if (g.armsRace) armsRaceKill(g, attacker, victim, weapon);
+    if (g.arena && attacker != victim) arenaEnd(g, victim < 0 ? -1 : attacker < 0 ? 1 : 0);
     {  // the saved match's timeline
         const int you = int(g.dummies.size());
         g_tape.event({g.simTime, 1, uint8_t(g.comp.round), uint8_t(g.comp.youScore), uint8_t(g.comp.themScore),
@@ -1876,6 +1885,7 @@ bool hurtPlayer(Game& g, int attacker, float dmg, bool head, const char* weapon)
         g.spawnProtectUntil = g.deadUntil + 1.0;
         for (BotBrain& b : g.bots)
             if (b.state == 2) { b.state = 1; b.timer = 1.0f; }
+        if (g.arena) g.deadUntil = 1e18;  // (Arena: down until the next round starts)
     } else if (g.mode == 2 && g.mapId == 1) {
         endRetakeRound(g, false, "YOU DIED");
     } else if (g.mode == 4 && g.mapId == 1) {
@@ -2024,7 +2034,7 @@ void botDied(Game& g, size_t i) {
         dropGun(g, w, w >= 0 && w < kWeaponCount ? weaponDef(w).magSize : 0, d.pos, d.yaw);
     }
     if (g.botsFire || g.mapId == 1) d.respawnLeft = 2.0f + rnd(g) * 2.0f;  // no insta-respawn when they fight back
-    if (g.mode >= 2) d.respawnLeft = 1e9f;  // retakes, competitive, prefire: dead for the round
+    if (g.mode >= 2 || g.arena) d.respawnLeft = 1e9f;  // retakes, competitive, prefire, Arena: dead for the round
 }
 
 // A bot takes non-bullet damage (HE, fire) from `attacker` (-1 = you).
@@ -2819,6 +2829,74 @@ void armsRaceKill(Game& g, int attacker, int victim, const char* weapon) {
         d.mag = -1;
         d.reloadUntil = -1;
     }
+    g.hudDirty = true;
+}
+
+// Arena (v0.49, owner): a 1v1 ladder against one bot. Each round: two spots out of each other's sight
+// (arenaSpawnPair), the round's gun for both of you (arenaGun), the bot at the level's skill; win and you go up a
+// level, lose and you go down, the clock (kArenaRoundTime) is a draw.
+extern Career g_career;  // (below, with the stats screen)
+extern std::string g_careerPath;
+void arenaStartRound(Game& g) {
+    if (g.dummies.empty() || g.bots.empty()) return;
+    Vec3 you, bot;
+    arenaSpawnPair(g.nav, g.world, g.rng, you, bot);
+    const int gun = arenaGun(g.arenaRound);
+    g.rv = Game::ReplayView{};  // (a killcam still playing ends here)
+    g.killcamAt = -1;
+    g.deathView = false;
+    g.noclip = false;
+    g.spawn = you;
+    g.spawnYaw = yawTo(you, bot);
+    g.hp = 100;
+    g.deadUntil = -1;
+    g.spawnProtectUntil = 0;
+    refillAmmo(g);
+    resetPosition(g);
+    takeGun(g, gun);
+    Dummy& d = g.dummies[0];
+    d = Dummy{};
+    g.bots[0] = BotBrain{};
+    spawnDeathmatchBot(d, g.bots[0], bot, g.rng);
+    d.weapon = uint8_t(gun);
+    d.mag = -1;
+    d.reloadUntil = -1;
+    for (size_t i = 1; i < g.dummies.size(); ++i) g.dummies[i].respawnLeft = 1e9f;
+    g.dmEnd = 1e18;  // (no deathmatch clock: the rounds have their own)
+    g.dmOverUntil = -1;
+    g.arenaRoundEnd = g.simTime + kArenaRoundTime;
+    g.arenaNextAt = -1;
+    g.hudDirty = true;
+}
+
+void startArena(Game& g) {
+    g.replay.clear();
+    g.shots = g.hits = g.headshots = 0;
+    resetRecord(g);
+    g.arenaLevel = g.arenaTop = g.arenaFrom = 1;
+    g.arenaRound = g.arenaWins = g.arenaLosses = g.arenaResult = 0;
+    arenaStartRound(g);
+}
+
+void arenaEnd(Game& g, int result) {
+    if (!g.arena || g.arenaNextAt >= 0) return;
+    g.arenaResult = result;
+    g.arenaFrom = g.arenaLevel;
+    if (result > 0 && g.arenaLevel == kArenaLevels) ++g_career.arenaTitles;
+    g.arenaLevel = arenaStep(g.arenaLevel, result);
+    g.arenaWins += result > 0;
+    g.arenaLosses += result < 0;
+    g.arenaTop = std::max(g.arenaTop, g.arenaLevel);
+    ++g.arenaRound;
+    if (g.arenaLevel > g_career.arenaBest || (result > 0 && g.arenaFrom == kArenaLevels)) {
+        g_career.arenaBest = std::max(g_career.arenaBest, g.arenaLevel);
+        if (!g_careerPath.empty()) g_career.save(g_careerPath);
+    }
+    std::fprintf(stderr, "arena: round %d %s at %.0f s, level %d -> %d%c", g.arenaRound,
+                 result > 0 ? "won" : result < 0 ? "lost" : "drawn", g.simTime - (g.arenaRoundEnd - kArenaRoundTime),
+                 g.arenaFrom, g.arenaLevel, 10);
+    // A moment for the result (the killcam first if the bot got you), then the next round.
+    g.arenaNextAt = g.simTime + (result < 0 ? 4.3 : 2.5);
     g.hudDirty = true;
 }
 
@@ -4094,7 +4172,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.replay.clear();
     g.world = id == 1 ? buildTown() : buildLab();
     if (id == 1) {
-        g.dummies.assign(g.mode == 1   ? size_t(g.dmBots)
+        g.dummies.assign(g.mode == 1   ? size_t(g.arena ? 1 : g.dmBots)
                          : g.mode == 2 ? size_t(g.rtBots)
                          : g.mode == 3 ? size_t(g.online ? kNetSlots : g.wingman ? 3 : g.compMates + g.compEnemies)
                          : g.mode == 5 ? size_t(kNetMaxPlayers)
@@ -4186,7 +4264,7 @@ void loadMap(Game& g, Renderer& r, int id) {
         });
     else
         g.fx.setGround(nullptr);
-    if (id == 1 && g.mode == 1) startDeathmatch(g);
+    if (id == 1 && g.mode == 1) g.arena ? startArena(g) : startDeathmatch(g);
     if (id == 1 && g.mode == 2) {
         g.rtWon = g.rtLost = 0;
         startRetakeRound(g);
@@ -4607,12 +4685,12 @@ void simTick(Game& g, const Options& opt) {
         }
     }
 
-    if (g.armsRace && g.switchTo) {  // Arms Race: your level's gun and the knife, nothing else (no grenades)
-        const int gun = armsRaceGun(g.arLevel);
+    if ((g.armsRace || g.arena) && g.switchTo) {  // Arms Race / Arena: that gun and the knife, nothing else (no grenades)
+        const int gun = g.arena ? arenaGun(g.arenaRound) : armsRaceGun(g.arLevel);
         if (g.switchTo == 4) g.switchTo = 0;
         else if (g.switchTo != 3) g.switchTo = gun == kWKnife ? 3 : weaponDef(gun).primary ? 1 : 2;
     }
-    if (g.armsRace) g.throwLatch = false;
+    if (g.armsRace || g.arena) g.throwLatch = false;
 
     // Weapon switching / reload.
     if (g.switchTo) {
@@ -5292,7 +5370,12 @@ void simTick(Game& g, const Options& opt) {
     }
 
     // ---- Deathmatch: match clock, then the bots roam, react to what they see and hear, and chase ----
-    if (g.mapId == 1 && g.mode == 1) {
+    if (g.mapId == 1 && g.mode == 1 && g.arena) {  // Arena: the round's clock, then the next round
+        if (g.arenaNextAt >= 0 && g.simTime >= g.arenaNextAt) arenaStartRound(g);
+        else if (g.arenaNextAt < 0 && g.simTime >= g.arenaRoundEnd) arenaEnd(g, 0);
+        const int secs = int(std::max(0.0, g.arenaRoundEnd - g.simTime));
+        if (secs != g.dmShownSecs) { g.dmShownSecs = secs; g.hudDirty = true; }
+    } else if (g.mapId == 1 && g.mode == 1) {
         if (g.dmOverUntil < 0 && g.simTime >= g.dmEnd) {
             g.dmOverUntil = g.simTime + 8.0;  // results screen, then a new match
             if (!g.armsRace) recordDeathmatch(g);  // (Arms Race doesn't count towards your rating)
@@ -5880,12 +5963,13 @@ struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots 
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "SUMMIT"};
 constexpr int kMenuMaps = 4;  // the maps the menus offer: the Lab, Dust, Harbor, Summit (Inferno removed, owner v0.39)
-const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE", "WINGMAN"};
+const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE", "WINGMAN", "ARENA"};
 constexpr int kModeArmsRace = 6;  // (the Play screen and config's mode; in a game it's deathmatch with armsRace on)
 constexpr int kModeWingman = 7;   // (in a game: competitive with wingman on)
+constexpr int kModeArena = 8;     // (in a game: deathmatch with arena on: one bot, rounds)
 const char* const kSiteNames[] = {"A", "B"};
 // The PLAY screen: the modes in the order they're offered, and a line about each (shown under the menu).
-const int kPlayModes[] = {3, kModeWingman, 1, kModeArmsRace, 2, 4, 0};
+const int kPlayModes[] = {3, kModeWingman, 1, kModeArmsRace, kModeArena, 2, 4, 0};
 const char* const kModeAbout[] = {
     "THE LAB OR A MAP: A SHOOTING RANGE, PEEK BOTS AND AN AIM DRILL",
     "EVERYONE FOR THEMSELVES: RESPAWN, 10 ROUNDS AND 40 HP A KILL",
@@ -5895,6 +5979,7 @@ const char* const kModeAbout[] = {
     "",
     "EVERY KILL A NEW GUN: RIFLES, SMGS, SHOTGUNS, SNIPERS, PISTOLS - THEN A KNIFE KILL WINS",
     "2 V 2 ON ONE BOMBSITE: YOU AND A BOT AGAINST TWO, FIRST TO 9 ROUNDS",
+    "1 V 1 LADDER: WIN A ROUND TO MEET A BETTER BOT, LOSE AND DROP A LEVEL - A NEW GUN EVERY ROUND",
 };
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
@@ -5932,7 +6017,7 @@ const char* menuTitle(int screen) {
         case kMenuStats: return "PROFILE";
         case kMenuReplays: return "REPLAYS";
         case kMenuLobby: return g_lobby.host ? "LOBBY - HOSTING" : "LOBBY";
-        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeWingman)];
+        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeArena)];
         case kMenuOnline: return "PLAY ONLINE";
         case kMenuSound: return "SOUND";
         default: return "";
@@ -6657,7 +6742,9 @@ void drawStatsPanel(HudBatch& hud, int w, int h, int s) {
     hud.text(x + 16.0f * fs, y + 14.0f * fs, line, 0xFFD060FF, s * 4);
     const float rx = x + 16.0f * fs + hud.textWidth(line, s * 4) + 14.0f * fs;
     hud.text(rx, y + 16.0f * fs, rankName(c.rating), 0xFFFFFFFF, s * 2);
-    std::snprintf(line, sizeof(line), "RATING (BEST %d)   NEXT RANK AT %d", c.best, std::max(825, (c.rating - 700) / 125 * 125 + 825));
+    std::snprintf(line, sizeof(line), "RATING (BEST %d)   NEXT RANK AT %d   ARENA BEST: LEVEL %d%s", c.best,
+                  std::max(825, (c.rating - 700) / 125 * 125 + 825), c.arenaBest,
+                  c.arenaTitles > 0 ? ("  (TOP LEVEL WON " + std::to_string(c.arenaTitles) + "x)").c_str() : "");
     hud.text(rx, y + 36.0f * fs, line, 0x909090FF);
     float ty = y + 62.0f * fs;
     if (c.matches.empty()) {
@@ -6752,7 +6839,7 @@ void drawStatsPanel(HudBatch& hud, int w, int h, int s) {
 // Over the menu on the inventory and case screens: the reel, the stage and your case count.
 void drawMenuExtras(HudBatch& hud, const Config& cfg, int w, int h, int s) {
     if (g_menu.screen == kMenuStats) drawStatsPanel(hud, w, h, s);
-    if (g_menu.screen == kMenuPlay && g_menu.sel >= 0 && g_menu.sel < 5) {  // what the highlighted mode is
+    if (g_menu.screen == kMenuPlay && g_menu.sel >= 0 && g_menu.sel < int(sizeof(kPlayModes) / sizeof(kPlayModes[0]))) {  // what the highlighted mode is
         Config view = cfg;
         const MenuLayout L = menuLayout(kMenuPlay, menuRows(kMenuPlay, view, 0).size(), w, h, s);
         const char* about = kModeAbout[kPlayModes[g_menu.sel]];
@@ -7180,7 +7267,28 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
             hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
         }
     }
-    if (g.mapId == 1 && g.mode == 1) {
+    if (g.mapId == 1 && g.mode == 1 && g.arena) {  // Arena: the level, the gun, the clock, this run; the round's result
+        const int left = int(std::max(0.0, g.arenaRoundEnd - g.simTime));
+        std::snprintf(buf, sizeof(buf), "ARENA LEVEL %d / %d   %s   %d:%02d", g.arenaLevel, kArenaLevels,
+                      weaponDef(arenaGun(g.arenaRound)).name, left / 60, left % 60);
+        hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
+        std::snprintf(buf, sizeof(buf), "WON %d   LOST %d   TOP THIS RUN %d   BEST EVER %d%s", g.arenaWins, g.arenaLosses, g.arenaTop,
+                      std::max(g_career.arenaBest, g.arenaTop), g_career.arenaTitles > 0 ? "   CHAMPION" : "");
+        hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s + 11.0f * s, buf, 0xB8E0B8FF);
+        if (g.arenaNextAt >= 0 && !g.rv.on) {
+            const bool top = g.arenaResult > 0 && g.arenaFrom == kArenaLevels;
+            const char* head = g.arenaResult > 0 ? (top ? "CHAMPION" : "ROUND WON") : g.arenaResult < 0 ? "ROUND LOST" : "TIME'S UP: A DRAW";
+            const uint32_t col = g.arenaResult > 0 ? 0x70E070FF : g.arenaResult < 0 ? 0xFF6A5AFF : 0xE0E0E0FF;
+            hud.text(cx - hud.textWidth(head, s * 3) / 2, cy - 110.0f * s, head, col, s * 3);
+            if (top) std::snprintf(buf, sizeof(buf), "YOU BEAT THE TOP BOT - STAYING ON LEVEL %d", g.arenaLevel);
+            else if (g.arenaLevel > g.arenaFrom) std::snprintf(buf, sizeof(buf), "UP TO LEVEL %d", g.arenaLevel);
+            else if (g.arenaLevel < g.arenaFrom) std::snprintf(buf, sizeof(buf), "DOWN TO LEVEL %d", g.arenaLevel);
+            else std::snprintf(buf, sizeof(buf), "STAYING ON LEVEL %d", g.arenaLevel);
+            hud.text(cx - hud.textWidth(buf, s * 2) / 2, cy - 82.0f * s, buf, 0xFFFFFFFF, s * 2);
+            std::snprintf(buf, sizeof(buf), "NEXT ROUND: %s", weaponDef(arenaGun(g.arenaRound)).name);
+            hud.text(cx - hud.textWidth(buf) / 2, cy - 64.0f * s, buf, 0xFFD060FF);
+        }
+    } else if (g.mapId == 1 && g.mode == 1) {
         int left = int(std::max(0.0, g.dmEnd - g.simTime));
         std::snprintf(buf, sizeof(buf), "%d:%02d   KILLS %d   DEATHS %d", left / 60, left % 60, g.you.kills, g.you.deaths);
         hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, 0xFFFFFFFF);
@@ -7767,10 +7875,11 @@ int main(int argc, char** argv) {
     }
     validateEquips(g);
     g.armsRace = cfg.mode == kModeArmsRace;
+    g.arena = cfg.mode == kModeArena;
     g.wingman = cfg.mode == kModeWingman;
     g.wingSite = std::clamp(cfg.wing_site, 0, 1);
     g_wingmanOn = g.wingman;
-    g.mode = g.armsRace ? 1 : g.wingman ? 3 : cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
+    g.mode = g.armsRace || g.arena ? 1 : g.wingman ? 3 : cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     // The depth pre-pass pays for itself only when shading is dear (shadows or AO): without them it cost ~4% on an
     // integrated Radeon at 1440p (v0.47).
     auto prepass = [&]() { renderer.setDepthPrepass(cfg.depth_prepass != 0 && (cfg.shadows > 0 || cfg.ambient_occlusion != 0)); };
@@ -7814,7 +7923,7 @@ int main(int argc, char** argv) {
     auto setMenu = [&](int screen) {
         if (screen == kMenuPlay) {  // the play screen starts from what's running now
             g_gameMenu.map = g.mapId == 1 ? 1 + townMap() : 0;
-            g_gameMenu.mode = g.online ? 3 : g.armsRace ? kModeArmsRace : g.wingman ? kModeWingman : g.mode;
+            g_gameMenu.mode = g.online ? 3 : g.armsRace ? kModeArmsRace : g.arena ? kModeArena : g.wingman ? kModeWingman : g.mode;
             g_gameMenu.bots = g.botsFire;
             g_gameMenu.drill = g.drill;
             g_gameMenu.route = g.pf.route;
@@ -7870,7 +7979,7 @@ int main(int argc, char** argv) {
     };
     auto goOnline = [&](int game) {  // hosting, or just connected: online deathmatch (0) or competitive (1) on the town map
         g.online = true;
-        g.armsRace = g.wingman = g_wingmanOn = false;
+        g.armsRace = g.arena = g.wingman = g_wingmanOn = false;
         g.mode = game == 1 ? 3 : 5;
         g_netTeamsTogether = cfg.net_teams;
         loadMap(g, renderer, 1);
@@ -7927,10 +8036,11 @@ int main(int argc, char** argv) {
         const GameMenu& m = g_gameMenu;
         leaveOnline();  // (if you were in an online game)
         g.armsRace = m.mode == kModeArmsRace;  // (deathmatch with the gun ladder)
+        g.arena = m.mode == kModeArena;        // (deathmatch with one bot, in rounds)
         g.wingman = m.mode == kModeWingman;    // (competitive, 2 v 2 on one site)
         g.wingSite = std::clamp(cfg.wing_site, 0, 1);
         g_wingmanOn = g.wingman;
-        g.mode = g.armsRace ? 1 : g.wingman ? 3 : m.mode;
+        g.mode = g.armsRace || g.arena ? 1 : g.wingman ? 3 : m.mode;
         g.pf.route = m.route;
         const int map = m.mode != 0 && m.map == 0 ? 1 : m.map;
         setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor, 3 Summit)
@@ -7972,6 +8082,7 @@ int main(int argc, char** argv) {
         if (!readMatch(g_tapes[size_t(k)].path, info)) return;
         g_watchingTape = true;  // (no recording while it loads)
         g.armsRace = info.armsRace;
+        g.arena = false;
         g.wingman = g_wingmanOn = info.wingman;
         g.mode = info.mode == 1 ? 1 : 3;
         setTownMap(std::max(0, tapeTown(info.map)));
@@ -8128,7 +8239,7 @@ int main(int argc, char** argv) {
                     setMenu(it.action - kActGoto);
                 } else if (it.action >= kActWatch) {
                     watchTape(it.action - kActWatch);
-                } else if (it.action >= kActPickMode && it.action <= kActPickMode + kModeWingman) {  // PLAY: that mode, set it up
+                } else if (it.action >= kActPickMode && it.action <= kActPickMode + kModeArena) {  // PLAY: that mode, set it up
                     g_gameMenu.mode = it.action - kActPickMode;
                     if (g_gameMenu.mode != 0 && g_gameMenu.map == 0) g_gameMenu.map = 1;
                     setMenu(kMenuSetup);
@@ -8484,7 +8595,7 @@ int main(int argc, char** argv) {
         {"echo", "echo <text>"},
         {"status", "the map, the mode, the bots, online"},
         {"map", "map <lab|dust|harbor|summit>: plays it (in this mode)"},
-        {"mode", "mode <practice|deathmatch|armsrace|retakes|competitive|wingman|prefire>: plays it (on this map)"},
+        {"mode", "mode <practice|deathmatch|armsrace|arena|retakes|competitive|wingman|prefire>: plays it (on this map)"},
         {"restart", "starts this game over (mp_restartgame too)"},
         {"mp_restartgame", "starts this game over"},
         {"noclip", "fly through walls (offline)"},
@@ -8532,7 +8643,7 @@ int main(int argc, char** argv) {
     // Play screen's START.
     auto restartGame = [&](int map, int mode) {
         g_gameMenu.map = map >= 0 ? map : g.mapId == 1 ? 1 + townMap() : 0;
-        g_gameMenu.mode = mode >= 0 ? mode : g.armsRace ? kModeArmsRace : g.wingman ? kModeWingman : g.mode;
+        g_gameMenu.mode = mode >= 0 ? mode : g.armsRace ? kModeArmsRace : g.arena ? kModeArena : g.wingman ? kModeWingman : g.mode;
         g_gameMenu.bots = g.botsFire;
         g_gameMenu.drill = g.drill;
         g_gameMenu.route = g.pf.route;
@@ -8599,8 +8710,9 @@ int main(int argc, char** argv) {
                            : arg == "competitive" || arg == "comp" ? 3 : arg == "prefire" ? 4
                            : arg == "armsrace" || arg == "arms_race" || arg == "gungame" ? kModeArmsRace
                            : arg == "wingman" ? kModeWingman
+                           : arg == "arena" ? kModeArena
                            : !arg.empty() && arg.find_first_not_of("0123456789") == std::string::npos ? std::atoi(arg.c_str()) : -1;
-            if (mode < 0 || mode > kModeWingman || mode == 5) { con("mode <practice|deathmatch|armsrace|retakes|competitive|wingman|prefire>"); return; }
+            if (mode < 0 || mode > kModeArena || mode == 5) { con("mode <practice|deathmatch|armsrace|arena|retakes|competitive|wingman|prefire>"); return; }
             restartGame(-1, mode);
         } else if (cmd == "restart" || cmd == "mp_restartgame") {
             if (offline()) restartGame(-1, -1);
@@ -8910,7 +9022,7 @@ int main(int argc, char** argv) {
                 g.vm.inspect();
             } else if (bound(kBindBuy, code)) {
                 const bool comp = g.mode == 3 && g.mapId == 1;
-                const bool canBuy = !g.armsRace && (!comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
+                const bool canBuy = !g.armsRace && !g.arena && (!comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
                                                               length2d(g.player.origin - g.spawn) < 700.0f));
                 if (canBuy) {
                     g.callMenu = false;

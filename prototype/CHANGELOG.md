@@ -3,6 +3,19 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.49: Arena
+
+- **ARENA** (Play → ARENA, any town map; console `mode arena`): a 1v1 ladder against one bot, a round at a time. Each
+  round you and the bot start at two spots on the map out of each other's sight (a 800-2400 unit walk apart) with the
+  same gun, and hunt each other. **Win and you go up a level** (8 levels: the bot goes from easy to expert), **lose and
+  you drop one**; if neither of you dies in 40 s it's a draw and you stay. The gun changes every round: AK-47, AWP,
+  Deagle, M4A1-S, UMP-45, SSG 08, Galil, USP-S, MAC-10, Nova, round and round (and your knife). No buying, no grenades.
+- The HUD shows your level, the round's gun and clock, your wins and losses this run, your top level this run and your
+  best ever; between rounds ROUND WON / ROUND LOST / DRAW, where you're going and the next gun. Winning on the top level
+  is a CHAMPION round.
+- Your best Arena level (and top-level wins) is kept in your profile (shown at the top of PROFILE). The Arena doesn't
+  change your rating.
+
 ## v0.48: your profile
 
 - **STATS is now PROFILE** (main menu), with two cards, competitive and deathmatch kept apart, each over your **last

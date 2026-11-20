@@ -890,6 +890,37 @@ bool armsRaceStep(int& killerLevel, int& victimLevel, bool knife) {
     return false;
 }
 
+int arenaGun(int round) {
+    static const int kGuns[] = {kWRifle, kWSniper, kWDeagle, kWM4A1S, kWUmp45, kWSsg08, kWGalil, kWPistol, kWMac10, kWNova};
+    constexpr int n = int(sizeof(kGuns) / sizeof(kGuns[0]));
+    return kGuns[((round % n) + n) % n];
+}
+
+int arenaStep(int level, int result) { return std::clamp(level + (result > 0 ? 1 : result < 0 ? -1 : 0), 1, kArenaLevels); }
+
+float arenaSkill(int level) { return 3.0f * float(std::clamp(level, 1, kArenaLevels) - 1) / float(kArenaLevels - 1); }
+
+bool arenaSpawnPair(const NavGrid& nav, const World& world, uint32_t& rng, Vec3& a, Vec3& b) {
+    static std::vector<Vec3> path;
+    a = nav.roamPoint(botRand(rng), true);
+    b = nav.roamPoint(botRand(rng), true);
+    for (int tries = 0; tries < 80; ++tries) {
+        const Vec3 p = nav.roamPoint(botRand(rng), true), q = nav.roamPoint(botRand(rng), true);
+        const float straight = length(p - q);
+        if (straight < 500.0f || straight > 2400.0f) continue;
+        const Vec3 up{0, 0, dummyEyeZ()};
+        if (world.traceRay(p + up, q + up).fraction >= 1.0f) continue;  // they'd see each other at once
+        if (!nav.findPath(p, q, path) || path.empty()) continue;
+        float walk = 0;
+        for (size_t k = 1; k < path.size(); ++k) walk += length(path[k] - path[k - 1]);
+        if (walk < 800.0f || walk > 2400.0f) continue;
+        a = p;
+        b = q;
+        return true;
+    }
+    return false;
+}
+
 float botShotGap(int w) {
     float tap = 0.22f;  // rifles: taps and short bursts
     switch (w) {
