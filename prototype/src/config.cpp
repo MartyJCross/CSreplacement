@@ -81,6 +81,9 @@ graphics_preset 2
 shadows 2
 // Ambient occlusion: soft shade in corners and at the foot of walls, darker tunnels and rooms (1 = on).
 ambient_occlusion 1
+// The 3D scene's resolution as a % of the window's (50-100): lower is faster on a weak GPU; the HUD stays sharp.
+// Works with msaa 0 (FXAA) only.
+render_scale 100
 // The map's ambience: wind and distant birds on Dust, waves and gulls on Harbor, mountain wind on Summit (0 = off .. 1).
 ambience_volume 0.3
 // Post-processing: each map's colour grade and a soft vignette; with msaa 0 it smooths edges with FXAA instead
@@ -137,7 +140,7 @@ std::string configText(const Config& c) {
         << "\nbhop " << c.bhop
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\ncase_kills " << c.case_kills << "\nall_skins " << c.all_skins << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
-        << "\nmap " << c.map  << "\nmsaa " << c.msaa << "\nshow_fps " << c.show_fps << "\nart_style " << c.art_style << "\ngraphics_preset " << c.graphics_preset << "\nshadows " << c.shadows << "\nambient_occlusion " << c.ambient_occlusion << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\ndepth_prepass " << c.depth_prepass << "\nmode " << c.mode
+        << "\nmap " << c.map  << "\nmsaa " << c.msaa << "\nshow_fps " << c.show_fps << "\nart_style " << c.art_style << "\ngraphics_preset " << c.graphics_preset << "\nshadows " << c.shadows << "\nambient_occlusion " << c.ambient_occlusion << "\nrender_scale " << c.render_scale << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\ndepth_prepass " << c.depth_prepass << "\nmode " << c.mode
         << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nfreeze_time " << c.freeze_time
@@ -231,6 +234,10 @@ bool setConfigValue(Config& c, const std::string& key, const std::string& value)
     else if (key == "post_fx") i(c.post_fx);
     else if (key == "depth_prepass") i(c.depth_prepass);
     else if (key == "ambient_occlusion") i(c.ambient_occlusion);
+    else if (key == "render_scale") {
+        i(c.render_scale);
+        c.render_scale = c.render_scale < 50 ? 50 : c.render_scale > 100 ? 100 : c.render_scale;
+    }
     else if (key == "mode") i(c.mode);
     else if (key == "dm_bots") i(c.dm_bots);
     else if (key == "dm_minutes") i(c.dm_minutes);

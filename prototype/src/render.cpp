@@ -1405,9 +1405,10 @@ void Renderer::setGrade(int look) {
     glUseProgram(skyProgram_);
     glUniform1f(uSkyPeaks_, look_ == 3 ? 1.0f : 0.0f);
     const float sat = style_ == 1 ? 1.18f : 1.0f, con = style_ == 1 ? 1.25f : 1.0f;
-    glUseProgram(postProgram_);
-    glUniform3f(uPostTint_, kTint[look_][0], kTint[look_][1], kTint[look_][2]);
-    glUniform3f(uPostGrade_, kGrade[look_][0] * con, kGrade[look_][1] * sat, kGrade[look_][2]);
+    for (int k = 0; k < 3; ++k) tint_[k] = kTint[look_][k];
+    grade_[0] = kGrade[look_][0] * con;
+    grade_[1] = kGrade[look_][1] * sat;
+    grade_[2] = kGrade[look_][2];  // (endScene uploads them)
 }
 
 void Renderer::setStyle(int style) {
@@ -1420,9 +1421,13 @@ void Renderer::setStyle(int style) {
 }
 
 bool Renderer::makePostTargets(int w, int h) {
+    if (copyFbo_ || sceneFbo_) glFinish();  // (the GPU may still be reading the old ones: v0.41.1's lesson)
     if (copyFbo_) glDeleteFramebuffers(1, &copyFbo_);
+    if (sceneFbo_) glDeleteFramebuffers(1, &sceneFbo_);
+    if (sceneDepth_) glDeleteRenderbuffers(1, &sceneDepth_);
     if (postTex_) glDeleteTextures(1, &postTex_);
-    copyFbo_ = postTex_ = 0;
+    copyFbo_ = postTex_ = sceneFbo_ = sceneDepth_ = 0;
+    direct_ = false;
     // The picture the post pass reads: a plain texture (linear, for FXAA's in-between taps; alpha = the outline code).
     glGenTextures(1, &postTex_);
     glActiveTexture(GL_TEXTURE3);
@@ -1437,6 +1442,17 @@ bool Renderer::makePostTargets(int w, int h) {
     glBindFramebuffer(GL_FRAMEBUFFER, copyFbo_);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, postTex_, 0);
     const bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    // Without MSAA the scene is drawn straight into that texture (no copy): an FBO with its own depth.
+    if (ok && windowSamples_ == 0) {
+        glGenRenderbuffers(1, &sceneDepth_);
+        glBindRenderbuffer(GL_RENDERBUFFER, sceneDepth_);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+        glGenFramebuffers(1, &sceneFbo_);
+        glBindFramebuffer(GL_FRAMEBUFFER, sceneFbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, postTex_, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, sceneDepth_);
+        direct_ = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return ok;
 }
@@ -1444,16 +1460,27 @@ bool Renderer::makePostTargets(int w, int h) {
 void Renderer::beginFrame(int width, int height) {
     width_ = width;
     height_ = height;
-    if (postOn_ && width > 0 && height > 0 && (postW_ != width || postH_ != height)) {
-        postW_ = width;
-        postH_ = height;
-        postOk_ = makePostTargets(width, height);
+    const bool scaled = scale_ < 0.999f && windowSamples_ == 0;
+    const int sw = scaled ? std::max(1, int(std::lround(float(width) * scale_))) : width;
+    const int sh = scaled ? std::max(1, int(std::lround(float(height) * scale_))) : height;
+    const bool want = (postOn_ || scaled) && width > 0 && height > 0;
+    if (want && (postW_ != sw || postH_ != sh)) {
+        postW_ = sw;
+        postH_ = sh;
+        postOk_ = makePostTargets(sw, sh);
         if (!postOk_) SDL_Log("post pass unavailable: drawing straight to the screen");
     }
+    active_ = want && postOk_ && postW_ == sw && postH_ == sh && (direct_ || !scaled);
     glUseProgram(boxProgram_);
-    glUniform1i(uNoEdge_, postOn_ && postOk_ ? 0 : 2);
+    glUniform1i(uNoEdge_, active_ ? 0 : 2);
     firstPerson_ = false;
-    glViewport(0, 0, width, height);
+    if (active_ && direct_) {
+        glBindFramebuffer(GL_FRAMEBUFFER, sceneFbo_);
+        glViewport(0, 0, sw, sh);
+    } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, width, height);
+    }
     glClearColor(0.80f, 0.84f, 0.87f, 1.0f);
     glDepthMask(GL_TRUE);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -1608,30 +1635,41 @@ void Renderer::setFlash(const Vec3& pos, float strength) {
 
 void Renderer::clearDepth() {
     glUseProgram(boxProgram_);
-    glUniform1i(uNoEdge_, postOn_ && postOk_ ? 1 : 2);  // what's drawn from here on (the first-person gun): no outline
+    glUniform1i(uNoEdge_, active_ ? 1 : 2);  // what's drawn from here on (the first-person gun): no outline
     firstPerson_ = true;
     glDepthMask(GL_TRUE);
     glClear(GL_DEPTH_BUFFER_BIT);
 }
 
 void Renderer::endScene() {
-    if (!postOn_ || !postOk_ || postW_ != width_ || postH_ != height_) return;
-    // The window's picture (its MSAA resolved) into the texture, then back onto the window through the post shader.
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copyFbo_);
-    glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    if (!active_) return;
+    // Drawn straight into the texture already; else the window's picture (its MSAA resolved) copied into it. Then onto
+    // the window through the post shader (scaled up to it when the render scale is under 1).
+    if (!direct_) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copyFbo_);
+        glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width_, height_);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     glUseProgram(postProgram_);
-    glUniform2f(uPostPx_, 1.0f / float(width_), 1.0f / float(height_));
-    glUniform1i(uPostFxaa_, windowSamples_ == 0 ? 1 : 0);
+    glUniform2f(uPostPx_, 1.0f / float(postW_), 1.0f / float(postH_));
+    glUniform1i(uPostFxaa_, postOn_ && windowSamples_ == 0 ? 1 : 0);
+    // Post off (the pass only scaling the scene up): no grade, no vignette.
+    if (postOn_) {
+        glUniform3f(uPostTint_, tint_[0], tint_[1], tint_[2]);
+        glUniform3f(uPostGrade_, grade_[0], grade_[1], grade_[2]);
+    } else {
+        glUniform3f(uPostTint_, 1.0f, 1.0f, 1.0f);
+        glUniform3f(uPostGrade_, 0.0f, 1.0f, 0.0f);
+    }
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, postTex_);
     glActiveTexture(GL_TEXTURE0);
-    glUniform1f(uPostOutline_, style_ == 1 ? 0.8f : 0.0f);
+    glUniform1f(uPostOutline_, postOn_ && style_ == 1 ? 0.8f : 0.0f);
     glBindVertexArray(skyVao_);  // (no vertex data: the triangle comes from gl_VertexID)
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);

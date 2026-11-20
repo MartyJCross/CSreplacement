@@ -252,8 +252,9 @@ float currentInaccuracy(const WeaponState& ws, float horizSpeed, bool onGround, 
 }
 
 void decayRecoil(WeaponState& ws, float dt) {
-    // dI/dt = -(3 + 3.5 I): one tap recovers in ~0.2 s, a full spray in ~1 s.
-    ws.recoilIndex = std::max(0.0f, ws.recoilIndex - dt * (3.0f + 3.5f * ws.recoilIndex));
+    // dI/dt = -(4.6 + 9.2 I): one tap recovers in ~0.12 s, a full spray in ~0.45 s, like CS:GO (v0.47, owner: the
+    // old ~1 s after a spray "takes too long"; it was -(3 + 3.5 I): 0.22 s / 1.0 s).
+    ws.recoilIndex = std::max(0.0f, ws.recoilIndex - dt * (4.6f + 9.2f * ws.recoilIndex));
 }
 
 namespace {

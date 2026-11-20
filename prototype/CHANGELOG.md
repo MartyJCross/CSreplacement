@@ -3,6 +3,18 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.47: faster on weak GPUs, quicker recoil reset
+
+- **Much faster post-processing:** without MSAA the 3D scene is now drawn straight into the picture the post pass
+  works on, instead of being drawn on the screen and copied off it. On the owner's laptop (integrated Radeon,
+  2560x1440, competitive on Harbor, post on, everything else low): **113 -> ~180 FPS, 1% lows 84 -> ~135**, with the
+  same picture. Post-processing now costs almost nothing there (about 190 FPS with it off).
+- **RENDER SCALE** (Settings -> Video, `render_scale` 50-100, default 100): draws the 3D scene at a share of the
+  window's resolution and scales it up; the HUD stays sharp. Same laptop at 1440p: 85% ~196 FPS, 65% ~235, 50% ~284.
+  Needs ANTI-ALIASING 0 (it uses FXAA).
+- **Recoil resets faster after you stop firing,** like CS:GO: about 0.12 s after a single tap (was 0.22 s) and 0.43 s
+  after a full spray (was 1.0 s). Sprays themselves are unchanged (recovery only runs while you're not firing).
+
 ## v0.46.1: real snow footsteps
 
 - The snow footstep on Summit (v0.45) was synthesized and sounded like a grinding gearbox. It's now five real

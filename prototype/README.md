@@ -189,7 +189,11 @@ Settings → Video:
   (Windows fixes a window's pixel format when it's created; changing it means making a new window and reloading
   everything on the GPU). With `msaa 0` the post pass smooths edges with FXAA instead (cheaper).
 - **POST-PROCESSING** (`post_fx`, applies at once): the colour grade per map, a light vignette, the stylized
-  outlines, FXAA. It costs about 1.6 ms a frame on an integrated Radeon (1080p).
+  outlines, FXAA. Since v0.47 (without MSAA the scene is drawn straight into the post pass's picture) it costs almost
+  nothing: on an integrated Radeon at 1440p about 180 FPS with it, 190 without.
+- **RENDER SCALE %** (`render_scale` 50-100, default 100; v0.47): the 3D scene at that share of the window's
+  resolution, scaled up; the HUD stays sharp. The biggest FPS lever on a weak GPU or a big screen (integrated Radeon at
+  1440p: 100% ~180 FPS, 85% ~196, 65% ~235, 50% ~284). Works with ANTI-ALIASING 0 (FXAA).
 - MUZZLE FLASH LIGHT, FPS CAP, LOW LATENCY MODE, SHOW FPS.
 
 ## Performance
@@ -534,6 +538,7 @@ Perfect hops keep 250 u/s, and good strafes build to 500+.
 ## Spread
 
 - **Sprays are fixed:** every bullet goes to your crosshair plus the gun's recoil pattern, the same every time.
+- **Recoil resets** when you stop firing like CS:GO's: about 0.12 s after a tap, 0.43 s after a full spray (v0.47).
 - **Moving, jumping and noscoping scatter your shots**, always, like CS: moving faster than about a third of the
   gun's top speed, in the air, or a sniper unscoped. Stop (counter-strafe) to shoot.
 - **Standing still**, the AK-47, M4A1-S, AWP, SSG 08 and Deagle go exactly where you aim; the cheaper guns scatter a

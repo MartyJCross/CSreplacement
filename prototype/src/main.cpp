@@ -6116,6 +6116,7 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                     {"AMBIENT OCCLUSION", nullptr, &c.ambient_occlusion, 1, 0, 1, kOnOff},
                     {"ANTI-ALIASING (RESTART)", nullptr, &c.msaa, 2, 0, 8},
                     {"POST-PROCESSING", nullptr, &c.post_fx, 1, 0, 1, kOnOff},
+                    {"RENDER SCALE % (ANTI-ALIASING 0)", nullptr, &c.render_scale, 5, 50, 100},
                     {"MUZZLE FLASH LIGHT (0 = OFF)", &c.muzzle_brightness, nullptr, 0.05f, 0.0f, 1.0f},
                     {"FPS CAP (0 = NONE)", nullptr, &c.fps_max, 30, 0, 1000},
                     {"LOW LATENCY MODE", nullptr, &c.low_latency, 1, 0, 1, kOnOff},
@@ -7728,6 +7729,7 @@ int main(int argc, char** argv) {
     auto shadowSize = [](int q) { return q <= 0 ? 0 : q == 1 ? 2048 : 4096; };
     renderer.setShadowSize(shadowSize(cfg.shadows));
     renderer.setAmbientOcclusion(cfg.ambient_occlusion != 0);
+    renderer.setRenderScale(float(cfg.render_scale) / 100.0f);
     setDustScale(kDustSize);
     if (cfg.map < 0 || cfg.map >= kMenuMaps) cfg.map = 1;  // (a map that is gone, like Inferno: Dust)
     setTownMap(cfg.map >= 2 ? cfg.map - 1 : 0);
@@ -7743,6 +7745,7 @@ int main(int argc, char** argv) {
         if (setDustScale(kDustSize) && g.mapId == 1) loadMap(g, renderer, 1);  // (back from an online game's size)
         renderer.setShadowSize(shadowSize(cfg.shadows));
         renderer.setAmbientOcclusion(cfg.ambient_occlusion != 0);
+        renderer.setRenderScale(float(cfg.render_scale) / 100.0f);
         renderer.setStyle(cfg.art_style);
         renderer.setPost(cfg.post_fx != 0);  // (right away; only MSAA waits for a restart)
     };

@@ -473,8 +473,8 @@ void testWeapon() {
         CHECK(shots >= most - 1 && shots <= most && closest >= double(semi.def->fireInterval) - double(kTickDt),
               "%s: clicking fast should reach its fire rate", semi.def->name);
     }
-    CHECK(recover(1) < 300, "tap recovery");
-    CHECK(recover(29) < 1300, "spray recovery");
+    CHECK(recover(1) > 80 && recover(1) < 160, "tap recovery %.0f ms (CS: ~0.12 s)", recover(1));
+    CHECK(recover(29) > 350 && recover(29) < 550, "spray recovery %.0f ms (CS: ~0.45 s)", recover(29));
 }
 
 void testWallbang() {

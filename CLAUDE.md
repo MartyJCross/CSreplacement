@@ -67,8 +67,9 @@ prototype/
                           economy, bomb), KZ, HUD, menus, map loading, replays/killcam, stats, online glue (~8k lines)
     render.*, gl.*        OpenGL 3.3: everything is an instanced box (optionally yaw-rotated: yawBox) or a ModelDraw
                           (boxes under a matrix); HUD is one batch (TrueType font atlas); muzzle light uniform; static
-                          sun shadow map; post pass (the window's picture copied, then FXAA, grade, vignette,
-                          outlines from the alpha channel's distance code); tiny GL loader (+ fences, FBOs)
+                          sun shadow map; post pass (v0.47: without MSAA the scene is drawn into its picture
+                          via `sceneFbo_`, else the window's copied; then FXAA, grade, vignette, outlines from the
+                          alpha channel's distance code; `render_scale`); tiny GL loader (+ fences, FBOs)
     fx.*                  cosmetic only: first-person weapons/knives (weaponDraws), the inventory showcase, tracers,
                           particles, debris (helmets); DrawList (model draws that keep their buffers between frames)
     net.*                 online play: ENet host/join, relay through the host, state/fire/hit/death/name/grenade
@@ -218,6 +219,8 @@ pistol (suppressed USP-like), Dual Berettas, Deagle; knife; grenades.
   `collatResults` turns them into ordinary hits); fire timing `takeShotTiming` (tested).
 - Semi-auto clicks are buffered (`TriggerBuffer`, `kClickBuffer` 0.25 s, v0.23.2): a click while the gun cycles fires
   when it's ready, so spam-clicking reaches the real fire rate (owner: firing slowly for accuracy is the skill).
+- Recoil recovery (`decayRecoil`, only while not firing): v0.47 dI/dt = -(4.6 + 9.2 I), CS:GO's pace (tap 117 ms,
+  full spray 430 ms; owner: the old 1 s "takes too long"); `testWeapon` keeps it in 80-160 / 350-550 ms.
 - Reloads are 20% faster than CS (owner, v0.15); the reload animation and sound cues stretch to `reloadTime`.
 - Shot "oomph" (cosmetic): viewmodel kick, muzzle flash, `fovPunch`, sounds. The owner likes the feel: change it only when asked.
 
@@ -456,7 +459,13 @@ laptop (1080p, MSAA 2, DM, 7 bots): ~200 FPS, GPU-bound (gpu ~2.8 ms, sim ~0.15 
 mode (`low_latency` 1: a GL fence after each swap, waited on before reading input; ~17% FPS for 1-2 frames less lag on
 the owner's laptop). Traces walk the broadphase along the trace (`World::forSweep`, v0.25.3): a long ray on Dust
 ~2.3 us (was ~4.6; brute force ~8; `testDustBroadphase` prints it). Measure with `--bench 10` / `--bench-raw 10`
-before and after rendering changes. **The owner's AMD iGPU (driver 27.20.14028) is slow at offscreen rendering**
+before and after rendering changes. **v0.47 (2026-11-20, the owner back on the laptop, 2560x1440 120 Hz, newer driver):
+the opposite of the note below now holds.** With their settings (post on, stylized, no MSAA/shadows/AO, Harbor comp,
+8 bots) post cost 3.6 ms of 7.6 (blit 1.7 + the full-screen pass; FXAA/outlines ~0.05); drawing the scene straight into
+the post texture (`sceneFbo_` + a DEPTH24_STENCIL8 renderbuffer, `direct_`, when the window has no MSAA) took the
+GPU from 7.6 to 4.5 ms: 113 -> ~180 FPS. `render_scale` (`Renderer::setRenderScale`, `scale_`; the post pass runs for
+it even with post off, neutral grade, no FXAA/outlines): 85% ~196, 65% ~235, 50% ~284. Bench numbers on the laptop
+wander ±10% with heat: run twice. The old note: **The owner's AMD iGPU (driver 27.20.14028) is slow at offscreen rendering**
 (v0.25.4, measured at 1080p, DM on Dust): drawing the scene into an FBO cost 2.6 -> 4.7 ms of GPU (MSAA 4: 3.0 ->
 8.9 ms), whatever the colour/depth format, and depth blits cost 2-4.5 ms. So the scene stays on the window and the
 post pass copies the colour (alpha carries the outline code): their settings (stylized, post, MSAA 4, sharp shadows)

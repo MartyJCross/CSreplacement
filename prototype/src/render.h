@@ -114,10 +114,15 @@ public:
     void clearDepth();
     // Depth pre-pass for the world: each pixel is shaded once (on by default; off for comparison).
     void setDepthPrepass(bool on) { depthPrepass_ = on; }
-    // Post pass: the 3D scene is drawn on the window as usual, then copied (resolving its MSAA) and put back with
-    // FXAA (when the window has no MSAA), the colour grade, a vignette and the stylized outlines. Takes effect at
-    // once. (Drawing the scene into an offscreen picture instead cost the owner's AMD laptop half its FPS.)
+    // Post pass: FXAA (when the window has no MSAA), the colour grade, a vignette and the stylized outlines. Without
+    // MSAA the 3D scene is drawn straight into the post pass's picture (v0.47: the copy off the window cost ~1.7 ms
+    // at 1440p on the owner's integrated GPU); with MSAA it's drawn on the window, then copied (resolving it). Takes
+    // effect at once.
     void setPost(bool on);
+    // The 3D scene's resolution as a share of the window's (0.5 .. 1): drawn smaller, then scaled up to the window by
+    // the post pass (which runs for it even with post off: plain, no FXAA or grade); the HUD stays sharp. Without
+    // MSAA only (with MSAA it stays at 1).
+    void setRenderScale(float scale) { scale_ = scale < 0.5f ? 0.5f : scale > 1.0f ? 1.0f : scale; }
     // The colour grade: 0 the Lab, 1 Dust, 2 Harbor, 3 Summit (which also puts snowy mountains round the sky).
     void setGrade(int look);
     // The look: 0 classic (textured), 1 the clean stylized look (flat colour, soft gradients, outlines from the post
@@ -136,6 +141,12 @@ private:
     bool postOn_ = false, postOk_ = false;
     int postW_ = 0, postH_ = 0, windowSamples_ = 0;
     unsigned copyFbo_ = 0, postTex_ = 0;
+    // The scene drawn straight into postTex_ (sceneFbo_ with its own depth) when the window has no MSAA; `active_`:
+    // this frame goes through the post pass (post on, or a render scale under 1); the scene's size is postW_ x postH_.
+    unsigned sceneFbo_ = 0, sceneDepth_ = 0;
+    bool direct_ = false, active_ = false;
+    float scale_ = 1.0f;
+    float tint_[3] = {1, 1, 1}, grade_[3] = {0, 1, 0};  // (setGrade's, uploaded each frame: post off uses neutral)
     int uPostPx_ = -1, uPostFxaa_ = -1, uPostTint_ = -1, uPostGrade_ = -1, uPostOutline_ = -1, uStyle_ = -1, uNoEdge_ = -1;
     int style_ = 0, look_ = 0;
     bool makePostTargets(int w, int h);
