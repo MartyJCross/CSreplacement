@@ -45,6 +45,11 @@ struct Career {
     int best = 1000;
     int arenaBest = 0;   // the highest Arena level you've reached (v0.49; 0 never played)
     int arenaTitles = 0; // rounds won on the Arena's top level
+    std::vector<int> clutch;  // your best stars per clutch scenario, by key (map * 16 + scenario; v0.50)
+    int clutchBest(int key) const { return key >= 0 && size_t(key) < clutch.size() ? clutch[size_t(key)] : 0; }
+    // Keeps `stars` if it beats your best for `key`; true if it did.
+    bool setClutch(int key, int stars);
+    int clutchTotal() const;
     std::vector<MatchRecord> matches;  // oldest first
 
     // Adds a finished match: works out the rating change (fills ratingBefore / After) and returns the record.

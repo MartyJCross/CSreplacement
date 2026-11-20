@@ -238,6 +238,22 @@ float arenaSkill(int level);           // the bot's skill at a level: 0 easy (le
 // walk. False if it found none (then `a` / `b` are two spots anyway).
 bool arenaSpawnPair(const NavGrid& nav, const World& world, uint32_t& rng, Vec3& a, Vec3& b);
 
+// Clutch (v0.50, owner): hand-made retakes rated in stars, the same eight on every town map: which site, how many bots
+// hold it, your gun (a pistol: no primary), your HP, whether you have a kit (5 s defuse, else 10) and the bomb's fuse.
+struct ClutchScenario {
+    const char* name;
+    int site;  // 0 A, 1 B
+    int bots;
+    int gun;
+    float hp;
+    bool kit;
+    float fuse;
+};
+constexpr int kClutchCount = 8;
+const ClutchScenario& clutchScenario(int i);
+// Stars for a clutch: 0 lost; 1 won; 2 won with 12 s or more left on the bomb; 3 that and losing 40 HP or less.
+int clutchStars(bool won, float bombLeft, float hpLost);
+
 // Seconds between a bot's trigger pulls with gun `w` (before skill): taps and short bursts, never faster than the
 // gun fires.
 float botShotGap(int w);

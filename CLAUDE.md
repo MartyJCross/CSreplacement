@@ -322,6 +322,13 @@ mode 5 DM or 3 with `Game::online`).
   the clock: level step, `g_career.arenaBest` / `arenaTitles` saved in stats.txt's `arena` line), the DM tick's arena
   branch, the switch filter shared with Arms Race, HUD. Your death keeps you down (`deadUntil` 1e18) until the next
   round (4.3 s after a loss: the killcam; 2.5 s otherwise); stderr logs "arena: round N won/lost/drawn".
+- Clutch (v0.50, owner): retakes (`g.mode` 2) with `Game::clutch` / `clutchIdx` (Play / config mode `kModeClutch` 9,
+  `clutch_pick`; 4 dummies, the scenario's count used). Sim lib bots.cpp `ClutchScenario` / `clutchScenario(i)` (8:
+  site, bots, gun, hp, kit, fuse) and `clutchStars(won, bombLeft, hpLost)`; `Career::clutch` (best stars by key = town
+  * 16 + scenario, `setClutch`, `clutchTotal`, stats.txt `clutch` lines); tested in `testCareer`. main.cpp
+  `startRetakeRound` applies it (site, extra dummies out, `takeGun`, hp, `rtDefuseTime` 5/10, fuse),
+  `endRetakeRound` scores + saves, 3 stars advances; pistol scenarios block slot 1; HUD stars as boxes; the setup screen
+  lists the scenarios with your stars (`drawMenuExtras`). `--menu 15` now opens the setup of what's running.
 - Wingman (v0.37): competitive (`g.mode` 3) with `Game::wingman` / `wingSite` (config `wing_site`; Play / config mode
   `kModeWingman` 7); its rules are `g_wingRules` (16 rounds, 90 s, 15 s buy) through `rules()` (`g_wingmanOn`; the
   console's mp_ commands change whichever is live); 3 bots (team: 1 mate); siteTarget fixed, no fakes / defaults /

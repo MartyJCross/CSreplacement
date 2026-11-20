@@ -53,6 +53,19 @@ RecentStats Career::recent(int mode, size_t count) const {
     return r;
 }
 
+bool Career::setClutch(int key, int stars) {
+    if (key < 0 || stars <= clutchBest(key)) return false;
+    if (clutch.size() <= size_t(key)) clutch.resize(size_t(key) + 1, 0);
+    clutch[size_t(key)] = stars;
+    return true;
+}
+
+int Career::clutchTotal() const {
+    int n = 0;
+    for (int s : clutch) n += s;
+    return n;
+}
+
 int Career::wins() const {
     int n = 0;
     for (const MatchRecord& m : matches) n += m.score >= 0.999f;
@@ -94,6 +107,8 @@ bool Career::save(const std::string& path) const {
     };
     out << "// Crisp career: your matches against bots and your rating (written by the game)\n";
     out << "rating " << rating << "\nbest " << best << "\narena " << arenaBest << " " << arenaTitles << "\n";
+    for (size_t k = 0; k < clutch.size(); ++k)
+        if (clutch[k] > 0) out << "clutch " << k << " " << clutch[k] << "\n";
     for (const MatchRecord& m : matches)
         out << "match " << m.mode << " " << m.score << " " << m.kills << " " << m.deaths << " " << m.assists << " "
             << m.hsKills << " " << m.damage << " " << m.rounds << " " << m.botLevel << " " << m.ratingBefore << " "
@@ -118,6 +133,10 @@ bool Career::load(const std::string& path) {
         if (key == "rating") ss >> rating;
         else if (key == "best") ss >> best;
         else if (key == "arena") ss >> arenaBest >> arenaTitles;
+        else if (key == "clutch") {
+            int k = -1, stars = 0;
+            if (ss >> k >> stars && k >= 0 && k < 4096) setClutch(k, std::clamp(stars, 0, 3));
+        }
         else if (key == "match") {
             MatchRecord m;
             std::string when, result;

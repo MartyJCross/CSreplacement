@@ -94,6 +94,8 @@ dm_bots 10
 dm_minutes 5
 // Retakes: bots holding the site, 1..6.
 rt_bots 4
+// Clutch: the scenario you play (0..7: see the Play screen).
+clutch_pick 0
 // Grenade trajectory preview while holding a grenade: 0 off, 1 everywhere but competitive, 2 always.
 nade_preview 1
 // Competitive: bots on your team (0..4) and theirs (1..5). Bot skill 0 easy, 1 normal, 2 hard, 3 expert:
@@ -141,7 +143,7 @@ std::string configText(const Config& c) {
         << "\ncamera_extrapolate " << c.camera_extrapolate << "\nview_smooth_steps " << c.view_smooth_steps
         << "\nview_shake " << c.view_shake << "\nradar " << c.radar << "\ncase_kills " << c.case_kills << "\nall_skins " << c.all_skins << "\nhitmarker " << c.hitmarker << "\nhitsound " << c.hitsound
         << "\nmap " << c.map  << "\nmsaa " << c.msaa << "\nshow_fps " << c.show_fps << "\nart_style " << c.art_style << "\ngraphics_preset " << c.graphics_preset << "\nshadows " << c.shadows << "\nambient_occlusion " << c.ambient_occlusion << "\nrender_scale " << c.render_scale << "\nambience_volume " << c.ambience_volume << "\npost_fx " << c.post_fx << "\ndepth_prepass " << c.depth_prepass << "\nmode " << c.mode
-        << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots
+        << "\ndm_bots " << c.dm_bots << "\ndm_minutes " << c.dm_minutes << "\nrt_bots " << c.rt_bots << "\nclutch_pick " << c.clutch_pick
         << "\nnade_preview " << c.nade_preview << "\nprefire_bots_shoot " << c.prefire_bots_shoot
         << "\ncomp_mates " << c.comp_mates << "\ncomp_enemies " << c.comp_enemies << "\nfreeze_time " << c.freeze_time
         << "\nmate_skill " << c.mate_skill
@@ -242,6 +244,10 @@ bool setConfigValue(Config& c, const std::string& key, const std::string& value)
     else if (key == "dm_bots") i(c.dm_bots);
     else if (key == "dm_minutes") i(c.dm_minutes);
     else if (key == "rt_bots") i(c.rt_bots);
+    else if (key == "clutch_pick") {
+        i(c.clutch_pick);
+        c.clutch_pick = c.clutch_pick < 0 ? 0 : c.clutch_pick > 7 ? 7 : c.clutch_pick;
+    }
     else if (key == "nade_preview") i(c.nade_preview);
     else if (key == "comp_mates") i(c.comp_mates);
     else if (key == "comp_enemies") i(c.comp_enemies);

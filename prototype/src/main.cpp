@@ -514,6 +514,12 @@ struct Game {
     bool arena = false;
     int arenaLevel = 1, arenaRound = 0, arenaWins = 0, arenaLosses = 0, arenaTop = 1, arenaResult = 0, arenaFrom = 1;
     double arenaRoundEnd = 0, arenaNextAt = -1;
+    // Clutch (v0.50: retakes, mode 2, with clutch on): the scenario (clutchScenario), your HP at its start, the defuse time
+    // (5 s with a kit, else 10), and the last round's stars (-1 none yet) and whether they beat your best.
+    bool clutch = false;
+    int clutchIdx = 0, clutchStarsWon = -1, clutchPrevBest = 0;
+    float clutchStartHp = 100;
+    double rtDefuseTime = 5.0;
     int dmShownSecs = -1, dmShownPhase = -1;
 
     // Combat record: kill feed, damage report and scoreboard. Agent ids: -1 = you, i = bot i.
@@ -1681,9 +1687,15 @@ void startOnline(Game& g) {
 
 // A new retake round: random site, its bots on random hold spots facing the way you'll come, you at
 // a random entry with full ammo and HP.
+extern Career g_career;  // (below, with the stats screen)
+extern std::string g_careerPath;
+void takeGun(Game& g, int id);  // (below, with the buying)
+
 void startRetakeRound(Game& g) {
     const std::vector<RetakeSite>& sites = townRetakeSites();
     g.rtSite = int(rnd(g) * float(sites.size())) % int(sites.size());
+    const ClutchScenario& sc = clutchScenario(g.clutchIdx);
+    if (g.clutch) g.rtSite = std::clamp(sc.site, 0, int(sites.size()) - 1);  // (Clutch: the scenario's site)
     const RetakeSite& site = sites[size_t(g.rtSite)];
     const RetakeSpot& entry = site.entries[size_t(rnd(g) * float(site.entries.size())) % site.entries.size()];
     g.spawn = townPoint(entry.x, entry.y);
@@ -1720,6 +1732,16 @@ void startRetakeRound(Game& g) {
     }
     std::fill(g.botSeen.begin(), g.botSeen.end(), 0.0f);
     g.rtRoundEnd = g.simTime + kRetakeRoundTime;  // = the bomb's fuse
+    g.rtDefuseTime = 5.0;
+    if (g.clutch) {  // Clutch: the scenario's bots (the rest stay out), gun, HP, kit and fuse
+        for (size_t i = size_t(std::max(0, sc.bots)); i < g.dummies.size(); ++i) g.dummies[i].respawnLeft = 1e9f;
+        takeGun(g, sc.gun);
+        g.hp = sc.hp;
+        g.clutchStartHp = sc.hp;
+        g.rtDefuseTime = sc.kit ? 5.0 : 10.0;
+        g.rtRoundEnd = g.simTime + double(sc.fuse);
+        g.clutchStarsWon = -1;
+    }
     g.rtResultUntil = -1;
     g.bombPos = townPoint(site.bombX, site.bombY);
     g.bombActive = true;
@@ -1727,8 +1749,9 @@ void startRetakeRound(Game& g) {
     g.defuseStart = -1;
     g.nextBeep = g.simTime;
     g.dmShownSecs = -1;
-    char msg[48];
-    std::snprintf(msg, sizeof(msg), "RETAKE %s", site.name);
+    char msg[64];
+    if (g.clutch) std::snprintf(msg, sizeof(msg), "CLUTCH: %s", sc.name);
+    else std::snprintf(msg, sizeof(msg), "RETAKE %s", site.name);
     pushHitLog(g, msg, 0x80ff80);
     g.hudDirty = true;
 }
@@ -1740,6 +1763,15 @@ void endRetakeRound(Game& g, bool won, const char* why) {
     g.rtResultWin = won;
     g.rtResultText = why;
     g.rtResultUntil = g.simTime + 3.0;
+    if (g.clutch) {  // Clutch: your stars, kept if they beat your best; three stars: on to the next scenario
+        const int key = townMap() * 16 + g.clutchIdx;
+        g.clutchStarsWon = clutchStars(won, float(g.bombExplodeAt - g.simTime), g.clutchStartHp - g.hp);
+        g.clutchPrevBest = g_career.clutchBest(key);
+        if (g_career.setClutch(key, g.clutchStarsWon) && !g_careerPath.empty()) g_career.save(g_careerPath);
+        g.rtResultUntil = g.simTime + 4.0;
+        std::fprintf(stderr, "clutch: %s on %s %s, %d stars%c", clutchScenario(g.clutchIdx).name, townMapName(townMap()),
+                     won ? "won" : "lost", g.clutchStarsWon, 10);
+    }
     g.hudDirty = true;
 }
 
@@ -2835,8 +2867,6 @@ void armsRaceKill(Game& g, int attacker, int victim, const char* weapon) {
 // Arena (v0.49, owner): a 1v1 ladder against one bot. Each round: two spots out of each other's sight
 // (arenaSpawnPair), the round's gun for both of you (arenaGun), the bot at the level's skill; win and you go up a
 // level, lose and you go down, the clock (kArenaRoundTime) is a draw.
-extern Career g_career;  // (below, with the stats screen)
-extern std::string g_careerPath;
 void arenaStartRound(Game& g) {
     if (g.dummies.empty() || g.bots.empty()) return;
     Vec3 you, bot;
@@ -4173,7 +4203,7 @@ void loadMap(Game& g, Renderer& r, int id) {
     g.world = id == 1 ? buildTown() : buildLab();
     if (id == 1) {
         g.dummies.assign(g.mode == 1   ? size_t(g.arena ? 1 : g.dmBots)
-                         : g.mode == 2 ? size_t(g.rtBots)
+                         : g.mode == 2 ? size_t(g.clutch ? 4 : g.rtBots)
                          : g.mode == 3 ? size_t(g.online ? kNetSlots : g.wingman ? 3 : g.compMates + g.compEnemies)
                          : g.mode == 5 ? size_t(kNetMaxPlayers)
                          : g.mode == 4 ? townPrefireRoutes()[size_t(std::clamp(g.pf.route, 0, int(townPrefireRoutes().size()) - 1))].bots.size()
@@ -4691,6 +4721,7 @@ void simTick(Game& g, const Options& opt) {
         else if (g.switchTo != 3) g.switchTo = gun == kWKnife ? 3 : weaponDef(gun).primary ? 1 : 2;
     }
     if (g.armsRace || g.arena) g.throwLatch = false;
+    if (g.clutch && g.switchTo == 1 && !weaponDef(clutchScenario(g.clutchIdx).gun).primary) g.switchTo = 2;  // (pistol only)
 
     // Weapon switching / reload.
     if (g.switchTo) {
@@ -5397,7 +5428,7 @@ void simTick(Game& g, const Options& opt) {
                     if (g.audio) g.audio->play3D(Sfx::Defuse, g.bombPos, g.earPos, g.earYaw, 1500.0f, 0.9f);
                     makeNoise(g, g.bombPos, 1800.0f);  // they hear the kit
                 }
-                if (g.simTime - g.defuseStart >= 5.0) {
+                if (g.simTime - g.defuseStart >= g.rtDefuseTime) {
                     g.bombActive = false;
                     endRetakeRound(g, true, "BOMB DEFUSED");
                 }
@@ -5417,6 +5448,7 @@ void simTick(Game& g, const Options& opt) {
                 endRetakeRound(g, false, "BOMB EXPLODED");
             }
         } else if (g.rtResultUntil >= 0 && g.simTime >= g.rtResultUntil) {
+            if (g.clutch && g.clutchStarsWon == 3) g.clutchIdx = (g.clutchIdx + 1) % kClutchCount;  // (three stars: the next one)
             startRetakeRound(g);
         }
         int secs = int(std::max(0.0, g.rtRoundEnd - g.simTime));
@@ -5963,13 +5995,20 @@ struct GameMenu { int map = 0, mode = 0, bots = 0, drill = 0, route = 0, pfBots 
 GameMenu g_gameMenu;
 const char* const kMapNames[] = {"THE LAB", "DUST", "HARBOR", "SUMMIT"};
 constexpr int kMenuMaps = 4;  // the maps the menus offer: the Lab, Dust, Harbor, Summit (Inferno removed, owner v0.39)
-const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE", "WINGMAN", "ARENA"};
+const char* const kModeNames[] = {"PRACTICE", "DEATHMATCH", "RETAKES", "COMPETITIVE", "PREFIRE", "ONLINE", "ARMS RACE", "WINGMAN", "ARENA", "CLUTCH"};
 constexpr int kModeArmsRace = 6;  // (the Play screen and config's mode; in a game it's deathmatch with armsRace on)
 constexpr int kModeWingman = 7;   // (in a game: competitive with wingman on)
 constexpr int kModeArena = 8;     // (in a game: deathmatch with arena on: one bot, rounds)
+constexpr int kModeClutch = 9;    // (in a game: retakes with clutch on: a scenario, stars)
+// The clutch scenarios' names (the setup screen's SCENARIO row).
+const char* const* clutchNames() {
+    static const char* names[kClutchCount] = {};
+    for (int i = 0; i < kClutchCount; ++i) names[i] = clutchScenario(i).name;
+    return names;
+}
 const char* const kSiteNames[] = {"A", "B"};
 // The PLAY screen: the modes in the order they're offered, and a line about each (shown under the menu).
-const int kPlayModes[] = {3, kModeWingman, 1, kModeArmsRace, kModeArena, 2, 4, 0};
+const int kPlayModes[] = {3, kModeWingman, 1, kModeArmsRace, kModeArena, kModeClutch, 2, 4, 0};
 const char* const kModeAbout[] = {
     "THE LAB OR A MAP: A SHOOTING RANGE, PEEK BOTS AND AN AIM DRILL",
     "EVERYONE FOR THEMSELVES: RESPAWN, 10 ROUNDS AND 40 HP A KILL",
@@ -5980,6 +6019,7 @@ const char* const kModeAbout[] = {
     "EVERY KILL A NEW GUN: RIFLES, SMGS, SHOTGUNS, SNIPERS, PISTOLS - THEN A KNIFE KILL WINS",
     "2 V 2 ON ONE BOMBSITE: YOU AND A BOT AGAINST TWO, FIRST TO 9 ROUNDS",
     "1 V 1 LADDER: WIN A ROUND TO MEET A BETTER BOT, LOSE AND DROP A LEVEL - A NEW GUN EVERY ROUND",
+    "HAND-MADE RETAKES: 1V2 TO 1V4, PISTOL ONLY, NO KIT, LOW HP - UP TO 3 STARS EACH",
 };
 const char* const kSkillNames[] = {"EASY", "NORMAL", "HARD", "EXPERT"};
 const char* const kVarianceNames[] = {"OFF (ALL THE SAME)", "SLIGHT (+/- HALF A LEVEL)", "WIDE (+/- A LEVEL)"};
@@ -6017,7 +6057,7 @@ const char* menuTitle(int screen) {
         case kMenuStats: return "PROFILE";
         case kMenuReplays: return "REPLAYS";
         case kMenuLobby: return g_lobby.host ? "LOBBY - HOSTING" : "LOBBY";
-        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeArena)];
+        case kMenuSetup: return kModeNames[std::clamp(g_gameMenu.mode, 0, kModeClutch)];
         case kMenuOnline: return "PLAY ONLINE";
         case kMenuSound: return "SOUND";
         default: return "";
@@ -6116,6 +6156,10 @@ std::vector<MenuItem> menuRows(int screen, Config& c, int mode) {
                 r.push_back({"MINUTES", nullptr, &c.dm_minutes, 1, 1, 30});
                 r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
                 r.push_back({"BOTS FIGHT EACH OTHER", nullptr, &c.dm_bot_fights, 1, 0, 1, kOnOff});
+            }
+            if (m.mode == kModeClutch) {
+                r.push_back({"SCENARIO", nullptr, &c.clutch_pick, 1, 0, kClutchCount - 1, clutchNames()});
+                r.push_back({"BOT SKILL", nullptr, &c.enemy_skill, 1, 0, 3, kSkillNames});
             }
             if (m.mode == 2) {
                 r.push_back({"BOTS ON THE SITE", nullptr, &c.rt_bots, 1, 1, 6});
@@ -6745,6 +6789,8 @@ void drawStatsPanel(HudBatch& hud, int w, int h, int s) {
     std::snprintf(line, sizeof(line), "RATING (BEST %d)   NEXT RANK AT %d   ARENA BEST: LEVEL %d%s", c.best,
                   std::max(825, (c.rating - 700) / 125 * 125 + 825), c.arenaBest,
                   c.arenaTitles > 0 ? ("  (TOP LEVEL WON " + std::to_string(c.arenaTitles) + "x)").c_str() : "");
+    hud.text(rx, y + 46.0f * fs, "CLUTCH STARS " + std::to_string(c.clutchTotal()) + " / " + std::to_string(3 * kClutchCount * kTownMaps),
+             0x909090FF);
     hud.text(rx, y + 36.0f * fs, line, 0x909090FF);
     float ty = y + 62.0f * fs;
     if (c.matches.empty()) {
@@ -6844,6 +6890,19 @@ void drawMenuExtras(HudBatch& hud, const Config& cfg, int w, int h, int s) {
         const MenuLayout L = menuLayout(kMenuPlay, menuRows(kMenuPlay, view, 0).size(), w, h, s);
         const char* about = kModeAbout[kPlayModes[g_menu.sel]];
         hud.text(float(w) * 0.5f - hud.textWidth(about) * 0.5f, L.bottom + 18.0f * float(s), about, 0xD8D8D8FF);
+    }
+    if (g_menu.screen == kMenuSetup && g_gameMenu.mode == kModeClutch) {  // (Clutch: every scenario and your stars on this map)
+        const float fs = float(s), px = float(w) - 330.0f * fs, py = 60.0f * fs;
+        const int town = std::clamp(g_gameMenu.map - 1, 0, kTownMaps - 1);
+        hud.rect(px - 10 * fs, py - 10 * fs, 320.0f * fs, (26.0f + 13.0f * kClutchCount) * fs, 0x0E1116E0);
+        hud.text(px, py, std::string("YOUR STARS ON ") + townMapName(town), 0xFFD060FF);
+        for (int i = 0; i < kClutchCount; ++i) {
+            const float y = py + (16.0f + 13.0f * float(i)) * fs;
+            const int stars = g_career.clutchBest(town * 16 + i);
+            hud.text(px, y, clutchScenario(i).name, i == cfg.clutch_pick ? 0xFFFFFFFF : 0xB0B0B0FF);
+            for (int k = 0; k < 3; ++k)
+                hud.rect(px + 230.0f * fs + float(k) * 12.0f * fs, y, 9.0f * fs, 9.0f * fs, k < stars ? 0xFFD060FF : 0x40404080);
+        }
     }
     if (g_menu.screen != kMenuInventory && g_menu.screen != kMenuCase) return;
     if (g_menu.screen == kMenuCase) drawCaseHud(hud, w, h, s);
@@ -7405,12 +7464,22 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
     if (g.mapId == 1 && g.mode == 2) {
         int left = int(std::max(0.0, g.rtRoundEnd - g.simTime)), alive = 0;
         for (const Dummy& d : g.dummies) alive += d.alive();
-        std::snprintf(buf, sizeof(buf), "BOMB PLANTED %s   0:%02d   BOTS LEFT %d   WON %d  LOST %d",
-                      townRetakeSites()[size_t(g.rtSite)].name, left, alive, g.rtWon, g.rtLost);
-        hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, left <= 10 ? 0xFF8060FF : 0xFFFFFFFF);
+        if (g.clutch) {
+            const ClutchScenario& sc = clutchScenario(g.clutchIdx);
+            std::snprintf(buf, sizeof(buf), "CLUTCH: %s   BOMB ON %s   0:%02d   BOTS LEFT %d   BEST %d / 3", sc.name,
+                          townRetakeSites()[size_t(g.rtSite)].name, left, alive, g_career.clutchBest(townMap() * 16 + g.clutchIdx));
+            hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, left <= 10 ? 0xFF8060FF : 0xFFFFFFFF);
+            const char* rules = sc.kit ? "STARS: WIN   12+ S LEFT ON THE BOMB   AND LOSE 40 HP OR LESS"
+                                       : "NO KIT: A 10 S DEFUSE   STARS: WIN   12+ S LEFT   AND LOSE 40 HP OR LESS";
+            hud.text(cx - hud.textWidth(rules) / 2, 32.0f * s + 11.0f * s, rules, 0xB8E0B8FF);
+        } else {
+            std::snprintf(buf, sizeof(buf), "BOMB PLANTED %s   0:%02d   BOTS LEFT %d   WON %d  LOST %d",
+                          townRetakeSites()[size_t(g.rtSite)].name, left, alive, g.rtWon, g.rtLost);
+            hud.text(cx - hud.textWidth(buf) / 2, 32.0f * s, buf, left <= 10 ? 0xFF8060FF : 0xFFFFFFFF);
+        }
         if (g.bombActive && g.rtResultUntil < 0) {
             if (g.defuseStart >= 0) {  // defuse bar
-                float k = float(std::clamp((g.simTime - g.defuseStart) / 5.0, 0.0, 1.0)), bw = 160.0f * s;
+                float k = float(std::clamp((g.simTime - g.defuseStart) / g.rtDefuseTime, 0.0, 1.0)), bw = 160.0f * s;
                 hud.rect(cx - bw / 2, cy + 40.0f * s, bw, 8.0f * s, 0x000000A0);
                 hud.rect(cx - bw / 2, cy + 40.0f * s, bw * k, 8.0f * s, 0x60C0FFFF);
                 hud.text(cx - hud.textWidth("DEFUSING") / 2, cy + 52.0f * s, "DEFUSING", 0xFFFFFFFF);
@@ -7427,6 +7496,22 @@ void buildHud(HudBatch& hud, const Game& g, const Config& cfg, const FrameStats&
         if (g.rtResultUntil >= 0) {
             uint32_t col = g.rtResultWin ? 0x60FF60FF : 0xFF5050FF;
             hud.text(cx - hud.textWidth(g.rtResultText, s * 3) / 2, cy - 90.0f * s, g.rtResultText, col, s * 3);
+            if (g.clutch && g.clutchStarsWon >= 0) {  // the stars: three boxes, gold for each one earned
+                const float fs = float(s), sz = 16.0f * fs, sgap = 8.0f * fs, x0 = cx - (3 * sz + 2 * sgap) / 2, y0 = cy - 60.0f * fs;
+                for (int k = 0; k < 3; ++k) {
+                    const float sx = x0 + float(k) * (sz + sgap);
+                    hud.rect(sx, y0, sz, sz, 0x000000A0);
+                    if (k < g.clutchStarsWon) hud.rect(sx + 2 * fs, y0 + 2 * fs, sz - 4 * fs, sz - 4 * fs, 0xFFD060FF);
+                }
+                const char* note = g.clutchStarsWon > g.clutchPrevBest ? "NEW BEST"
+                                   : g.clutchStarsWon == 3            ? "THREE STARS"
+                                                                      : "";
+                if (note[0]) hud.text(cx - hud.textWidth(note) / 2, y0 + sz + 6 * fs, note, 0xFFD060FF);
+                if (g.clutchStarsWon == 3) {
+                    std::snprintf(buf, sizeof(buf), "NEXT: %s", clutchScenario((g.clutchIdx + 1) % kClutchCount).name);
+                    hud.text(cx - hud.textWidth(buf) / 2, y0 + sz + 18 * fs, buf, 0xFFFFFFFF);
+                }
+            }
         }
     }
     if (g.simTime - g.killToastAt < 1.8 && !g.killToast.empty()) {  // "KILLED NAME" under the crosshair
@@ -7876,10 +7961,12 @@ int main(int argc, char** argv) {
     validateEquips(g);
     g.armsRace = cfg.mode == kModeArmsRace;
     g.arena = cfg.mode == kModeArena;
+    g.clutch = cfg.mode == kModeClutch;
+    g.clutchIdx = std::clamp(cfg.clutch_pick, 0, kClutchCount - 1);
     g.wingman = cfg.mode == kModeWingman;
     g.wingSite = std::clamp(cfg.wing_site, 0, 1);
     g_wingmanOn = g.wingman;
-    g.mode = g.armsRace || g.arena ? 1 : g.wingman ? 3 : cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
+    g.mode = g.armsRace || g.arena ? 1 : g.clutch ? 2 : g.wingman ? 3 : cfg.mode >= 1 && cfg.mode <= 4 ? cfg.mode : 0;
     // The depth pre-pass pays for itself only when shading is dear (shadows or AO): without them it cost ~4% on an
     // integrated Radeon at 1440p (v0.47).
     auto prepass = [&]() { renderer.setDepthPrepass(cfg.depth_prepass != 0 && (cfg.shadows > 0 || cfg.ambient_occlusion != 0)); };
@@ -7923,7 +8010,8 @@ int main(int argc, char** argv) {
     auto setMenu = [&](int screen) {
         if (screen == kMenuPlay) {  // the play screen starts from what's running now
             g_gameMenu.map = g.mapId == 1 ? 1 + townMap() : 0;
-            g_gameMenu.mode = g.online ? 3 : g.armsRace ? kModeArmsRace : g.arena ? kModeArena : g.wingman ? kModeWingman : g.mode;
+            g_gameMenu.mode = g.online ? 3 : g.armsRace ? kModeArmsRace : g.arena ? kModeArena : g.clutch ? kModeClutch
+                                                     : g.wingman ? kModeWingman : g.mode;
             g_gameMenu.bots = g.botsFire;
             g_gameMenu.drill = g.drill;
             g_gameMenu.route = g.pf.route;
@@ -7979,7 +8067,7 @@ int main(int argc, char** argv) {
     };
     auto goOnline = [&](int game) {  // hosting, or just connected: online deathmatch (0) or competitive (1) on the town map
         g.online = true;
-        g.armsRace = g.arena = g.wingman = g_wingmanOn = false;
+        g.armsRace = g.arena = g.clutch = g.wingman = g_wingmanOn = false;
         g.mode = game == 1 ? 3 : 5;
         g_netTeamsTogether = cfg.net_teams;
         loadMap(g, renderer, 1);
@@ -8037,10 +8125,12 @@ int main(int argc, char** argv) {
         leaveOnline();  // (if you were in an online game)
         g.armsRace = m.mode == kModeArmsRace;  // (deathmatch with the gun ladder)
         g.arena = m.mode == kModeArena;        // (deathmatch with one bot, in rounds)
+        g.clutch = m.mode == kModeClutch;      // (retakes with a scenario)
+        g.clutchIdx = std::clamp(cfg.clutch_pick, 0, kClutchCount - 1);
         g.wingman = m.mode == kModeWingman;    // (competitive, 2 v 2 on one site)
         g.wingSite = std::clamp(cfg.wing_site, 0, 1);
         g_wingmanOn = g.wingman;
-        g.mode = g.armsRace || g.arena ? 1 : g.wingman ? 3 : m.mode;
+        g.mode = g.armsRace || g.arena ? 1 : g.clutch ? 2 : g.wingman ? 3 : m.mode;
         g.pf.route = m.route;
         const int map = m.mode != 0 && m.map == 0 ? 1 : m.map;
         setTownMap(map >= 2 ? map - 1 : 0);  // (maps: 0 the Lab, 1 Dust, 2 Harbor, 3 Summit)
@@ -8082,7 +8172,7 @@ int main(int argc, char** argv) {
         if (!readMatch(g_tapes[size_t(k)].path, info)) return;
         g_watchingTape = true;  // (no recording while it loads)
         g.armsRace = info.armsRace;
-        g.arena = false;
+        g.arena = g.clutch = false;
         g.wingman = g_wingmanOn = info.wingman;
         g.mode = info.mode == 1 ? 1 : 3;
         setTownMap(std::max(0, tapeTown(info.map)));
@@ -8239,7 +8329,7 @@ int main(int argc, char** argv) {
                     setMenu(it.action - kActGoto);
                 } else if (it.action >= kActWatch) {
                     watchTape(it.action - kActWatch);
-                } else if (it.action >= kActPickMode && it.action <= kActPickMode + kModeArena) {  // PLAY: that mode, set it up
+                } else if (it.action >= kActPickMode && it.action <= kActPickMode + kModeClutch) {  // PLAY: that mode, set it up
                     g_gameMenu.mode = it.action - kActPickMode;
                     if (g_gameMenu.mode != 0 && g_gameMenu.map == 0) g_gameMenu.map = 1;
                     setMenu(kMenuSetup);
@@ -8595,7 +8685,7 @@ int main(int argc, char** argv) {
         {"echo", "echo <text>"},
         {"status", "the map, the mode, the bots, online"},
         {"map", "map <lab|dust|harbor|summit>: plays it (in this mode)"},
-        {"mode", "mode <practice|deathmatch|armsrace|arena|retakes|competitive|wingman|prefire>: plays it (on this map)"},
+        {"mode", "mode <practice|deathmatch|armsrace|arena|clutch|retakes|competitive|wingman|prefire>: plays it (on this map)"},
         {"restart", "starts this game over (mp_restartgame too)"},
         {"mp_restartgame", "starts this game over"},
         {"noclip", "fly through walls (offline)"},
@@ -8643,7 +8733,8 @@ int main(int argc, char** argv) {
     // Play screen's START.
     auto restartGame = [&](int map, int mode) {
         g_gameMenu.map = map >= 0 ? map : g.mapId == 1 ? 1 + townMap() : 0;
-        g_gameMenu.mode = mode >= 0 ? mode : g.armsRace ? kModeArmsRace : g.arena ? kModeArena : g.wingman ? kModeWingman : g.mode;
+        g_gameMenu.mode = mode >= 0 ? mode : g.armsRace ? kModeArmsRace : g.arena ? kModeArena : g.clutch ? kModeClutch
+                                                 : g.wingman ? kModeWingman : g.mode;
         g_gameMenu.bots = g.botsFire;
         g_gameMenu.drill = g.drill;
         g_gameMenu.route = g.pf.route;
@@ -8711,8 +8802,9 @@ int main(int argc, char** argv) {
                            : arg == "armsrace" || arg == "arms_race" || arg == "gungame" ? kModeArmsRace
                            : arg == "wingman" ? kModeWingman
                            : arg == "arena" ? kModeArena
+                           : arg == "clutch" ? kModeClutch
                            : !arg.empty() && arg.find_first_not_of("0123456789") == std::string::npos ? std::atoi(arg.c_str()) : -1;
-            if (mode < 0 || mode > kModeArena || mode == 5) { con("mode <practice|deathmatch|armsrace|arena|retakes|competitive|wingman|prefire>"); return; }
+            if (mode < 0 || mode > kModeClutch || mode == 5) { con("mode <practice|deathmatch|armsrace|arena|clutch|retakes|competitive|wingman|prefire>"); return; }
             restartGame(-1, mode);
         } else if (cmd == "restart" || cmd == "mp_restartgame") {
             if (offline()) restartGame(-1, -1);
@@ -9022,7 +9114,7 @@ int main(int argc, char** argv) {
                 g.vm.inspect();
             } else if (bound(kBindBuy, code)) {
                 const bool comp = g.mode == 3 && g.mapId == 1;
-                const bool canBuy = !g.armsRace && !g.arena && (!comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
+                const bool canBuy = !g.armsRace && !g.arena && !g.clutch && (!comp || (!g.comp.youDead && g.simTime < g.comp.buyUntil && g.comp.phase <= 1 &&
                                                               length2d(g.player.origin - g.spawn) < 700.0f));
                 if (canBuy) {
                     g.callMenu = false;
@@ -9464,6 +9556,7 @@ int main(int argc, char** argv) {
         if (automated && opt.menuScreen > 0 && frame == 60) {
             g_menu.root = opt.menuScreen == kMenuMain ? kMenuMain : kMenuPause;
             if (opt.menuScreen == kMenuCase) startCase(opt.giveKnifeCases > 0);  // (needs --give-cases / --give-knife-cases)
+            if (opt.menuScreen == kMenuSetup) setMenu(kMenuPlay);  // (the setup for what's running, like the Play screen's)
             setMenu(opt.menuScreen);
             g_menu.sel = opt.menuRow;
         }

@@ -56,6 +56,7 @@ struct Config {
     int dm_bots = 10;          // deathmatch: number of bots
     int dm_minutes = 5;        // deathmatch: match length
     int rt_bots = 4;           // retakes: bots holding the site (1..6)
+    int clutch_pick = 0;       // clutch: the scenario (0..7; v0.50)
     int comp_mates = 4;        // competitive: bots on your team (0..4)
     int comp_enemies = 5;      // competitive: bots on the other team (1..5)
     int freeze_time = 15;      // competitive: seconds of freeze time (buying) before each round

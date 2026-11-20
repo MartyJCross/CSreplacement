@@ -1239,6 +1239,9 @@ void testCareer() {
     m.rounds = 0;
     m.result = "7TH OF 9";
     c.add(m);
+    // Clutch stars (v0.50): kept only when better, saved and read back with the arena record.
+    c.arenaBest = 5;
+    const bool firstClutch = c.setClutch(19, 2), worse = c.setClutch(19, 1), better = c.setClutch(19, 3);
     const std::string path = "sim_tests_career.txt";
     Career back;
     const bool io = c.save(path) && back.load(path);
@@ -1249,6 +1252,26 @@ void testCareer() {
               io && back.rating == c.rating && back.matches.size() == 2 && back.matches[0].result == "WON 13-9" &&
               back.matches[1].when == m.when && std::string(rankName(1800)) == "GENERAL" && c.wins() == 1,
           "career");
+    CHECK(firstClutch && !worse && better && back.clutchBest(19) == 3 && back.clutchBest(3) == 0 && back.clutchTotal() == 3 &&
+              back.arenaBest == 5,
+          "clutch / arena records");
+    {  // the scenarios: star rules, and each one's site holds enough spots for its bots
+        int bad = 0;
+        bad += clutchStars(false, 30, 0) != 0 || clutchStars(true, 5, 0) != 1 || clutchStars(true, 20, 80) != 2 ||
+               clutchStars(true, 12, 40) != 3;
+        for (int i = 0; i < kClutchCount; ++i) {
+            const ClutchScenario& sc = clutchScenario(i);
+            bad += sc.bots < 1 || sc.bots > 4 || sc.site < 0 || sc.site > 1 || sc.hp <= 0 || sc.fuse < 20;
+        }
+        for (int town = 0; town < kTownMaps; ++town) {
+            setTownMap(town);
+            for (int i = 0; i < kClutchCount; ++i)
+                bad += int(townRetakeSites()[size_t(clutchScenario(i).site)].holds.size()) < clutchScenario(i).bots;
+        }
+        setTownMap(0);
+        std::printf("  clutch: %d scenarios, stars and sites %s\n", kClutchCount, bad ? "BAD" : "ok");
+        CHECK(bad == 0, "clutch scenarios: %d bad", bad);
+    }
     // The profile's cards (v0.48): the last 15 of each mode on their own, newest kept, oldest first in the form bars.
     Career p;
     for (int k = 0; k < 20; ++k) {

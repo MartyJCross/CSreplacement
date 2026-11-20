@@ -3,6 +3,16 @@
 What changed in each version handed over, newest first. `README.md` describes the game as it is now; older
 history (before v0.22) is in the git log.
 
+## v0.50: Clutch scenarios
+
+- **CLUTCH** (Play → CLUTCH, any town map; console `mode clutch`): eight hand-made retakes, the same on every map, each
+  rated in stars. The bomb is down, bots hold the site, you come in alone:
+  1V2 RETAKE (A), 1V2 ON B, 1V3 RETAKE, 1V3 NO KIT (a 10 s defuse), PISTOL ONLY 1V2 (no rifle), AWP 1V2, 35 HP 1V3, and
+  1V4 IN 30 SECONDS.
+- **Stars:** one for winning, two if you defuse with 12 s or more left on the bomb, three if you also lose 40 HP or
+  less. Your best for each scenario on each map is kept (PROFILE shows your total); three stars moves you on to the next
+  scenario. The setup screen lists every scenario with your stars on that map. BOT SKILL sets how good the defenders are.
+
 ## v0.49: Arena
 
 - **ARENA** (Play → ARENA, any town map; console `mode arena`): a 1v1 ladder against one bot, a round at a time. Each

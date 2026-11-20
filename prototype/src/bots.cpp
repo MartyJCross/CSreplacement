@@ -921,6 +921,22 @@ bool arenaSpawnPair(const NavGrid& nav, const World& world, uint32_t& rng, Vec3&
     return false;
 }
 
+const ClutchScenario& clutchScenario(int i) {
+    static const ClutchScenario kAll[kClutchCount] = {
+        {"1V2 RETAKE", 0, 2, kWM4A1S, 100, true, 40},     {"1V2 ON B", 1, 2, kWM4A1S, 100, true, 40},
+        {"1V3 RETAKE", 0, 3, kWM4A1S, 100, true, 40},     {"1V3, NO KIT", 1, 3, kWM4A1S, 100, false, 40},
+        {"PISTOL ONLY 1V2", 0, 2, kWPistol, 100, true, 40}, {"AWP 1V2", 1, 2, kWSniper, 100, true, 40},
+        {"35 HP 1V3", 0, 3, kWM4A1S, 35, true, 40},       {"1V4 IN 30 SECONDS", 1, 4, kWRifle, 100, true, 30},
+    };
+    return kAll[std::clamp(i, 0, kClutchCount - 1)];
+}
+
+int clutchStars(bool won, float bombLeft, float hpLost) {
+    if (!won) return 0;
+    if (bombLeft < 12.0f) return 1;
+    return hpLost <= 40.0f ? 3 : 2;
+}
+
 float botShotGap(int w) {
     float tap = 0.22f;  // rifles: taps and short bursts
     switch (w) {
